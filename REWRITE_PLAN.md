@@ -359,15 +359,49 @@ Phase 5 USP achieved.
    was die bessere UX war (sauberer Block + Auto-Retry vs. Daten-
    Korruption durch parallele integrations).
 
-## Phase 6: HACS release
+## Phase 6: HACS release (v0.7.0 done 2026-04-07, v1.0.0 pending external user)
 
-- Create `github.com/hilman2/ha-sunspec2` as a standalone repo (not a fork of
-  `cjne/ha-sunspec`, so HACS treats it as a distinct integration).
-- CI workflows: `hassfest`, `ruff`, `mypy --strict`, `pytest`.
-- Release drafter, Dependabot for `pysunspec2` and GitHub Actions.
-- Submit to HACS default repo.
-- Tag `v1.0.0` after a second user has tested the migration helper on their
-  own deployment.
+- [x] `github.com/hilman2/ha-sunspec2` standalone repo (not a fork of
+      `cjne/ha-sunspec`, so HACS treats it as a distinct integration).
+      Created in Phase 1.
+- [x] `pyproject.toml` with project metadata, ruff lint config (E/F/W/B/I/UP/SIM,
+      target=py313, line-length=100), ruff isort, and pytest config
+      (asyncio_mode=auto).
+- [x] One-time `ruff format` pass over the whole codebase so future
+      format-check runs have a stable baseline.
+- [x] `.github/workflows/ci.yml` with four jobs: `lint` (ruff check + ruff
+      format check), `hassfest` (HA manifest validation), `hacs` (HACS
+      publication validation), `test` (pytest with the same dep matrix as
+      our local WSL setup, including the `pytest<9` pin).
+- [x] `.github/workflows/release-drafter.yml` + `.github/release-drafter.yml`
+      for auto-changelog. Categorises by conventional-commit prefix
+      (feat / fix / chore / refactor / docs / test / ci) into the standard
+      sections, auto-bumps version (major/minor/patch) based on labels.
+- [x] `.github/dependabot.yml` watching pip in `/custom_components/sunspec2`
+      (pysunspec2) and github-actions in `/`. Weekly Monday morning scan
+      in Europe/Berlin time. PRs labelled `dependencies` so release-drafter
+      categorises them.
+- [x] README.md rewritten: status (production-tested, smoke-tested on KACO),
+      feature list, install instructions, cjne migration guide, supported
+      devices, dev workflow, license, issues link with diagnostics-first
+      bug report ask. Plus CI badge, HACS badge, release badge.
+- [x] VERSION 0.6.0 → 0.7.0 in manifest.json and const.py.
+- [ ] **Submit to HACS default repo**: open a PR against
+      [hacs/default](https://github.com/hacs/default) adding our repo
+      to the integrations list. Requires review by the HACS maintainers.
+      Manual user action - the PR template asks the contributor to
+      confirm specific things about the integration that I should not
+      assume on the user's behalf.
+- [ ] **Tag v1.0.0**: blocked on a SECOND user (i.e. not just the
+      maintainer's KACO Powador) testing the integration on their own
+      deployment, ideally including the cjne migration path. The
+      project owner controls when this milestone is hit.
+
+`mypy --strict` is intentionally NOT in the CI yet. Phase 4 added type
+hints to the public surface, but private state in `sensor.py`,
+`__init__.py` and `api.py` is still partially untyped, so a strict run
+would fail loudly. This is a tracked follow-up after the codebase has
+soaked under real users.
 
 ## Debugging-first principles
 
