@@ -3,11 +3,14 @@
 from unittest.mock import patch
 
 import pytest
+import voluptuous_serialize
 from homeassistant import config_entries
 from homeassistant.data_entry_flow import FlowResultType
+from homeassistant.helpers import config_validation as cv
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.sunspec2.const import CONF_ENABLED_MODELS
+from custom_components.sunspec2.const import CONF_MAX_AC_POWER_KW
 from custom_components.sunspec2.const import CONF_SCAN_INTERVAL
 from custom_components.sunspec2.const import DOMAIN
 
@@ -167,6 +170,19 @@ async def test_options_flow(hass, sunspec_client_mock):
     # Verify that the second options step is a user form
     assert result["type"] == FlowResultType.FORM
     assert result["step_id"] == "model_options"
+
+    # Regression guard for the voluptuous_serialize crash: when the
+    # frontend requests the options form, HA calls
+    # voluptuous_serialize.convert(schema, custom_serializer=cv.custom_serializer)
+    # to turn the schema into JSON. Plain callables (like the old
+    # _optional_positive_float validator) blow up that call. A NumberSelector
+    # serialises cleanly, so every field - including max_ac_power_kw -
+    # must appear in the serialised output.
+    serialised = voluptuous_serialize.convert(
+        result["data_schema"], custom_serializer=cv.custom_serializer
+    )
+    serialised_names = {field["name"] for field in serialised}
+    assert CONF_MAX_AC_POWER_KW in serialised_names
 
     result = await hass.config_entries.options.async_configure(
         result["flow_id"], user_input={CONF_ENABLED_MODELS: [], CONF_SCAN_INTERVAL: 10}

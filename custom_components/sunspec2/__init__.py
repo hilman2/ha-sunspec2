@@ -293,6 +293,14 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator):
         self.api = client
         self.hass = hass
         self.entry = entry
+        # device_info (SunSpec common model 1) is fetched once inside the
+        # gateway-locked update cycle and cached here so
+        # sensor.async_setup_entry can read it without opening a second
+        # Modbus-TCP connection. Opening a second socket outside the lock
+        # deadlocks single-slot inverters like KACO Powador - the first
+        # connect grabs the slot, the second hits the 60s Home Assistant
+        # setup timeout instead of returning.
+        self.device_info = None
         self._gateway_lock = self._get_gateway_lock(
             entry.data.get(CONF_HOST), entry.data.get(CONF_PORT)
         )
@@ -352,6 +360,14 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator):
             try:
                 model_ids = self.option_model_filter & set(await self.api.async_get_models())
                 self._log.debug("Update data got models %s", model_ids)
+
+                # Fetch common model 1 once per process under the lock so
+                # the sensor platform setup can read device metadata
+                # without opening a second TCP slot. Re-reading it on
+                # every cycle would be wasteful - the device info never
+                # changes for a given physical inverter.
+                if self.device_info is None:
+                    self.device_info = await self.api.async_get_data(1)
 
                 for model_id in model_ids:
                     data[model_id] = await self.api.async_get_data(model_id)

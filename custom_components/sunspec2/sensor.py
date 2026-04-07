@@ -122,7 +122,12 @@ async def async_setup_entry(
     """Setup sensor platform."""
     coordinator = hass.data[DOMAIN][entry.entry_id]
     sensors = []
-    device_info = await coordinator.api.async_get_device_info()
+    # Read the cached common-model (model 1) from the coordinator. The
+    # coordinator populates this during its locked update cycle, so we
+    # do NOT open a second Modbus TCP connection here - that would
+    # deadlock single-slot inverters such as KACO Powador and time out
+    # the platform setup after 60s.
+    device_info = coordinator.device_info
     prefix = entry.options.get(CONF_PREFIX, entry.data.get(CONF_PREFIX, ""))
     for model_id in coordinator.data:
         model_wrapper = coordinator.data[model_id]

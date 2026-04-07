@@ -7,6 +7,7 @@ import homeassistant.helpers.config_validation as cv
 import voluptuous as vol
 from homeassistant import config_entries
 from homeassistant.core import callback
+from homeassistant.helpers import selector
 
 from . import SCAN_INTERVAL
 from .api import SunSpecApiClient
@@ -27,18 +28,19 @@ from .errors import TransportError
 
 _LOGGER: logging.Logger = logging.getLogger(__package__)
 
-
-def _optional_positive_float(value):
-    """Coerce empty values to None and validate positive floats otherwise."""
-    if value is None or value == "":
-        return None
-    try:
-        result = float(value)
-    except (TypeError, ValueError) as err:
-        raise vol.Invalid("must be a number") from err
-    if result <= 0:
-        raise vol.Invalid("must be greater than zero")
-    return result
+# Number selector for the optional peak AC power field. Using a selector
+# (rather than a plain callable like `vol.Coerce(float)` or a custom
+# validator) is required so voluptuous_serialize can serialise the schema
+# when the frontend requests the options form - otherwise the POST to
+# config/config_entries/options/flow raises and the form never renders.
+_MAX_AC_POWER_SELECTOR = selector.NumberSelector(
+    selector.NumberSelectorConfig(
+        min=0.1,
+        step=0.1,
+        mode=selector.NumberSelectorMode.BOX,
+        unit_of_measurement="kW",
+    )
+)
 
 
 def set_connection_error(errors, host, port, unit_id, err):
@@ -290,15 +292,16 @@ class SunSpecOptionsFlowHandler(config_entries.OptionsFlow):
                 ): cv.multi_select(model_filter),
                 vol.Optional(CONF_CAPTURE_RAW, default=capture_raw): bool,
             }
-            # Use suggested_value (not default) for the optional float so the
-            # form field can stay genuinely empty - an empty value disables
-            # the plausibility filter rather than coercing to 0.
+            # Use suggested_value (not default) for the optional float so
+            # the form field can stay genuinely empty - an empty value
+            # disables the plausibility filter rather than coercing to 0.
+            # The value is stored as None when the user clears the field.
             schema[
                 vol.Optional(
                     CONF_MAX_AC_POWER_KW,
                     description={"suggested_value": max_ac_power_kw},
                 )
-            ] = _optional_positive_float
+            ] = _MAX_AC_POWER_SELECTOR
 
             return self.async_show_form(
                 step_id="model_options",
