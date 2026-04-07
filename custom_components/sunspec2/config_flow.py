@@ -11,6 +11,7 @@ from . import SCAN_INTERVAL
 from .api import ConnectionError
 from .api import ConnectionTimeoutError
 from .api import SunSpecApiClient
+from .const import CONF_CAPTURE_RAW
 from .const import CONF_ENABLED_MODELS
 from .const import CONF_HOST
 from .const import CONF_PORT
@@ -235,6 +236,7 @@ class SunSpecOptionsFlowHandler(config_entries.OptionsFlow):
         scan_interval = self.config_entry.options.get(
             CONF_SCAN_INTERVAL, self.config_entry.data.get(CONF_SCAN_INTERVAL)
         )
+        capture_raw = self.config_entry.options.get(CONF_CAPTURE_RAW, False)
         try:
             models = set(await self.coordinator.api.async_get_models(self.settings))
             model_filter = {model for model in sorted(models)}
@@ -255,6 +257,7 @@ class SunSpecOptionsFlowHandler(config_entries.OptionsFlow):
                             CONF_ENABLED_MODELS,
                             default=default_models,
                         ): cv.multi_select(model_filter),
+                        vol.Optional(CONF_CAPTURE_RAW, default=capture_raw): bool,
                     }
                 ),
             )

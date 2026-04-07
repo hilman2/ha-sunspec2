@@ -101,7 +101,14 @@ def progress(msg):
 class SunSpecApiClient:
     CLIENT_CACHE = {}
 
-    def __init__(self, host: str, port: int, unit_id: int, hass: HomeAssistant) -> None:
+    def __init__(
+        self,
+        host: str,
+        port: int,
+        unit_id: int,
+        hass: HomeAssistant,
+        capture_enabled: bool = False,
+    ) -> None:
         """Sunspec modbus client."""
 
         self._host = host
@@ -112,7 +119,9 @@ class SunSpecApiClient:
         self._lock = threading.Lock()
         self._reconnect = False
         self._log = get_adapter(host, port, unit_id)
-        self._log.debug("New SunspecApi Client")
+        self._capture_enabled = capture_enabled
+        self._captured_reads: list[dict] = []
+        self._log.debug("New SunspecApi Client (capture=%s)", capture_enabled)
 
     def get_client(self, config=None):
         cached = SunSpecApiClient.CLIENT_CACHE.get(self._client_key, None)
@@ -196,6 +205,27 @@ class SunSpecApiClient:
             ipport=use_config.port,
             timeout=TIMEOUT,
         )
+        if self._capture_enabled:
+            # Wrap the device-level read so every modbus read on this client
+            # instance lands in self._captured_reads. The diagnostics dump
+            # surfaces these so users can post a reproducible fixture in
+            # bug reports. Capped at 1000 entries to bound JSON size.
+            original_read = client.read
+
+            def capturing_read(addr, count):
+                data = original_read(addr, count)
+                if len(self._captured_reads) < 1000:
+                    self._captured_reads.append(
+                        {
+                            "ts": time.time(),
+                            "addr": addr,
+                            "count": count,
+                            "hex": data.hex() if data else None,
+                        }
+                    )
+                return data
+
+            client.read = capturing_read
         if self.check_port():
             self._log.debug("Inverter ready for Modbus TCP connection")
             try:

@@ -30,6 +30,10 @@ CONF_SLAVE_ID = "slave_id"  # Deprecated, use CONF_UNIT_ID
 CONF_PREFIX = "prefix"
 CONF_SCAN_INTERVAL = "scan_interval"
 CONF_ENABLED_MODELS = "models_enabled"
+# Phase 2 debugging-first: when True, the next scan also stores raw modbus
+# bytes in api._captured_reads so users can attach a reproducible fixture
+# to bug reports via the diagnostics dump.
+CONF_CAPTURE_RAW = "capture_raw_registers"
 
 DEFAULT_MODELS = set(
     [

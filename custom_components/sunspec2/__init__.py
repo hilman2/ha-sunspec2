@@ -18,6 +18,7 @@ from homeassistant.helpers.update_coordinator import UpdateFailed
 from homeassistant.util import dt as dt_util
 
 from .api import SunSpecApiClient
+from .const import CONF_CAPTURE_RAW
 from .const import CONF_ENABLED_MODELS
 from .const import CONF_HOST
 from .const import CONF_PORT
@@ -80,8 +81,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
     host = entry.data.get(CONF_HOST)
     port = entry.data.get(CONF_PORT)
     unit_id = entry.data.get(CONF_UNIT_ID, 1)
+    capture_enabled = entry.options.get(CONF_CAPTURE_RAW, False)
 
-    client = SunSpecApiClient(host, port, unit_id, hass)
+    client = SunSpecApiClient(
+        host, port, unit_id, hass, capture_enabled=capture_enabled
+    )
 
     log = get_adapter(host, port, unit_id)
     log.debug("Setup conifg entry for SunSpec")

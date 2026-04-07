@@ -1,5 +1,8 @@
 """Tests for the SunSpec 2 diagnostics platform."""
 
+from unittest.mock import Mock, patch
+
+from custom_components.sunspec2.api import SunSpecApiClient
 from custom_components.sunspec2.diagnostics import (
     async_get_config_entry_diagnostics,
 )
@@ -77,3 +80,59 @@ async def test_diagnostics_raw_captures_starts_empty(hass, sunspec_client_mock):
     diag = await async_get_config_entry_diagnostics(hass, entry)
 
     assert diag["raw_captures"] == []
+
+
+async def test_capture_disabled_by_default(hass):
+    """A SunSpecApiClient created without capture_enabled does not wrap reads."""
+    api = SunSpecApiClient(host="test", port=123, unit_id=1, hass=hass)
+    assert api._capture_enabled is False
+    assert api._captured_reads == []
+
+
+async def test_capture_wraps_client_read(hass):
+    """When capture_enabled, modbus_connect wraps client.read so every call lands in _captured_reads."""
+    SunSpecApiClient.CLIENT_CACHE = {}
+    api = SunSpecApiClient(
+        host="test", port=123, unit_id=1, hass=hass, capture_enabled=True
+    )
+
+    fake_client = Mock()
+    fake_client.read.return_value = b"\x12\x34\x56\x78"
+    fake_client.is_connected.return_value = True
+
+    with patch(
+        "sunspec2.modbus.client.SunSpecModbusClientDeviceTCP",
+        return_value=fake_client,
+    ), patch.object(SunSpecApiClient, "check_port", return_value=True):
+        client = api.modbus_connect()
+
+    # The wrap replaced client.read with our capturing version. The Mock's
+    # original read is still called underneath, so the bytes propagate.
+    result = client.read(40000, 3)
+
+    assert result == b"\x12\x34\x56\x78"
+    assert len(api._captured_reads) == 1
+    captured = api._captured_reads[0]
+    assert captured["addr"] == 40000
+    assert captured["count"] == 3
+    assert captured["hex"] == "12345678"
+    assert "ts" in captured
+
+    SunSpecApiClient.CLIENT_CACHE = {}
+
+
+async def test_capture_appears_in_diagnostics_dump(hass, sunspec_client_mock):
+    """When the api has captured reads, they show up in the diagnostics dump."""
+    entry = await setup_mock_sunspec_config_entry(hass)
+    coordinator = hass.data["sunspec2"][entry.entry_id]
+    # Inject a synthetic captured read so we don't need to plumb through a
+    # real wrap path in the file-client mock fixture.
+    coordinator.api._captured_reads.append(
+        {"ts": 1700000000.0, "addr": 40000, "count": 3, "hex": "12345678"}
+    )
+
+    diag = await async_get_config_entry_diagnostics(hass, entry)
+
+    assert len(diag["raw_captures"]) == 1
+    assert diag["raw_captures"][0]["addr"] == 40000
+    assert diag["raw_captures"][0]["hex"] == "12345678"
