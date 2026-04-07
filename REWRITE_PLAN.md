@@ -99,20 +99,82 @@ version bump, not the rename. Clean bisect boundary.
    `entity_id` or `unique_id`, so safe to land in Phase 4 without touching
    the Phase 5 migration contract.
 
-## Phase 2: Structured logging and Diagnostics platform
+## Phase 2: Structured logging and Diagnostics platform (done 2026-04-07)
 
-- Add a small logging wrapper that binds context (host, port, unit_id,
-  model_id) to every record via `logging.LoggerAdapter`. No more bare
-  `_LOGGER.debug("got data")` without knowing which device.
-- Implement `async_get_config_entry_diagnostics` in a new `diagnostics.py`.
-  Dumps: redacted config, all scanned models, latest raw values per point,
-  ring buffer of last errors, `pysunspec2` version, HA version.
-- Opt-in raw register capture: when enabled per entry, the next scan also
-  stores raw bytes so users can upload a reproducible fixture with bug
-  reports.
+- [x] `SunSpecLoggerAdapter` in `logger.py` binds host, port, unit_id (and
+      optional model_id) to every record. Wired into `SunSpecApiClient`,
+      `SunSpecDataUpdateCoordinator` and `SunSpecSensor` (with a fallback
+      to the module logger for the test stub coordinator). Module-level
+      `_LOGGER` survives only where there is genuinely no instance context
+      (config-flow pre-connection, async_setup, async_migrate_entry,
+      async_unload_entry, the `progress` callback in `api.py`).
+- [x] `async_get_config_entry_diagnostics` in `diagnostics.py`. Dumps
+      redacted config (host masked via `async_redact_data`), redacted
+      options, scanned model summary, latest values per key, recent
+      errors deque, raw register captures, and HA / pysunspec2 / integration
+      versions. Defensive try/except per model and per point so a single
+      corrupt point cannot blow up the dump.
+- [x] Generic error ring buffer (`deque(maxlen=20)`) on the coordinator.
+      Phase 3 will refine this into per-category buffers.
+- [x] Opt-in `capture_raw_registers` in the options flow. When enabled,
+      `modbus_connect` wraps `client.read` so every modbus read also
+      lands in `api._captured_reads` (capped at 1000 entries). Diagnostics
+      dump surfaces them under `raw_captures`.
+- [x] `api.close()` now actually closes the underlying TCP socket.
+      Previously it called `client.close()` which dispatched to
+      `SunSpecModbusClientDevice.close` - a `pass` stub in pysunspec2.
+      Latent resource leak fixed; the cached client object stays in
+      CLIENT_CACHE so the next read re-connects via pysunspec2's
+      auto-reconnect path in `ModbusClientTCP.read`.
 
-Goal: any user bug report starts with "please download diagnostics and attach
-it to the issue", and we can reproduce locally from that JSON alone.
+Goal achieved: any user bug report starts with "please download diagnostics
+and attach it to the issue", and we can reproduce locally from that JSON
+alone. Smoke-tested against a real KACO Powador 7.8 TL3 - the captured
+hex bytes decoded to the expected SunSpec scan markers, model 103 length
+fields, and the inverter's "KACO new energy" / "Powador 7.8 TL3" / serial
+number ASCII strings.
+
+### Phase 2 findings (carry into later phases)
+
+1. **Hot reload after options-flow toggle leaves sensors unavailable.**
+   Symptom: toggling any option (capture_raw_registers, scan_interval,
+   anything) at runtime triggers an entry reload via the update_listener,
+   the new coordinator builds a fresh `SunSpecApiClient`, but the new
+   client cannot get the inverter to respond. Sensors go to "unavailable"
+   until the user restarts HA entirely. Verified against a real KACO
+   Powador 7.8 TL3.
+
+   Root cause is somewhere in the unload+setup interaction with the
+   class-level `CLIENT_CACHE` and the inverter's single-Modbus-TCP-slot
+   behaviour, but the exact failure is not visible without instrumented
+   logs from a live restart cycle on the affected box. Two failed fix
+   attempts (commits `6f4bb72` reverting cache invalidation, and `a2dffc7`
+   making `close()` actually disconnect) did not solve it.
+
+   **Workaround:** restart HA after toggling any sunspec2 option.
+
+   **Phase 4 followup required:** when `api.py` is refactored (model.py
+   extraction, type hints, typo fixes), also rebuild the connection
+   lifecycle. Likely correct shape: instance-scoped client (drop
+   CLIENT_CACHE entirely, one TCP socket per coordinator), explicit
+   `async_will_remove_from_hass` cleanup, and a real reload integration
+   test against a mock that imitates the single-connection-slot constraint.
+
+2. **`SunSpecModbusClientDevice.close()` is a `pass` stub in pysunspec2.**
+   Inherited unchanged by `SunSpecModbusClientDeviceTCP`. cjne/ha-sunspec
+   has been calling `api.close()` for years thinking it closed the TCP
+   socket. It did not. Phase 2 fixes the resource leak by routing
+   `api.close()` to `cached.disconnect()` instead. Wrap is defensive
+   (try/except, no raises). The fix did not solve finding 1 above
+   - that has a separate cause - but it does prevent the socket from
+   leaking across update cycles, which is correct on its own merits.
+
+3. **Capture toggle UI quirk.** The `capture_raw_registers` checkbox is
+   on the SECOND step of the options flow (`async_step_model_options`),
+   not the first (`async_step_host_options`). Users have to submit the
+   host page unchanged to reach the toggle. Phase 4 may want to either
+   move this to the first step, or split capture out into its own
+   options-flow step with a clearer label. Not a bug, just UX.
 
 ## Phase 3: Coordinator error classification
 
