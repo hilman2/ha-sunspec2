@@ -8,5 +8,5 @@
   "iot_class": "local_polling",
   "issue_tracker": "https://github.com/hilman2/ha-sunspec2/issues",
   "requirements": ["pysunspec2[serial]==1.3.3"],
-  "version": "0.7.1"
+  "version": "0.7.2"
 }

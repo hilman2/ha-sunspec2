@@ -16,3 +16,8 @@ build/
 *.swp
 .DS_Store
 .tmp/
+
+# Claude Code working files (not part of the published integration)
+.claude/
+CLAUDE.md
+REWRITE_PLAN.md
