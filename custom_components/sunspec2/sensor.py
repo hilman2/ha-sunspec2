@@ -158,7 +158,15 @@ class SunSpecSensor(SunSpecEntity, SensorEntity):
         if data["prefix"] != "":
             name = f"{data['prefix']} {name}"
 
-        self._name = f"{name.capitalize()} {desc}"
+        # Phase-1 finding (now fixed): str.capitalize() only uppercases the
+        # first character and leaves underscores intact, so model 103 in
+        # pysunspec2 1.3.x (group name "inverter_three_phase") rendered as
+        # "Inverter_three_phase Watts". Replace underscores with spaces and
+        # title-case so each word in the group name is capitalised:
+        # "inverter_three_phase" -> "Inverter Three Phase".
+        # entity_id slug is unchanged because HA's slugify lowercases and
+        # turns spaces back into underscores anyway.
+        self._name = f"{name.replace('_', ' ').title()} {desc}"
         _LOGGER.debug(
             "Created sensor for %s in model %s using prefix %s: %s uid %s, device class %s unit %s",
             self.key,
