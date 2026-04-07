@@ -6,6 +6,7 @@ https://github.com/cjne/ha-sunspec
 """
 
 import asyncio
+from collections import deque
 from datetime import timedelta
 import logging
 
@@ -14,6 +15,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.core_config import Config
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from homeassistant.helpers.update_coordinator import UpdateFailed
+from homeassistant.util import dt as dt_util
 
 from .api import SunSpecApiClient
 from .const import CONF_ENABLED_MODELS
@@ -136,6 +138,10 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator):
             entry.data.get(CONF_PORT),
             entry.data.get(CONF_UNIT_ID),
         )
+        # Phase-2 generic ring buffer; Phase 3 will replace this with one
+        # deque per error category (TransportError / ProtocolError /
+        # DeviceError / TransientError) once the error classification lands.
+        self._recent_errors: deque[dict] = deque(maxlen=20)
 
         self._log.debug("Data: %s", entry.data)
         self._log.debug("Options: %s", entry.options)
@@ -178,6 +184,13 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator):
             self.api.close()
             return data
         except Exception as exception:
+            self._recent_errors.append(
+                {
+                    "ts": dt_util.utcnow().isoformat(),
+                    "type": exception.__class__.__name__,
+                    "msg": str(exception),
+                }
+            )
             self._log.warning(
                 "Update failed: %s: %s",
                 exception.__class__.__name__,
