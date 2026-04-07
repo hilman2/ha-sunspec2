@@ -25,6 +25,7 @@ from .const import DEFAULT_MODELS
 from .const import DOMAIN
 from .const import PLATFORMS
 from .const import STARTUP_MESSAGE
+from .logger import get_adapter
 
 SCAN_INTERVAL = timedelta(seconds=30)
 
@@ -80,7 +81,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
 
     client = SunSpecApiClient(host, port, unit_id, hass)
 
-    _LOGGER.debug("Setup conifg entry for SunSpec")
+    log = get_adapter(host, port, unit_id)
+    log.debug("Setup conifg entry for SunSpec")
     coordinator = SunSpecDataUpdateCoordinator(hass, client=client, entry=entry)
     hass.data[DOMAIN][entry.entry_id] = coordinator
 
@@ -92,7 +94,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Handle removal of an entry."""
 
-    _LOGGER.debug("Unload entry")
+    _LOGGER.debug("Unload entry %s", entry.entry_id)
     unloaded = all(
         await asyncio.gather(
             *[
@@ -129,9 +131,14 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator):
         self.api = client
         self.hass = hass
         self.entry = entry
+        self._log = get_adapter(
+            entry.data.get(CONF_HOST),
+            entry.data.get(CONF_PORT),
+            entry.data.get(CONF_UNIT_ID),
+        )
 
-        _LOGGER.debug("Data: %s", entry.data)
-        _LOGGER.debug("Options: %s", entry.options)
+        self._log.debug("Data: %s", entry.data)
+        self._log.debug("Options: %s", entry.options)
         models = entry.options.get(
             CONF_ENABLED_MODELS, entry.data.get(CONF_ENABLED_MODELS, DEFAULT_MODELS)
         )
@@ -143,13 +150,10 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator):
         )
         self.option_model_filter = set(map(lambda m: int(m), models))
         self.unsub = entry.add_update_listener(async_reload_entry)
-        _LOGGER.debug(
-            "Setup entry with models %s, scan interval %s. IP: %s Port: %s ID: %s",
+        self._log.debug(
+            "Setup entry with models %s, scan interval %s",
             self.option_model_filter,
             scan_interval,
-            entry.data.get(CONF_HOST),
-            entry.data.get(CONF_PORT),
-            entry.data.get(CONF_UNIT_ID),
         )
         super().__init__(
             hass,
@@ -161,19 +165,23 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator):
 
     async def _async_update_data(self):
         """Update data via library."""
-        _LOGGER.debug("SunSpec Update data coordinator update")
+        self._log.debug("Update data coordinator update")
         data = {}
         try:
             model_ids = self.option_model_filter & set(
                 await self.api.async_get_models()
             )
-            _LOGGER.debug("SunSpec Update data got models %s", model_ids)
+            self._log.debug("Update data got models %s", model_ids)
 
             for model_id in model_ids:
                 data[model_id] = await self.api.async_get_data(model_id)
             self.api.close()
             return data
         except Exception as exception:
-            _LOGGER.warning(exception)
+            self._log.warning(
+                "Update failed: %s: %s",
+                exception.__class__.__name__,
+                exception,
+            )
             self.api.reconnect_next()
             raise UpdateFailed() from exception

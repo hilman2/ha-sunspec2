@@ -13,6 +13,9 @@ from sunspec2.modbus.client import SunSpecModbusClientException
 from sunspec2.modbus.client import SunSpecModbusClientTimeout
 from sunspec2.modbus.modbus import ModbusClientError
 
+from .logger import SunSpecLoggerAdapter
+from .logger import get_adapter
+
 TIMEOUT = 120
 
 _LOGGER: logging.Logger = logging.getLogger(__package__)
@@ -101,7 +104,6 @@ class SunSpecApiClient:
     def __init__(self, host: str, port: int, unit_id: int, hass: HomeAssistant) -> None:
         """Sunspec modbus client."""
 
-        _LOGGER.debug("New SunspecApi Client")
         self._host = host
         self._port = port
         self._hass = hass
@@ -109,11 +111,13 @@ class SunSpecApiClient:
         self._client_key = f"{host}:{port}:{unit_id}"
         self._lock = threading.Lock()
         self._reconnect = False
+        self._log = get_adapter(host, port, unit_id)
+        self._log.debug("New SunspecApi Client")
 
     def get_client(self, config=None):
         cached = SunSpecApiClient.CLIENT_CACHE.get(self._client_key, None)
         if cached is None or config is not None:
-            _LOGGER.debug("Not using cached connection")
+            self._log.debug("Not using cached connection")
             cached = self.modbus_connect(config)
             SunSpecApiClient.CLIENT_CACHE[self._client_key] = cached
         if self._reconnect:
@@ -126,14 +130,17 @@ class SunSpecApiClient:
         return self._hass.async_add_executor_job(self.get_client, config)
 
     async def async_get_data(self, model_id) -> SunSpecModelWrapper:
+        with_model = SunSpecLoggerAdapter(
+            self._log.logger, {**self._log.extra, "model_id": model_id}
+        )
         try:
-            _LOGGER.debug("Get data for model %s", model_id)
+            with_model.debug("Get data")
             return await self.read(model_id)
         except SunSpecModbusClientTimeout as timeout_error:
-            _LOGGER.warning("Async get data timeout")
+            with_model.warning("Async get data timeout")
             raise ConnectionTimeoutError() from timeout_error
         except SunSpecModbusClientException as connect_error:
-            _LOGGER.warning("Async get data connect_error")
+            with_model.warning("Async get data connect_error")
             raise ConnectionError() from connect_error
 
     async def read(self, model_id) -> SunSpecModelWrapper:
@@ -143,7 +150,7 @@ class SunSpecApiClient:
         return await self.read(1)
 
     async def async_get_models(self, config=None) -> list:
-        _LOGGER.debug("Fetching models")
+        self._log.debug("Fetching models")
         client = await self.async_get_client(config)
         model_ids = sorted(list(filter(lambda m: type(m) is int, client.models.keys())))
         return model_ids
@@ -159,21 +166,17 @@ class SunSpecApiClient:
         """Check if port is available"""
         with self._lock:
             sock_timeout = float(3)
-            _LOGGER.debug(
-                f"Check_Port: opening socket on {self._host}:{self._port} with a {sock_timeout}s timeout."
-            )
+            self._log.debug("Check_Port: opening socket with %ss timeout", sock_timeout)
             socket.setdefaulttimeout(sock_timeout)
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             sock_res = sock.connect_ex((self._host, self._port))
             is_open = sock_res == 0  # True if open, False if not
             if is_open:
                 sock.shutdown(socket.SHUT_RDWR)
-                _LOGGER.debug(
-                    f"Check_Port (SUCCESS): port open on {self._host}:{self._port}"
-                )
+                self._log.debug("Check_Port (SUCCESS): port open")
             else:
-                _LOGGER.debug(
-                    f"Check_Port (ERROR): port not available on {self._host}:{self._port} - error: {sock_res}"
+                self._log.debug(
+                    "Check_Port (ERROR): port not available - error: %s", sock_res
                 )
             sock.close()
             time.sleep(0.1)
@@ -186,9 +189,7 @@ class SunSpecApiClient:
                 or {"host": self._host, "port": self._port, "unit_id": self._unit_id}
             )
         )
-        _LOGGER.debug(
-            f"Client connect to IP {use_config.host} port {use_config.port} unit id {use_config.unit_id} using timeout {TIMEOUT}"
-        )
+        self._log.debug("Client connect using timeout %s", TIMEOUT)
         client = modbus_client.SunSpecModbusClientDeviceTCP(
             slave_id=use_config.unit_id,
             ipaddr=use_config.host,
@@ -196,7 +197,7 @@ class SunSpecApiClient:
             timeout=TIMEOUT,
         )
         if self.check_port():
-            _LOGGER.debug("Inverter ready for Modbus TCP connection")
+            self._log.debug("Inverter ready for Modbus TCP connection")
             try:
                 with self._lock:
                     client.connect()
@@ -204,7 +205,7 @@ class SunSpecApiClient:
                     raise ConnectionError(
                         f"Failed to connect to {self._host}:{self._port} unit id {self._unit_id}"
                     )
-                _LOGGER.debug("Client connected, perform initial scan")
+                self._log.debug("Client connected, perform initial scan")
                 client.scan(
                     connect=False, progress=progress, full_model_read=False, delay=0.5
                 )
@@ -228,7 +229,7 @@ class SunSpecApiClient:
                     f"{use_config.unit_id}: {err}"
                 ) from err
         else:
-            _LOGGER.debug("Inverter not ready for Modbus TCP connection")
+            self._log.debug("Inverter not ready for Modbus TCP connection")
             raise ConnectionError(f"Inverter not active on {self._host}:{self._port}")
 
     def read_model(self, model_id) -> dict:

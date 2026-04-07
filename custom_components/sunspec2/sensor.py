@@ -139,6 +139,11 @@ class SunSpecSensor(SunSpecEntity, SensorEntity):
                 self._options.append("")
 
         self._device_id = config_entry.entry_id
+        # Use the coordinator's context-bound logger when available so warnings
+        # from native_value carry host:port#unit_id automatically. Fallback to
+        # the module logger for tests that supply a stub coordinator without
+        # an _log attribute (see tests/__init__.py:MockSunSpecDataUpdateCoordinator).
+        self._log = getattr(coordinator, "_log", _LOGGER)
         name = self._group_meta.get("name", str(self.model_id))
         if self.model_index > 0:
             name = f"{name} {self.model_index}"
@@ -198,10 +203,10 @@ class SunSpecSensor(SunSpecEntity, SensorEntity):
                 self.key, self.model_index
             )
         except KeyError:
-            _LOGGER.warning("Model %s not found", self.model_id)
+            self._log.warning("Model %s not found", self.model_id)
             return None
         except OverflowError:
-            _LOGGER.warning(
+            self._log.warning(
                 "Math overflow error when retreiving calculated value for %s", self.key
             )
             return None
