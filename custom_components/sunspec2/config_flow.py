@@ -8,8 +8,6 @@ import homeassistant.helpers.config_validation as cv
 import voluptuous as vol
 
 from . import SCAN_INTERVAL
-from .api import ConnectionError
-from .api import ConnectionTimeoutError
 from .api import SunSpecApiClient
 from .const import CONF_CAPTURE_RAW
 from .const import CONF_ENABLED_MODELS
@@ -20,13 +18,17 @@ from .const import CONF_SCAN_INTERVAL
 from .const import CONF_UNIT_ID
 from .const import DEFAULT_MODELS
 from .const import DOMAIN
+from .errors import DeviceError
+from .errors import ProtocolError
+from .errors import TransientError
+from .errors import TransportError
 
 _LOGGER: logging.Logger = logging.getLogger(__package__)
 
 
 def set_connection_error(errors, host, port, unit_id, err):
     """Map backend failures to user-visible config flow errors."""
-    if isinstance(err, ConnectionTimeoutError):
+    if isinstance(err, TransientError):
         errors["base"] = "timeout"
         _LOGGER.warning(
             "Timeout while connecting to host %s:%s unit %s",
@@ -36,10 +38,21 @@ def set_connection_error(errors, host, port, unit_id, err):
         )
         return
 
-    if isinstance(err, ConnectionError):
+    if isinstance(err, (TransportError, ProtocolError)):
         errors["base"] = "connection"
         _LOGGER.warning(
             "Connection failed for host %s:%s unit %s: %s",
+            host,
+            port,
+            unit_id,
+            err,
+        )
+        return
+
+    if isinstance(err, DeviceError):
+        errors["base"] = "device_error"
+        _LOGGER.warning(
+            "Device error for host %s:%s unit %s: %s",
             host,
             port,
             unit_id,

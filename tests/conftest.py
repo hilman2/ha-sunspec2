@@ -9,9 +9,9 @@ from unittest.mock import patch
 import pytest
 import sunspec2.file.client as modbus_client
 
-from custom_components.sunspec2.api import ConnectionError
-from custom_components.sunspec2.api import ConnectionTimeoutError
 from custom_components.sunspec2.api import SunSpecApiClient
+from custom_components.sunspec2.errors import TransientError
+from custom_components.sunspec2.errors import TransportError
 
 pytest_plugins = "pytest_homeassistant_custom_component"
 _LOGGER: logging.Logger = logging.getLogger(__package__)
@@ -110,7 +110,7 @@ def sunspec_client_mock_connect_error():
         "custom_components.sunspec2.SunSpecApiClient.check_port", return_value=True
     ), patch(
         "custom_components.sunspec2.SunSpecApiClient.async_get_models",
-        side_effect=ConnectionError,
+        side_effect=TransportError,
     ):
         yield
 
@@ -159,7 +159,7 @@ def timeout_get_device_info_fixture():
     """Simulate timeout when retrieving data from API."""
     with patch(
         "custom_components.sunspec2.SunSpecApiClient.async_get_device_info",
-        side_effect=ConnectionTimeoutError,
+        side_effect=TransientError,
     ), patch(
         "custom_components.sunspec2.SunSpecApiClient.check_port", return_value=True
     ):
@@ -194,7 +194,7 @@ def error_on_get_data():
         "custom_components.sunspec2.SunSpecApiClient.check_port", return_value=True
     ), patch(
         "custom_components.sunspec2.SunSpecApiClient.async_get_data",
-        side_effect=ConnectionError,
+        side_effect=TransportError,
     ):
         yield
 
@@ -212,7 +212,7 @@ def timeout_error_on_get_data():
         "custom_components.sunspec2.SunSpecApiClient.check_port", return_value=True
     ), patch(
         "custom_components.sunspec2.SunSpecApiClient.async_get_data",
-        side_effect=ConnectionTimeoutError,
+        side_effect=TransientError,
     ):
         yield
 
@@ -230,7 +230,7 @@ def connect_error_on_get_data():
         "custom_components.sunspec2.SunSpecApiClient.check_port", return_value=True
     ), patch(
         "custom_components.sunspec2.SunSpecApiClient.async_get_data",
-        side_effect=ConnectionError,
+        side_effect=TransportError,
     ):
         yield
 

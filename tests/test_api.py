@@ -5,9 +5,10 @@ from sunspec2.modbus.client import SunSpecModbusClientException
 from sunspec2.modbus.client import SunSpecModbusClientTimeout
 from sunspec2.modbus.modbus import ModbusClientError
 
-from custom_components.sunspec2.api import ConnectionError
-from custom_components.sunspec2.api import ConnectionTimeoutError
 from custom_components.sunspec2.api import SunSpecApiClient
+from custom_components.sunspec2.errors import DeviceError
+from custom_components.sunspec2.errors import TransientError
+from custom_components.sunspec2.errors import TransportError
 
 
 async def test_api(hass, sunspec_client_mock):
@@ -114,7 +115,7 @@ async def test_modbus_connect_exception(hass, mocker):
     # To test the api submodule, we first create an instance of our API client
     api = SunSpecApiClient(host="test", port=123, unit_id=1, hass=hass)
 
-    with pytest.raises(ConnectionError):
+    with pytest.raises(TransportError):
         api.modbus_connect()
 
 
@@ -125,7 +126,7 @@ async def test_read_model_timeout(hass, mocker):
     )
     api = SunSpecApiClient(host="test", port=123, unit_id=1, hass=hass)
 
-    with pytest.raises(ConnectionTimeoutError):
+    with pytest.raises(TransientError):
         await api.async_get_data(1)
 
 
@@ -136,5 +137,5 @@ async def test_read_model_error(hass, mocker):
     )
     api = SunSpecApiClient(host="test", port=123, unit_id=1, hass=hass)
 
-    with pytest.raises(ConnectionError):
+    with pytest.raises(DeviceError):
         await api.async_get_data(1)

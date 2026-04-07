@@ -13,20 +13,16 @@ from sunspec2.modbus.client import SunSpecModbusClientException
 from sunspec2.modbus.client import SunSpecModbusClientTimeout
 from sunspec2.modbus.modbus import ModbusClientError
 
+from .errors import DeviceError
+from .errors import ProtocolError
+from .errors import TransientError
+from .errors import TransportError
 from .logger import SunSpecLoggerAdapter
 from .logger import get_adapter
 
 TIMEOUT = 120
 
 _LOGGER: logging.Logger = logging.getLogger(__package__)
-
-
-class ConnectionTimeoutError(Exception):
-    pass
-
-
-class ConnectionError(Exception):
-    pass
 
 
 class SunSpecModelWrapper:
@@ -145,12 +141,16 @@ class SunSpecApiClient:
         try:
             with_model.debug("Get data")
             return await self.read(model_id)
-        except SunSpecModbusClientTimeout as timeout_error:
-            with_model.warning("Async get data timeout")
-            raise ConnectionTimeoutError() from timeout_error
-        except SunSpecModbusClientException as connect_error:
-            with_model.warning("Async get data connect_error")
-            raise ConnectionError() from connect_error
+        except SunSpecModbusClientTimeout as exc:
+            with_model.warning("Modbus read timeout")
+            raise TransientError(
+                f"Modbus read timeout for model {model_id}"
+            ) from exc
+        except SunSpecModbusClientException as exc:
+            with_model.warning("Modbus exception while reading model")
+            raise DeviceError(
+                f"Modbus exception while reading model {model_id}: {exc}"
+            ) from exc
 
     async def read(self, model_id) -> SunSpecModelWrapper:
         return await self._hass.async_add_executor_job(self.read_model, model_id)
@@ -258,7 +258,7 @@ class SunSpecApiClient:
                 with self._lock:
                     client.connect()
                 if not client.is_connected():
-                    raise ConnectionError(
+                    raise TransportError(
                         f"Failed to connect to {self._host}:{self._port} unit id {self._unit_id}"
                     )
                 self._log.debug("Client connected, perform initial scan")
@@ -267,7 +267,7 @@ class SunSpecApiClient:
                 )
                 return client
             except ModbusClientError as err:
-                raise ConnectionError(
+                raise TransportError(
                     f"Modbus error while connecting to "
                     f"{use_config.host}:{use_config.port} unit id "
                     f"{use_config.unit_id}: {err}"
@@ -279,14 +279,14 @@ class SunSpecApiClient:
                 # original message ("Unknown error", "data time out", etc.)
                 # is hidden behind a generic "Unexpected error" further up
                 # the stack and the user has nothing actionable to report.
-                raise ConnectionError(
+                raise ProtocolError(
                     f"SunSpec scan failed for "
                     f"{use_config.host}:{use_config.port} unit id "
                     f"{use_config.unit_id}: {err}"
                 ) from err
         else:
             self._log.debug("Inverter not ready for Modbus TCP connection")
-            raise ConnectionError(f"Inverter not active on {self._host}:{self._port}")
+            raise TransportError(f"Inverter not active on {self._host}:{self._port}")
 
     def read_model(self, model_id) -> dict:
         client = self.get_client()
