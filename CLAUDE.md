@@ -10,11 +10,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Phase discipline (critical)
 
-Work in this repo is intentionally sequenced into phases. The current state is **Phase 0 done**.
+Work in this repo is intentionally sequenced into phases. The current state is **Phase 1 done** (v0.2.0 released 2026-04-07).
 
-- **Do not bump `pysunspec2`** outside of Phase 1. It is deliberately pinned to `1.1.5` in `manifest.json` as a clean bisect boundary, even though `1.3.3` is available.
+- **`pysunspec2` is now pinned to `1.3.3` with the `[serial]` extra.** The extra is load-bearing — `sunspec2.modbus.modbus` does an unconditional `import serial` at module top, but pysunspec2 declares pyserial only as an optional extra. Without `[serial]`, fresh HA installs that lack pyserial transitively will hard-fail at import. Latent upstream bug since at least 1.1.5; fixed in our manifest as part of Phase 1.
 - **Do not change the `unique_id` format** until Phase 5 migration logic is in place. The format produced by `get_sunspec_unique_id` in `custom_components/sunspec2/__init__.py` must match upstream `cjne/ha-sunspec` exactly so that Phase 5 auto-migration of the entity registry preserves Recorder history.
 - **Phase 0 = verbatim copy.** Only the package folder name, `DOMAIN`, `NAME`, `VERSION`, `ISSUE_URL`, and manifest fields were renamed from upstream. Internal typos like `uniqe_id`, `conifg`, `setttins`, `wheneve` are preserved on purpose; they get fixed in Phase 4 (and only in identifiers that are NOT part of the entity registry contract).
+- **Model 103 entity-id rename caveat (Phase 1 finding).** `pysunspec2` 1.3.2 ships an updated SunSpec models repo where model 103's group `name` changed from `"inverter"` to `"inverter_three_phase"`. New devices added under our stack get `sensor.inverter_three_phase_*` instead of the legacy `sensor.inverter_*`. Phase 5 must decide whether the auto-migration aliases the new form back to the legacy form for users coming from `cjne/ha-sunspec`. See `REWRITE_PLAN.md` Phase 1 findings for details.
 - When asked to fix a bug or add a feature, first check `REWRITE_PLAN.md` to see whether it is already scheduled to a later phase. If so, flag that to the user instead of front-running the plan.
 
 ## Architecture

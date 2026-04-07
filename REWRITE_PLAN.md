@@ -23,7 +23,7 @@ made iteration on bugfixes and diagnostics painful. This fork aims to deliver:
 | Min HA version | 2024.6.0                        | Code already uses modern config_entries APIs. |
 | pysunspec2     | 1.3.3                           | Bump happens in Phase 1 with smoke test. |
 
-## Phase 0: Scaffold (current phase)
+## Phase 0: Scaffold (done)
 
 Deliverables:
 
@@ -47,17 +47,57 @@ else builds.
 The folder lives standalone at `D:\Git\ha-sunspec2\`, ready for `git init`
 whenever Phase 1 starts.
 
-## Phase 1: Dependency bump and smoke test
+## Phase 1: Dependency bump and smoke test (done 2026-04-07)
 
-- Bump `pysunspec2` to `1.3.3` in `manifest.json`.
-- Run upstream tests in WSL Ubuntu (reminder: pytest does not run on Windows
-  Python due to `fcntl`).
-- Fix any API break caused by the library upgrade.
-- Manual smoke test against a real inverter.
-- Tag `v0.2.0` once green.
+- [x] Bump `pysunspec2` to `1.3.3` in `manifest.json`.
+- [x] Run upstream tests in WSL Ubuntu. cjne `tests/` were imported verbatim
+      and retargeted from `custom_components.sunspec` to `custom_components.sunspec2`.
+      Result: 31/31 passed under `pysunspec2 1.3.3`.
+- [x] Fix any API break caused by the library upgrade. None found in the
+      Python API. Two adjacent issues surfaced and were fixed:
+- [x] Manual smoke test against a real inverter (KACO Powador 7.8 TL3,
+      confirmed by user 2026-04-07: AC/DC power, voltages, currents,
+      frequency, temperature, lifetime energy all plausible).
+- [x] Tag `v0.2.0`.
 
 Why separate from Phase 0: if Phase 1 breaks something, we know it was the
 version bump, not the rename. Clean bisect boundary.
+
+### Phase 1 findings (carry into later phases)
+
+1. **`pysunspec2` declares `pyserial` only as an extras dependency** but
+   imports it unconditionally at the top of `sunspec2.modbus.modbus`. Latent
+   since at least `1.1.5` (verified against the 1.1.5 wheel). Worked in
+   production only because containerised HA installs typically pull pyserial
+   in transitively via other integrations. Fixed by depending on
+   `pysunspec2[serial]==1.3.3` in `manifest.json`. One-character change but
+   technically a scope-add to Phase 1; without it, Phase 1's fresh-venv smoke
+   test could not import the library at all.
+
+2. **`pysunspec2` 1.3.2 ships an updated SunSpec models repository.** Model
+   103's group `name` changed from `"inverter"` to `"inverter_three_phase"`
+   (label is unchanged: `"Inverter (Three Phase)"`). Our `sensor.py` builds
+   entity ids from `gdef["name"]`, so under 1.3.3 a model-103 device gets
+   `sensor.inverter_three_phase_*` instead of `sensor.inverter_*`.
+
+   **Phase 5 followup required:** existing `cjne/ha-sunspec` users on 1.1.5
+   have entity ids like `sensor.inverter_watts` in their HA registry. HA's
+   entity registry migration changes `unique_id` but preserves `entity_id`,
+   so their existing entities will keep working after the auto-migration.
+   But any NEW model-103 device added under our 1.3.3 stack will get
+   `sensor.inverter_three_phase_watts`. Inconsistency between old and new
+   devices on the same install. Phase 5 must decide whether to alias the
+   new generated names back to the legacy form, or accept the inconsistency
+   and document it for migrating users.
+
+3. **Sensor friendly-name UX bug** (unrelated to the bump but newly visible
+   thanks to finding 2): `sensor.py:156` does `f"{name.capitalize()} {desc}"`
+   where `name` comes from `gdef["name"]`. `str.capitalize()` only uppercases
+   the first character, leaves underscores intact. Result: friendly name in
+   the UI is `"Inverter_three_phase Watts"`. Cleanup belongs to Phase 4
+   (`.title().replace("_", " ")` on the group name). Does not affect
+   `entity_id` or `unique_id`, so safe to land in Phase 4 without touching
+   the Phase 5 migration contract.
 
 ## Phase 2: Structured logging and Diagnostics platform
 
