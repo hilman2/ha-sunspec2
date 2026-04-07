@@ -103,9 +103,7 @@ class SunSpecApiClient:
         """
         if self._client is None:
             return []
-        return sorted(
-            m for m in self._client.models if isinstance(m, int)
-        )
+        return sorted(m for m in self._client.models if isinstance(m, int))
 
     async def async_get_data(self, model_id: int) -> SunSpecModelWrapper:
         with_model = SunSpecLoggerAdapter(
@@ -116,14 +114,10 @@ class SunSpecApiClient:
             return await self.read(model_id)
         except SunSpecModbusClientTimeout as exc:
             with_model.warning("Modbus read timeout")
-            raise TransientError(
-                f"Modbus read timeout for model {model_id}"
-            ) from exc
+            raise TransientError(f"Modbus read timeout for model {model_id}") from exc
         except SunSpecModbusClientException as exc:
             with_model.warning("Modbus exception while reading model")
-            raise DeviceError(
-                f"Modbus exception while reading model {model_id}: {exc}"
-            ) from exc
+            raise DeviceError(f"Modbus exception while reading model {model_id}: {exc}") from exc
 
     async def read(self, model_id: int) -> SunSpecModelWrapper:
         return await self._hass.async_add_executor_job(self.read_model, model_id)
@@ -174,19 +168,14 @@ class SunSpecApiClient:
                 sock.shutdown(socket.SHUT_RDWR)
                 self._log.debug("Check_Port (SUCCESS): port open")
             else:
-                self._log.debug(
-                    "Check_Port (ERROR): port not available - error: %s", sock_res
-                )
+                self._log.debug("Check_Port (ERROR): port not available - error: %s", sock_res)
             sock.close()
             time.sleep(0.1)
         return is_open
 
     def modbus_connect(self, config: dict | None = None):
         use_config = SimpleNamespace(
-            **(
-                config
-                or {"host": self._host, "port": self._port, "unit_id": self._unit_id}
-            )
+            **(config or {"host": self._host, "port": self._port, "unit_id": self._unit_id})
         )
         self._log.debug("Client connect using timeout %s", TIMEOUT)
         client = modbus_client.SunSpecModbusClientDeviceTCP(
@@ -226,9 +215,7 @@ class SunSpecApiClient:
                         f"Failed to connect to {self._host}:{self._port} unit id {self._unit_id}"
                     )
                 self._log.debug("Client connected, perform initial scan")
-                client.scan(
-                    connect=False, progress=progress, full_model_read=False, delay=0.5
-                )
+                client.scan(connect=False, progress=progress, full_model_read=False, delay=0.5)
                 return client
             except ModbusClientError as err:
                 raise TransportError(

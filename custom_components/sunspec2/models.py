@@ -44,15 +44,11 @@ class SunSpecModelWrapper:
             if type(model_group) is list:
                 for idx, group in enumerate(model_group):
                     key_prefix = f"{group_name}:{idx}"
-                    group_keys = map(
-                        lambda gp: f"{key_prefix}:{gp}", group.points.keys()
-                    )
+                    group_keys = map(lambda gp: f"{key_prefix}:{gp}", group.points.keys())
                     keys.extend(filter(self.isValidPoint, group_keys))
             else:
                 key_prefix = f"{group_name}:0"
-                group_keys = map(
-                    lambda gp: f"{key_prefix}:{gp}", model_group.points.keys()
-                )
+                group_keys = map(lambda gp: f"{key_prefix}:{gp}", model_group.points.keys())
                 keys.extend(filter(self.isValidPoint, group_keys))
         return keys
 
@@ -76,9 +72,7 @@ class SunSpecModelWrapper:
             return group[int(point_path[1])].points[point_path[2]]
         else:
             if len(point_path) > 2:
-                return group.points[
-                    point_path[2]
-                ]  # Access to the specific point within the group
+                return group.points[point_path[2]]  # Access to the specific point within the group
             return group.points[
                 point_name
             ]  # Generic access if no specific subgrouping is specified

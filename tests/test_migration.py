@@ -23,9 +23,7 @@ _LOG = logging.getLogger(__name__)
 
 def _our_entry(hass) -> MockConfigEntry:
     """A live sunspec2 config entry for the standard MOCK_CONFIG host."""
-    entry = MockConfigEntry(
-        domain=DOMAIN, data=MOCK_CONFIG, entry_id="ours_aaa"
-    )
+    entry = MockConfigEntry(domain=DOMAIN, data=MOCK_CONFIG, entry_id="ours_aaa")
     entry.add_to_hass(hass)
     return entry
 
@@ -191,10 +189,16 @@ async def test_migrate_handles_malformed_unique_id(hass):
 async def test_migrate_multi_inverter_only_matching(hass):
     """Two cjne entries for different hosts: only the matching one migrates."""
     entry = _our_entry(hass)
-    matching_cjne = _make_cjne_entry(hass, entry_id="cjne_match", host="test_host", port=123, unit_id=1)
-    other_cjne = _make_cjne_entry(hass, entry_id="cjne_other", host="another_host", port=502, unit_id=1)
+    matching_cjne = _make_cjne_entry(
+        hass, entry_id="cjne_match", host="test_host", port=123, unit_id=1
+    )
+    other_cjne = _make_cjne_entry(
+        hass, entry_id="cjne_other", host="another_host", port=502, unit_id=1
+    )
     matching_eid = _register_cjne_entity(hass, matching_cjne, "W-103-0")
-    other_eid = _register_cjne_entity(hass, other_cjne, "W-103-0", object_id="another_inverter_watts")
+    other_eid = _register_cjne_entity(
+        hass, other_cjne, "W-103-0", object_id="another_inverter_watts"
+    )
 
     migrated, _, _ = migrate_from_cjne_sync(hass, entry, _LOG)
 

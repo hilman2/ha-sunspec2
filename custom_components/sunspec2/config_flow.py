@@ -130,9 +130,7 @@ class SunSpecFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
             port = self.init_info[CONF_PORT]
             unit_id = self.init_info[CONF_UNIT_ID]
             _LOGGER.debug("Creating entry with data %s", self.init_info)
-            return self.async_create_entry(
-                title=f"{host}:{port}:{unit_id}", data=self.init_info
-            )
+            return self.async_create_entry(title=f"{host}:{port}:{unit_id}", data=self.init_info)
 
         return await self._show_settings_form(user_input)
 
@@ -166,9 +164,7 @@ class SunSpecFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
             data_schema=vol.Schema(
                 {
                     vol.Optional(CONF_PREFIX, default=""): str,
-                    vol.Optional(
-                        CONF_SCAN_INTERVAL, default=SCAN_INTERVAL.total_seconds()
-                    ): int,
+                    vol.Optional(CONF_SCAN_INTERVAL, default=SCAN_INTERVAL.total_seconds()): int,
                     vol.Optional(
                         CONF_ENABLED_MODELS,
                         default=default_enabled,
@@ -243,9 +239,7 @@ class SunSpecOptionsFlowHandler(config_entries.OptionsFlow):
             self.options.update(user_input)
             return await self._update_options()
 
-        prefix = self.config_entry.options.get(
-            CONF_PREFIX, self.config_entry.data.get(CONF_PREFIX)
-        )
+        prefix = self.config_entry.options.get(CONF_PREFIX, self.config_entry.data.get(CONF_PREFIX))
         scan_interval = self.config_entry.options.get(
             CONF_SCAN_INTERVAL, self.config_entry.data.get(CONF_SCAN_INTERVAL)
         )
@@ -259,9 +253,7 @@ class SunSpecOptionsFlowHandler(config_entries.OptionsFlow):
         # default of True is for the test stub coordinator which does
         # not inherit from DataUpdateCoordinator and lacks the attribute.
         if not getattr(self.coordinator, "last_update_success", True):
-            return await self.show_settings_form(
-                data=self.settings, errors={"base": "connection"}
-            )
+            return await self.show_settings_form(data=self.settings, errors={"base": "connection"})
         try:
             # known_models() reads what the live client has already
             # discovered during async_setup_entry; it never opens a new
@@ -269,9 +261,7 @@ class SunSpecOptionsFlowHandler(config_entries.OptionsFlow):
             models = set(self.coordinator.api.known_models())
             model_filter = {model for model in sorted(models)}
             default_enabled = {model for model in DEFAULT_MODELS if model in models}
-            default_models = self.config_entry.options.get(
-                CONF_ENABLED_MODELS, default_enabled
-            )
+            default_models = self.config_entry.options.get(CONF_ENABLED_MODELS, default_enabled)
 
             default_models = {model for model in default_models if model in models}
 
@@ -297,13 +287,13 @@ class SunSpecOptionsFlowHandler(config_entries.OptionsFlow):
                 self.settings[CONF_UNIT_ID],
                 e,
             )
-            return await self.show_settings_form(
-                data=self.settings, errors=self._errors
-            )
+            return await self.show_settings_form(data=self.settings, errors=self._errors)
 
     async def _update_options(self):
         """Update config entry options."""
-        title = f"{self.settings[CONF_HOST]}:{self.settings[CONF_PORT]}:{self.settings[CONF_UNIT_ID]}"
+        title = (
+            f"{self.settings[CONF_HOST]}:{self.settings[CONF_PORT]}:{self.settings[CONF_UNIT_ID]}"
+        )
         _LOGGER.debug(
             "Saving config entry with title %s, data: %s options %s",
             title,

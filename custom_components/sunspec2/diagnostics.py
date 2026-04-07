@@ -60,9 +60,7 @@ async def async_get_config_entry_diagnostics(
         "scanned_models": scanned_models,
         "latest_values": latest_values,
         "recent_errors": _recent_errors_dump(coordinator),
-        "consecutive_failures": dict(
-            getattr(coordinator, "_consecutive_failures", {})
-        ),
+        "consecutive_failures": dict(getattr(coordinator, "_consecutive_failures", {})),
         "raw_captures": list(getattr(coordinator.api, "_captured_reads", [])),
         "versions": {
             "homeassistant": HA_VERSION,

@@ -100,9 +100,7 @@ async def test_modbus_connect_exception(hass, mocker):
         "sunspec2.modbus.client.SunSpecModbusClientDeviceTCP.is_connected",
         return_value=False,
     )
-    mocker.patch(
-        "custom_components.sunspec2.SunSpecApiClient.check_port", return_value=True
-    )
+    mocker.patch("custom_components.sunspec2.SunSpecApiClient.check_port", return_value=True)
     """Test API calls."""
 
     # To test the api submodule, we first create an instance of our API client

@@ -64,9 +64,7 @@ async def async_migrate_entry(hass: HomeAssistant, config_entry: ConfigEntry) ->
             if "unit_id" not in new_data:
                 # No unit_id exists, migrate slave_id to unit_id
                 new_data["unit_id"] = new_data.pop("slave_id")
-                _LOGGER.info(
-                    "Migrated 'slave_id' to 'unit_id': %s", new_data["unit_id"]
-                )
+                _LOGGER.info("Migrated 'slave_id' to 'unit_id': %s", new_data["unit_id"])
             else:
                 # Both exist, remove slave_id and keep unit_id
                 new_data.pop("slave_id")
@@ -124,9 +122,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     capture_enabled = entry.options.get(CONF_CAPTURE_RAW, False)
 
-    client = SunSpecApiClient(
-        host, port, unit_id, hass, capture_enabled=capture_enabled
-    )
+    client = SunSpecApiClient(host, port, unit_id, hass, capture_enabled=capture_enabled)
 
     log = get_adapter(host, port, unit_id)
     log.debug("Setup config entry for SunSpec")
@@ -147,9 +143,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     return True
 
 
-def _maybe_migrate_from_cjne(
-    hass: HomeAssistant, entry: ConfigEntry, log
-) -> None:
+def _maybe_migrate_from_cjne(hass: HomeAssistant, entry: ConfigEntry, log) -> None:
     """Run the cjne→sunspec2 entity migration and emit notifications.
 
     A thin wrapper around migration.migrate_from_cjne_sync that translates
@@ -260,9 +254,7 @@ async def async_reload_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
     await hass.config_entries.async_reload(entry.entry_id)
 
 
-def get_sunspec_unique_id(
-    config_entry_id: str, key: str, model_id: int, model_index: int
-) -> str:
+def get_sunspec_unique_id(config_entry_id: str, key: str, model_id: int, model_index: int) -> str:
     """Create a uniqe id for a SunSpec entity"""
     return f"{config_entry_id}_{key}-{model_id}-{model_index}"
 
@@ -285,9 +277,7 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator):
         # errors.CATEGORIES so adding a new category there auto-creates a
         # buffer here. Each deque keeps at most 20 entries (FIFO drop on
         # overflow). Phase 4 may persist these across HA restarts.
-        self._recent_errors: dict[str, deque] = {
-            cat: deque(maxlen=20) for cat in CATEGORIES
-        }
+        self._recent_errors: dict[str, deque] = {cat: deque(maxlen=20) for cat in CATEGORIES}
         # Counts how many consecutive failures we have observed in each
         # category since the last successful update. Drives the Repairs
         # panel threshold (Phase 3 commit 4): protocol fires at 1, the
@@ -325,9 +315,7 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator):
         self._log.debug("Update data coordinator update")
         data = {}
         try:
-            model_ids = self.option_model_filter & set(
-                await self.api.async_get_models()
-            )
+            model_ids = self.option_model_filter & set(await self.api.async_get_models())
             self._log.debug("Update data got models %s", model_ids)
 
             for model_id in model_ids:
@@ -350,9 +338,7 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator):
             # the full traceback so we know to add an explicit category
             # if this happens repeatedly.
             self._log.exception("Unclassified exception in update loop")
-            wrapped = TransportError(
-                f"Unclassified: {exc.__class__.__name__}: {exc}"
-            )
+            wrapped = TransportError(f"Unclassified: {exc.__class__.__name__}: {exc}")
             wrapped.__cause__ = exc
             self._record_error(wrapped)
             self.api.reconnect_next()
@@ -429,6 +415,4 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator):
         for category in CATEGORIES:
             if category == "transient":
                 continue
-            ir.async_delete_issue(
-                self.hass, DOMAIN, f"{self.entry.entry_id}_{category}"
-            )
+            ir.async_delete_issue(self.hass, DOMAIN, f"{self.entry.entry_id}_{category}")

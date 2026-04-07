@@ -27,9 +27,7 @@ class SunSpecEntity(CoordinatorEntity):
     @property
     def device_info(self) -> dict[str, Any]:
         return {
-            "identifiers": {
-                (DOMAIN, self.config_entry.entry_id, self.model_info["name"])
-            },
+            "identifiers": {(DOMAIN, self.config_entry.entry_id, self.model_info["name"])},
             "name": self.model_info["label"],
             "model": self._device_data.getValue("Md"),
             "sw_version": self._device_data.getValue("Vr"),

@@ -222,9 +222,7 @@ class SunSpecSensor(SunSpecEntity, SensorEntity):
     def native_value(self) -> Any:
         """Return the state of the sensor."""
         try:
-            val = self.coordinator.data[self.model_id].getValue(
-                self.key, self.model_index
-            )
+            val = self.coordinator.data[self.model_id].getValue(self.key, self.model_index)
         except KeyError:
             self._log.warning("Model %s not found", self.model_id)
             return None
@@ -245,9 +243,7 @@ class SunSpecSensor(SunSpecEntity, SensorEntity):
                 else:
                     return None
             else:
-                symbols = list(
-                    filter(lambda s: (val >> int(s["value"])) & 1 == 1, symbols)
-                )
+                symbols = list(filter(lambda s: (val >> int(s["value"])) & 1 == 1, symbols))
                 if len(symbols) > 0:
                     return ",".join(map(lambda s: s["name"], symbols))[:255]
                 return ""
@@ -290,9 +286,7 @@ class SunSpecSensor(SunSpecEntity, SensorEntity):
 
         vtype = self._meta["type"]
         if vtype in ("enum16", "bitfield32"):
-            attrs["raw"] = self.coordinator.data[self.model_id].getValue(
-                self.key, self.model_index
-            )
+            attrs["raw"] = self.coordinator.data[self.model_id].getValue(self.key, self.model_index)
         return attrs
 
 
@@ -321,9 +315,7 @@ class SunSpecEnergySensor(SunSpecSensor, RestoreSensor):
         _LOGGER.debug(f"{self.name} Fetch last known state")
         state = await self.async_get_last_sensor_data()
         if state:
-            _LOGGER.debug(
-                f"{self.name} Got last known value from state: {state.native_value}"
-            )
+            _LOGGER.debug(f"{self.name} Got last known value from state: {state.native_value}")
             self.last_known_value = state.native_value
         else:
             _LOGGER.debug(f"{self.name} No previous state was found")

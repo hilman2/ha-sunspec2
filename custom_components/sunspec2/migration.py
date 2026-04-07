@@ -49,9 +49,7 @@ CJNE_DOMAIN = "sunspec"
 """The legacy domain we migrate FROM."""
 
 
-def find_blocking_cjne_entries(
-    hass: HomeAssistant, entry: ConfigEntry
-) -> list[ConfigEntry]:
+def find_blocking_cjne_entries(hass: HomeAssistant, entry: ConfigEntry) -> list[ConfigEntry]:
     """Return active cjne config entries that conflict with this entry.
 
     A cjne config entry "conflicts" if it matches our host:port:unit_id
@@ -130,8 +128,7 @@ def migrate_from_cjne_sync(
         candidates = [
             re_entry
             for re_entry in registry.entities.values()
-            if re_entry.platform == CJNE_DOMAIN
-            and re_entry.config_entry_id == cjne_entry_id
+            if re_entry.platform == CJNE_DOMAIN and re_entry.config_entry_id == cjne_entry_id
         ]
         for re_entry in candidates:
             old_uid = re_entry.unique_id
@@ -142,7 +139,7 @@ def migrate_from_cjne_sync(
                     f"with the cjne config entry prefix {expected_prefix!r}"
                 )
                 continue
-            suffix = old_uid[len(expected_prefix):]
+            suffix = old_uid[len(expected_prefix) :]
             new_uid = f"{entry.entry_id}_{suffix}"
 
             try:

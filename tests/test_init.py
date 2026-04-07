@@ -39,17 +39,13 @@ async def test_setup_unload_and_reload_entry(hass, sunspec_client_mock):
     assert await hass.config_entries.async_setup(config_entry.entry_id)
     await hass.async_block_till_done()
     assert DOMAIN in hass.data and config_entry.entry_id in hass.data[DOMAIN]
-    assert (
-        type(hass.data[DOMAIN][config_entry.entry_id]) is SunSpecDataUpdateCoordinator
-    )
+    assert type(hass.data[DOMAIN][config_entry.entry_id]) is SunSpecDataUpdateCoordinator
 
     # Reload the entry and assert that the data from above is still there.
     assert await hass.config_entries.async_reload(config_entry.entry_id)
     await hass.async_block_till_done()
     assert DOMAIN in hass.data and config_entry.entry_id in hass.data[DOMAIN]
-    assert (
-        type(hass.data[DOMAIN][config_entry.entry_id]) is SunSpecDataUpdateCoordinator
-    )
+    assert type(hass.data[DOMAIN][config_entry.entry_id]) is SunSpecDataUpdateCoordinator
 
     # Unload the entry and verify that the data has been removed.
     assert await hass.config_entries.async_unload(config_entry.entry_id)
@@ -131,9 +127,7 @@ async def test_setup_blocked_when_cjne_actively_loaded(hass, sunspec_client_mock
     cjne_entry.add_to_hass(hass)
     cjne_entry.mock_state(hass, ConfigEntryState.LOADED)
 
-    our_entry = MockConfigEntry(
-        domain=DOMAIN, data=MOCK_CONFIG, entry_id="ours_blocked"
-    )
+    our_entry = MockConfigEntry(domain=DOMAIN, data=MOCK_CONFIG, entry_id="ours_blocked")
     our_entry.add_to_hass(hass)
 
     # async_setup raises ConfigEntryNotReady internally; the public
@@ -145,24 +139,18 @@ async def test_setup_blocked_when_cjne_actively_loaded(hass, sunspec_client_mock
     assert our_entry.state == ConfigEntryState.SETUP_RETRY
 
     # Repairs issue exists.
-    issue = ir.async_get(hass).async_get_issue(
-        DOMAIN, f"{our_entry.entry_id}_cjne_conflict"
-    )
+    issue = ir.async_get(hass).async_get_issue(DOMAIN, f"{our_entry.entry_id}_cjne_conflict")
     assert issue is not None
     assert issue.translation_key == "cjne_conflict"
     assert issue.translation_placeholders["host"] == "test_host"
 
 
-async def test_setup_clears_cjne_conflict_issue_after_resolution(
-    hass, sunspec_client_mock
-):
+async def test_setup_clears_cjne_conflict_issue_after_resolution(hass, sunspec_client_mock):
     """After cjne is gone, a successful setup must clear any leftover
     cjne_conflict Repairs issue from a previous failed attempt.
     """
     # Pre-create the issue as if a previous setup attempt had failed.
-    our_entry = MockConfigEntry(
-        domain=DOMAIN, data=MOCK_CONFIG, entry_id="ours_recovered"
-    )
+    our_entry = MockConfigEntry(domain=DOMAIN, data=MOCK_CONFIG, entry_id="ours_recovered")
     our_entry.add_to_hass(hass)
     ir.async_create_issue(
         hass,
@@ -173,9 +161,10 @@ async def test_setup_clears_cjne_conflict_issue_after_resolution(
         translation_key="cjne_conflict",
         translation_placeholders={"host": "test_host", "port": "123", "unit_id": "1"},
     )
-    assert ir.async_get(hass).async_get_issue(
-        DOMAIN, f"{our_entry.entry_id}_cjne_conflict"
-    ) is not None
+    assert (
+        ir.async_get(hass).async_get_issue(DOMAIN, f"{our_entry.entry_id}_cjne_conflict")
+        is not None
+    )
 
     # Now run the setup. cjne is not in hass.config_entries at all, so
     # the conflict guard passes, the issue is cleared, and setup succeeds.
@@ -183,14 +172,10 @@ async def test_setup_clears_cjne_conflict_issue_after_resolution(
     await hass.async_block_till_done()
     assert our_entry.state == ConfigEntryState.LOADED
 
-    assert ir.async_get(hass).async_get_issue(
-        DOMAIN, f"{our_entry.entry_id}_cjne_conflict"
-    ) is None
+    assert ir.async_get(hass).async_get_issue(DOMAIN, f"{our_entry.entry_id}_cjne_conflict") is None
 
 
-async def test_setup_runs_cjne_migration_when_entries_present(
-    hass, sunspec_client_mock
-):
+async def test_setup_runs_cjne_migration_when_entries_present(hass, sunspec_client_mock):
     """async_setup_entry calls the cjne migration helper.
 
     Phase 5 integration test: pre-populate the entity registry with an
@@ -216,9 +201,7 @@ async def test_setup_runs_cjne_migration_when_entries_present(
     ).entity_id
 
     # Now run our normal setup.
-    our_entry = MockConfigEntry(
-        domain=DOMAIN, data=MOCK_CONFIG, entry_id="ours_with_migration"
-    )
+    our_entry = MockConfigEntry(domain=DOMAIN, data=MOCK_CONFIG, entry_id="ours_with_migration")
     our_entry.add_to_hass(hass)
     assert await hass.config_entries.async_setup(our_entry.entry_id)
     await hass.async_block_till_done()

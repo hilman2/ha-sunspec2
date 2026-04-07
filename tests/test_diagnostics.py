@@ -78,9 +78,7 @@ async def test_diagnostics_recent_errors_starts_empty(hass, sunspec_client_mock)
     }
 
 
-async def test_diagnostics_consecutive_failures_starts_zero(
-    hass, sunspec_client_mock
-):
+async def test_diagnostics_consecutive_failures_starts_zero(hass, sunspec_client_mock):
     """A clean setup has all four consecutive_failures counters at zero."""
     entry = await setup_mock_sunspec_config_entry(hass)
 
@@ -112,18 +110,19 @@ async def test_capture_disabled_by_default(hass):
 
 async def test_capture_wraps_client_read(hass):
     """When capture_enabled, modbus_connect wraps client.read so every call lands in _captured_reads."""
-    api = SunSpecApiClient(
-        host="test", port=123, unit_id=1, hass=hass, capture_enabled=True
-    )
+    api = SunSpecApiClient(host="test", port=123, unit_id=1, hass=hass, capture_enabled=True)
 
     fake_client = Mock()
     fake_client.read.return_value = b"\x12\x34\x56\x78"
     fake_client.is_connected.return_value = True
 
-    with patch(
-        "sunspec2.modbus.client.SunSpecModbusClientDeviceTCP",
-        return_value=fake_client,
-    ), patch.object(SunSpecApiClient, "check_port", return_value=True):
+    with (
+        patch(
+            "sunspec2.modbus.client.SunSpecModbusClientDeviceTCP",
+            return_value=fake_client,
+        ),
+        patch.object(SunSpecApiClient, "check_port", return_value=True),
+    ):
         client = api.modbus_connect()
 
     # The wrap replaced client.read with our capturing version. The Mock's

@@ -55,17 +55,13 @@ async def test_successful_config_flow(
     flow_id = result["flow_id"]
     # If a user were to enter `test_username` for username and `test_password`
     # for password, it would result in this function call
-    result = await hass.config_entries.flow.async_configure(
-        flow_id, user_input=MOCK_CONFIG_STEP_1
-    )
+    result = await hass.config_entries.flow.async_configure(flow_id, user_input=MOCK_CONFIG_STEP_1)
 
     # Check that the config flow is complete and a new entry is created with
     # the input data
     assert result["type"] == FlowResultType.FORM
 
-    result = await hass.config_entries.flow.async_configure(
-        flow_id, user_input=MOCK_SETTINGS
-    )
+    result = await hass.config_entries.flow.async_configure(flow_id, user_input=MOCK_SETTINGS)
 
     assert result["type"] == FlowResultType.CREATE_ENTRY
     assert result["title"] == "test_host:123:1"
@@ -97,9 +93,7 @@ async def test_failed_config_flow(
     assert result["errors"] == {"base": "device_error"}
 
 
-async def test_timeout_config_flow(
-    hass, timeout_on_get_device_info, sunspec_client_mock
-):
+async def test_timeout_config_flow(hass, timeout_on_get_device_info, sunspec_client_mock):
     """Test a failed config flow due to a timeout during validation."""
 
     result = await hass.config_entries.flow.async_init(
@@ -139,9 +133,7 @@ async def test_config_flow_without_serial_number(
 
         assert result["type"] == FlowResultType.FORM
 
-        result = await hass.config_entries.flow.async_configure(
-            flow_id, user_input=MOCK_SETTINGS
-        )
+        result = await hass.config_entries.flow.async_configure(flow_id, user_input=MOCK_SETTINGS)
 
         assert result["type"] == FlowResultType.CREATE_ENTRY
         assert result["title"] == "test_host:123:1"
