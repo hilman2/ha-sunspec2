@@ -33,7 +33,18 @@ def progress(msg):
 
 
 class SunSpecApiClient:
-    CLIENT_CACHE = {}
+    """Modbus client wrapper, instance-scoped lifecycle.
+
+    Phase 4 dropped the class-level CLIENT_CACHE that the cjne version
+    inherited. The cache was the root cause of the hot-reload bug:
+    config-entry reloads created a new SunSpecApiClient instance, but
+    get_client() would reach into the shared cache and reuse a stale
+    pysunspec2 client whose TCP socket had been replaced by an unrelated
+    options-flow probe earlier in the same HA process. With each api
+    instance owning exactly one client there is no cross-instance
+    interference, and async_unload_entry's close() reliably tears down
+    the only socket before the next async_setup_entry builds a fresh one.
+    """
 
     def __init__(
         self,
@@ -49,28 +60,52 @@ class SunSpecApiClient:
         self._port = port
         self._hass = hass
         self._unit_id = unit_id
-        self._client_key = f"{host}:{port}:{unit_id}"
         self._lock = threading.Lock()
         self._reconnect = False
+        self._client = None
         self._log = get_adapter(host, port, unit_id)
         self._capture_enabled = capture_enabled
         self._captured_reads: list[dict] = []
         self._log.debug("New SunspecApi Client (capture=%s)", capture_enabled)
 
     def get_client(self, config=None):
-        cached = SunSpecApiClient.CLIENT_CACHE.get(self._client_key, None)
-        if cached is None or config is not None:
-            self._log.debug("Not using cached connection")
-            cached = self.modbus_connect(config)
-            SunSpecApiClient.CLIENT_CACHE[self._client_key] = cached
-        if self._reconnect:
-            if self.check_port():
-                cached.connect()
-                self._reconnect = False
-        return cached
+        """Return the active pysunspec2 client, building it on first use.
+
+        The legacy ``config`` parameter is ignored - it predates Phase 4
+        and was used by the options flow to probe a different host. The
+        new probe path is :meth:`known_models`, which never forces a
+        connect. The argument is kept only because async_get_models still
+        passes it through; it can be removed in a later phase.
+        """
+        if self._client is not None and self._reconnect:
+            try:
+                self._client.disconnect()
+            except Exception as exc:  # noqa: BLE001 - cleanup must not raise
+                self._log.debug("disconnect during reconnect raised %s, ignoring", exc)
+            self._client = None
+            self._reconnect = False
+        if self._client is None:
+            self._client = self.modbus_connect()
+        return self._client
 
     def async_get_client(self, config=None):
         return self._hass.async_add_executor_job(self.get_client, config)
+
+    def known_models(self) -> list[int]:
+        """Return integer model IDs the active client has already discovered.
+
+        Returns an empty list if no client is alive yet. The options flow
+        uses this for its model-selection form: it must NOT force a fresh
+        TCP connect (which would race the coordinator's active socket on
+        inverters with a single Modbus TCP slot like KACO Powador). The
+        coordinator already discovered the models during async_setup_entry,
+        so the form just reads what we know.
+        """
+        if self._client is None:
+            return []
+        return sorted(
+            m for m in self._client.models.keys() if isinstance(m, int)
+        )
 
     async def async_get_data(self, model_id) -> SunSpecModelWrapper:
         with_model = SunSpecLoggerAdapter(
@@ -106,34 +141,25 @@ class SunSpecApiClient:
         self._reconnect = True
 
     def close(self):
-        """Close the underlying TCP socket on the cached client.
+        """Tear down the active client's TCP socket and drop the reference.
 
-        Important: pysunspec2's SunSpecModbusClientDevice.close() is a
-        no-op stub - the real socket teardown lives on disconnect().
-        SunSpecModbusClientDeviceTCP does not override close() either, so
-        calling client.close() did literally nothing for years. The TCP
-        connection stayed open across update cycles, and across config
-        entry reloads, until the Python process exited.
+        After ``close()`` the next ``get_client()`` will build a brand new
+        client. This is the lifecycle hook ``async_unload_entry`` calls so
+        the inverter's single Modbus TCP slot is freed before the new
+        coordinator (built in the subsequent ``async_setup_entry``) tries
+        to connect.
 
-        That latent behaviour did not bite cjne/ha-sunspec because nothing
-        in that integration triggered a runtime reload. Phase 2's
-        capture_raw_registers options-flow toggle does, and the leftover
-        socket then competed with the new client for the inverter's
-        single Modbus TCP slot - producing the "sensors go unavailable
-        right after toggling capture" symptom.
-
-        We therefore call client.disconnect() (which is real) and use the
-        cached lookup directly instead of going through get_client(),
-        because get_client() would silently rebuild the client if the
-        cache was already invalidated, defeating the purpose of close().
+        Note: ``pysunspec2.modbus.client.SunSpecModbusClientDevice.close()``
+        is a ``pass`` stub. The real socket teardown is on
+        ``disconnect()``, which we call here.
         """
-        cached = SunSpecApiClient.CLIENT_CACHE.get(self._client_key)
-        if cached is None:
+        if self._client is None:
             return
         try:
-            cached.disconnect()
+            self._client.disconnect()
         except Exception as exc:  # noqa: BLE001 - cleanup must not raise
             self._log.debug("client.disconnect raised %s, ignoring", exc)
+        self._client = None
 
     def check_port(self) -> bool:
         """Check if port is available"""

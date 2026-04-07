@@ -61,10 +61,13 @@ def auto_enable_custom_integrations(
 
 @pytest.fixture(autouse=True)
 def clear_sunspec_client_cache():
-    """Avoid cross-test reuse of cached clients with different fixture behavior."""
-    SunSpecApiClient.CLIENT_CACHE = {}
+    """No-op since Phase 4: each SunSpecApiClient owns its own client.
+
+    Kept as an autouse fixture so any test that grew to depend on it as
+    a synchronisation point still has the hook. The body is empty -
+    cross-test isolation now comes for free from instance-scoped state.
+    """
     yield
-    SunSpecApiClient.CLIENT_CACHE = {}
 
 
 # This fixture, when used, will result in calls to async_get_data to return None. To have the call

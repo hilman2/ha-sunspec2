@@ -113,7 +113,6 @@ async def test_capture_disabled_by_default(hass):
 
 async def test_capture_wraps_client_read(hass):
     """When capture_enabled, modbus_connect wraps client.read so every call lands in _captured_reads."""
-    SunSpecApiClient.CLIENT_CACHE = {}
     api = SunSpecApiClient(
         host="test", port=123, unit_id=1, hass=hass, capture_enabled=True
     )
@@ -140,8 +139,6 @@ async def test_capture_wraps_client_read(hass):
     assert captured["hex"] == "12345678"
     assert "ts" in captured
 
-    SunSpecApiClient.CLIENT_CACHE = {}
-
 
 async def test_capture_appears_in_diagnostics_dump(hass, sunspec_client_mock):
     """When the api has captured reads, they show up in the diagnostics dump."""
@@ -160,44 +157,62 @@ async def test_capture_appears_in_diagnostics_dump(hass, sunspec_client_mock):
     assert diag["raw_captures"][0]["hex"] == "12345678"
 
 
-async def test_close_calls_disconnect_on_cached_client(hass):
-    """api.close() must call disconnect() on the cached client.
+async def test_close_calls_disconnect_on_active_client(hass):
+    """api.close() must call disconnect() on the instance-scoped client.
 
     Regression: pysunspec2's SunSpecModbusClientDevice.close() is a no-op
-    stub. Our api.close() previously called client.close() which therefore
-    did nothing, leaving the TCP socket open across update cycles and
-    across config entry reloads. KACO Powador only allows one TCP
-    connection per slave at a time, so a leftover socket would block the
-    next reconnect.
+    stub. Our api.close() routes to client.disconnect() (which is real)
+    so the TCP socket is actually torn down. KACO Powador only allows
+    one Modbus TCP slot at a time, so a leftover socket would block the
+    next reconnect after a config-entry reload.
     """
-    SunSpecApiClient.CLIENT_CACHE = {}
     api = SunSpecApiClient(host="test", port=502, unit_id=1, hass=hass)
-    fake_cached_client = Mock()
-    SunSpecApiClient.CLIENT_CACHE[api._client_key] = fake_cached_client
+    fake_active_client = Mock()
+    api._client = fake_active_client
 
     api.close()
 
-    fake_cached_client.disconnect.assert_called_once_with()
-    SunSpecApiClient.CLIENT_CACHE = {}
+    fake_active_client.disconnect.assert_called_once_with()
+    # Reference is dropped so the next get_client() builds a fresh client.
+    assert api._client is None
 
 
-async def test_close_is_a_noop_when_cache_empty(hass):
-    """If nothing is cached, close() must not crash and must not call out."""
-    SunSpecApiClient.CLIENT_CACHE = {}
+async def test_close_is_a_noop_when_no_client(hass):
+    """If no client has been built yet, close() must not crash."""
     api = SunSpecApiClient(host="test", port=502, unit_id=1, hass=hass)
+    assert api._client is None
 
     api.close()  # must not raise
+
+    assert api._client is None
 
 
 async def test_close_swallows_disconnect_errors(hass):
     """Cleanup must not propagate exceptions from the underlying client."""
-    SunSpecApiClient.CLIENT_CACHE = {}
     api = SunSpecApiClient(host="test", port=502, unit_id=1, hass=hass)
-    fake_cached_client = Mock()
-    fake_cached_client.disconnect.side_effect = OSError("socket already gone")
-    SunSpecApiClient.CLIENT_CACHE[api._client_key] = fake_cached_client
+    fake_active_client = Mock()
+    fake_active_client.disconnect.side_effect = OSError("socket already gone")
+    api._client = fake_active_client
 
     api.close()  # must not raise
 
-    fake_cached_client.disconnect.assert_called_once_with()
-    SunSpecApiClient.CLIENT_CACHE = {}
+    fake_active_client.disconnect.assert_called_once_with()
+    # Reference is still dropped even if disconnect() blew up.
+    assert api._client is None
+
+
+async def test_known_models_returns_empty_when_no_client(hass):
+    """known_models must return [] before any client is built (Phase 4)."""
+    api = SunSpecApiClient(host="test", port=502, unit_id=1, hass=hass)
+
+    assert api.known_models() == []
+
+
+async def test_known_models_returns_int_keys_only(hass):
+    """known_models filters out non-integer keys from the pysunspec2 client."""
+    api = SunSpecApiClient(host="test", port=502, unit_id=1, hass=hass)
+    fake_client = Mock()
+    fake_client.models = {1: "common", 103: "inverter", "common": "alias"}
+    api._client = fake_client
+
+    assert api.known_models() == [1, 103]

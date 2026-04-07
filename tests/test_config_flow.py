@@ -190,18 +190,24 @@ async def test_options_flow(hass, sunspec_client_mock):
 
 # Test faild connection in options flow
 async def test_options_flow_connect_error(hass, sunspec_client_mock_connect_error):
-    """Test an options flow."""
-    # Create a new MockConfigEntry and add to HASS (we're bypassing config
-    # flow entirely)
+    """Test the options flow when the coordinator is currently failing.
+
+    Phase 4 changed the error-surface mechanism: the options form no
+    longer probes the inverter (which used to race the coordinator's
+    own TCP slot on KACO Powador). Instead it inspects
+    coordinator.last_update_success and shows the connection warning
+    on the host_options step if the coordinator is currently broken.
+    """
     entry = MockConfigEntry(domain=DOMAIN, data=MOCK_CONFIG, entry_id="test")
     entry.add_to_hass(hass)
 
     coordinator = MockSunSpecDataUpdateCoordinator(hass, [1, 2])
-    # api = SunSpecApiClient(host="test", port=123, unit_id=1, hass=hass)
+    # Simulate a broken coordinator: this is what triggers the error
+    # surface in the new options-flow path.
+    coordinator.last_update_success = False
     hass.data[DOMAIN] = {entry.entry_id: coordinator}
 
     # Initialize an options flow
-    # await hass.config_entries.async_setup(entry.entry_id)
     result = await hass.config_entries.options.async_init(entry.entry_id)
 
     # Verify that the first options step is a user form
@@ -213,7 +219,7 @@ async def test_options_flow_connect_error(hass, sunspec_client_mock_connect_erro
         result["flow_id"], user_input=MOCK_CONFIG_STEP_1
     )
 
-    # Verify that we return to host settings
+    # Verify that we return to host_options with the connection warning
     assert result["type"] == FlowResultType.FORM
     assert result["step_id"] == "host_options"
     assert result["errors"] == {"base": "connection"}

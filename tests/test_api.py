@@ -52,28 +52,21 @@ async def test_api(hass, sunspec_client_mock):
 
 
 async def test_get_client(hass, sunspec_modbus_client_mock):
-    SunSpecApiClient.CLIENT_CACHE = {}
     """Test API calls."""
 
     # To test the api submodule, we first create an instance of our API client
     api = SunSpecApiClient(host="test", port=123, unit_id=1, hass=hass)
     client = api.get_client()
     client.scan.assert_called_once()
-
-    SunSpecApiClient.CLIENT_CACHE = {}
 
 
 async def test_modbus_connect(hass, sunspec_modbus_client_mock):
-    SunSpecApiClient.CLIENT_CACHE = {}
     """Test API calls."""
 
     # To test the api submodule, we first create an instance of our API client
     api = SunSpecApiClient(host="test", port=123, unit_id=1, hass=hass)
-    SunSpecApiClient.CLIENT_CACHE = {}
     client = api.get_client()
     client.scan.assert_called_once()
-
-    SunSpecApiClient.CLIENT_CACHE = {}
 
 
 async def test_modbus_connect_fail(hass, mocker):

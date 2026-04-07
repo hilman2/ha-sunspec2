@@ -250,8 +250,23 @@ class SunSpecOptionsFlowHandler(config_entries.OptionsFlow):
             CONF_SCAN_INTERVAL, self.config_entry.data.get(CONF_SCAN_INTERVAL)
         )
         capture_raw = self.config_entry.options.get(CONF_CAPTURE_RAW, False)
+        # Phase 4 hot-reload fix: instead of forcing a fresh probe (which
+        # raced with the coordinator's active socket on single-slot
+        # inverters like KACO), surface the coordinator's current state.
+        # If the coordinator is currently failing, the user already sees
+        # an unavailable inverter; we show a warning here too rather
+        # than silently rendering an empty model list. The getattr()
+        # default of True is for the test stub coordinator which does
+        # not inherit from DataUpdateCoordinator and lacks the attribute.
+        if not getattr(self.coordinator, "last_update_success", True):
+            return await self.show_settings_form(
+                data=self.settings, errors={"base": "connection"}
+            )
         try:
-            models = set(await self.coordinator.api.async_get_models(self.settings))
+            # known_models() reads what the live client has already
+            # discovered during async_setup_entry; it never opens a new
+            # TCP connection.
+            models = set(self.coordinator.api.known_models())
             model_filter = {model for model in sorted(models)}
             default_enabled = {model for model in DEFAULT_MODELS if model in models}
             default_models = self.config_entry.options.get(
