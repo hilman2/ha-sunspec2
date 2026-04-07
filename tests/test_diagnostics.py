@@ -136,3 +136,46 @@ async def test_capture_appears_in_diagnostics_dump(hass, sunspec_client_mock):
     assert len(diag["raw_captures"]) == 1
     assert diag["raw_captures"][0]["addr"] == 40000
     assert diag["raw_captures"][0]["hex"] == "12345678"
+
+
+async def test_close_calls_disconnect_on_cached_client(hass):
+    """api.close() must call disconnect() on the cached client.
+
+    Regression: pysunspec2's SunSpecModbusClientDevice.close() is a no-op
+    stub. Our api.close() previously called client.close() which therefore
+    did nothing, leaving the TCP socket open across update cycles and
+    across config entry reloads. KACO Powador only allows one TCP
+    connection per slave at a time, so a leftover socket would block the
+    next reconnect.
+    """
+    SunSpecApiClient.CLIENT_CACHE = {}
+    api = SunSpecApiClient(host="test", port=502, unit_id=1, hass=hass)
+    fake_cached_client = Mock()
+    SunSpecApiClient.CLIENT_CACHE[api._client_key] = fake_cached_client
+
+    api.close()
+
+    fake_cached_client.disconnect.assert_called_once_with()
+    SunSpecApiClient.CLIENT_CACHE = {}
+
+
+async def test_close_is_a_noop_when_cache_empty(hass):
+    """If nothing is cached, close() must not crash and must not call out."""
+    SunSpecApiClient.CLIENT_CACHE = {}
+    api = SunSpecApiClient(host="test", port=502, unit_id=1, hass=hass)
+
+    api.close()  # must not raise
+
+
+async def test_close_swallows_disconnect_errors(hass):
+    """Cleanup must not propagate exceptions from the underlying client."""
+    SunSpecApiClient.CLIENT_CACHE = {}
+    api = SunSpecApiClient(host="test", port=502, unit_id=1, hass=hass)
+    fake_cached_client = Mock()
+    fake_cached_client.disconnect.side_effect = OSError("socket already gone")
+    SunSpecApiClient.CLIENT_CACHE[api._client_key] = fake_cached_client
+
+    api.close()  # must not raise
+
+    fake_cached_client.disconnect.assert_called_once_with()
+    SunSpecApiClient.CLIENT_CACHE = {}

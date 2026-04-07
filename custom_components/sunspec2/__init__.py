@@ -111,6 +111,12 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     )
     if unloaded:
         coordinator = hass.data[DOMAIN].pop(entry.entry_id)
+        # Close the TCP socket BEFORE we drop our references. KACO Powador
+        # (and likely other inverters) only allow one Modbus TCP connection
+        # at a time; without an explicit disconnect here a config entry
+        # reload would race the leftover socket against the freshly built
+        # one in async_setup_entry, and the new connect would time out.
+        coordinator.api.close()
         coordinator.unsub()
 
     return True  # unloaded

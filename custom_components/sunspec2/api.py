@@ -168,8 +168,34 @@ class SunSpecApiClient:
         self._reconnect = True
 
     def close(self):
-        client = self.get_client()
-        client.close()
+        """Close the underlying TCP socket on the cached client.
+
+        Important: pysunspec2's SunSpecModbusClientDevice.close() is a
+        no-op stub - the real socket teardown lives on disconnect().
+        SunSpecModbusClientDeviceTCP does not override close() either, so
+        calling client.close() did literally nothing for years. The TCP
+        connection stayed open across update cycles, and across config
+        entry reloads, until the Python process exited.
+
+        That latent behaviour did not bite cjne/ha-sunspec because nothing
+        in that integration triggered a runtime reload. Phase 2's
+        capture_raw_registers options-flow toggle does, and the leftover
+        socket then competed with the new client for the inverter's
+        single Modbus TCP slot - producing the "sensors go unavailable
+        right after toggling capture" symptom.
+
+        We therefore call client.disconnect() (which is real) and use the
+        cached lookup directly instead of going through get_client(),
+        because get_client() would silently rebuild the client if the
+        cache was already invalidated, defeating the purpose of close().
+        """
+        cached = SunSpecApiClient.CLIENT_CACHE.get(self._client_key)
+        if cached is None:
+            return
+        try:
+            cached.disconnect()
+        except Exception as exc:  # noqa: BLE001 - cleanup must not raise
+            self._log.debug("client.disconnect raised %s, ignoring", exc)
 
     def check_port(self) -> bool:
         """Check if port is available"""
