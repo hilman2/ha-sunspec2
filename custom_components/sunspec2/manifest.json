@@ -1,0 +1,12 @@
+{
+  "domain": "sunspec2",
+  "name": "SunSpec 2",
+  "codeowners": ["@hilman2"],
+  "config_flow": true,
+  "dependencies": [],
+  "documentation": "https://github.com/hilman2/ha-sunspec2",
+  "iot_class": "local_polling",
+  "issue_tracker": "https://github.com/hilman2/ha-sunspec2/issues",
+  "requirements": ["pysunspec2==1.1.5"],
+  "version": "0.1.0"
+}

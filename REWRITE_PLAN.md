@@ -1,0 +1,158 @@
+# ha-sunspec2 Rewrite Plan
+
+## Background
+
+This project is a brownfield rewrite of
+[cjne/ha-sunspec](https://github.com/cjne/ha-sunspec). The upstream integration
+is MIT-licensed and functional, but maintainer response times of 4 to 6 weeks
+made iteration on bugfixes and diagnostics painful. This fork aims to deliver:
+
+1. Modern `pysunspec2` (1.3.3 as of 2026-04-07, upstream is pinned to 1.1.5).
+2. A debugging-first architecture, so users can file actionable bug reports.
+3. Faster merge cadence under a new maintainer.
+
+## Decisions locked in
+
+| Topic          | Choice                          | Notes |
+|----------------|---------------------------------|-------|
+| Domain         | `sunspec2`                      | Must differ from upstream so both can coexist in HACS. |
+| Approach       | Brownfield                      | Verbatim copy first, refactor module by module. |
+| Migration      | (b) Auto-migration              | Rewrite entity registry on first setup, preserve history. Confirmed 2026-04-07. See Phase 5. |
+| Repo name      | `ha-sunspec2`                   | Assumed `github.com/hilman2/ha-sunspec2`, confirm before Phase 6. |
+| License        | MIT                             | Original copyright preserved. |
+| Min HA version | 2024.6.0                        | Code already uses modern config_entries APIs. |
+| pysunspec2     | 1.3.3                           | Bump happens in Phase 1 with smoke test. |
+
+## Phase 0: Scaffold (current phase)
+
+Deliverables:
+
+- [x] Directory structure under `D:\Git\ha-sunspec2\` (standalone, moved out
+      of the original repo to avoid git nesting).
+- [x] Verbatim copy of all Python modules under `custom_components/sunspec2/`.
+- [x] Rename applied only to: package folder, `DOMAIN` const, `NAME` const,
+      `VERSION`, `ISSUE_URL`, manifest fields. Nothing else touched.
+- [x] New `manifest.json` still pinning `pysunspec2==1.1.5` (the bump is Phase 1,
+      on purpose, so it is a clean bisect boundary).
+- [x] `LICENSE` with original cjne copyright preserved.
+- [x] `README.md` with WIP notice and upstream attribution.
+- [x] `hacs.json`.
+- [x] `.gitignore`.
+- [x] `REWRITE_PLAN.md` (this file).
+
+Goal: the integration installs and runs identically to upstream, just under a
+new domain. Zero behavioral changes. This is the commit on which everything
+else builds.
+
+The folder lives standalone at `D:\Git\ha-sunspec2\`, ready for `git init`
+whenever Phase 1 starts.
+
+## Phase 1: Dependency bump and smoke test
+
+- Bump `pysunspec2` to `1.3.3` in `manifest.json`.
+- Run upstream tests in WSL Ubuntu (reminder: pytest does not run on Windows
+  Python due to `fcntl`).
+- Fix any API break caused by the library upgrade.
+- Manual smoke test against a real inverter.
+- Tag `v0.2.0` once green.
+
+Why separate from Phase 0: if Phase 1 breaks something, we know it was the
+version bump, not the rename. Clean bisect boundary.
+
+## Phase 2: Structured logging and Diagnostics platform
+
+- Add a small logging wrapper that binds context (host, port, unit_id,
+  model_id) to every record via `logging.LoggerAdapter`. No more bare
+  `_LOGGER.debug("got data")` without knowing which device.
+- Implement `async_get_config_entry_diagnostics` in a new `diagnostics.py`.
+  Dumps: redacted config, all scanned models, latest raw values per point,
+  ring buffer of last errors, `pysunspec2` version, HA version.
+- Opt-in raw register capture: when enabled per entry, the next scan also
+  stores raw bytes so users can upload a reproducible fixture with bug
+  reports.
+
+Goal: any user bug report starts with "please download diagnostics and attach
+it to the issue", and we can reproduce locally from that JSON alone.
+
+## Phase 3: Coordinator error classification
+
+Current code catches bare `Exception` in the coordinator and logs
+`_LOGGER.warning(exception)`. Worst case for debugging: no stack, no category,
+no actionable message.
+
+- Split errors into:
+  - `TransportError`: TCP socket, Modbus framing, connection refused.
+  - `ProtocolError`: SunSpec base-address not found, unknown model, scan
+    returned junk.
+  - `DeviceError`: device responded, value is implausible (out of range,
+    wrong type).
+  - `TransientError`: one-shot timeouts that should retry with backoff.
+- Emit `ir.async_create_issue` for persistent `DeviceError` and `ProtocolError`
+  so they show up in the Repairs panel with an actionable fix suggestion.
+- Store last 20 errors per category in the coordinator for the diagnostics
+  dump.
+
+## Phase 4: Sensor platform cleanup
+
+- Fix upstream typos where they live in internal identifiers only (`uniqe_id`,
+  `conifg`, `setttins`, `wheneve`). Do NOT touch the `unique_id` format used
+  for the entity registry, because Phase 5 auto-migration depends on it.
+- Add type hints throughout.
+- Extract `SunSpecModelWrapper` from `api.py` into its own module
+  (`models.py`).
+- pytest coverage for `getKeys`, `getValue`, scale-factor handling, enum and
+  bitfield decoding.
+
+## Phase 5: Migration helper from upstream `sunspec` domain
+
+Goal: a user with `cjne/ha-sunspec` installed can install our integration and
+all existing entities get retargeted to the new domain automatically,
+preserving Recorder history.
+
+Technique:
+1. On `async_setup_entry`, check the entity registry for entities with
+   `platform == "sunspec"` matching the same host, port, unit_id.
+2. Rewrite each entity's platform to `sunspec2` and its unique_id prefix.
+3. Log one summary line per migrated entity.
+4. Show a persistent notification with a link to revert.
+
+Risk: this only works if our `unique_id` format matches upstream's exactly.
+Phase 4 must NOT change the unique_id format. A user who refuses
+auto-migration can install both side by side (different domains, no conflict).
+
+## Phase 6: HACS release
+
+- Create `github.com/hilman2/ha-sunspec2` as a standalone repo (not a fork of
+  `cjne/ha-sunspec`, so HACS treats it as a distinct integration).
+- CI workflows: `hassfest`, `ruff`, `mypy --strict`, `pytest`.
+- Release drafter, Dependabot for `pysunspec2` and GitHub Actions.
+- Submit to HACS default repo.
+- Tag `v1.0.0` after a second user has tested the migration helper on their
+  own deployment.
+
+## Debugging-first principles
+
+These shape every design decision in Phases 2 through 5:
+
+1. **Every error has a category, a context, and an actionable message.** No
+   `except Exception: log.warning(e)` survives anywhere in the codebase.
+2. **Diagnostics first, code second.** If I cannot dump the state of the
+   integration into a JSON file with one click, I cannot ask a user for
+   useful bug reports.
+3. **Fixture capture for free.** Any real-world bug should produce a pytest
+   fixture in minutes, not days.
+4. **Repairs panel over log-spam.** If a condition requires user action, it
+   belongs in the Repairs panel, not in a `_LOGGER.warning`.
+5. **Preserve user history.** Auto-migrate on upgrade, never force users to
+   re-add sensors and lose their Energy dashboard.
+
+## Open questions needing user confirmation
+
+1. CI workflows in Phase 1 or defer to Phase 6? Leaning defer.
+2. Min HA version `2024.6.0` acceptable, or bump newer?
+
+Confirmed:
+- GitHub repo: `hilman2/ha-sunspec2` (confirmed 2026-04-07).
+- Working folder: `D:\Git\ha-sunspec2\` (standalone, confirmed 2026-04-07).
+- Migration strategy: (b) auto-migration (confirmed 2026-04-07). Phase 4 must
+  preserve `unique_id` format. Phase 5 implements the entity registry rewrite.

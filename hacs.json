@@ -1,0 +1,6 @@
+{
+  "name": "SunSpec 2",
+  "hacs": "1.6.0",
+  "render_readme": true,
+  "homeassistant": "2024.6.0"
+}
