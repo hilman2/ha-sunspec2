@@ -50,12 +50,7 @@ async def async_get_config_entry_diagnostics(
             except Exception as exc:  # noqa: BLE001 - defensive: never break the dump
                 scanned_models.append({"model_id": model_id, "error": str(exc)})
 
-    try:
-        from importlib.metadata import version as _version
-
-        sunspec2_version = _version("pysunspec2")
-    except Exception:  # noqa: BLE001
-        sunspec2_version = "unknown"
+    sunspec2_version = await hass.async_add_executor_job(_read_pysunspec2_version)
 
     return {
         "config": async_redact_data(dict(entry.data), TO_REDACT),
@@ -81,3 +76,19 @@ def _safe_value(wrapper, key: str) -> Any:
     if value is None or isinstance(value, (str, int, float, bool)):
         return value
     return str(value)
+
+
+def _read_pysunspec2_version() -> str:
+    """Read the pysunspec2 version via importlib.metadata.
+
+    importlib.metadata.version() walks site-packages and reads the wheel
+    METADATA file synchronously, which is forbidden inside the HA event
+    loop. This helper exists so the diagnostics handler can offload it
+    to an executor via hass.async_add_executor_job.
+    """
+    try:
+        from importlib.metadata import version as _version
+
+        return _version("pysunspec2")
+    except Exception:  # noqa: BLE001
+        return "unknown"
