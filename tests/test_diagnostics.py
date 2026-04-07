@@ -136,3 +136,66 @@ async def test_capture_appears_in_diagnostics_dump(hass, sunspec_client_mock):
     assert len(diag["raw_captures"]) == 1
     assert diag["raw_captures"][0]["addr"] == 40000
     assert diag["raw_captures"][0]["hex"] == "12345678"
+
+
+async def test_invalidate_cache_drops_key(hass):
+    """invalidate_cache pops exactly the client_key for this api instance."""
+    SunSpecApiClient.CLIENT_CACHE = {}
+    api = SunSpecApiClient(host="test", port=502, unit_id=1, hass=hass)
+    SunSpecApiClient.CLIENT_CACHE[api._client_key] = "fake_cached_client"
+    other_key = "other:1502:9"
+    SunSpecApiClient.CLIENT_CACHE[other_key] = "other_cached_client"
+
+    api.invalidate_cache()
+
+    assert api._client_key not in SunSpecApiClient.CLIENT_CACHE
+    # Other entries are untouched
+    assert SunSpecApiClient.CLIENT_CACHE[other_key] == "other_cached_client"
+    SunSpecApiClient.CLIENT_CACHE = {}
+
+
+async def test_capture_takes_effect_after_reload_via_invalidate(hass):
+    """Regression: a config-entry reload that flips capture_enabled must
+    actually rebuild the underlying client. Without invalidate_cache, the
+    old non-wrapped client survives in CLIENT_CACHE and the toggle is a
+    no-op until the next HA restart.
+    """
+    SunSpecApiClient.CLIENT_CACHE = {}
+
+    # First lifecycle: capture disabled. modbus_connect populates the cache
+    # with a non-wrapped client.
+    api1 = SunSpecApiClient(
+        host="test", port=502, unit_id=1, hass=hass, capture_enabled=False
+    )
+    fake_v1 = Mock()
+    fake_v1.read.return_value = b"\x00\x01"
+    fake_v1.is_connected.return_value = True
+    with patch(
+        "sunspec2.modbus.client.SunSpecModbusClientDeviceTCP", return_value=fake_v1
+    ), patch.object(SunSpecApiClient, "check_port", return_value=True):
+        api1.get_client()
+    assert api1._client_key in SunSpecApiClient.CLIENT_CACHE
+
+    # Simulate the unload step of a reload.
+    api1.invalidate_cache()
+    assert api1._client_key not in SunSpecApiClient.CLIENT_CACHE
+
+    # Second lifecycle: capture enabled. get_client must build a fresh
+    # wrapped client, not return the previous fake_v1.
+    api2 = SunSpecApiClient(
+        host="test", port=502, unit_id=1, hass=hass, capture_enabled=True
+    )
+    fake_v2 = Mock()
+    fake_v2.read.return_value = b"\xab\xcd"
+    fake_v2.is_connected.return_value = True
+    with patch(
+        "sunspec2.modbus.client.SunSpecModbusClientDeviceTCP", return_value=fake_v2
+    ), patch.object(SunSpecApiClient, "check_port", return_value=True):
+        client = api2.get_client()
+
+    # The wrap is in place: calling client.read populates _captured_reads.
+    client.read(40000, 1)
+    assert len(api2._captured_reads) == 1
+    assert api2._captured_reads[0]["hex"] == "abcd"
+
+    SunSpecApiClient.CLIENT_CACHE = {}

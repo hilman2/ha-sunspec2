@@ -171,6 +171,19 @@ class SunSpecApiClient:
         client = self.get_client()
         client.close()
 
+    def invalidate_cache(self):
+        """Drop the cached underlying client for this host:port:unit_id key.
+
+        CLIENT_CACHE is class-level so connections survive across coordinator
+        instances within a single HA process. That is fine for warm reconnects
+        but means a config-entry reload (e.g. after toggling capture_raw_registers
+        in the options flow) would otherwise reuse the old client - which has
+        no read() wrap and therefore captures nothing. async_unload_entry calls
+        this so the next async_setup_entry rebuilds the client from scratch
+        with the latest constructor flags.
+        """
+        SunSpecApiClient.CLIENT_CACHE.pop(self._client_key, None)
+
     def check_port(self) -> bool:
         """Check if port is available"""
         with self._lock:
