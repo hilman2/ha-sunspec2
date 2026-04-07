@@ -112,11 +112,6 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if unloaded:
         coordinator = hass.data[DOMAIN].pop(entry.entry_id)
         coordinator.unsub()
-        # Drop the cached underlying modbus client so the next setup picks
-        # up the latest constructor flags (e.g. capture_raw_registers when
-        # toggled from the options flow). Without this, an options change
-        # only takes effect after a full HA restart.
-        coordinator.api.invalidate_cache()
 
     return True  # unloaded
 
