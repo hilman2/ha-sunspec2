@@ -267,11 +267,35 @@ def get_sunspec_unique_id(config_entry_id: str, key: str, model_id: int, model_i
 class SunSpecDataUpdateCoordinator(DataUpdateCoordinator):
     """Class to manage fetching data from the API."""
 
+    # Per-gateway asyncio lock used to serialise update cycles from multiple
+    # config entries that share the same TCP endpoint (host, port). Several
+    # inverters and Modbus TCP gateways - notably SolarEdge - only accept a
+    # single TCP connection at a time. Without this lock two coordinators
+    # polling different unit IDs behind the same gateway would race each
+    # other and produce "connection reset by peer" errors. The lock is
+    # held for the entire connect/read/close cycle so exactly one TCP
+    # session is open per (host, port) at any moment. Single-gateway
+    # users see no behavioural change because the lock is always free.
+    _GATEWAY_LOCKS: dict[tuple[str, int], asyncio.Lock] = {}
+
+    @classmethod
+    def _get_gateway_lock(cls, host: str, port: int) -> asyncio.Lock:
+        """Return (and lazily create) the asyncio lock for a (host, port)."""
+        key = (host, port)
+        lock = cls._GATEWAY_LOCKS.get(key)
+        if lock is None:
+            lock = asyncio.Lock()
+            cls._GATEWAY_LOCKS[key] = lock
+        return lock
+
     def __init__(self, hass: HomeAssistant, client: SunSpecApiClient, entry) -> None:
         """Initialize."""
         self.api = client
         self.hass = hass
         self.entry = entry
+        self._gateway_lock = self._get_gateway_lock(
+            entry.data.get(CONF_HOST), entry.data.get(CONF_PORT)
+        )
         self._log = get_adapter(
             entry.data.get(CONF_HOST),
             entry.data.get(CONF_PORT),
@@ -316,38 +340,44 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator):
         )
 
     async def _async_update_data(self):
-        """Update data via library."""
-        self._log.debug("Update data coordinator update")
-        data = {}
-        try:
-            model_ids = self.option_model_filter & set(await self.api.async_get_models())
-            self._log.debug("Update data got models %s", model_ids)
+        """Update data via library.
 
-            for model_id in model_ids:
-                data[model_id] = await self.api.async_get_data(model_id)
-            self.api.close()
-            # Successful cycle: reset every consecutive-failure counter
-            # and clear any active Repairs issues so a recovered inverter
-            # disappears from the panel automatically.
-            for cat in self._consecutive_failures:
-                self._consecutive_failures[cat] = 0
-            self._clear_repair_issues()
-            return data
-        except SunSpecError as exc:
-            self._record_error(exc)
-            self.api.reconnect_next()
-            raise UpdateFailed(str(exc)) from exc
-        except Exception as exc:  # noqa: BLE001 - last-resort safety net
-            # Unclassified exception: record as transport (most likely
-            # cause for an unexpected failure in the modbus path) and log
-            # the full traceback so we know to add an explicit category
-            # if this happens repeatedly.
-            self._log.exception("Unclassified exception in update loop")
-            wrapped = TransportError(f"Unclassified: {exc.__class__.__name__}: {exc}")
-            wrapped.__cause__ = exc
-            self._record_error(wrapped)
-            self.api.reconnect_next()
-            raise UpdateFailed(str(exc)) from exc
+        The entire connect/read/close cycle is held under the per-gateway
+        lock so two coordinators sharing the same TCP endpoint never have
+        an open connection at the same time. See ``_GATEWAY_LOCKS``.
+        """
+        self._log.debug("Update data coordinator update")
+        async with self._gateway_lock:
+            data = {}
+            try:
+                model_ids = self.option_model_filter & set(await self.api.async_get_models())
+                self._log.debug("Update data got models %s", model_ids)
+
+                for model_id in model_ids:
+                    data[model_id] = await self.api.async_get_data(model_id)
+                self.api.close()
+                # Successful cycle: reset every consecutive-failure counter
+                # and clear any active Repairs issues so a recovered inverter
+                # disappears from the panel automatically.
+                for cat in self._consecutive_failures:
+                    self._consecutive_failures[cat] = 0
+                self._clear_repair_issues()
+                return data
+            except SunSpecError as exc:
+                self._record_error(exc)
+                self.api.reconnect_next()
+                raise UpdateFailed(str(exc)) from exc
+            except Exception as exc:  # noqa: BLE001 - last-resort safety net
+                # Unclassified exception: record as transport (most likely
+                # cause for an unexpected failure in the modbus path) and log
+                # the full traceback so we know to add an explicit category
+                # if this happens repeatedly.
+                self._log.exception("Unclassified exception in update loop")
+                wrapped = TransportError(f"Unclassified: {exc.__class__.__name__}: {exc}")
+                wrapped.__cause__ = exc
+                self._record_error(wrapped)
+                self.api.reconnect_next()
+                raise UpdateFailed(str(exc)) from exc
 
     def _record_error(self, exc: SunSpecError) -> None:
         """Append a categorised error to the matching ring buffer.

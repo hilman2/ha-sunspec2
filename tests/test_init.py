@@ -175,6 +175,32 @@ async def test_setup_clears_cjne_conflict_issue_after_resolution(hass, sunspec_c
     assert ir.async_get(hass).async_get_issue(DOMAIN, f"{our_entry.entry_id}_cjne_conflict") is None
 
 
+async def test_gateway_lock_shared_per_host_port(hass):
+    """Coordinators sharing the same TCP endpoint must share one lock.
+
+    Several inverters and Modbus TCP gateways (notably SolarEdge) only
+    accept a single TCP connection at a time. The class-level
+    ``_GATEWAY_LOCKS`` dict + ``_get_gateway_lock`` ensure that two
+    coordinators behind the same gateway will serialise their reads
+    instead of fighting over the socket.
+    """
+    SunSpecDataUpdateCoordinator._GATEWAY_LOCKS.clear()
+
+    a = SunSpecDataUpdateCoordinator._get_gateway_lock("10.0.0.1", 502)
+    b = SunSpecDataUpdateCoordinator._get_gateway_lock("10.0.0.1", 502)
+    c = SunSpecDataUpdateCoordinator._get_gateway_lock("10.0.0.1", 503)
+    d = SunSpecDataUpdateCoordinator._get_gateway_lock("10.0.0.2", 502)
+
+    # Same (host, port) -> same lock instance
+    assert a is b
+    # Different port -> different lock
+    assert a is not c
+    # Different host -> different lock
+    assert a is not d
+
+    SunSpecDataUpdateCoordinator._GATEWAY_LOCKS.clear()
+
+
 async def test_setup_runs_cjne_migration_when_entries_present(hass, sunspec_client_mock):
     """async_setup_entry calls the cjne migration helper.
 
