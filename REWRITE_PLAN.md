@@ -222,16 +222,83 @@ exercise the per-category routing, the consecutive-failure counter, the
 threshold-based repair issue creation for each category, the
 "transient never escalates" rule, and the clear-on-unload behaviour.
 
-## Phase 4: Sensor platform cleanup
+## Phase 4: Sensor platform cleanup (done 2026-04-07)
 
-- Fix upstream typos where they live in internal identifiers only (`uniqe_id`,
-  `conifg`, `setttins`, `wheneve`). Do NOT touch the `unique_id` format used
-  for the entity registry, because Phase 5 auto-migration depends on it.
-- Add type hints throughout.
-- Extract `SunSpecModelWrapper` from `api.py` into its own module
-  (`models.py`).
-- pytest coverage for `getKeys`, `getValue`, scale-factor handling, enum and
-  bitfield decoding.
+- [x] Internal typo fixes: `_uniqe_id` → `_unique_id` (private storage),
+      `wheneve` → `whenever`, `retreiving` → `retrieving`, `conifg` →
+      `config`, `setttins` → `settings`. None touched the public
+      `unique_id` property contract — Phase 5 migration is unaffected.
+- [x] Friendly-name UX fix (Phase-1 followup): `name.capitalize()` →
+      `name.replace('_', ' ').title()`. `Inverter_three_phase Watts` →
+      `Inverter Three Phase Watts`. `entity_id` slug unchanged.
+- [x] `SunSpecModelWrapper` extracted from `api.py` into `models.py`
+      (1:1 move, zero behavioural change).
+- [x] Type hints sweep across `api.py`, `__init__.py`, `sensor.py`,
+      `entity.py`, `models.py` — public methods + critical signatures.
+      ~40 annotations.
+- [x] **Hot-reload fix (Phase-2 followup)**: the cjne pattern of
+      `await async_unload_entry(...); await async_setup_entry(...)` in
+      `async_reload_entry` was the root cause of the "sensors die after
+      toggle" bug. HA 2026.x strictly requires the entry state to be
+      `SETUP_IN_PROGRESS` when `async_config_entry_first_refresh()` is
+      called, but the hand-rolled reload leaves the state in `LOADED`.
+      Fix: dispatch to `hass.config_entries.async_reload(entry.entry_id)`
+      which drives the state machine properly. One-line fix in
+      `async_reload_entry`.
+- [x] **CLIENT_CACHE refactor**: dropped the class-level `CLIENT_CACHE`
+      in `SunSpecApiClient`, switched to instance-scoped `self._client`.
+      Each api instance owns exactly one pysunspec2 client. The options
+      flow no longer probes via a side-effect-laden `get_client(config=...)`
+      path; it uses the new `known_models()` helper which reads the
+      already-discovered model list off the live coordinator client
+      without forcing a fresh TCP connect. This was originally pursued
+      as the hot-reload fix (and the architectural cleanup is real and
+      worth keeping), but it was NOT what the user-visible symptom was
+      blocked on — see the previous bullet for the actual fix.
+- [x] pytest coverage for `SunSpecModelWrapper` in `tests/test_models.py`:
+      14 tests covering `getKeys`, `getValue` (basic / scale-factor /
+      enum16 / bitfield32 / repeating-group), `getMeta`, `getGroupMeta`,
+      `getPoint` (top-level + repeating group navigation).
+- [x] Regression test for the hot-reload path in `tests/test_init.py`:
+      `test_options_update_triggers_clean_reload` exercises the
+      update_listener via `async_update_entry` (the same code path the
+      user hits when saving the options form), unlike the existing
+      `test_setup_unload_and_reload_entry` which calls
+      `hass.config_entries.async_reload` directly and therefore never
+      reproduced the bug.
+
+Tests: 76/76 passing (was 59 before Phase 4: +14 model tests, +2 known_models
+tests, +1 hot-reload regression test).
+
+Smoke-tested against the user's KACO Powador 7.8 TL3 on commit `a675535`:
+toggling `capture_raw_registers` in the options flow no longer kills
+the sensors. Diagnostics dump after the toggle showed `raw_captures`
+populated with real KACO bytes (SunS marker, model 103 length fields,
+KACO ASCII strings) — proving the post-reload `SunSpecApiClient`
+instance is fresh, the wrap is in place, and the previous "sensors die
+after toggle" symptom is gone.
+
+### Phase 4 findings (carry into later phases)
+
+1. **Hot-reload root-cause discipline.** Three Phase-2 / Phase-4 attempts
+   theorised about the wrong layer (`CLIENT_CACHE` invalidation, route
+   `close()` to `disconnect()`, instance-scoped client) before the
+   fourth attempt actually fixed it via `hass.config_entries.async_reload`.
+   The mistake was theorising before reading the live HA log. The
+   user-provided traceback in the fourth attempt pinpointed the real
+   bug in seconds. **Lesson for future phases**: when a bug survives
+   one fix attempt, demand the actual logs before proposing fix #2.
+
+2. **`SunSpecApiClient` is now instance-scoped**, but the rest of
+   `api.py` (`modbus_connect`, `check_port`, `read_model`, `TIMEOUT=120`,
+   the `time.sleep(0.6)` between model reads) is still a near-verbatim
+   carry from cjne. These are functional but smell like premature
+   defensive code. **Phase 6 or later** should look at simplifying once
+   real-user telemetry is in.
+
+3. **`tests/test_init.py:test_options_update_triggers_clean_reload`**
+   is the new canonical regression test for any future change that
+   touches the entry lifecycle. Do not delete it.
 
 ## Phase 5: Migration helper from upstream `sunspec` domain
 
