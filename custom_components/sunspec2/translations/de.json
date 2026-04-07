@@ -11,6 +11,10 @@
     "device_error": {
       "title": "Wechselrichter meldet eine Modbus-Exception",
       "description": "Der SunSpec-Wechselrichter unter {host}:{port} (Unit-ID {unit_id}) hat mit einer Modbus-Exception geantwortet. Drei Update-Zyklen in Folge sind fehlgeschlagen.\n\nLetzter Fehler: {error}\n\nZu prüfen:\n- Ist der Wechselrichter in einem normalen Betriebszustand (kein Fehlermodus)?\n- Passen die aktivierten Modelle zu dem, was der Wechselrichter tatsächlich unterstützt?\n- Lade die Diagnose dieser Integration herunter und hänge sie an einen Bug-Report"
+    },
+    "cjne_conflict": {
+      "title": "cjne/ha-sunspec ist noch aktiv",
+      "description": "SunSpec 2 kann für den Wechselrichter unter {host}:{port} (Unit-ID {unit_id}) nicht starten, weil die cjne/ha-sunspec-Integration für dasselbe Gerät noch aktiv läuft.\n\nKACO Powador und die meisten anderen SunSpec-Wechselrichter erlauben nur EINE Modbus-TCP-Verbindung gleichzeitig. cjne hält diese Verbindung gerade, also kann SunSpec 2 das Gerät nicht abfragen. Beide Integrationen parallel zu betreiben würde außerdem doppelte Sensoren und unstabile Werte produzieren.\n\nUm von cjne zu SunSpec 2 zu migrieren:\n\n1. Öffne HACS und deinstalliere die cjne/ha-sunspec-Integration\n2. Starte Home Assistant neu\n3. SunSpec 2 versucht automatisch erneut und übernimmt die bestehenden Entities\n\nDeine Entity-IDs und Recorder-History bleiben durch den SunSpec-2-Migrations-Helper erhalten."
     }
   }
 }

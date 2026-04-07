@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import logging
 
+from homeassistant.config_entries import ConfigEntryState
 from homeassistant.helpers import entity_registry as er
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.sunspec2.const import DOMAIN
 from custom_components.sunspec2.migration import (
     CJNE_DOMAIN,
+    find_blocking_cjne_entries,
     migrate_from_cjne_sync,
 )
 
@@ -218,3 +220,47 @@ async def test_migrate_handles_legacy_slave_id_field(hass):
     assert migrated == 1
     registry = er.async_get(hass)
     assert registry.async_get(eid).platform == "sunspec2"
+
+
+# ---------- find_blocking_cjne_entries ---------------------------------------
+
+
+async def test_find_blocking_no_cjne_installed(hass):
+    """No cjne entries -> nothing to block."""
+    entry = _our_entry(hass)
+    assert find_blocking_cjne_entries(hass, entry) == []
+
+
+async def test_find_blocking_orphan_cjne_does_not_block(hass):
+    """A cjne config entry that is NOT loaded (orphan/failed/disabled)
+    does not block our setup. The migration helper will handle its
+    orphan entities cleanly."""
+    entry = _our_entry(hass)
+    cjne = _make_cjne_entry(hass)
+    # MockConfigEntry default state is NOT_LOADED, just verify
+    assert cjne.state != ConfigEntryState.LOADED
+
+    assert find_blocking_cjne_entries(hass, entry) == []
+
+
+async def test_find_blocking_active_cjne_blocks(hass):
+    """A cjne config entry that IS in LOADED state for the same host
+    blocks our setup."""
+    entry = _our_entry(hass)
+    cjne = _make_cjne_entry(hass)
+    # Force the cjne entry into LOADED state, simulating cjne running.
+    cjne.mock_state(hass, ConfigEntryState.LOADED)
+
+    blocking = find_blocking_cjne_entries(hass, entry)
+    assert len(blocking) == 1
+    assert blocking[0] is cjne
+
+
+async def test_find_blocking_loaded_but_different_host_does_not_block(hass):
+    """A cjne entry can be loaded for a DIFFERENT inverter and that
+    must not block our setup for our own inverter."""
+    entry = _our_entry(hass)
+    cjne = _make_cjne_entry(hass, host="another_host", port=502, unit_id=1)
+    cjne.mock_state(hass, ConfigEntryState.LOADED)
+
+    assert find_blocking_cjne_entries(hass, entry) == []

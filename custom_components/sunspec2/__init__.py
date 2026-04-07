@@ -13,6 +13,7 @@ import logging
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.core_config import Config
+from homeassistant.exceptions import ConfigEntryNotReady
 from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from homeassistant.helpers.update_coordinator import UpdateFailed
@@ -35,6 +36,7 @@ from .errors import CATEGORIES
 from .errors import SunSpecError
 from .errors import TransportError
 from .logger import get_adapter
+from .migration import find_blocking_cjne_entries
 from .migration import migrate_from_cjne_sync
 
 SCAN_INTERVAL = timedelta(seconds=30)
@@ -88,6 +90,37 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     host = entry.data.get(CONF_HOST)
     port = entry.data.get(CONF_PORT)
     unit_id = entry.data.get(CONF_UNIT_ID, 1)
+
+    # Phase 5 conflict guard: refuse to start polling while cjne/ha-sunspec
+    # is still actively running for the same host/port/unit_id. KACO Powador
+    # (and most SunSpec inverters) only allow ONE Modbus TCP slot at a time.
+    # Trying to share it would race against cjne and produce flapping
+    # sensors. Raising ConfigEntryNotReady makes HA retry automatically
+    # once the user uninstalls cjne and restarts.
+    blocking_cjne = find_blocking_cjne_entries(hass, entry)
+    if blocking_cjne:
+        ir.async_create_issue(
+            hass,
+            DOMAIN,
+            f"{entry.entry_id}_cjne_conflict",
+            is_fixable=False,
+            severity=ir.IssueSeverity.ERROR,
+            translation_key="cjne_conflict",
+            translation_placeholders={
+                "host": str(host),
+                "port": str(port),
+                "unit_id": str(unit_id),
+            },
+        )
+        raise ConfigEntryNotReady(
+            f"cjne/ha-sunspec is still loaded for {host}:{port} unit {unit_id}; "
+            "uninstall it via HACS and restart Home Assistant"
+        )
+
+    # No conflict - clear any leftover Repairs issue from a previous setup
+    # attempt that did fail this guard.
+    ir.async_delete_issue(hass, DOMAIN, f"{entry.entry_id}_cjne_conflict")
+
     capture_enabled = entry.options.get(CONF_CAPTURE_RAW, False)
 
     client = SunSpecApiClient(

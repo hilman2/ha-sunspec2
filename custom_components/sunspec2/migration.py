@@ -36,7 +36,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from homeassistant.config_entries import ConfigEntry
+from homeassistant.config_entries import ConfigEntry, ConfigEntryState
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
 
@@ -44,6 +44,36 @@ from .const import CONF_HOST, CONF_PORT, CONF_UNIT_ID
 
 CJNE_DOMAIN = "sunspec"
 """The legacy domain we migrate FROM."""
+
+
+def find_blocking_cjne_entries(
+    hass: HomeAssistant, entry: ConfigEntry
+) -> list[ConfigEntry]:
+    """Return active cjne config entries that conflict with this entry.
+
+    A cjne config entry "conflicts" if it matches our host:port:unit_id
+    AND is currently in the LOADED state. While loaded, cjne holds the
+    inverter's single Modbus TCP slot open (pysunspec2 never closes the
+    socket - Phase 2 finding) and our coordinator would race against it.
+
+    The user must uninstall cjne before sunspec2 can take over. Returning
+    a non-empty list signals async_setup_entry to refuse setup with
+    ConfigEntryNotReady so HA retries automatically once the user removes
+    cjne and restarts.
+    """
+    host = entry.data.get(CONF_HOST)
+    port = entry.data.get(CONF_PORT)
+    unit_id = entry.data.get(CONF_UNIT_ID, 1)
+    blocking: list[ConfigEntry] = []
+    for cjne_entry in hass.config_entries.async_entries(CJNE_DOMAIN):
+        ce_host = cjne_entry.data.get("host")
+        ce_port = cjne_entry.data.get("port")
+        ce_uid = cjne_entry.data.get("unit_id") or cjne_entry.data.get("slave_id")
+        if ce_host != host or ce_port != port or ce_uid != unit_id:
+            continue
+        if cjne_entry.state == ConfigEntryState.LOADED:
+            blocking.append(cjne_entry)
+    return blocking
 
 
 def migrate_from_cjne_sync(

@@ -11,6 +11,10 @@
     "device_error": {
       "title": "Inverter reports a Modbus exception",
       "description": "The SunSpec inverter at {host}:{port} (unit ID {unit_id}) responded with a Modbus exception. Three consecutive update cycles have failed.\n\nLast error: {error}\n\nThings to check:\n- The inverter is in a normal operating state (not in fault mode)\n- The selected enabled models match what the inverter actually supports\n- Download diagnostics from this integration and attach them to a bug report"
+    },
+    "cjne_conflict": {
+      "title": "cjne/ha-sunspec is still active",
+      "description": "SunSpec 2 cannot start up for the inverter at {host}:{port} (unit ID {unit_id}) because the cjne/ha-sunspec integration is still actively running for the same device.\n\nKACO Powador and most other SunSpec inverters only allow ONE Modbus TCP connection at a time. cjne is currently holding that connection, so SunSpec 2 cannot poll the device. Running both integrations against the same inverter would also produce duplicate sensors and unstable values.\n\nTo migrate from cjne to SunSpec 2:\n\n1. Open HACS and uninstall the cjne/ha-sunspec integration\n2. Restart Home Assistant\n3. SunSpec 2 will retry automatically and pick up the existing entities\n\nYour entity IDs and Recorder history will be preserved by the SunSpec 2 migration helper."
     }
   }
 }

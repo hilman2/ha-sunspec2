@@ -3,6 +3,7 @@
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.exceptions import ConfigEntryNotReady
 from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers import issue_registry as ir
 import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
@@ -112,6 +113,81 @@ async def test_options_update_triggers_clean_reload(hass, sunspec_client_mock):
     assert isinstance(coordinator, SunSpecDataUpdateCoordinator)
     # The new (post-reload) coordinator picked up the new option.
     assert coordinator.api._capture_enabled is True
+
+
+async def test_setup_blocked_when_cjne_actively_loaded(hass, sunspec_client_mock):
+    """If cjne/ha-sunspec is currently loaded for the same host, our setup
+    must refuse with ConfigEntryNotReady AND raise a Repairs panel issue.
+
+    HA will then retry our setup automatically (exponential backoff)
+    once the cjne entry is no longer loaded - which the user achieves
+    by uninstalling cjne via HACS and restarting HA.
+    """
+    # Stand up an "active" cjne entry: matches our host/port/unit_id
+    # AND is in LOADED state (simulating cjne currently running).
+    cjne_entry = MockConfigEntry(
+        domain="sunspec",
+        data={"host": "test_host", "port": 123, "unit_id": 1},
+        entry_id="cjne_active",
+    )
+    cjne_entry.add_to_hass(hass)
+    cjne_entry.mock_state(hass, ConfigEntryState.LOADED)
+
+    our_entry = MockConfigEntry(
+        domain=DOMAIN, data=MOCK_CONFIG, entry_id="ours_blocked"
+    )
+    our_entry.add_to_hass(hass)
+
+    # async_setup raises ConfigEntryNotReady internally; the public
+    # config_entries.async_setup() returns False rather than re-raising,
+    # but the entry state will be SETUP_RETRY.
+    result = await hass.config_entries.async_setup(our_entry.entry_id)
+    await hass.async_block_till_done()
+    assert result is False
+    assert our_entry.state == ConfigEntryState.SETUP_RETRY
+
+    # Repairs issue exists.
+    issue = ir.async_get(hass).async_get_issue(
+        DOMAIN, f"{our_entry.entry_id}_cjne_conflict"
+    )
+    assert issue is not None
+    assert issue.translation_key == "cjne_conflict"
+    assert issue.translation_placeholders["host"] == "test_host"
+
+
+async def test_setup_clears_cjne_conflict_issue_after_resolution(
+    hass, sunspec_client_mock
+):
+    """After cjne is gone, a successful setup must clear any leftover
+    cjne_conflict Repairs issue from a previous failed attempt.
+    """
+    # Pre-create the issue as if a previous setup attempt had failed.
+    our_entry = MockConfigEntry(
+        domain=DOMAIN, data=MOCK_CONFIG, entry_id="ours_recovered"
+    )
+    our_entry.add_to_hass(hass)
+    ir.async_create_issue(
+        hass,
+        DOMAIN,
+        f"{our_entry.entry_id}_cjne_conflict",
+        is_fixable=False,
+        severity=ir.IssueSeverity.ERROR,
+        translation_key="cjne_conflict",
+        translation_placeholders={"host": "test_host", "port": "123", "unit_id": "1"},
+    )
+    assert ir.async_get(hass).async_get_issue(
+        DOMAIN, f"{our_entry.entry_id}_cjne_conflict"
+    ) is not None
+
+    # Now run the setup. cjne is not in hass.config_entries at all, so
+    # the conflict guard passes, the issue is cleared, and setup succeeds.
+    assert await hass.config_entries.async_setup(our_entry.entry_id)
+    await hass.async_block_till_done()
+    assert our_entry.state == ConfigEntryState.LOADED
+
+    assert ir.async_get(hass).async_get_issue(
+        DOMAIN, f"{our_entry.entry_id}_cjne_conflict"
+    ) is None
 
 
 async def test_setup_runs_cjne_migration_when_entries_present(
