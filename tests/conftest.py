@@ -245,7 +245,7 @@ def overflow_error_dca():
         return 1
 
     with patch(
-        "custom_components.sunspec2.api.SunSpecModelWrapper.getValue",
+        "custom_components.sunspec2.models.SunSpecModelWrapper.getValue",
         side_effect=my_side_effect,
     ):
         yield
