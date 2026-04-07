@@ -57,13 +57,42 @@ async def async_get_config_entry_diagnostics(
         "options": async_redact_data(dict(entry.options), TO_REDACT),
         "scanned_models": scanned_models,
         "latest_values": latest_values,
-        "recent_errors": list(getattr(coordinator, "_recent_errors", [])),
+        "recent_errors": _recent_errors_dump(coordinator),
+        "consecutive_failures": dict(
+            getattr(coordinator, "_consecutive_failures", {})
+        ),
         "raw_captures": list(getattr(coordinator.api, "_captured_reads", [])),
         "versions": {
             "homeassistant": HA_VERSION,
             "pysunspec2": sunspec2_version,
             "sunspec2_integration": VERSION,
         },
+    }
+
+
+def _recent_errors_dump(coordinator) -> dict[str, list]:
+    """Serialise the per-category recent_errors dict for the JSON dump.
+
+    Phase 3 stores _recent_errors as ``dict[str, deque[dict]]`` keyed by
+    category. We turn each deque into a plain list so the dump is
+    JSON-serialisable.
+
+    Defensive against the Phase-2 shape (a single ``deque``) in case a
+    test stub coordinator hands us the older form: in that case we wrap
+    it under "transport" and leave the others empty. The integration
+    itself never produces the old shape any more.
+    """
+    raw = getattr(coordinator, "_recent_errors", None)
+    if raw is None:
+        return {}
+    if isinstance(raw, dict):
+        return {cat: list(buf) for cat, buf in raw.items()}
+    # Phase-2 fallback: a flat sequence-like buffer.
+    return {
+        "transport": list(raw),
+        "protocol": [],
+        "device": [],
+        "transient": [],
     }
 
 

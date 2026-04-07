@@ -28,6 +28,9 @@ from .const import DEFAULT_MODELS
 from .const import DOMAIN
 from .const import PLATFORMS
 from .const import STARTUP_MESSAGE
+from .errors import CATEGORIES
+from .errors import SunSpecError
+from .errors import TransportError
 from .logger import get_adapter
 
 SCAN_INTERVAL = timedelta(seconds=30)
@@ -148,10 +151,19 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator):
             entry.data.get(CONF_PORT),
             entry.data.get(CONF_UNIT_ID),
         )
-        # Phase-2 generic ring buffer; Phase 3 will replace this with one
-        # deque per error category (TransportError / ProtocolError /
-        # DeviceError / TransientError) once the error classification lands.
-        self._recent_errors: deque[dict] = deque(maxlen=20)
+        # Phase-3 per-category buffers. The dict shape ({category: deque})
+        # is the contract that diagnostics.py reads. Categories come from
+        # errors.CATEGORIES so adding a new category there auto-creates a
+        # buffer here. Each deque keeps at most 20 entries (FIFO drop on
+        # overflow). Phase 4 may persist these across HA restarts.
+        self._recent_errors: dict[str, deque] = {
+            cat: deque(maxlen=20) for cat in CATEGORIES
+        }
+        # Counts how many consecutive failures we have observed in each
+        # category since the last successful update. Drives the Repairs
+        # panel threshold (Phase 3 commit 4): protocol fires at 1, the
+        # others at 3. Resets to 0 across the board on the next success.
+        self._consecutive_failures: dict[str, int] = {cat: 0 for cat in CATEGORIES}
 
         self._log.debug("Data: %s", entry.data)
         self._log.debug("Options: %s", entry.options)
@@ -192,19 +204,49 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator):
             for model_id in model_ids:
                 data[model_id] = await self.api.async_get_data(model_id)
             self.api.close()
+            # Successful cycle: reset every consecutive-failure counter so
+            # the Repairs threshold check (commit 4) starts fresh.
+            for cat in self._consecutive_failures:
+                self._consecutive_failures[cat] = 0
             return data
-        except Exception as exception:
-            self._recent_errors.append(
-                {
-                    "ts": dt_util.utcnow().isoformat(),
-                    "type": exception.__class__.__name__,
-                    "msg": str(exception),
-                }
-            )
-            self._log.warning(
-                "Update failed: %s: %s",
-                exception.__class__.__name__,
-                exception,
-            )
+        except SunSpecError as exc:
+            self._record_error(exc)
             self.api.reconnect_next()
-            raise UpdateFailed() from exception
+            raise UpdateFailed(str(exc)) from exc
+        except Exception as exc:  # noqa: BLE001 - last-resort safety net
+            # Unclassified exception: record as transport (most likely
+            # cause for an unexpected failure in the modbus path) and log
+            # the full traceback so we know to add an explicit category
+            # if this happens repeatedly.
+            self._log.exception("Unclassified exception in update loop")
+            wrapped = TransportError(
+                f"Unclassified: {exc.__class__.__name__}: {exc}"
+            )
+            wrapped.__cause__ = exc
+            self._record_error(wrapped)
+            self.api.reconnect_next()
+            raise UpdateFailed(str(exc)) from exc
+
+    def _record_error(self, exc: SunSpecError) -> None:
+        """Append a categorised error to the matching ring buffer.
+
+        Bumps the per-category consecutive_failures counter. The Repairs
+        panel hook (commit 4) reads this counter to decide whether to
+        escalate.
+        """
+        cat = exc.category
+        self._recent_errors[cat].append(
+            {
+                "ts": dt_util.utcnow().isoformat(),
+                "type": exc.__class__.__name__,
+                "msg": str(exc),
+                "cause": str(exc.__cause__) if exc.__cause__ else None,
+            }
+        )
+        self._consecutive_failures[cat] += 1
+        self._log.warning(
+            "%s (#%d in a row): %s",
+            exc.__class__.__name__,
+            self._consecutive_failures[cat],
+            exc,
+        )

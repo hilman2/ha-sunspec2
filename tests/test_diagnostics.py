@@ -22,6 +22,7 @@ async def test_diagnostics_basic_shape(hass, sunspec_client_mock):
         "scanned_models",
         "latest_values",
         "recent_errors",
+        "consecutive_failures",
         "raw_captures",
         "versions",
     }
@@ -65,12 +66,33 @@ async def test_diagnostics_includes_scanned_models(hass, sunspec_client_mock):
 
 
 async def test_diagnostics_recent_errors_starts_empty(hass, sunspec_client_mock):
-    """A clean setup has an empty recent_errors list."""
+    """A clean setup has all four per-category buffers empty."""
     entry = await setup_mock_sunspec_config_entry(hass)
 
     diag = await async_get_config_entry_diagnostics(hass, entry)
 
-    assert diag["recent_errors"] == []
+    assert diag["recent_errors"] == {
+        "transport": [],
+        "protocol": [],
+        "device": [],
+        "transient": [],
+    }
+
+
+async def test_diagnostics_consecutive_failures_starts_zero(
+    hass, sunspec_client_mock
+):
+    """A clean setup has all four consecutive_failures counters at zero."""
+    entry = await setup_mock_sunspec_config_entry(hass)
+
+    diag = await async_get_config_entry_diagnostics(hass, entry)
+
+    assert diag["consecutive_failures"] == {
+        "transport": 0,
+        "protocol": 0,
+        "device": 0,
+        "transient": 0,
+    }
 
 
 async def test_diagnostics_raw_captures_starts_empty(hass, sunspec_client_mock):
