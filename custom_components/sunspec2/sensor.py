@@ -1,10 +1,16 @@
 """Sensor platform for SunSpec."""
 
+from __future__ import annotations
+
 import logging
+from typing import Any
 
 from homeassistant.components.sensor import RestoreSensor
 from homeassistant.components.sensor import SensorDeviceClass
 from homeassistant.components.sensor import SensorEntity
+from homeassistant.config_entries import ConfigEntry
+from homeassistant.core import HomeAssistant
+from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.components.sensor import SensorStateClass
 from homeassistant.const import DEGREE
 from homeassistant.const import PERCENTAGE
@@ -67,7 +73,11 @@ HA_META = {
 }
 
 
-async def async_setup_entry(hass, entry, async_add_devices):
+async def async_setup_entry(
+    hass: HomeAssistant,
+    entry: ConfigEntry,
+    async_add_devices: AddEntitiesCallback,
+) -> None:
     """Setup sensor platform."""
     coordinator = hass.data[DOMAIN][entry.entry_id]
     sensors = []
@@ -102,7 +112,12 @@ async def async_setup_entry(hass, entry, async_add_devices):
 class SunSpecSensor(SunSpecEntity, SensorEntity):
     """sunspec Sensor class."""
 
-    def __init__(self, coordinator, config_entry, data):
+    def __init__(
+        self,
+        coordinator,
+        config_entry: ConfigEntry,
+        data: dict[str, Any],
+    ) -> None:
         super().__init__(
             coordinator, config_entry, data["device_info"], data["model"].getGroupMeta()
         )
@@ -184,27 +199,27 @@ class SunSpecSensor(SunSpecEntity, SensorEntity):
     #    _LOGGER.debug(f"Will remove sensor {self._unique_id}")
 
     @property
-    def options(self):
+    def options(self) -> list[str] | None:
         if self.device_class != SensorDeviceClass.ENUM:
             return None
         return self._options
 
     @property
-    def name(self):
+    def name(self) -> str:
         """Return the name of the sensor."""
         return self._name
 
     @property
-    def unique_id(self):
+    def unique_id(self) -> str:
         """Return a unique ID to use for this entity."""
         return self._unique_id
 
     @property
-    def assumed_state(self):
+    def assumed_state(self) -> bool:
         return self._assumed_state
 
     @property
-    def native_value(self):
+    def native_value(self) -> Any:
         """Return the state of the sensor."""
         try:
             val = self.coordinator.data[self.model_id].getValue(
@@ -239,20 +254,17 @@ class SunSpecSensor(SunSpecEntity, SensorEntity):
         return val
 
     @property
-    def native_unit_of_measurement(self):
+    def native_unit_of_measurement(self) -> str | None:
         """Return the unit of measurement."""
-        # if self.unit == "":
-        #     _LOGGER.debug(f"UNIT IS NONT FOR {self.name}")
-        #    return None
         return self.unit
 
     @property
-    def icon(self):
+    def icon(self) -> str | None:
         """Return the icon of the sensor."""
         return self.use_icon
 
     @property
-    def device_class(self):
+    def device_class(self) -> SensorDeviceClass | None:
         """Return de device class of the sensor."""
         return self.use_device_class
 
@@ -266,9 +278,9 @@ class SunSpecSensor(SunSpecEntity, SensorEntity):
         return SensorStateClass.MEASUREMENT
 
     @property
-    def extra_state_attributes(self):
+    def extra_state_attributes(self) -> dict[str, Any]:
         """Return the state attributes."""
-        attrs = {
+        attrs: dict[str, Any] = {
             "integration": DOMAIN,
             "sunspec_key": self.key,
         }
@@ -285,12 +297,12 @@ class SunSpecSensor(SunSpecEntity, SensorEntity):
 
 
 class SunSpecEnergySensor(SunSpecSensor, RestoreSensor):
-    def __init__(self, coordinator, config_entry, data):
+    def __init__(self, coordinator, config_entry: ConfigEntry, data: dict[str, Any]) -> None:
         super().__init__(coordinator, config_entry, data)
-        self.last_known_value = None
+        self.last_known_value: Any = None
 
     @property
-    def native_value(self):
+    def native_value(self) -> Any:
         val = super().native_value
         # For an energy sensor a value of 0 woulld mess up long term stats because of how total_increasing works
         if val == 0:

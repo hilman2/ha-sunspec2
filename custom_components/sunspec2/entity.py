@@ -1,24 +1,31 @@
 """SunSpecEntity class"""
 
+from __future__ import annotations
+
+from typing import Any
+
+from homeassistant.config_entries import ConfigEntry
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import DOMAIN
+from .models import SunSpecModelWrapper
 
 
 class SunSpecEntity(CoordinatorEntity):
-    def __init__(self, coordinator, config_entry, device_info, model_info):
+    def __init__(
+        self,
+        coordinator,
+        config_entry: ConfigEntry,
+        device_info: SunSpecModelWrapper,
+        model_info: dict[str, Any],
+    ) -> None:
         super().__init__(coordinator)
         self._device_data = device_info
         self.config_entry = config_entry
         self.model_info = model_info
 
-    # @property
-    # def unique_id(self):
-    #    """Return a unique ID to use for this entity."""
-    #    return self.config_entry.entry_id
-
     @property
-    def device_info(self):
+    def device_info(self) -> dict[str, Any]:
         return {
             "identifiers": {
                 (DOMAIN, self.config_entry.entry_id, self.model_info["name"])

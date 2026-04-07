@@ -107,7 +107,7 @@ class SunSpecApiClient:
             m for m in self._client.models.keys() if isinstance(m, int)
         )
 
-    async def async_get_data(self, model_id) -> SunSpecModelWrapper:
+    async def async_get_data(self, model_id: int) -> SunSpecModelWrapper:
         with_model = SunSpecLoggerAdapter(
             self._log.logger, {**self._log.extra, "model_id": model_id}
         )
@@ -125,22 +125,22 @@ class SunSpecApiClient:
                 f"Modbus exception while reading model {model_id}: {exc}"
             ) from exc
 
-    async def read(self, model_id) -> SunSpecModelWrapper:
+    async def read(self, model_id: int) -> SunSpecModelWrapper:
         return await self._hass.async_add_executor_job(self.read_model, model_id)
 
     async def async_get_device_info(self) -> SunSpecModelWrapper:
         return await self.read(1)
 
-    async def async_get_models(self, config=None) -> list:
+    async def async_get_models(self, config: dict | None = None) -> list[int]:
         self._log.debug("Fetching models")
         client = await self.async_get_client(config)
         model_ids = sorted(list(filter(lambda m: type(m) is int, client.models.keys())))
         return model_ids
 
-    def reconnect_next(self):
+    def reconnect_next(self) -> None:
         self._reconnect = True
 
-    def close(self):
+    def close(self) -> None:
         """Tear down the active client's TCP socket and drop the reference.
 
         After ``close()`` the next ``get_client()`` will build a brand new
@@ -181,7 +181,7 @@ class SunSpecApiClient:
             time.sleep(0.1)
         return is_open
 
-    def modbus_connect(self, config=None):
+    def modbus_connect(self, config: dict | None = None):
         use_config = SimpleNamespace(
             **(
                 config
@@ -252,7 +252,7 @@ class SunSpecApiClient:
             self._log.debug("Inverter not ready for Modbus TCP connection")
             raise TransportError(f"Inverter not active on {self._host}:{self._port}")
 
-    def read_model(self, model_id) -> dict:
+    def read_model(self, model_id: int) -> SunSpecModelWrapper:
         client = self.get_client()
         models = client.models[model_id]
         for model in models:

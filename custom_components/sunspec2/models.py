@@ -12,6 +12,8 @@ so the move is purely structural.
 
 from __future__ import annotations
 
+from typing import Any
+
 
 class SunSpecModelWrapper:
     """Wraps the list of pysunspec2 model instances for a single model id.
@@ -27,7 +29,7 @@ class SunSpecModelWrapper:
         self._models = models
         self.num_models = len(models)
 
-    def isValidPoint(self, point_name):
+    def isValidPoint(self, point_name: str) -> bool:
         point = self.getPoint(point_name)
         if point.value is None:
             return False
@@ -37,7 +39,7 @@ class SunSpecModelWrapper:
             return False
         return True
 
-    def getKeys(self):
+    def getKeys(self) -> list[str]:
         keys = list(filter(self.isValidPoint, self._models[0].points.keys()))
         for group_name in self._models[0].groups:
             model_group = self._models[0].groups[group_name]
@@ -56,17 +58,17 @@ class SunSpecModelWrapper:
                 keys.extend(filter(self.isValidPoint, group_keys))
         return keys
 
-    def getValue(self, point_name, model_index=0):
+    def getValue(self, point_name: str, model_index: int = 0) -> Any:
         point = self.getPoint(point_name, model_index)
         return point.cvalue
 
-    def getMeta(self, point_name):
+    def getMeta(self, point_name: str) -> dict[str, Any]:
         return self.getPoint(point_name).pdef
 
-    def getGroupMeta(self):
+    def getGroupMeta(self) -> dict[str, Any]:
         return self._models[0].gdef
 
-    def getPoint(self, point_name, model_index=0):
+    def getPoint(self, point_name: str, model_index: int = 0):
         point_path = point_name.split(":")
         if len(point_path) == 1:
             return self._models[model_index].points[point_name]
