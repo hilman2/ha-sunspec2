@@ -300,22 +300,64 @@ after toggle" symptom is gone.
    is the new canonical regression test for any future change that
    touches the entry lifecycle. Do not delete it.
 
-## Phase 5: Migration helper from upstream `sunspec` domain
+## Phase 5: Migration helper from upstream `sunspec` domain (done 2026-04-07)
 
-Goal: a user with `cjne/ha-sunspec` installed can install our integration and
-all existing entities get retargeted to the new domain automatically,
-preserving Recorder history.
+- [x] `migration.py` mit `migrate_from_cjne_sync()`: findet cjne config
+      entries die unsere host/port/unit_id matchen, walks die entity
+      registry, retargetet entities via `EntityRegistry.async_update_entity_platform`.
+      Atomarer platform/config_entry_id/unique_id rewrite, entity_id und
+      Recorder-History bleiben erhalten.
+- [x] `find_blocking_cjne_entries()` Conflict Guard: refused setup mit
+      `ConfigEntryNotReady` wenn cjne aktuell `ConfigEntryState.LOADED`
+      für dieselbe host/port/unit_id ist. Verhindert TCP-Race auf
+      Single-Slot-Invertern wie KACO Powador.
+- [x] Repairs Panel: `cjne_conflict` issue (translation_key, severity=ERROR,
+      is_fixable=False) mit voller 3-Schritte-Anleitung. Auto-cleared
+      sobald cjne weg ist und nächster setup retry erfolgreich ist.
+- [x] Persistent notifications: "SunSpec migration complete" auf success
+      mit Sensor-Zähler, "SunSpec migration blocked" auf partial-blocked
+      (defense in depth — sollte unter dem Conflict Guard nicht mehr
+      auftreten).
+- [x] `translations/en.json` und `de.json` erweitert um den
+      `cjne_conflict` issue key.
+- [x] 12 unit tests in `tests/test_migration.py` (8 für migration logic +
+      4 für conflict guard) und 3 integration tests in `tests/test_init.py`
+      (migration runs, blocked when cjne loaded, conflict issue cleared
+      after resolution).
 
-Technique:
-1. On `async_setup_entry`, check the entity registry for entities with
-   `platform == "sunspec"` matching the same host, port, unit_id.
-2. Rewrite each entity's platform to `sunspec2` and its unique_id prefix.
-3. Log one summary line per migrated entity.
-4. Show a persistent notification with a link to revert.
+Smoke-Test bestätigt vom User 2026-04-07 auf KACO Powador 7.8 TL3:
 
-Risk: this only works if our `unique_id` format matches upstream's exactly.
-Phase 4 must NOT change the unique_id format. A user who refuses
-auto-migration can install both side by side (different domains, no conflict).
+  1. cjne installiert mit Recorder-History → sunspec2 setup → Conflict
+     Guard greift, Repairs panel zeigt "cjne/ha-sunspec ist noch aktiv"
+     mit voller deutscher Anleitung, sunspec2 in "Setup retry" Status
+  2. cjne via HACS deinstalliert → HA Restart
+  3. sunspec2 retried automatisch → migration findet die orphans →
+     persistent notification: "SunSpec migration complete - 21 sensor(s)
+     were migrated from cjne/ha-sunspec to sunspec2. Their entity IDs
+     and Recorder history have been preserved"
+  4. Daten kommen unter den ALTEN entity_ids weiter rein → user keeps
+     all 21 sensors, all history, all dashboard / automation references
+
+Phase 5 USP achieved.
+
+### Phase 5 findings
+
+1. **Phase 4's `unique_id`-Format-Disziplin hat sich ausgezahlt.** Weil
+   wir das cjne format seit Phase 0 verbatim gehalten haben, war die
+   eigentliche Migration ein 4-Zeilen-`async_update_entity_platform`-Call.
+   Hätten wir das format in Phase 4 "verschönert", wäre Phase 5 ein
+   substantieller Eingriff in den Entity-Renderer geworden.
+
+2. **`async_update_entity_platform` ist die canonical HA-API** für
+   cross-integration migration. Der erste Explore-Agent hat sie
+   übersehen — ich musste den HA source direkt lesen um sie zu finden.
+   Lesson: bei kritischen API-fragen direkt den source lesen, nicht
+   nur den Doc-Ausgang vom Agent vertrauen.
+
+3. **`STATE_UNKNOWN`-Constraint** auf `async_update_entity_platform`
+   ist real und sinnvoll. Hat uns indirekt zum Conflict Guard gezwungen,
+   was die bessere UX war (sauberer Block + Auto-Retry vs. Daten-
+   Korruption durch parallele integrations).
 
 ## Phase 6: HACS release
 
