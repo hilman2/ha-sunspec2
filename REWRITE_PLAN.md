@@ -176,23 +176,51 @@ number ASCII strings.
    move this to the first step, or split capture out into its own
    options-flow step with a clearer label. Not a bug, just UX.
 
-## Phase 3: Coordinator error classification
+## Phase 3: Coordinator error classification (done 2026-04-07)
 
-Current code catches bare `Exception` in the coordinator and logs
-`_LOGGER.warning(exception)`. Worst case for debugging: no stack, no category,
-no actionable message.
+- [x] Typed exception hierarchy in `errors.py` (`SunSpecError` base +
+      `TransportError`, `ProtocolError`, `DeviceError`, `TransientError`).
+      `CATEGORIES` tuple as single source of truth.
+- [x] `api.py` raises typed errors at the boundary:
+      - `ModbusClientError` → `TransportError`
+      - `SunSpecModbusClientError` → `ProtocolError`
+      - `SunSpecModbusClientTimeout` → `TransientError`
+      - `SunSpecModbusClientException` → `DeviceError`
+      - `not is_connected()` / `not check_port()` → `TransportError`
+- [x] Old `ConnectionError` / `ConnectionTimeoutError` (which shadowed
+      Python builtins, cjne legacy) **deleted**. All 7 callers in
+      `config_flow.py` and tests updated atomically.
+- [x] `SunSpecDataUpdateCoordinator` now keeps `_recent_errors` as
+      `dict[str, deque[dict]]` (one deque per category, maxlen=20) plus
+      `_consecutive_failures: dict[str, int]` per category.
+- [x] `_record_error` helper appends to the matching deque, bumps the
+      counter, and triggers the Repairs hook if the threshold is crossed.
+- [x] Repairs panel integration via `homeassistant.helpers.issue_registry`:
+      - protocol errors fire on the **first occurrence** (config / hardware
+        compat problem, not a transient state)
+      - transport / device errors fire after **3 consecutive failures**
+        (filters out brief power glitches and short network blips)
+      - transient errors **never** escalate, only land in the buffer
+- [x] `_clear_repair_issues` is called on every successful update cycle
+      (so a recovered inverter drops out of the Repairs panel
+      automatically) and on `async_unload_entry` (so removing the
+      integration leaves no ghost issues).
+- [x] `translations/en.json` and `translations/de.json` bootstrapped
+      with three issue keys (`transport_error`, `protocol_error`,
+      `device_error`) - title plus actionable description, with host /
+      port / unit_id / error placeholders.
+- [x] Diagnostics dump shape evolved: `recent_errors` is now a dict
+      with 4 category keys, plus a new `consecutive_failures` top-level
+      field showing how close each category is to its Repairs threshold.
 
-- Split errors into:
-  - `TransportError`: TCP socket, Modbus framing, connection refused.
-  - `ProtocolError`: SunSpec base-address not found, unknown model, scan
-    returned junk.
-  - `DeviceError`: device responded, value is implausible (out of range,
-    wrong type).
-  - `TransientError`: one-shot timeouts that should retry with backoff.
-- Emit `ir.async_create_issue` for persistent `DeviceError` and `ProtocolError`
-  so they show up in the Repairs panel with an actionable fix suggestion.
-- Store last 20 errors per category in the coordinator for the diagnostics
-  dump.
+`_async_update_data` last-resort safety net catches any unclassified
+`Exception`, wraps it as `TransportError` and logs the full traceback,
+so we know to add an explicit category if the case recurs.
+
+Tests: 59/59 passing. The Phase-3 specific tests in `tests/test_errors.py`
+exercise the per-category routing, the consecutive-failure counter, the
+threshold-based repair issue creation for each category, the
+"transient never escalates" rule, and the clear-on-unload behaviour.
 
 ## Phase 4: Sensor platform cleanup
 
