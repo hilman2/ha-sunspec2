@@ -1,0 +1,33 @@
+version: 2
+updates:
+  # Keep our pinned pysunspec2 (and any future pip deps in manifest.json)
+  # in sync with upstream releases.
+  - package-ecosystem: pip
+    directory: /custom_components/sunspec2
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Europe/Berlin
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+    commit-message:
+      prefix: "chore"
+      include: scope
+
+  # Keep our GitHub Actions workflows up to date.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Europe/Berlin
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+      - ci
+    commit-message:
+      prefix: "ci"
+      include: scope

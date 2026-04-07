@@ -1,0 +1,84 @@
+name-template: "v$RESOLVED_VERSION"
+tag-template: "v$RESOLVED_VERSION"
+template: |
+  ## What's Changed
+
+  $CHANGES
+
+  **Full Changelog**: https://github.com/$OWNER/$REPOSITORY/compare/$PREVIOUS_TAG...v$RESOLVED_VERSION
+
+categories:
+  - title: "Breaking changes"
+    labels:
+      - "breaking"
+      - "major"
+  - title: "New features"
+    labels:
+      - "feature"
+      - "enhancement"
+  - title: "Bug fixes"
+    labels:
+      - "bug"
+      - "fix"
+  - title: "Maintenance"
+    labels:
+      - "chore"
+      - "refactor"
+  - title: "Documentation"
+    labels:
+      - "documentation"
+      - "docs"
+  - title: "Tests"
+    labels:
+      - "test"
+  - title: "Dependencies"
+    labels:
+      - "dependencies"
+
+change-template: "- $TITLE @$AUTHOR (#$NUMBER)"
+change-title-escapes: '\<*_&'
+
+version-resolver:
+  major:
+    labels:
+      - "major"
+      - "breaking"
+  minor:
+    labels:
+      - "minor"
+      - "feature"
+      - "enhancement"
+  patch:
+    labels:
+      - "patch"
+      - "bug"
+      - "fix"
+      - "chore"
+  default: patch
+
+# Auto-label PRs based on conventional commits in the title
+autolabeler:
+  - label: "breaking"
+    title:
+      - '/^(feat|fix|chore|refactor|docs)!:/i'
+  - label: "feature"
+    title:
+      - '/^feat(\(.*\))?:/i'
+  - label: "bug"
+    title:
+      - '/^fix(\(.*\))?:/i'
+  - label: "chore"
+    title:
+      - '/^chore(\(.*\))?:/i'
+  - label: "refactor"
+    title:
+      - '/^refactor(\(.*\))?:/i'
+  - label: "docs"
+    title:
+      - '/^docs(\(.*\))?:/i'
+  - label: "test"
+    title:
+      - '/^test(\(.*\))?:/i'
+  - label: "ci"
+    title:
+      - '/^ci(\(.*\))?:/i'
