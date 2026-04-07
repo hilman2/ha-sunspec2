@@ -131,9 +131,27 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 
 async def async_reload_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    """Reload config entry."""
-    await async_unload_entry(hass, entry)
-    await async_setup_entry(hass, entry)
+    """Reload config entry via HA's proper state machine.
+
+    Phase 4 hot-reload bug root cause: the hand-rolled
+    ``await async_unload_entry(...); await async_setup_entry(...)`` pattern
+    inherited from cjne stopped working in HA 2026.x because
+    ``coordinator.async_config_entry_first_refresh()`` (called from
+    ``async_setup_entry``) now strictly requires the entry state to be
+    ``SETUP_IN_PROGRESS``. Calling ``async_setup_entry`` directly from this
+    update listener leaves the entry in ``LOADED`` state, and the
+    first-refresh raises ``ConfigEntryError`` and the new coordinator never
+    finishes setup - so all sensors stay unavailable until the user
+    restarts HA entirely.
+
+    The CLIENT_CACHE refactor in commit ``e508460`` addressed a real
+    architectural problem (cross-instance shared state, orphan TCP
+    sockets) but it was not the cause of the user-visible "sensors die
+    after toggle" symptom. THIS is. The canonical HA pattern is to let
+    ``hass.config_entries.async_reload`` drive the state machine instead
+    of doing it by hand.
+    """
+    await hass.config_entries.async_reload(entry.entry_id)
 
 
 def get_sunspec_unique_id(
