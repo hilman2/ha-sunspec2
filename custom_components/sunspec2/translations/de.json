@@ -1,0 +1,16 @@
+{
+  "issues": {
+    "transport_error": {
+      "title": "SunSpec-Wechselrichter nicht erreichbar",
+      "description": "Die Integration kann den SunSpec-Wechselrichter unter {host}:{port} (Unit-ID {unit_id}) nicht erreichen. Drei Update-Zyklen in Folge sind fehlgeschlagen.\n\nLetzter Fehler: {error}\n\nZu prüfen:\n- Wechselrichter eingeschaltet?\n- Netzwerk erreichbar (versuche ping {host})\n- Firewall blockiert TCP-Port {port} nicht?\n- Kein anderer Modbus-Client belegt den einzigen TCP-Slot des Wechselrichters?"
+    },
+    "protocol_error": {
+      "title": "Gerät spricht kein SunSpec",
+      "description": "Die Integration erreicht das Gerät unter {host}:{port} (Unit-ID {unit_id}), aber es antwortet nicht als SunSpec-Gerät.\n\nLetzter Fehler: {error}\n\nZu prüfen:\n- Unterstützt das Gerät tatsächlich SunSpec? Manche Modbus-Geräte verwenden eine herstellerspezifische Registerbelegung\n- Ist die Unit-ID korrekt? Manche Wechselrichter nutzen 1, andere 0 oder 247\n- Ist die Firmware aktuell? Ältere Firmware-Versionen haben teils kaputte SunSpec-Implementierungen"
+    },
+    "device_error": {
+      "title": "Wechselrichter meldet eine Modbus-Exception",
+      "description": "Der SunSpec-Wechselrichter unter {host}:{port} (Unit-ID {unit_id}) hat mit einer Modbus-Exception geantwortet. Drei Update-Zyklen in Folge sind fehlgeschlagen.\n\nLetzter Fehler: {error}\n\nZu prüfen:\n- Ist der Wechselrichter in einem normalen Betriebszustand (kein Fehlermodus)?\n- Passen die aktivierten Modelle zu dem, was der Wechselrichter tatsächlich unterstützt?\n- Lade die Diagnose dieser Integration herunter und hänge sie an einen Bug-Report"
+    }
+  }
+}

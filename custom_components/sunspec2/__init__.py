@@ -13,6 +13,7 @@ import logging
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.core_config import Config
+from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from homeassistant.helpers.update_coordinator import UpdateFailed
 from homeassistant.util import dt as dt_util
@@ -114,6 +115,10 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     )
     if unloaded:
         coordinator = hass.data[DOMAIN].pop(entry.entry_id)
+        # Drop any Repairs panel issues this coordinator may have raised.
+        # Without this, removing the integration leaves ghost issues
+        # in Settings -> Repairs that the user can never clear.
+        coordinator._clear_repair_issues()
         # Close the TCP socket BEFORE we drop our references. KACO Powador
         # (and likely other inverters) only allow one Modbus TCP connection
         # at a time; without an explicit disconnect here a config entry
@@ -204,10 +209,12 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator):
             for model_id in model_ids:
                 data[model_id] = await self.api.async_get_data(model_id)
             self.api.close()
-            # Successful cycle: reset every consecutive-failure counter so
-            # the Repairs threshold check (commit 4) starts fresh.
+            # Successful cycle: reset every consecutive-failure counter
+            # and clear any active Repairs issues so a recovered inverter
+            # disappears from the panel automatically.
             for cat in self._consecutive_failures:
                 self._consecutive_failures[cat] = 0
+            self._clear_repair_issues()
             return data
         except SunSpecError as exc:
             self._record_error(exc)
@@ -230,9 +237,17 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator):
     def _record_error(self, exc: SunSpecError) -> None:
         """Append a categorised error to the matching ring buffer.
 
-        Bumps the per-category consecutive_failures counter. The Repairs
-        panel hook (commit 4) reads this counter to decide whether to
-        escalate.
+        Bumps the per-category consecutive_failures counter and, if the
+        threshold for the category is crossed, raises a Repairs panel
+        issue. Thresholds:
+
+          - protocol: 1 (configuration / hardware compatibility problem,
+            never a transient state, surface immediately)
+          - transport: 3 (transient blips like a brief power glitch
+            should not page the user)
+          - device:    3 (same reasoning - the inverter may briefly
+            return a fault during a state transition)
+          - transient: never escalates
         """
         cat = exc.category
         self._recent_errors[cat].append(
@@ -250,3 +265,46 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator):
             self._consecutive_failures[cat],
             exc,
         )
+        if cat == "transient":
+            return
+        threshold = 1 if cat == "protocol" else 3
+        if self._consecutive_failures[cat] >= threshold:
+            self._raise_repair_issue(cat, exc)
+
+    def _raise_repair_issue(self, category: str, exc: SunSpecError) -> None:
+        """Create or update the Repairs panel issue for this category.
+
+        Issue id is namespaced per config entry so multi-inverter installs
+        do not collapse into a single global issue. Translation key matches
+        ``<category>_error`` in translations/<lang>.json (commit 4).
+        """
+        issue_id = f"{self.entry.entry_id}_{category}"
+        ir.async_create_issue(
+            self.hass,
+            DOMAIN,
+            issue_id,
+            is_fixable=False,
+            severity=ir.IssueSeverity.ERROR,
+            translation_key=f"{category}_error",
+            translation_placeholders={
+                "host": str(self.entry.data.get(CONF_HOST, "?")),
+                "port": str(self.entry.data.get(CONF_PORT, "?")),
+                "unit_id": str(self.entry.data.get(CONF_UNIT_ID, "?")),
+                "error": str(exc),
+            },
+        )
+
+    def _clear_repair_issues(self) -> None:
+        """Delete every Repairs issue this coordinator may have raised.
+
+        Called on every successful update cycle (so a recovered inverter
+        clears the panel automatically) and on async_unload_entry (so
+        removing the integration does not leave ghost issues behind).
+        ``transient`` is excluded - it never raises issues to begin with.
+        """
+        for category in CATEGORIES:
+            if category == "transient":
+                continue
+            ir.async_delete_issue(
+                self.hass, DOMAIN, f"{self.entry.entry_id}_{category}"
+            )

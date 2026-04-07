@@ -1,0 +1,16 @@
+{
+  "issues": {
+    "transport_error": {
+      "title": "Cannot reach SunSpec inverter",
+      "description": "The integration cannot connect to the SunSpec inverter at {host}:{port} (unit ID {unit_id}). Three consecutive update cycles have failed.\n\nLast error: {error}\n\nThings to check:\n- The inverter is powered on\n- The inverter is reachable on the network (try ping {host})\n- No firewall is blocking TCP port {port}\n- No other Modbus client is hogging the inverter's single TCP slot"
+    },
+    "protocol_error": {
+      "title": "Device does not speak SunSpec",
+      "description": "The integration reached the device at {host}:{port} (unit ID {unit_id}) but it does not respond as a SunSpec device.\n\nLast error: {error}\n\nThings to check:\n- The device actually supports SunSpec (some Modbus devices use a vendor-specific register map)\n- The unit ID is correct (some inverters use unit ID 1, others use 0 or 247)\n- The device firmware is up to date - older firmware sometimes has broken SunSpec implementations"
+    },
+    "device_error": {
+      "title": "Inverter reports a Modbus exception",
+      "description": "The SunSpec inverter at {host}:{port} (unit ID {unit_id}) responded with a Modbus exception. Three consecutive update cycles have failed.\n\nLast error: {error}\n\nThings to check:\n- The inverter is in a normal operating state (not in fault mode)\n- The selected enabled models match what the inverter actually supports\n- Download diagnostics from this integration and attach them to a bug report"
+    }
+  }
+}
