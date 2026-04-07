@@ -6,10 +6,13 @@ https://github.com/cjne/ha-sunspec
 """
 
 import asyncio
+import logging
 from collections import deque
 from datetime import timedelta
-import logging
 
+from homeassistant.components.persistent_notification import (
+    async_create as async_create_notification,
+)
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.core_config import Config
@@ -18,8 +21,6 @@ from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from homeassistant.helpers.update_coordinator import UpdateFailed
 from homeassistant.util import dt as dt_util
-
-from homeassistant.components.persistent_notification import async_create as async_create_notification
 
 from .api import SunSpecApiClient
 from .const import CONF_CAPTURE_RAW

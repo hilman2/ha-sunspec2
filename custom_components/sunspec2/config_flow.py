@@ -2,10 +2,10 @@
 
 import logging
 
-from homeassistant import config_entries
-from homeassistant.core import callback
 import homeassistant.helpers.config_validation as cv
 import voluptuous as vol
+from homeassistant import config_entries
+from homeassistant.core import callback
 
 from . import SCAN_INTERVAL
 from .api import SunSpecApiClient

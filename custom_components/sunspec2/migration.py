@@ -36,11 +36,14 @@ from __future__ import annotations
 
 from typing import Any
 
-from homeassistant.config_entries import ConfigEntry, ConfigEntryState
+from homeassistant.config_entries import ConfigEntry
+from homeassistant.config_entries import ConfigEntryState
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
 
-from .const import CONF_HOST, CONF_PORT, CONF_UNIT_ID
+from .const import CONF_HOST
+from .const import CONF_PORT
+from .const import CONF_UNIT_ID
 
 CJNE_DOMAIN = "sunspec"
 """The legacy domain we migrate FROM."""

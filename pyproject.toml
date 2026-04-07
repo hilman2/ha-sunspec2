@@ -1,0 +1,68 @@
+[project]
+name = "ha-sunspec2"
+version = "0.7.0"
+description = "Home Assistant custom integration for SunSpec Modbus devices, brownfield rewrite of cjne/ha-sunspec."
+readme = "README.md"
+license = { file = "LICENSE" }
+requires-python = ">=3.13"
+authors = [{ name = "hilman2" }]
+keywords = ["home-assistant", "homeassistant", "sunspec", "modbus", "solar", "inverter", "kaco"]
+
+[project.urls]
+Homepage = "https://github.com/hilman2/ha-sunspec2"
+Issues = "https://github.com/hilman2/ha-sunspec2/issues"
+
+# ----------------------------------------------------------------------------
+# ruff: lint configuration
+# ----------------------------------------------------------------------------
+# This project is a HA custom integration. We follow the same baseline rules
+# as HA core (E, F, W, B, UP, I) but stay relaxed about a few things that
+# legacy carryover from cjne would otherwise trip on (line length, some
+# bug-bear rules). Phase 4 added type hints to the public surface but the
+# private state is still partially untyped, so mypy --strict is NOT enabled.
+# That is a Phase-6.x followup once the codebase has soaked.
+
+[tool.ruff]
+target-version = "py313"
+line-length = 100
+extend-exclude = [
+    "tests/test_data",
+]
+
+[tool.ruff.lint]
+select = [
+    "E",     # pycodestyle errors
+    "F",     # pyflakes
+    "W",     # pycodestyle warnings
+    "B",     # flake8-bugbear (catches a lot of real bugs)
+    "I",     # isort (import sort order)
+    "UP",    # pyupgrade (modern Python idioms)
+    "SIM",   # flake8-simplify (catches dead code, redundant if-else)
+]
+ignore = [
+    "E501",  # line too long - we use a soft 100 char limit but allow longer
+    "B008",  # function call as default argument - common in HA decorators
+    "SIM108",# ternary if/else can be cleaner as full if-else for readability
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Tests are allowed to break a few rules for clarity:
+# - F401: unused imports (fixtures look unused but are loaded by pytest)
+# - F811: redefined names (parametrize patterns)
+"tests/**" = ["F401", "F811", "B011", "B017"]
+
+[tool.ruff.lint.isort]
+force-single-line = true
+known-first-party = ["custom_components.sunspec2"]
+combine-as-imports = false
+
+# ----------------------------------------------------------------------------
+# pytest configuration
+# ----------------------------------------------------------------------------
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+filterwarnings = [
+    "ignore::DeprecationWarning",
+]

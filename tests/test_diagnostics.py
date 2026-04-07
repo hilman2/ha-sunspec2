@@ -1,11 +1,10 @@
 """Tests for the SunSpec 2 diagnostics platform."""
 
-from unittest.mock import Mock, patch
+from unittest.mock import Mock
+from unittest.mock import patch
 
 from custom_components.sunspec2.api import SunSpecApiClient
-from custom_components.sunspec2.diagnostics import (
-    async_get_config_entry_diagnostics,
-)
+from custom_components.sunspec2.diagnostics import async_get_config_entry_diagnostics
 
 from . import setup_mock_sunspec_config_entry
 

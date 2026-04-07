@@ -35,9 +35,7 @@ class SunSpecModelWrapper:
             return False
         if point.pdef["type"] in ("enum16", "bitfield32"):
             return True
-        if point.pdef.get("units", None) is None:
-            return False
-        return True
+        return point.pdef.get("units", None) is not None
 
     def getKeys(self) -> list[str]:
         keys = list(filter(self.isValidPoint, self._models[0].points.keys()))

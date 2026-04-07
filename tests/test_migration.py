@@ -9,11 +9,9 @@ from homeassistant.helpers import entity_registry as er
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.sunspec2.const import DOMAIN
-from custom_components.sunspec2.migration import (
-    CJNE_DOMAIN,
-    find_blocking_cjne_entries,
-    migrate_from_cjne_sync,
-)
+from custom_components.sunspec2.migration import CJNE_DOMAIN
+from custom_components.sunspec2.migration import find_blocking_cjne_entries
+from custom_components.sunspec2.migration import migrate_from_cjne_sync
 
 from .const import MOCK_CONFIG
 

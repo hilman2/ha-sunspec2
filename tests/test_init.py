@@ -1,20 +1,18 @@
 """Test SunSpec setup process."""
 
+import pytest
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.exceptions import ConfigEntryNotReady
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import issue_registry as ir
-import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.sunspec2 import SunSpecDataUpdateCoordinator
 from custom_components.sunspec2 import async_setup_entry
-from custom_components.sunspec2.const import (
-    CONF_CAPTURE_RAW,
-    CONF_ENABLED_MODELS,
-    CONF_SCAN_INTERVAL,
-    DOMAIN,
-)
+from custom_components.sunspec2.const import CONF_CAPTURE_RAW
+from custom_components.sunspec2.const import CONF_ENABLED_MODELS
+from custom_components.sunspec2.const import CONF_SCAN_INTERVAL
+from custom_components.sunspec2.const import DOMAIN
 from custom_components.sunspec2.migration import CJNE_DOMAIN
 
 from . import setup_mock_sunspec_config_entry

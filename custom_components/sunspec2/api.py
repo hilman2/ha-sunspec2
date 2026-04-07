@@ -6,8 +6,8 @@ import threading
 import time
 from types import SimpleNamespace
 
-from homeassistant.core import HomeAssistant
 import sunspec2.modbus.client as modbus_client
+from homeassistant.core import HomeAssistant
 from sunspec2.modbus.client import SunSpecModbusClientError
 from sunspec2.modbus.client import SunSpecModbusClientException
 from sunspec2.modbus.client import SunSpecModbusClientTimeout
@@ -104,7 +104,7 @@ class SunSpecApiClient:
         if self._client is None:
             return []
         return sorted(
-            m for m in self._client.models.keys() if isinstance(m, int)
+            m for m in self._client.models if isinstance(m, int)
         )
 
     async def async_get_data(self, model_id: int) -> SunSpecModelWrapper:

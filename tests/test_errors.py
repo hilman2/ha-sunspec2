@@ -10,14 +10,12 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 from custom_components.sunspec2 import SunSpecDataUpdateCoordinator
 from custom_components.sunspec2.api import SunSpecApiClient
 from custom_components.sunspec2.const import DOMAIN
-from custom_components.sunspec2.errors import (
-    CATEGORIES,
-    DeviceError,
-    ProtocolError,
-    SunSpecError,
-    TransientError,
-    TransportError,
-)
+from custom_components.sunspec2.errors import CATEGORIES
+from custom_components.sunspec2.errors import DeviceError
+from custom_components.sunspec2.errors import ProtocolError
+from custom_components.sunspec2.errors import SunSpecError
+from custom_components.sunspec2.errors import TransientError
+from custom_components.sunspec2.errors import TransportError
 
 from .const import MOCK_CONFIG
 

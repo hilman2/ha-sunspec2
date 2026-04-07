@@ -8,10 +8,8 @@ from typing import Any
 from homeassistant.components.sensor import RestoreSensor
 from homeassistant.components.sensor import SensorDeviceClass
 from homeassistant.components.sensor import SensorEntity
-from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.components.sensor import SensorStateClass
+from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import DEGREE
 from homeassistant.const import PERCENTAGE
 from homeassistant.const import UnitOfApparentPower
@@ -28,6 +26,8 @@ from homeassistant.const import UnitOfReactivePower
 from homeassistant.const import UnitOfSpeed
 from homeassistant.const import UnitOfTemperature
 from homeassistant.const import UnitOfTime
+from homeassistant.core import HomeAssistant
+from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from . import get_sunspec_unique_id
 from .const import CONF_PREFIX
@@ -83,7 +83,7 @@ async def async_setup_entry(
     sensors = []
     device_info = await coordinator.api.async_get_device_info()
     prefix = entry.options.get(CONF_PREFIX, entry.data.get(CONF_PREFIX, ""))
-    for model_id in coordinator.data.keys():
+    for model_id in coordinator.data:
         model_wrapper = coordinator.data[model_id]
         for key in model_wrapper.getKeys():
             for model_index in range(model_wrapper.num_models):
