@@ -2,6 +2,7 @@
 
 from homeassistant.core import HomeAssistant
 
+from custom_components.sunspec2.const import CONF_MAX_AC_POWER_KW
 from custom_components.sunspec2.sensor import ICON_DC_AMPS
 
 from . import TEST_INVERTER_MM_SENSOR_POWER_ENTITY_ID
@@ -12,7 +13,9 @@ from . import TEST_INVERTER_SENSOR_ENERGY_ENTITY_ID
 from . import TEST_INVERTER_SENSOR_POWER_ENTITY_ID
 from . import TEST_INVERTER_SENSOR_STATE_ENTITY_ID
 from . import TEST_INVERTER_SENSOR_VAR_ID
+from . import create_mock_sunspec_config_entry
 from . import setup_mock_sunspec_config_entry
+from .const import MOCK_CONFIG
 from .const import MOCK_CONFIG_MM
 from .const import MOCK_CONFIG_PREFIX
 
@@ -104,3 +107,41 @@ async def test_sensor_power_mm(hass: HomeAssistant, sunspec_client_mock) -> None
     entity_state = hass.states.get(TEST_INVERTER_MM_SENSOR_POWER_ENTITY_ID)
     assert entity_state
     assert entity_state.state == "9700"
+
+
+async def test_sensor_power_filtered_by_peak_limit(
+    hass: HomeAssistant, sunspec_client_mock
+) -> None:
+    """Power readings above the configured peak should be dropped.
+
+    The mock inverter reports 800 W on the model 103 power sensor. With a
+    configured peak of 0.5 kW (= 500 W) the reading is implausible, so the
+    sensor's native_value returns None and the entity ends up in
+    'unknown' / 'unavailable' state.
+    """
+    config_entry = create_mock_sunspec_config_entry(
+        hass,
+        data=MOCK_CONFIG,
+        options={CONF_MAX_AC_POWER_KW: 0.5},
+    )
+    await setup_mock_sunspec_config_entry(hass, config_entry=config_entry)
+
+    entity_state = hass.states.get(TEST_INVERTER_SENSOR_POWER_ENTITY_ID)
+    assert entity_state
+    assert entity_state.state in ("unknown", "unavailable")
+
+
+async def test_sensor_power_passes_through_when_below_limit(
+    hass: HomeAssistant, sunspec_client_mock
+) -> None:
+    """Power readings below the configured peak should pass through unchanged."""
+    config_entry = create_mock_sunspec_config_entry(
+        hass,
+        data=MOCK_CONFIG,
+        options={CONF_MAX_AC_POWER_KW: 10.0},
+    )
+    await setup_mock_sunspec_config_entry(hass, config_entry=config_entry)
+
+    entity_state = hass.states.get(TEST_INVERTER_SENSOR_POWER_ENTITY_ID)
+    assert entity_state
+    assert entity_state.state == "800"

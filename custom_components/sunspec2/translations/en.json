@@ -1,4 +1,19 @@
 {
+  "options": {
+    "step": {
+      "model_options": {
+        "title": "Device options",
+        "description": "Select which SunSpec models (data registers) you want sensors for. The peak AC power is optional and used to discard unrealistic values that some inverters report at dawn or dusk (e.g. spikes in the MW or TWh range). Leave it empty to disable filtering.",
+        "data": {
+          "prefix": "Sensor name prefix",
+          "scan_interval": "Scan interval (seconds)",
+          "models_enabled": "Enabled models",
+          "capture_raw_registers": "Capture raw modbus bytes for diagnostics",
+          "max_ac_power_kw": "Peak AC power of the inverter (kW, optional)"
+        }
+      }
+    }
+  },
   "issues": {
     "transport_error": {
       "title": "Cannot reach SunSpec inverter",

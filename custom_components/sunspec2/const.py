@@ -34,6 +34,20 @@ CONF_ENABLED_MODELS = "models_enabled"
 # bytes in api._captured_reads so users can attach a reproducible fixture
 # to bug reports via the diagnostics dump.
 CONF_CAPTURE_RAW = "capture_raw_registers"
+# Plausibility limit used to drop unrealistic values reported by inverters
+# at dawn / dusk (e.g. MW or TWh spikes that poison long-term statistics).
+# Optional - leaving the option empty disables the filter. The value is
+# used in two ways:
+#   * Power-like sensors (W / VA / VAr) are dropped if they exceed this
+#     value (in kW).
+#   * Energy sensors are dropped when the delta to the previous value would
+#     imply an instantaneous power above this value, with a safety factor.
+CONF_MAX_AC_POWER_KW = "max_ac_power_kw"
+# Safety factor applied when deriving the maximum plausible energy delta
+# from the configured peak power. Generous on purpose - we only want to
+# catch the really obvious garbage values (MW / TWh spikes), not legitimate
+# transients near the inverter's nameplate.
+ENERGY_DELTA_SAFETY_FACTOR = 2.0
 
 DEFAULT_MODELS = set(
     [

@@ -1,4 +1,19 @@
 {
+  "options": {
+    "step": {
+      "model_options": {
+        "title": "Geräteoptionen",
+        "description": "Wähle die SunSpec-Modelle (Datenregister), für die Sensoren erstellt werden sollen. Die Spitzen-AC-Leistung ist optional und dient dazu, unrealistische Werte zu verwerfen, die manche Wechselrichter bei Dämmerung melden (z.B. Spikes im MW- oder TWh-Bereich). Leer lassen, um den Filter zu deaktivieren.",
+        "data": {
+          "prefix": "Sensor-Namens-Präfix",
+          "scan_interval": "Scan-Intervall (Sekunden)",
+          "models_enabled": "Aktive Modelle",
+          "capture_raw_registers": "Rohe Modbus-Bytes für Diagnose mitschneiden",
+          "max_ac_power_kw": "Spitzen-AC-Leistung des Wechselrichters (kW, optional)"
+        }
+      }
+    }
+  },
   "issues": {
     "transport_error": {
       "title": "SunSpec-Wechselrichter nicht erreichbar",
