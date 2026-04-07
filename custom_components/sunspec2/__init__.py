@@ -92,7 +92,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
     )
 
     log = get_adapter(host, port, unit_id)
-    log.debug("Setup conifg entry for SunSpec")
+    log.debug("Setup config entry for SunSpec")
     coordinator = SunSpecDataUpdateCoordinator(hass, client=client, entry=entry)
     hass.data[DOMAIN][entry.entry_id] = coordinator
 

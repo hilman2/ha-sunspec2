@@ -120,11 +120,11 @@ class SunSpecSensor(SunSpecEntity, SensorEntity):
         self.use_device_class = ha_meta[2]
         self._options = []
         # Used if this is an energy sensor and the read value is 0
-        # Updated wheneve the value read is not 0
+        # Updated whenever the value read is not 0
         self.lastKnown = None
         self._assumed_state = False
 
-        self._uniqe_id = get_sunspec_unique_id(
+        self._unique_id = get_sunspec_unique_id(
             config_entry.entry_id, self.key, self.model_id, self.model_index
         )
 
@@ -165,7 +165,7 @@ class SunSpecSensor(SunSpecEntity, SensorEntity):
             self.model_id,
             data["prefix"],
             self._name,
-            self._uniqe_id,
+            self._unique_id,
             self.use_device_class,
             self.unit,
         )
@@ -173,7 +173,7 @@ class SunSpecSensor(SunSpecEntity, SensorEntity):
             _LOGGER.debug("Valid options for ENUM: %s", self._options)
 
     # def async_will_remove_from_hass(self):
-    #    _LOGGER.debug(f"Will remove sensor {self._uniqe_id}")
+    #    _LOGGER.debug(f"Will remove sensor {self._unique_id}")
 
     @property
     def options(self):
@@ -189,7 +189,7 @@ class SunSpecSensor(SunSpecEntity, SensorEntity):
     @property
     def unique_id(self):
         """Return a unique ID to use for this entity."""
-        return self._uniqe_id
+        return self._unique_id
 
     @property
     def assumed_state(self):
@@ -207,7 +207,7 @@ class SunSpecSensor(SunSpecEntity, SensorEntity):
             return None
         except OverflowError:
             self._log.warning(
-                "Math overflow error when retreiving calculated value for %s", self.key
+                "Math overflow error when retrieving calculated value for %s", self.key
             )
             return None
         vtype = self._meta["type"]

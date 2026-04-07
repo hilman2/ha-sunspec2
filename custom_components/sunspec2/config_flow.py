@@ -214,7 +214,7 @@ class SunSpecOptionsFlowHandler(config_entries.OptionsFlow):
         """Handle a flow initialized by the user."""
         if user_input is not None:
             self.settings.update(user_input)
-            _LOGGER.debug("Sunspec host setttins: %s", user_input)
+            _LOGGER.debug("Sunspec host settings: %s", user_input)
             return await self.async_step_model_options()
 
         return await self.show_settings_form()
