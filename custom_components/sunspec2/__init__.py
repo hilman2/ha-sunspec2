@@ -18,6 +18,8 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from homeassistant.helpers.update_coordinator import UpdateFailed
 from homeassistant.util import dt as dt_util
 
+from homeassistant.components.persistent_notification import async_create as async_create_notification
+
 from .api import SunSpecApiClient
 from .const import CONF_CAPTURE_RAW
 from .const import CONF_ENABLED_MODELS
@@ -33,6 +35,7 @@ from .errors import CATEGORIES
 from .errors import SunSpecError
 from .errors import TransportError
 from .logger import get_adapter
+from .migration import migrate_from_cjne_sync
 
 SCAN_INTERVAL = timedelta(seconds=30)
 
@@ -97,8 +100,77 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     hass.data[DOMAIN][entry.entry_id] = coordinator
 
     await coordinator.async_config_entry_first_refresh()
+
+    # Phase 5 user-value: if the user is migrating from cjne/ha-sunspec
+    # and has uninstalled it (entities are orphans in the registry, no
+    # live state), retarget those entities to our domain so the user
+    # keeps their entity ids and Recorder history. This MUST run before
+    # async_forward_entry_setups so any entity_id collisions in the
+    # platform setup that follows resolve to the migrated entity.
+    _maybe_migrate_from_cjne(hass, entry, log)
+
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     return True
+
+
+def _maybe_migrate_from_cjne(
+    hass: HomeAssistant, entry: ConfigEntry, log
+) -> None:
+    """Run the cjne→sunspec2 entity migration and emit notifications.
+
+    A thin wrapper around migration.migrate_from_cjne_sync that translates
+    its return tuple into log lines and persistent notifications. The
+    function is intentionally synchronous; every helper it calls is sync
+    and HA's persistent_notification.async_create is also a sync callback
+    despite the name.
+    """
+    migrated, skipped, errors = migrate_from_cjne_sync(hass, entry, log)
+
+    if migrated == 0 and not skipped and not errors:
+        return  # Quietly: nothing to do
+
+    if migrated > 0:
+        log.info("Migrated %d entities from cjne/ha-sunspec", migrated)
+        async_create_notification(
+            hass,
+            (
+                f"{migrated} sensor(s) were migrated from the cjne/ha-sunspec "
+                "integration to sunspec2. Their entity IDs and Recorder history "
+                "have been preserved.\n\n"
+                "If you have not done so already, you can now safely uninstall "
+                "the cjne/ha-sunspec integration via HACS."
+            ),
+            title="SunSpec migration complete",
+            notification_id=f"sunspec2_migration_{entry.entry_id}",
+        )
+
+    if skipped:
+        log.warning(
+            "%d cjne entities are still loaded (cjne integration is "
+            "running) and could not be migrated. Uninstall cjne/ha-sunspec "
+            "first.",
+            len(skipped),
+        )
+        affected_list = "\n".join(f"  - {e}" for e in skipped[:10])
+        if len(skipped) > 10:
+            affected_list += "\n  ..."
+        async_create_notification(
+            hass,
+            (
+                f"{len(skipped)} sensor(s) from cjne/ha-sunspec are still "
+                "active and could not be migrated to sunspec2.\n\n"
+                "To complete the migration:\n"
+                "1. Uninstall the cjne/ha-sunspec integration via HACS\n"
+                "2. Restart Home Assistant\n"
+                "3. Reload the SunSpec 2 integration\n\n"
+                f"Affected entities:\n{affected_list}"
+            ),
+            title="SunSpec migration blocked",
+            notification_id=f"sunspec2_migration_blocked_{entry.entry_id}",
+        )
+
+    if errors:
+        log.error("cjne migration produced errors: %s", errors)
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:

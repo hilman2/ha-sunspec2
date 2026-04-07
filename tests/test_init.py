@@ -2,6 +2,7 @@
 
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.exceptions import ConfigEntryNotReady
+from homeassistant.helpers import entity_registry as er
 import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
@@ -13,6 +14,7 @@ from custom_components.sunspec2.const import (
     CONF_SCAN_INTERVAL,
     DOMAIN,
 )
+from custom_components.sunspec2.migration import CJNE_DOMAIN
 
 from . import setup_mock_sunspec_config_entry
 from .const import MOCK_CONFIG
@@ -110,6 +112,51 @@ async def test_options_update_triggers_clean_reload(hass, sunspec_client_mock):
     assert isinstance(coordinator, SunSpecDataUpdateCoordinator)
     # The new (post-reload) coordinator picked up the new option.
     assert coordinator.api._capture_enabled is True
+
+
+async def test_setup_runs_cjne_migration_when_entries_present(
+    hass, sunspec_client_mock
+):
+    """async_setup_entry calls the cjne migration helper.
+
+    Phase 5 integration test: pre-populate the entity registry with an
+    orphan cjne entity matching our config, then run our normal setup,
+    and assert the entity has been retargeted to sunspec2 after setup.
+    Verifies that the migration helper is wired into the setup path.
+    """
+    # Stand up a fake cjne config entry + a registered entity in its
+    # platform namespace, BEFORE our setup runs.
+    cjne_entry = MockConfigEntry(
+        domain=CJNE_DOMAIN,
+        data={"host": "test_host", "port": 123, "unit_id": 1},
+        entry_id="cjne_existing",
+    )
+    cjne_entry.add_to_hass(hass)
+    registry = er.async_get(hass)
+    cjne_eid = registry.async_get_or_create(
+        "sensor",
+        CJNE_DOMAIN,
+        "cjne_existing_W-103-0",
+        suggested_object_id="inverter_three_phase_watts",
+        config_entry=cjne_entry,
+    ).entity_id
+
+    # Now run our normal setup.
+    our_entry = MockConfigEntry(
+        domain=DOMAIN, data=MOCK_CONFIG, entry_id="ours_with_migration"
+    )
+    our_entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(our_entry.entry_id)
+    await hass.async_block_till_done()
+
+    # The previously-cjne entity is now under our platform.
+    re_after = registry.async_get(cjne_eid)
+    assert re_after is not None
+    assert re_after.platform == "sunspec2"
+    assert re_after.config_entry_id == our_entry.entry_id
+    assert re_after.unique_id == f"{our_entry.entry_id}_W-103-0"
+    # entity_id (and therefore Recorder history) survived
+    assert re_after.entity_id == cjne_eid
 
 
 async def test_setup_entry_exception(hass, error_on_get_data):
