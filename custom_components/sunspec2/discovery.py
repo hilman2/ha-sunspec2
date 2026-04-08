@@ -69,6 +69,15 @@ SUNSPEC_VENDOR_OUIS: frozenset[str] = frozenset(
         "dc:57:26",  # Power-One (Italy, ABB Solar)
         "00:22:f2",  # SunPower Corp
         "34:ad:e4",  # Chint Power Systems
+        # Microchip Technology - generic embedded ethernet/wifi chip
+        # OUI used by KACO Powador (DE / Siemens) ethernet loggers,
+        # plus a few other inverter brands and a long tail of unrelated
+        # IoT devices. Match is therefore not specific to inverters,
+        # but on a typical home LAN the false-positive rate is low and
+        # for KACO users it is the only OUI that catches their device.
+        # The user picks from the candidate list anyway, so a stray
+        # Microchip-based device showing up is harmless.
+        "00:1e:c0",
     }
 )
 
