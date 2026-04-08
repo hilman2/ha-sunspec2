@@ -260,6 +260,17 @@ class SunSpecFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
     async def async_step_settings(self, user_input=None):
         self._errors = {}
         if user_input is not None:
+            # Reject empty model selections in the SETUP flow too. The
+            # OPTIONS flow has had this guard since v0.7.6, but the
+            # initial setup was missing it - if the user clicked
+            # through the form without ticking anything they would
+            # silently persist ``models_enabled: []`` to disk and the
+            # next coordinator reload would poll zero models, killing
+            # every sensor on the integration before they ever existed.
+            if not user_input.get(CONF_ENABLED_MODELS):
+                self._errors["base"] = "no_models_selected"
+                return await self._show_settings_form(user_input)
+
             self.init_info[CONF_PREFIX] = user_input[CONF_PREFIX]
             self.init_info[CONF_ENABLED_MODELS] = user_input[CONF_ENABLED_MODELS]
             self.init_info[CONF_SCAN_INTERVAL] = user_input[CONF_SCAN_INTERVAL]
@@ -325,7 +336,21 @@ class SunSpecFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
         # Reading the bundled pysunspec2 JSON files is sync IO so it
         # runs in an executor.
         model_filter = await self.hass.async_add_executor_job(sunspec_model_labels, models)
-        default_enabled = {model for model in DEFAULT_MODELS if model in models}
+        # Default-enabled MUST be a sorted list, not a set: HA's
+        # frontend serialises ``default`` straight to JSON and Python
+        # sets do not survive that round-trip in a way the multi-select
+        # widget can match against its option keys, so the field
+        # would render with no boxes ticked even though the right
+        # values are technically there. Sorted list = stable order
+        # in the UI and reliable pre-selection.
+        default_enabled = sorted(model for model in DEFAULT_MODELS if model in models)
+        # Preserve the user's previous picks across re-entry into the
+        # settings step (e.g. when we bounce them back with the
+        # no_models_selected error). Falling back to default_enabled
+        # otherwise.
+        if user_input is not None and user_input.get(CONF_ENABLED_MODELS):
+            current_selection = sorted(m for m in user_input[CONF_ENABLED_MODELS] if m in models)
+            default_enabled = current_selection or default_enabled
 
         suggested_peak = await self._probe_nameplate(models)
 
@@ -509,10 +534,12 @@ class SunSpecOptionsFlowHandler(config_entries.OptionsFlow):
             # "103". Reading the bundled pysunspec2 JSON files is
             # sync IO so it runs in an executor.
             model_filter = await self.hass.async_add_executor_job(sunspec_model_labels, models)
-            default_enabled = {model for model in DEFAULT_MODELS if model in models}
-            default_models = self.config_entry.options.get(CONF_ENABLED_MODELS, default_enabled)
-
-            default_models = {model for model in default_models if model in models}
+            # Sorted list, not set - see comment in
+            # _show_settings_form for why this matters for the
+            # frontend's pre-selection logic.
+            default_enabled = sorted(m for m in DEFAULT_MODELS if m in models)
+            persisted = self.config_entry.options.get(CONF_ENABLED_MODELS, default_enabled)
+            default_models = sorted(m for m in persisted if m in models)
             # If the persisted selection is empty (e.g. corrupted by the
             # v0.7.3 regression), pre-fill the multi-select with the
             # defaults so the user doesn't have to start from scratch.
