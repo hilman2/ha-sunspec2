@@ -198,6 +198,58 @@ class SunSpecApiClient:
     async def read(self, model_id: int) -> SunSpecModelWrapper:
         return await self._hass.async_add_executor_job(self.read_model, model_id)
 
+    async def async_write_point(self, model_id: int, point_name: str, value) -> None:
+        """Write a single point on a SunSpec model.
+
+        v0.12.0 EXPERIMENTAL: this is the only path the new Number /
+        Switch / service-action write features take. Resolves the
+        point on the live client, sets ``cvalue`` (which lets
+        pysunspec2 handle the scale-factor encoding for us), and
+        flushes via ``point.write()``. Each call ends up as a Modbus
+        write-multiple-registers request on the wire.
+
+        Errors translate into the same typed exception hierarchy the
+        read path uses, so the service handler / entity layer can
+        surface them as ``HomeAssistantError`` with consistent
+        messaging.
+        """
+        with_model = SunSpecLoggerAdapter(
+            self._log.logger, {**self._log.extra, "model_id": model_id}
+        )
+        with_model.debug("Write %s = %r", point_name, value)
+        try:
+            await self._hass.async_add_executor_job(
+                self._write_point_blocking, model_id, point_name, value
+            )
+        except SunSpecModbusClientTimeout as exc:
+            with_model.warning("Modbus write timeout")
+            raise TransientError(
+                f"Modbus write timeout for model {model_id} point {point_name}"
+            ) from exc
+        except SunSpecModbusClientException as exc:
+            with_model.warning("Modbus exception while writing")
+            raise DeviceError(
+                f"Modbus exception while writing model {model_id} point {point_name}: {exc}"
+            ) from exc
+
+    def _write_point_blocking(self, model_id: int, point_name: str, value) -> None:
+        client = self.get_client()
+        models = client.models.get(model_id)
+        if not models:
+            raise DeviceError(
+                f"Model {model_id} not present on this device, cannot write {point_name}"
+            )
+        # SunSpec model blocks can repeat (multiple MPPT modules etc.)
+        # but model 123 (immediate controls) is always a single
+        # instance per inverter, so we always target index 0.
+        model = models[0]
+        try:
+            point = model.points[point_name]
+        except KeyError as exc:
+            raise DeviceError(f"Point {point_name} not present in model {model_id}") from exc
+        point.cvalue = value
+        point.write()
+
     async def async_get_device_info(self) -> SunSpecModelWrapper:
         return await self.read(1)
 

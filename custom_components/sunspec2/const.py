@@ -4,7 +4,7 @@
 NAME = "SunSpec 2"
 DOMAIN = "sunspec2"
 DOMAIN_DATA = f"{DOMAIN}_data"
-VERSION = "0.11.1"
+VERSION = "0.12.0"
 
 ATTRIBUTION = "Data provided by SunSpec alliance - https://sunspec.org"
 ISSUE_URL = "https://github.com/hilman2/ha-sunspec2/issues"
@@ -17,7 +17,13 @@ BINARY_SENSOR_DEVICE_CLASS = "connectivity"
 
 # Platforms
 SENSOR = "sensor"
-PLATFORMS = [SENSOR]
+NUMBER = "number"
+SWITCH = "switch"
+# v0.12.0: write controls (Number, Switch) are kept off by default
+# and only forwarded when the user explicitly opts in via the
+# CONF_WRITE_BETA_ENABLED option. The sensor platform is always on.
+PLATFORMS = [SENSOR, NUMBER, SWITCH]
+PLATFORMS_READ_ONLY = [SENSOR]
 
 
 # Configuration and options
@@ -56,6 +62,33 @@ PARITY_EVEN = "E"
 # Sensible default for any inverter we have seen so far. Users with a
 # different setting can override during the serial setup step.
 DEFAULT_BAUDRATE = 9600
+
+# v0.12.0: experimental write support / inverter controls.
+#
+# Disabled by default. The user has to explicitly tick "Enable
+# experimental write controls (BETA)" in the options flow before any
+# Number / Switch entity from the write platforms shows up. Reason:
+# writing to a Modbus register on a real inverter is genuinely risky
+# (vendor-specific deviations from the SunSpec spec, persistence
+# semantics that vary between firmware revisions, the possibility
+# of locking yourself out of the inverter if the wrong combination
+# of registers is sent), and the integration owner has no test
+# hardware that exposes model 123 to validate the write path against.
+# Until at least one community tester has confirmed the path on real
+# hardware, every write entity is gated behind this flag and the
+# README carries a clear "EXPERIMENTAL" disclaimer.
+CONF_WRITE_BETA_ENABLED = "write_beta_enabled"
+
+# Standard SunSpec model that exposes the immediate-control points
+# we expose as writable Number / Switch entities. The integration
+# only registers write entities when this model is part of
+# coordinator.detected_models.
+WRITE_CONTROLS_MODEL_ID = 123
+
+# Service action names. The service handler reads the entry by
+# entry_id from the service-call data so multi-inverter installs
+# pick the right device.
+SERVICE_SET_EXPORT_LIMIT = "set_export_limit"
 # Phase 2 debugging-first: when True, the next scan also stores raw modbus
 # bytes in api._captured_reads so users can attach a reproducible fixture
 # to bug reports via the diagnostics dump.

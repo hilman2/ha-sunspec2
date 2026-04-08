@@ -3,6 +3,8 @@
 from unittest.mock import Mock
 from unittest.mock import patch
 
+import pytest
+
 from custom_components.sunspec2.api import SunSpecApiClient
 from custom_components.sunspec2.diagnostics import async_get_config_entry_diagnostics
 
@@ -214,3 +216,61 @@ async def test_known_models_returns_int_keys_only(hass):
     api._client = fake_client
 
     assert api.known_models() == [1, 103]
+
+
+# ---------------------------------------------------------------------------
+# v0.12.0: write support / inverter controls (BETA)
+# ---------------------------------------------------------------------------
+
+
+async def test_write_point_blocking_resolves_and_writes(hass):
+    """The blocking write path resolves model[0].points[name], assigns
+    cvalue, and calls .write() on the point.
+
+    No real client is involved - we hand-roll a fake client whose
+    ``models[123]`` returns a list with one model whose ``points``
+    map has the point we want to write. The test asserts the
+    cvalue assignment and the write() call.
+    """
+    api = SunSpecApiClient(host="test", port=502, unit_id=1, hass=hass)
+
+    fake_point = Mock()
+    fake_point.cvalue = None
+    fake_model = Mock()
+    fake_model.points = {"WMaxLimPct": fake_point}
+    fake_client = Mock()
+    fake_client.models = {123: [fake_model]}
+    api._client = fake_client
+
+    api._write_point_blocking(123, "WMaxLimPct", 50)
+
+    assert fake_point.cvalue == 50
+    fake_point.write.assert_called_once_with()
+
+
+async def test_write_point_blocking_raises_when_model_missing(hass):
+    """Writing to a model the inverter does not expose must raise DeviceError."""
+    from custom_components.sunspec2.errors import DeviceError
+
+    api = SunSpecApiClient(host="test", port=502, unit_id=1, hass=hass)
+    fake_client = Mock()
+    fake_client.models = {1: ["common"]}  # 123 is missing
+    api._client = fake_client
+
+    with pytest.raises(DeviceError, match="Model 123 not present"):
+        api._write_point_blocking(123, "WMaxLimPct", 50)
+
+
+async def test_write_point_blocking_raises_when_point_missing(hass):
+    """Writing a point the model doesn't have must raise DeviceError."""
+    from custom_components.sunspec2.errors import DeviceError
+
+    api = SunSpecApiClient(host="test", port=502, unit_id=1, hass=hass)
+    fake_model = Mock()
+    fake_model.points = {}  # no WMaxLimPct
+    fake_client = Mock()
+    fake_client.models = {123: [fake_model]}
+    api._client = fake_client
+
+    with pytest.raises(DeviceError, match="Point WMaxLimPct not present"):
+        api._write_point_blocking(123, "WMaxLimPct", 50)

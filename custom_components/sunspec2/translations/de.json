@@ -95,7 +95,8 @@
           "scan_interval": "Scan-Intervall (Sekunden)",
           "models_enabled": "Aktive Modelle",
           "capture_raw_registers": "Rohe Modbus-Bytes für Diagnose mitschneiden",
-          "max_ac_power_kw": "Spitzen-AC-Leistung des Wechselrichters (kW, optional)"
+          "max_ac_power_kw": "Spitzen-AC-Leistung des Wechselrichters (kW, optional)",
+          "write_beta_enabled": "Experimentelle Schreibsteuerung aktivieren (BETA - Number- / Switch-Entities und die set_export_limit Service Action). Standardmäßig aus. Lies die README bevor du das aktivierst - das Schreiben in das falsche Modbus-Register kann den Wechselrichter so verkonfigurieren dass nur noch ein physischer Reset hilft."
         }
       }
     },
@@ -105,6 +106,15 @@
     }
   },
   "entity": {
+    "number": {
+      "export_limit_pct": {"name": "Einspeise-Limit"},
+      "power_factor_set": {"name": "Leistungsfaktor-Sollwert"}
+    },
+    "switch": {
+      "export_limit_enabled": {"name": "Einspeise-Limit aktiv"},
+      "power_factor_enabled": {"name": "Leistungsfaktor-Sollwert aktiv"},
+      "inverter_grid_connection": {"name": "Wechselrichter mit Netz verbunden"}
+    },
     "sensor": {
       "amps": {"name": "AC-Strom"},
       "amps_l1": {"name": "AC-Strom L1"},

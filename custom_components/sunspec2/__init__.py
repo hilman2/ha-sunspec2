@@ -15,8 +15,10 @@ from homeassistant.components.persistent_notification import (
 )
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.core import ServiceCall
 from homeassistant.core_config import Config
 from homeassistant.exceptions import ConfigEntryNotReady
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
@@ -34,16 +36,20 @@ from .const import CONF_SCAN_INTERVAL
 from .const import CONF_SERIAL_PORT
 from .const import CONF_TRANSPORT
 from .const import CONF_UNIT_ID
+from .const import CONF_WRITE_BETA_ENABLED
 from .const import DEFAULT_BAUDRATE
 from .const import DEFAULT_MODELS
 from .const import DOMAIN
 from .const import INTERVAL_RETRY_DELAY_SECONDS
 from .const import PARITY_NONE
 from .const import PLATFORMS
+from .const import PLATFORMS_READ_ONLY
+from .const import SERVICE_SET_EXPORT_LIMIT
 from .const import STALE_DATA_TOLERANCE_CYCLES
 from .const import STARTUP_MESSAGE
 from .const import TRANSPORT_RTU
 from .const import TRANSPORT_TCP
+from .const import WRITE_CONTROLS_MODEL_ID
 from .errors import CATEGORIES
 from .errors import SunSpecError
 from .errors import TransportError
@@ -186,8 +192,67 @@ async def async_setup_entry(hass: HomeAssistant, entry: SunSpec2ConfigEntry) -> 
     # platform setup that follows resolve to the migrated entity.
     _maybe_migrate_from_cjne(hass, entry, log)
 
-    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    # v0.12.0: forward to the write platforms (number, switch) only
+    # when the user has opted in via CONF_WRITE_BETA_ENABLED. The
+    # individual number / switch async_setup_entry hooks each do
+    # their own check, so this is mostly a "don't even try"
+    # optimisation - the platform-level guards are the source of
+    # truth.
+    write_beta_enabled = entry.options.get(CONF_WRITE_BETA_ENABLED, False)
+    platforms_to_load = list(PLATFORMS) if write_beta_enabled else PLATFORMS_READ_ONLY
+    await hass.config_entries.async_forward_entry_setups(entry, platforms_to_load)
+
+    # Register the experimental write service action once per HA
+    # process (not per config entry). The handler routes by
+    # config_entry_id passed in the call data.
+    _async_register_services(hass)
+
     return True
+
+
+def _async_register_services(hass: HomeAssistant) -> None:
+    """Register the v0.12.0 write service actions, idempotently.
+
+    Service actions are HA-process-global, not per-config-entry, so
+    we only have to do this on the first config entry that loads.
+    The handlers route to the right entry by reading the
+    ``config_entry_id`` field from the service call.
+    """
+    if hass.services.has_service(DOMAIN, SERVICE_SET_EXPORT_LIMIT):
+        return
+
+    async def _async_set_export_limit(call: ServiceCall) -> None:
+        entry_id = call.data["config_entry_id"]
+        percent = call.data["percent"]
+        enable = call.data.get("enable", True)
+        target_entry = hass.config_entries.async_get_entry(entry_id)
+        if target_entry is None or target_entry.runtime_data is None:
+            raise HomeAssistantError(f"SunSpec config entry {entry_id} is not loaded")
+        if not target_entry.options.get(CONF_WRITE_BETA_ENABLED, False):
+            raise HomeAssistantError(
+                "Experimental write controls are not enabled for this entry. "
+                "Open the integration options and tick "
+                "'Enable experimental write controls (BETA)' first."
+            )
+        coordinator = target_entry.runtime_data
+        if WRITE_CONTROLS_MODEL_ID not in coordinator.detected_models:
+            raise HomeAssistantError(
+                f"Inverter does not expose SunSpec model {WRITE_CONTROLS_MODEL_ID} "
+                "(immediate controls), cannot set export limit."
+            )
+        try:
+            await coordinator.api.async_write_point(WRITE_CONTROLS_MODEL_ID, "WMaxLimPct", percent)
+            if enable:
+                await coordinator.api.async_write_point(WRITE_CONTROLS_MODEL_ID, "WMaxLim_Ena", 1)
+        except SunSpecError as exc:
+            raise HomeAssistantError(f"Failed to set export limit: {exc}") from exc
+        await coordinator.async_request_refresh()
+
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_SET_EXPORT_LIMIT,
+        _async_set_export_limit,
+    )
 
 
 def _maybe_migrate_from_cjne(hass: HomeAssistant, entry: ConfigEntry, log) -> None:
@@ -275,11 +340,16 @@ async def async_unload_entry(hass: HomeAssistant, entry: SunSpec2ConfigEntry) ->
     """Handle removal of an entry."""
 
     _LOGGER.debug("Unload entry %s", entry.entry_id)
+    # Unload the same platform set we forwarded to in
+    # async_setup_entry. The number / switch platforms only exist
+    # if the user opted in to the experimental write features.
+    write_beta_enabled = entry.options.get(CONF_WRITE_BETA_ENABLED, False)
+    platforms_to_unload = list(PLATFORMS) if write_beta_enabled else PLATFORMS_READ_ONLY
     unloaded = all(
         await asyncio.gather(
             *[
                 hass.config_entries.async_forward_entry_unload(entry, platform)
-                for platform in PLATFORMS
+                for platform in platforms_to_unload
             ]
         )
     )

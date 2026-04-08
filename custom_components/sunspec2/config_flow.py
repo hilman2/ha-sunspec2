@@ -24,6 +24,7 @@ from .const import CONF_SCAN_INTERVAL
 from .const import CONF_SERIAL_PORT
 from .const import CONF_TRANSPORT
 from .const import CONF_UNIT_ID
+from .const import CONF_WRITE_BETA_ENABLED
 from .const import DEFAULT_BAUDRATE
 from .const import DEFAULT_MODELS
 from .const import DOMAIN
@@ -745,6 +746,7 @@ class SunSpecOptionsFlowHandler(config_entries.OptionsFlow):
             if not default_models:
                 default_models = default_enabled
 
+            write_beta_enabled = self.config_entry.options.get(CONF_WRITE_BETA_ENABLED, False)
             schema: dict[Any, Any] = {
                 vol.Optional(CONF_PREFIX, default=prefix): str,
                 vol.Optional(CONF_SCAN_INTERVAL, default=scan_interval): int,
@@ -753,6 +755,10 @@ class SunSpecOptionsFlowHandler(config_entries.OptionsFlow):
                     default=default_models,
                 ): cv.multi_select(model_filter),
                 vol.Optional(CONF_CAPTURE_RAW, default=capture_raw): bool,
+                # v0.12.0 EXPERIMENTAL: opt-in for the write
+                # platforms (Number / Switch / service action) and
+                # the matching SunSpec model 123 entities.
+                vol.Optional(CONF_WRITE_BETA_ENABLED, default=write_beta_enabled): bool,
             }
             # Use suggested_value (not default) for the optional float so
             # the form field can stay genuinely empty - an empty value
