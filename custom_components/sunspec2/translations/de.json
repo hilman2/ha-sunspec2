@@ -2,12 +2,11 @@
   "config": {
     "step": {
       "user": {
-        "title": "SunSpec-Wechselrichter hinzufügen",
         "description": "Wie möchtest du deinen Wechselrichter einrichten?",
         "menu_options": {
-          "manual": "IP-Adresse manuell eingeben (Modbus TCP)",
-          "scan": "Mein Netzwerk durchsuchen (Modbus TCP)",
-          "serial": "Über serielle Schnittstelle verbinden (Modbus RTU)"
+          "manual": "Modbus TCP - IP manuell eingeben",
+          "scan": "Modbus TCP - Netzwerk durchsuchen",
+          "serial": "Modbus RTU - serielle Schnittstelle (RS-485)"
         }
       },
       "manual": {

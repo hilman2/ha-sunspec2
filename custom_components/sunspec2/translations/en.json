@@ -2,12 +2,11 @@
   "config": {
     "step": {
       "user": {
-        "title": "Add a SunSpec inverter",
         "description": "How would you like to set up your inverter?",
         "menu_options": {
-          "manual": "Enter IP address manually (Modbus TCP)",
-          "scan": "Scan my network for inverters (Modbus TCP)",
-          "serial": "Connect via serial port (Modbus RTU)"
+          "manual": "Modbus TCP - enter IP manually",
+          "scan": "Modbus TCP - scan my network",
+          "serial": "Modbus RTU - serial port (RS-485)"
         }
       },
       "manual": {
