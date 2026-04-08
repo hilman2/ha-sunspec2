@@ -1,5 +1,7 @@
 """Test SunSpec setup process."""
 
+from unittest.mock import patch
+
 import pytest
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.exceptions import ConfigEntryNotReady
@@ -13,10 +15,14 @@ from custom_components.sunspec2.const import CONF_CAPTURE_RAW
 from custom_components.sunspec2.const import CONF_ENABLED_MODELS
 from custom_components.sunspec2.const import CONF_SCAN_INTERVAL
 from custom_components.sunspec2.const import DOMAIN
+from custom_components.sunspec2.const import STALE_DATA_TOLERANCE_CYCLES
+from custom_components.sunspec2.errors import TransportError
 from custom_components.sunspec2.migration import CJNE_DOMAIN
 
+from . import TEST_INVERTER_PREFIX_SENSOR_DC_ENTITY_ID
 from . import setup_mock_sunspec_config_entry
 from .const import MOCK_CONFIG
+from .const import MOCK_CONFIG_PREFIX
 
 
 def set_entry_setup_in_progress(hass, config_entry: MockConfigEntry) -> None:
@@ -405,3 +411,164 @@ async def test_migrate_entry_version_2_no_migration_needed(hass):
     assert config_entry.version == 2
     assert "unit_id" in config_entry.data
     assert config_entry.data["unit_id"] == 5
+
+
+# ---------------------------------------------------------------------------
+# Resilience: in-cycle retry + stale-data tolerance
+# ---------------------------------------------------------------------------
+#
+# Inverters frequently see flaky network connectivity. The coordinator
+# absorbs that by (a) retrying a failed cycle once after a short pause and
+# (b) keeping the entity "available" with the last good value through up
+# to STALE_DATA_TOLERANCE_CYCLES consecutive failures. The four tests
+# below pin every branch of that contract.
+
+
+async def test_in_cycle_retry_recovers_after_first_failure(
+    hass, sunspec_client_mock, monkeypatch
+):
+    """First read of a cycle fails, retry succeeds -> cycle counts as good.
+
+    The whole point of the in-cycle retry is to swallow a single transient
+    blip without burning a coordinator failure or bumping any of the
+    Repairs-panel counters. Uses the model-160-only config because the
+    full MOCK_CONFIG also enables model 103, whose Evt1 bitfield32 sensor
+    has multiple bits set in the test fixture and trips a pre-existing
+    HA ENUM-validation error during async_write_ha_state - unrelated to
+    the resilience contract under test here.
+    """
+    # Drop the retry sleep to zero so the test runs in milliseconds
+    # instead of waiting on the production 5-second pause.
+    monkeypatch.setattr("custom_components.sunspec2.INTERVAL_RETRY_DELAY_SECONDS", 0)
+
+    config_entry = await setup_mock_sunspec_config_entry(hass, MOCK_CONFIG_PREFIX)
+    coordinator = hass.data[DOMAIN][config_entry.entry_id]
+    assert coordinator.data is not None
+
+    real_get_data = coordinator.api.async_get_data
+    fail_state = {"raised": False}
+
+    async def flaky_get_data(model_id):
+        if not fail_state["raised"]:
+            fail_state["raised"] = True
+            raise TransportError("simulated one-shot blip")
+        return await real_get_data(model_id)
+
+    with patch.object(coordinator.api, "async_get_data", side_effect=flaky_get_data):
+        await coordinator.async_refresh()
+
+    # Cycle is recorded as successful and the stale-data counter never
+    # left zero, so no Repairs issue can fire from this.
+    assert coordinator.last_update_success is True
+    assert coordinator.consecutive_failed_cycles == 0
+    assert fail_state["raised"] is True
+
+
+async def test_in_cycle_retry_exhausted_marks_cycle_failed(
+    hass, sunspec_client_mock, monkeypatch
+):
+    """Both attempts fail -> UpdateFailed and consecutive_failed_cycles bumps.
+
+    Pinned because if the retry path silently swallowed the second
+    failure we would never escalate to "unavailable" - the user would
+    just see a frozen sensor forever.
+    """
+    monkeypatch.setattr("custom_components.sunspec2.INTERVAL_RETRY_DELAY_SECONDS", 0)
+
+    config_entry = await setup_mock_sunspec_config_entry(hass, MOCK_CONFIG_PREFIX)
+    coordinator = hass.data[DOMAIN][config_entry.entry_id]
+    assert coordinator.consecutive_failed_cycles == 0
+
+    with patch.object(
+        coordinator.api,
+        "async_get_data",
+        side_effect=TransportError("permanent blip"),
+    ):
+        await coordinator.async_refresh()
+
+    assert coordinator.last_update_success is False
+    assert coordinator.consecutive_failed_cycles == 1
+
+
+async def test_first_refresh_failure_skips_retry_delay(hass, sunspec_client_mock):
+    """A failed first refresh must NOT trigger the in-cycle retry path.
+
+    Setting up against an unreachable inverter has to fail fast so HA
+    can raise ConfigEntryNotReady and let its standard exponential
+    backoff drive the retry. If the in-cycle retry kicked in here every
+    setup attempt would burn an extra INTERVAL_RETRY_DELAY_SECONDS - and
+    over the lifetime of HA's backoff that adds up to a lot of needless
+    waiting before the user sees the "this is broken" indicator.
+
+    We assert call_count == 1 on async_get_data: a single call followed
+    by an immediate fall-through to ConfigEntryNotReady. If the retry
+    path leaked into the first-refresh code we would see two calls
+    (the original plus the retry attempt).
+    """
+    config_entry = MockConfigEntry(
+        domain=DOMAIN, data=MOCK_CONFIG, entry_id="first_refresh_fast_fail"
+    )
+    config_entry.add_to_hass(hass)
+    set_entry_setup_in_progress(hass, config_entry)
+
+    with patch(
+        "custom_components.sunspec2.SunSpecApiClient.async_get_data",
+        side_effect=TransportError("first refresh blip"),
+    ) as get_data_mock:
+        with pytest.raises(ConfigEntryNotReady):
+            await async_setup_entry(hass, config_entry)
+
+    assert get_data_mock.call_count == 1
+
+
+async def test_stale_data_tolerance_keeps_sensor_available(
+    hass, sunspec_client_mock, monkeypatch
+):
+    """Sensors keep the last value while consecutive failures stay <= N.
+
+    Walks the coordinator from a healthy state through
+    STALE_DATA_TOLERANCE_CYCLES + 1 consecutive failed cycles. Up to and
+    including the threshold the DC current sensor must keep the
+    previously read "90" value; the very next failed cycle finally tips
+    the entity over to "unavailable". Uses MOCK_CONFIG_PREFIX (model 160
+    only) to side-step the unrelated model-103 ENUM bitfield issue.
+    """
+    monkeypatch.setattr("custom_components.sunspec2.INTERVAL_RETRY_DELAY_SECONDS", 0)
+
+    config_entry = await setup_mock_sunspec_config_entry(hass, MOCK_CONFIG_PREFIX)
+    coordinator = hass.data[DOMAIN][config_entry.entry_id]
+    # Sanity-check the seed state - the mocked inverter reports DCA=90
+    # on the first MPPT module, so that's the value the stale-data path
+    # is meant to keep alive across failures.
+    initial_state = hass.states.get(TEST_INVERTER_PREFIX_SENSOR_DC_ENTITY_ID)
+    assert initial_state is not None
+    assert initial_state.state == "90"
+
+    with patch.object(
+        coordinator.api,
+        "async_get_data",
+        side_effect=TransportError("blip"),
+    ):
+        for n in range(1, STALE_DATA_TOLERANCE_CYCLES + 1):
+            await coordinator.async_refresh()
+            assert coordinator.last_update_success is False
+            assert coordinator.consecutive_failed_cycles == n
+            stale_state = hass.states.get(TEST_INVERTER_PREFIX_SENSOR_DC_ENTITY_ID)
+            assert stale_state.state == "90", (
+                f"sensor flipped to {stale_state.state!r} after only "
+                f"{n} failed cycles, expected stale value to survive"
+            )
+
+        # One more failure tips us past the tolerance.
+        await coordinator.async_refresh()
+        assert coordinator.consecutive_failed_cycles == STALE_DATA_TOLERANCE_CYCLES + 1
+        unavailable_state = hass.states.get(TEST_INVERTER_PREFIX_SENSOR_DC_ENTITY_ID)
+        assert unavailable_state.state == "unavailable"
+
+    # Recovery: the next successful read must immediately reset the
+    # stale-data counter and bring the sensor back to a fresh value.
+    await coordinator.async_refresh()
+    assert coordinator.last_update_success is True
+    assert coordinator.consecutive_failed_cycles == 0
+    recovered_state = hass.states.get(TEST_INVERTER_PREFIX_SENSOR_DC_ENTITY_ID)
+    assert recovered_state.state == "90"

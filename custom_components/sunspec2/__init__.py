@@ -32,7 +32,9 @@ from .const import CONF_SCAN_INTERVAL
 from .const import CONF_UNIT_ID
 from .const import DEFAULT_MODELS
 from .const import DOMAIN
+from .const import INTERVAL_RETRY_DELAY_SECONDS
 from .const import PLATFORMS
+from .const import STALE_DATA_TOLERANCE_CYCLES
 from .const import STARTUP_MESSAGE
 from .errors import CATEGORIES
 from .errors import SunSpecError
@@ -320,6 +322,13 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator):
         # panel threshold (Phase 3 commit 4): protocol fires at 1, the
         # others at 3. Resets to 0 across the board on the next success.
         self._consecutive_failures: dict[str, int] = {cat: 0 for cat in CATEGORIES}
+        # Counts how many consecutive scheduled update cycles have failed
+        # (after the in-cycle retry was already exhausted). Drives the
+        # entity-side stale-data tolerance: as long as this stays at or
+        # below STALE_DATA_TOLERANCE_CYCLES, sensors keep serving the
+        # last successfully read value via SunSpecEntity.available
+        # instead of flipping to "unavailable" on every transient blip.
+        self.consecutive_failed_cycles: int = 0
 
         self._log.debug("Data: %s", entry.data)
         self._log.debug("Options: %s", entry.options)
@@ -348,52 +357,122 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator):
         )
 
     async def _async_update_data(self):
-        """Update data via library.
+        """Update data via library, with one in-cycle retry on failure.
 
-        The entire connect/read/close cycle is held under the per-gateway
-        lock so two coordinators sharing the same TCP endpoint never have
-        an open connection at the same time. See ``_GATEWAY_LOCKS``.
+        Inverters and Modbus TCP gateways have famously flaky network
+        connectivity. A single fast retry catches most one-shot blips
+        before HA marks the coordinator as failed and the entity flips
+        to "unavailable". The retry only kicks in once at least one
+        cycle has succeeded - first-refresh failures fall straight
+        through to ConfigEntryNotReady so HA's standard exponential
+        backoff can take over instead of having every setup attempt
+        block for an extra ``INTERVAL_RETRY_DELAY_SECONDS``.
+
+        The connect/read/close cycle is held under the per-gateway lock
+        (see ``_GATEWAY_LOCKS``). The lock is released across the
+        retry sleep so other coordinators sharing the same TCP endpoint
+        can poll in the meantime.
         """
         self._log.debug("Update data coordinator update")
-        async with self._gateway_lock:
-            data = {}
-            try:
-                model_ids = self.option_model_filter & set(await self.api.async_get_models())
-                self._log.debug("Update data got models %s", model_ids)
+        first_err: BaseException | None = None
+        try:
+            async with self._gateway_lock:
+                data = await self._run_one_update_cycle()
+            return self._after_successful_cycle(data)
+        except Exception as exc:  # noqa: BLE001 - dispatched below
+            first_err = exc
 
-                # Fetch common model 1 once per process under the lock so
-                # the sensor platform setup can read device metadata
-                # without opening a second TCP slot. Re-reading it on
-                # every cycle would be wasteful - the device info never
-                # changes for a given physical inverter.
-                if self.device_info is None:
-                    self.device_info = await self.api.async_get_data(1)
+        # First refresh: no prior data exists, no point sleeping for
+        # an in-cycle retry. Fail fast and let HA handle the retry via
+        # ConfigEntryNotReady's exponential backoff.
+        if self.data is None:
+            return self._after_failed_cycle(first_err)
 
-                for model_id in model_ids:
-                    data[model_id] = await self.api.async_get_data(model_id)
-                self.api.close()
-                # Successful cycle: reset every consecutive-failure counter
-                # and clear any active Repairs issues so a recovered inverter
-                # disappears from the panel automatically.
-                for cat in self._consecutive_failures:
-                    self._consecutive_failures[cat] = 0
-                self._clear_repair_issues()
-                return data
-            except SunSpecError as exc:
-                self._record_error(exc)
-                self.api.reconnect_next()
-                raise UpdateFailed(str(exc)) from exc
-            except Exception as exc:  # noqa: BLE001 - last-resort safety net
-                # Unclassified exception: record as transport (most likely
-                # cause for an unexpected failure in the modbus path) and log
-                # the full traceback so we know to add an explicit category
-                # if this happens repeatedly.
-                self._log.exception("Unclassified exception in update loop")
-                wrapped = TransportError(f"Unclassified: {exc.__class__.__name__}: {exc}")
-                wrapped.__cause__ = exc
-                self._record_error(wrapped)
-                self.api.reconnect_next()
-                raise UpdateFailed(str(exc)) from exc
+        self._log.warning(
+            "Update cycle failed (%s: %s); retrying in %ds",
+            first_err.__class__.__name__,
+            first_err,
+            INTERVAL_RETRY_DELAY_SECONDS,
+        )
+        # Force a fresh client on the next attempt; sleep WITHOUT the
+        # gateway lock so other coordinators on the same gateway can
+        # use the slot during the wait.
+        self.api.reconnect_next()
+        await asyncio.sleep(INTERVAL_RETRY_DELAY_SECONDS)
+        try:
+            async with self._gateway_lock:
+                data = await self._run_one_update_cycle()
+        except Exception as second_err:  # noqa: BLE001 - dispatched below
+            return self._after_failed_cycle(second_err)
+        return self._after_successful_cycle(data)
+
+    async def _run_one_update_cycle(self):
+        """Single connect/read/close attempt. Caller holds the gateway lock.
+
+        Returns the freshly-read data dict on success and re-raises any
+        exception untouched on failure - bookkeeping (error categorisation,
+        Repairs issues, failure counters) is the caller's job so the
+        in-cycle retry can swallow a transient first failure without
+        inflating the per-category thresholds.
+        """
+        data = {}
+        model_ids = self.option_model_filter & set(await self.api.async_get_models())
+        self._log.debug("Update data got models %s", model_ids)
+
+        # Fetch common model 1 once per process under the lock so
+        # the sensor platform setup can read device metadata
+        # without opening a second TCP slot. Re-reading it on
+        # every cycle would be wasteful - the device info never
+        # changes for a given physical inverter.
+        if self.device_info is None:
+            self.device_info = await self.api.async_get_data(1)
+
+        for model_id in model_ids:
+            data[model_id] = await self.api.async_get_data(model_id)
+        self.api.close()
+        return data
+
+    def _after_successful_cycle(self, data):
+        """Reset failure bookkeeping after a successful read."""
+        self.consecutive_failed_cycles = 0
+        for cat in self._consecutive_failures:
+            self._consecutive_failures[cat] = 0
+        self._clear_repair_issues()
+        return data
+
+    def _after_failed_cycle(self, exc):
+        """Record a failed cycle and raise UpdateFailed.
+
+        Wraps unclassified exceptions as TransportError before recording
+        them so the diagnostics dump always sees a categorised entry.
+        Pass the exception explicitly because this helper may be called
+        from outside the original ``except`` block (after the in-cycle
+        retry path), where ``sys.exc_info()`` is no longer set.
+        """
+        if isinstance(exc, SunSpecError):
+            wrapped = exc
+        else:
+            self._log.error(
+                "Unclassified exception in update loop: %s",
+                exc,
+                exc_info=exc,
+            )
+            wrapped = TransportError(f"Unclassified: {exc.__class__.__name__}: {exc}")
+            wrapped.__cause__ = exc
+        self._record_error(wrapped)
+        self.api.reconnect_next()
+        self.consecutive_failed_cycles += 1
+        # HA's DataUpdateCoordinator._async_refresh stops dispatching
+        # listeners on consecutive failures (it early-returns when both
+        # the previous and the current refresh failed). That means the
+        # entity state would never get a chance to flip from "stale
+        # value" to "unavailable" once we exhaust the tolerance window
+        # - it would just freeze on the last good value forever. Drive
+        # the transition ourselves so the user actually sees the sensor
+        # go unavailable when the inverter has been gone too long.
+        if self.consecutive_failed_cycles == STALE_DATA_TOLERANCE_CYCLES + 1:
+            self.async_update_listeners()
+        raise UpdateFailed(str(wrapped)) from exc
 
     def _record_error(self, exc: SunSpecError) -> None:
         """Append a categorised error to the matching ring buffer.

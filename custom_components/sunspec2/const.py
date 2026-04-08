@@ -4,7 +4,7 @@
 NAME = "SunSpec 2"
 DOMAIN = "sunspec2"
 DOMAIN_DATA = f"{DOMAIN}_data"
-VERSION = "0.7.3"
+VERSION = "0.7.4"
 
 ATTRIBUTION = "Data provided by SunSpec alliance - https://sunspec.org"
 ISSUE_URL = "https://github.com/hilman2/ha-sunspec2/issues"
@@ -48,6 +48,23 @@ CONF_MAX_AC_POWER_KW = "max_ac_power_kw"
 # catch the really obvious garbage values (MW / TWh spikes), not legitimate
 # transients near the inverter's nameplate.
 ENERGY_DELTA_SAFETY_FACTOR = 2.0
+
+# Resilience: when an update cycle fails after the integration is already
+# running, wait this many seconds and retry the cycle once before giving
+# up. Inverters and Modbus TCP gateways have famously flaky connectivity
+# and a single fast retry catches most one-shot blips before HA marks the
+# coordinator as failed. The first refresh during setup deliberately does
+# NOT use this retry - first-refresh failure raises ConfigEntryNotReady
+# and HA's own exponential backoff takes over.
+INTERVAL_RETRY_DELAY_SECONDS = 5
+
+# Resilience: keep serving the last successfully-read value through the
+# entity's `available` property for up to this many consecutive failed
+# update cycles before flipping to "unavailable". With the default 30s
+# scan interval and the 5s in-cycle retry, this rides out roughly three
+# minutes of dropped connectivity without bouncing the long-term
+# statistics graphs to "unknown".
+STALE_DATA_TOLERANCE_CYCLES = 5
 
 DEFAULT_MODELS = set(
     [
