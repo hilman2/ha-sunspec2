@@ -21,7 +21,22 @@ from .logger import SunSpecLoggerAdapter
 from .logger import get_adapter
 from .models import SunSpecModelWrapper
 
-TIMEOUT = 120
+# Modbus TCP socket timeout (seconds). Used by pysunspec2 for both the
+# initial TCP connect and every subsequent register read on this client.
+#
+# Was 120 historically, which is wildly too generous: when the inverter
+# silently dropped the link, every coordinator update would block the
+# event loop for two full minutes per cycle waiting on a connect that
+# was never going to come back. With a 30s scan interval that meant a
+# single bad cycle delayed three normal cycles, and the per-gateway
+# lock starved any other config entry behind the same TCP endpoint.
+#
+# 10s is the new ceiling: an inverter that has not answered after ten
+# seconds is gone, full stop. The in-cycle retry in the coordinator
+# (5s sleep then one more attempt) and the stale-data tolerance in the
+# entity available property cover the actual flaky-network case much
+# better than a long socket timeout ever did.
+TIMEOUT = 10
 
 _LOGGER: logging.Logger = logging.getLogger(__package__)
 
