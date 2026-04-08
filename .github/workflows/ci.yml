@@ -1,10 +1,29 @@
 name: CI
 
+# Triggers, in order of frequency:
+#
+# - pull_request: every PR against main runs the full suite. This is
+#   the gate that branch protection requires before merge.
+#
+# - push tags: tag pushes (vX.Y.Z) run CI on the tag commit so the
+#   release workflow has a status check to wait on. Without this the
+#   release gate would have nothing to verify against.
+#
+# - workflow_dispatch: manual trigger for one-off debugging.
+#
+# Notably absent: `push: branches: [main]`. After a PR squash-merges
+# to main, the new main commit's tree is identical to the PR head that
+# was just verified, so re-running CI on main produces no new
+# information and burns ~2 minutes of runner time per PR. The branch
+# protection rules on main with `strict: true` ensure the PR head is
+# always rebased onto the latest main before merge, so there is no
+# "stale-base" gap to worry about.
 on:
-  push:
-    branches: [main]
   pull_request:
     branches: [main]
+  push:
+    tags:
+      - 'v*'
   workflow_dispatch:
 
 jobs:
