@@ -22,6 +22,9 @@ from .const import CONF_SCAN_INTERVAL
 from .const import CONF_UNIT_ID
 from .const import DEFAULT_MODELS
 from .const import DOMAIN
+from .discovery import SunSpecCandidate
+from .discovery import async_discover_sunspec_candidates
+from .discovery import async_get_default_subnet
 from .errors import DeviceError
 from .errors import ProtocolError
 from .errors import TransientError
@@ -97,21 +100,23 @@ class SunSpecFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
     def __init__(self):
         """Initialize."""
         self._errors = {}
-        # Pre-filled IP from a DHCP discovery, if any. The user step
-        # uses this as the default for the host field so the user just
-        # needs to confirm port and unit ID.
+        # Pre-filled IP from a DHCP discovery or a network-scan pick.
+        # The manual step uses this as the default for the host field so
+        # the user just needs to confirm port and unit ID.
         self._discovered_host: str | None = None
+        # Cached scan result so async_step_scan_results can render the
+        # picker without re-scanning.
+        self._scan_results: list[SunSpecCandidate] = []
 
     async def async_step_dhcp(self, discovery_info):
         """Handle a DHCP discovery for a known SunSpec inverter vendor.
 
-        The matching MAC OUI list lives in manifest.json. When HA sees
-        a lease whose MAC matches one of those prefixes, it calls this
-        handler with the discovered IP. We pre-fill the user form with
-        that IP and let the user confirm port (default 502) and unit
-        ID (default 1) - we cannot probe the device here without
-        risking a race against any other Modbus client on the network,
-        and the user knows their unit ID anyway.
+        Best-effort second path: most home routers hand out 8 h+
+        leases and most users put their inverter on a fixed IP, so
+        DHCP discovery rarely fires in practice. The active
+        ``async_step_scan`` path is the one that actually works for
+        the typical home setup. We keep DHCP around because when it
+        does fire it costs the user zero clicks.
         """
         host = discovery_info.ip
         _LOGGER.debug(
@@ -133,7 +138,7 @@ class SunSpecFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
                 return self.async_abort(reason="already_configured")
 
         self._discovered_host = host
-        return await self.async_step_user()
+        return await self.async_step_manual()
 
     def _get_unique_id(self, host, port, unit_id):
         """Build a stable unique ID even when device serial data is missing."""
@@ -153,7 +158,27 @@ class SunSpecFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
         return str(uid)
 
     async def async_step_user(self, user_input=None):
-        """Handle a flow initialized by the user."""
+        """Initial entry: ask whether to enter the IP manually or scan.
+
+        Manual is the safe default for users who already know their
+        inverter's IP (the typical case for fixed-IP setups). The
+        scan path scans the local subnet for hosts with Modbus TCP
+        port 502 open and returns a pickable list, optionally
+        prioritised by SunSpec vendor MAC OUI matches.
+        """
+        return self.async_show_menu(
+            step_id="user",
+            menu_options=["manual", "scan"],
+        )
+
+    async def async_step_manual(self, user_input=None):
+        """Manual setup: enter host, port and unit ID by hand.
+
+        This is the original ``async_step_user`` body from before
+        v0.8.1, kept intact and renamed. Reachable from the user-step
+        menu, from a successful network scan, and from a DHCP
+        discovery.
+        """
         self._errors = {}
         if user_input is not None:
             host = user_input[CONF_HOST]
@@ -175,17 +200,85 @@ class SunSpecFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
 
         return await self._show_config_form(user_input)
 
+    async def async_step_scan(self, user_input=None):
+        """Subnet entry form for the active network scan.
+
+        Pre-fills the user's default LAN subnet from
+        ``homeassistant.components.network`` so the typical home user
+        only has to click "submit". Power users on multi-subnet LANs
+        can override the value.
+        """
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            subnet = user_input["subnet"]
+            try:
+                self._scan_results = await async_discover_sunspec_candidates(self.hass, subnet)
+            except ValueError as exc:
+                _LOGGER.warning("Network scan rejected subnet %s: %s", subnet, exc)
+                errors["base"] = "invalid_subnet"
+            else:
+                if not self._scan_results:
+                    errors["base"] = "no_candidates"
+                else:
+                    return await self.async_step_scan_results()
+
+        default_subnet = await async_get_default_subnet(self.hass) or "192.168.1.0/24"
+        return self.async_show_form(
+            step_id="scan",
+            data_schema=vol.Schema({vol.Required("subnet", default=default_subnet): str}),
+            errors=errors or None,
+        )
+
+    async def async_step_scan_results(self, user_input=None):
+        """Pick a host from the cached scan result list.
+
+        Vendor-matched candidates are listed first (the scan helper
+        already sorts that way). Selecting one routes to the manual
+        step with the IP pre-filled, so the user only confirms port
+        and unit ID.
+        """
+        if user_input is not None:
+            self._discovered_host = user_input["host"]
+            return await self.async_step_manual()
+
+        # Build a {ip: human label} mapping for the dropdown.
+        options: dict[str, str] = {}
+        for cand in self._scan_results:
+            label = cand.ip
+            if cand.vendor_match and cand.mac is not None:
+                label = f"{cand.ip} - {cand.mac} (SunSpec vendor)"
+            elif cand.mac is not None:
+                label = f"{cand.ip} - {cand.mac}"
+            options[cand.ip] = label
+
+        return self.async_show_form(
+            step_id="scan_results",
+            data_schema=vol.Schema({vol.Required("host"): vol.In(options)}),
+        )
+
     async def async_step_settings(self, user_input=None):
         self._errors = {}
         if user_input is not None:
             self.init_info[CONF_PREFIX] = user_input[CONF_PREFIX]
             self.init_info[CONF_ENABLED_MODELS] = user_input[CONF_ENABLED_MODELS]
             self.init_info[CONF_SCAN_INTERVAL] = user_input[CONF_SCAN_INTERVAL]
+            # Peak AC power survives onto the new entry as an option,
+            # not as data, so it lines up with where the options-flow
+            # form writes it on later edits. None / empty disables the
+            # plausibility filter.
+            options: dict[str, Any] = {}
+            peak = user_input.get(CONF_MAX_AC_POWER_KW)
+            if peak is not None:
+                options[CONF_MAX_AC_POWER_KW] = peak
             host = self.init_info[CONF_HOST]
             port = self.init_info[CONF_PORT]
             unit_id = self.init_info[CONF_UNIT_ID]
-            _LOGGER.debug("Creating entry with data %s", self.init_info)
-            return self.async_create_entry(title=f"{host}:{port}:{unit_id}", data=self.init_info)
+            _LOGGER.debug("Creating entry with data %s, options %s", self.init_info, options)
+            return self.async_create_entry(
+                title=f"{host}:{port}:{unit_id}",
+                data=self.init_info,
+                options=options,
+            )
 
         return await self._show_settings_form(user_input)
 
@@ -195,14 +288,14 @@ class SunSpecFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
         return SunSpecOptionsFlowHandler()
 
     async def _show_config_form(self, user_input):
-        """Show the configuration form to edit connection data."""
+        """Show the manual configuration form to edit connection data."""
         defaults = user_input or {
             CONF_HOST: self._discovered_host or "",
             CONF_PORT: 502,
             CONF_UNIT_ID: 1,
         }
         return self.async_show_form(
-            step_id="user",
+            step_id="manual",
             data_schema=vol.Schema(
                 {
                     vol.Required(CONF_HOST, default=defaults[CONF_HOST]): str,
@@ -214,24 +307,69 @@ class SunSpecFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
         )
 
     async def _show_settings_form(self, user_input):
-        """Show the configuration form to edit settings data."""
+        """Show the configuration form to edit settings data.
+
+        Includes the optional peak AC power field directly here so the
+        user gets a single chance to set their inverter's nameplate
+        during initial setup, instead of having to discover it in the
+        options flow later. We try to suggest a value from the device
+        itself: if the inverter exposes SunSpec model 120 ("WRtg") or
+        121 ("WMax") the probe client picks it up and the field is
+        pre-filled, otherwise the user enters it by hand or leaves it
+        empty to disable the plausibility filter.
+        """
         models = set(await self.client.async_get_models())
         model_filter = {model for model in sorted(models)}
         default_enabled = {model for model in DEFAULT_MODELS if model in models}
+
+        suggested_peak = await self._probe_nameplate(models)
+
+        schema: dict[Any, Any] = {
+            vol.Optional(CONF_PREFIX, default=""): str,
+            vol.Optional(CONF_SCAN_INTERVAL, default=SCAN_INTERVAL.total_seconds()): int,
+            vol.Optional(
+                CONF_ENABLED_MODELS,
+                default=default_enabled,
+            ): cv.multi_select(model_filter),
+        }
+        schema[
+            vol.Optional(
+                CONF_MAX_AC_POWER_KW,
+                description={"suggested_value": suggested_peak},
+            )
+        ] = _MAX_AC_POWER_SELECTOR
+
         return self.async_show_form(
             step_id="settings",
-            data_schema=vol.Schema(
-                {
-                    vol.Optional(CONF_PREFIX, default=""): str,
-                    vol.Optional(CONF_SCAN_INTERVAL, default=SCAN_INTERVAL.total_seconds()): int,
-                    vol.Optional(
-                        CONF_ENABLED_MODELS,
-                        default=default_enabled,
-                    ): cv.multi_select(model_filter),
-                }
-            ),
+            data_schema=vol.Schema(schema),
             errors=self._errors,
         )
+
+    async def _probe_nameplate(self, available_models: set[int]) -> float | None:
+        """Read SunSpec model 120 / 121 from the probe client, best-effort.
+
+        Mirrors ``SunSpecDataUpdateCoordinator._read_nameplate`` but
+        runs against the live probe client instead of the coordinator
+        (which doesn't exist yet at config-flow time). Returns the
+        nameplate in kW, or ``None`` if neither model is present or
+        both reads failed - the user can still type a value by hand
+        in that case.
+        """
+        for model_id, point_name, label in (
+            (120, "WRtg", "model 120 WRtg"),
+            (121, "WMax", "model 121 WMax"),
+        ):
+            if model_id not in available_models:
+                continue
+            try:
+                wrapper = await self.client.async_get_data(model_id)
+                value = wrapper.getValue(point_name)
+            except Exception as exc:  # noqa: BLE001 - convenience read, never escalate
+                _LOGGER.debug("Probe nameplate from %s failed (%s), trying next", label, exc)
+                continue
+            if isinstance(value, (int, float)) and value > 0:
+                return float(value) / 1000.0
+        return None
 
     async def _test_connection(self, host, port, unit_id):
         """Return true if credentials is valid.

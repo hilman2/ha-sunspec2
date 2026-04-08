@@ -20,15 +20,21 @@ from .const import MOCK_CONFIG
 
 TEST_CONFIG_ENTRY_ID = "77889900aa"
 TEST_SERIAL_NO = "abc123"
-TEST_INVERTER_SENSOR_STATE_ENTITY_ID = "sensor.inverter_three_phase_operating_state"
-TEST_INVERTER_SENSOR_POWER_ENTITY_ID = "sensor.inverter_three_phase_watts"
-TEST_INVERTER_SENSOR_VAR_ID = "sensor.inverter_three_phase_var"
-TEST_INVERTER_SENSOR_ENERGY_ENTITY_ID = "sensor.inverter_three_phase_watthours"
-TEST_INVERTER_MM_SENSOR_STATE_ENTITY_ID = "sensor.dermeasureac_1_operating_state"
-TEST_INVERTER_MM_SENSOR_POWER_ENTITY_ID = "sensor.dermeasureac_1_active_power"
-TEST_INVERTER_RG_SENSOR_INCLX_ENTITY_ID = "sensor.inclinometer_incl_2_x_axis_inclination"
-TEST_INVERTER_SENSOR_DC_ENTITY_ID = "sensor.mppt_module_0_dc_current"
-TEST_INVERTER_PREFIX_SENSOR_DC_ENTITY_ID = "sensor.test_mppt_module_0_dc_current"
+# Sensor entity_ids in v0.8.1 onwards: ``has_entity_name = True``
+# means the slug is built as ``sensor.<device-slug>_<entity-slug>``,
+# where ``<device-slug>`` comes from the inverter's Md field (test
+# fixture: "Test-1547-1" -> ``test_1547_1``) and ``<entity-slug>``
+# is the per-point label without any group prefix. For prefixed
+# installs the device-slug is replaced by the user prefix.
+TEST_INVERTER_SENSOR_STATE_ENTITY_ID = "sensor.test_1547_1_operating_state"
+TEST_INVERTER_SENSOR_POWER_ENTITY_ID = "sensor.test_1547_1_watts"
+TEST_INVERTER_SENSOR_VAR_ID = "sensor.test_1547_1_var"
+TEST_INVERTER_SENSOR_ENERGY_ENTITY_ID = "sensor.test_1547_1_watthours"
+TEST_INVERTER_MM_SENSOR_STATE_ENTITY_ID = "sensor.test_1547_1_1_operating_state"
+TEST_INVERTER_MM_SENSOR_POWER_ENTITY_ID = "sensor.test_1547_1_1_active_power"
+TEST_INVERTER_RG_SENSOR_INCLX_ENTITY_ID = "sensor.test_1547_1_incl_2_x_axis_inclination"
+TEST_INVERTER_SENSOR_DC_ENTITY_ID = "sensor.test_1547_1_module_0_dc_current"
+TEST_INVERTER_PREFIX_SENSOR_DC_ENTITY_ID = "sensor.test_module_0_dc_current"
 
 
 def create_mock_sunspec_client(hass: HomeAssistant):

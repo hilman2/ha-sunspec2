@@ -68,15 +68,14 @@ rules:
       Stable per-point unique IDs combining config_entry_id, point key,
       model id and model index. See get_sunspec_unique_id().
   has-entity-name:
-    status: todo
+    status: done
     comment: |
-      SunSpecEntity does not currently set _attr_has_entity_name. The
-      sensor name field carries a fully composed "<group> <label>"
-      string today (built in SunSpecSensor.__init__). Switching to
-      has_entity_name with a shorter per-entity name is intentionally
-      scheduled for v0.8.1 - it can change the entity_id slug for
-      brand-new installs and we want that change to land in a
-      release that is focused on the migration alone.
+      SunSpecEntity sets _attr_has_entity_name = True (since v0.8.1).
+      The per-entity name carries only the point label (e.g. "Watts",
+      "DC Voltage") and the device name supplies the make-and-model
+      prefix from common model 1's Md field (e.g. "Powador 7.8 TL3"),
+      so the user sees "Powador 7.8 TL3 Watts" composed by HA without
+      hand-rolled prefix concatenation.
   runtime-data:
     status: todo
     comment: |

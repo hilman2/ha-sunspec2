@@ -1,6 +1,70 @@
 {
+  "config": {
+    "step": {
+      "user": {
+        "title": "SunSpec-Wechselrichter hinzufügen",
+        "description": "Wie möchtest du deinen Wechselrichter einrichten?",
+        "menu_options": {
+          "manual": "IP-Adresse manuell eingeben",
+          "scan": "Mein Netzwerk nach Wechselrichtern durchsuchen"
+        }
+      },
+      "manual": {
+        "title": "Wechselrichter-Verbindung",
+        "description": "Gib die IP-Adresse, den Modbus-TCP-Port (Standard 502) und die Modbus-Unit-ID (Standard 1) deines Wechselrichters ein.",
+        "data": {
+          "host": "Host oder IP",
+          "port": "Modbus-TCP-Port",
+          "unit_id": "Modbus-Unit-ID"
+        }
+      },
+      "scan": {
+        "title": "Netzwerk nach Wechselrichtern durchsuchen",
+        "description": "Sucht im gewählten Subnetz nach Hosts, die Modbus-TCP-Port 502 offen haben. Hosts, deren MAC-Adresse zu einem bekannten SunSpec-Wechselrichter-Hersteller gehört, werden zuerst gelistet. Der Scan macht nur einen TCP-Connect-Test, es werden keine Modbus-Bytes gesendet, sodass andere Modbus-Geräte im Netzwerk nicht gestört werden. Das Standard-Subnetz wird aus der Netzwerkkonfiguration des Home Assistant Hosts erkannt.",
+        "data": {
+          "subnet": "Zu scannendes Subnetz (CIDR-Notation, z.B. 192.168.1.0/24)"
+        }
+      },
+      "scan_results": {
+        "title": "Wechselrichter auswählen",
+        "description": "Diese Hosts haben auf Modbus-TCP-Port 502 geantwortet. Hosts mit der Markierung 'SunSpec vendor' haben eine MAC-Adresse eines bekannten Wechselrichter-Herstellers und sind höchstwahrscheinlich dein Gerät.",
+        "data": {
+          "host": "Wechselrichter"
+        }
+      },
+      "settings": {
+        "title": "Wechselrichter-Einstellungen",
+        "description": "Wähle, welche SunSpec-Modelle als Sensoren angelegt werden, und setze optional die Spitzen-AC-Leistung des Wechselrichters für den Plausibilitätsfilter.",
+        "data": {
+          "prefix": "Sensor-Namens-Präfix",
+          "scan_interval": "Scan-Intervall (Sekunden)",
+          "models_enabled": "Aktive Modelle",
+          "max_ac_power_kw": "Spitzen-AC-Leistung des Wechselrichters (kW, optional)"
+        }
+      }
+    },
+    "error": {
+      "connection": "Wechselrichter nicht erreichbar. Prüfe Host, Port und Unit-ID und versuche es erneut.",
+      "timeout": "Zeitüberschreitung beim Erreichen des Wechselrichters. Das Gerät ist möglicherweise offline oder ein anderer Modbus-Client belegt die Verbindung.",
+      "device_error": "Der Wechselrichter hat mit einem Modbus-Fehler geantwortet. Prüfe ob die Firmware aktuell ist.",
+      "invalid_subnet": "Das Subnetz ist keine gültige CIDR-Notation, oder es ist zu groß zum Scannen (max. /22).",
+      "no_candidates": "In diesem Subnetz wurden keine Hosts mit offenem Modbus-TCP-Port 502 gefunden."
+    },
+    "abort": {
+      "already_configured": "Dieser Wechselrichter ist bereits konfiguriert."
+    }
+  },
   "options": {
     "step": {
+      "host_options": {
+        "title": "Verbindungseinstellungen",
+        "description": "Bearbeite Host, Port und Unit-ID des Wechselrichters. Im nächsten Schritt kannst du die aktiven SunSpec-Modelle und die Spitzen-AC-Leistung für den Plausibilitätsfilter ändern.",
+        "data": {
+          "host": "Host oder IP",
+          "port": "Modbus-TCP-Port",
+          "unit_id": "Modbus-Unit-ID"
+        }
+      },
       "model_options": {
         "title": "Geräteoptionen",
         "description": "Wähle die SunSpec-Modelle (Datenregister), für die Sensoren erstellt werden sollen. Die Spitzen-AC-Leistung ist optional und dient dazu, unrealistische Werte zu verwerfen, die manche Wechselrichter bei Dämmerung melden (z.B. Spikes im MW- oder TWh-Bereich). Leer lassen, um den Filter zu deaktivieren.",
