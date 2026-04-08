@@ -165,7 +165,11 @@ class SunSpecSensor(SunSpecEntity, SensorEntity):
         data: dict[str, Any],
     ) -> None:
         super().__init__(
-            coordinator, config_entry, data["device_info"], data["model"].getGroupMeta()
+            coordinator,
+            config_entry,
+            data["device_info"],
+            data["model"].getGroupMeta(),
+            prefix=data["prefix"],
         )
         self.model_id = data["model_id"]
         self.model_index = data["model_index"]
@@ -211,29 +215,34 @@ class SunSpecSensor(SunSpecEntity, SensorEntity):
         # the module logger for tests that supply a stub coordinator without
         # an _log attribute (see tests/__init__.py:MockSunSpecDataUpdateCoordinator).
         self._log = getattr(coordinator, "_log", _LOGGER)
-        name = self._group_meta.get("name", str(self.model_id))
-        if self.model_index > 0:
-            name = f"{name} {self.model_index}"
-        key_parts = self.key.split(":")
-        if len(key_parts) > 1:
-            name = f"{name} {key_parts[0]} {key_parts[1]}"
-
+        # has_entity_name = True (set on the SunSpecEntity base class)
+        # means HA composes the device name in front of the entity
+        # name automatically, so the name property here only carries
+        # the per-entity bit. The user sees
+        # "<device name from Md> <label>" in the UI - e.g.
+        # "Powador 7.8 TL3 Watts" instead of the old hand-rolled
+        # "Inverter Three Phase Watts".
+        #
+        # Repeating-group entries (model 160 mppt module 0/1, etc.)
+        # still need an index in the name to disambiguate. The user
+        # prefix from CONF_PREFIX is NOT included here - it lives on
+        # the device name instead (see SunSpecEntity.device_info) so
+        # multi-inverter setups disambiguate at the device level.
         desc = self._meta.get("label", self.key)
         if self.unit == UnitOfElectricCurrent.AMPERE and "DC" in desc:
             self.use_icon = ICON_DC_AMPS
 
-        if data["prefix"] != "":
-            name = f"{data['prefix']} {name}"
-
-        # Phase-1 finding (now fixed): str.capitalize() only uppercases the
-        # first character and leaves underscores intact, so model 103 in
-        # pysunspec2 1.3.x (group name "inverter_three_phase") rendered as
-        # "Inverter_three_phase Watts". Replace underscores with spaces and
-        # title-case so each word in the group name is capitalised:
-        # "inverter_three_phase" -> "Inverter Three Phase".
-        # entity_id slug is unchanged because HA's slugify lowercases and
-        # turns spaces back into underscores anyway.
-        self._name = f"{name.replace('_', ' ').title()} {desc}"
+        name_parts: list[str] = []
+        key_parts = self.key.split(":")
+        if len(key_parts) > 1:
+            # e.g. "module:0:DCA" -> prepend "Module 0" before the label
+            group_label = key_parts[0].replace("_", " ").title()
+            name_parts.append(f"{group_label} {key_parts[1]}")
+        elif self.model_index > 0:
+            # Multiple models of the same id - keep an index in the name
+            name_parts.append(str(self.model_index))
+        name_parts.append(desc)
+        self._name = " ".join(name_parts)
         _LOGGER.debug(
             "Created sensor for %s in model %s using prefix %s: %s uid %s, device class %s unit %s",
             self.key,

@@ -245,6 +245,13 @@ def overflow_error_dca():
     def my_side_effect(*args, **kwargs):
         if args[0] == "DCA":
             raise OverflowError()
+        # Pass-through for the common-block fields the SunSpecEntity
+        # device_info reads: without these the device-name would be
+        # the integer 1 (from the catch-all return) and HA would
+        # build a different entity_id slug, making the assertion in
+        # test_sensor_overflow_error miss the entity entirely.
+        if args[0] in ("Md", "Mn", "Vr"):
+            return "Test-1547-1" if args[0] == "Md" else "TestVendor"
         return 1
 
     with patch(

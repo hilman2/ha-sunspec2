@@ -1,6 +1,70 @@
 {
+  "config": {
+    "step": {
+      "user": {
+        "title": "Add a SunSpec inverter",
+        "description": "How would you like to set up your inverter?",
+        "menu_options": {
+          "manual": "Enter IP address manually",
+          "scan": "Scan my network for inverters"
+        }
+      },
+      "manual": {
+        "title": "Inverter connection",
+        "description": "Enter the inverter's IP address, Modbus TCP port (default 502) and Modbus unit ID (default 1).",
+        "data": {
+          "host": "Host or IP",
+          "port": "Modbus TCP port",
+          "unit_id": "Modbus unit ID"
+        }
+      },
+      "scan": {
+        "title": "Scan network for inverters",
+        "description": "Scans the chosen subnet for hosts that have Modbus TCP port 502 open. Hosts whose MAC address belongs to a known SunSpec inverter manufacturer are listed first. The scan only does a TCP connect probe, it never sends any Modbus bytes, so it will not interfere with other Modbus devices on the network. The default subnet is detected from the Home Assistant host's network configuration.",
+        "data": {
+          "subnet": "Subnet to scan (CIDR notation, e.g. 192.168.1.0/24)"
+        }
+      },
+      "scan_results": {
+        "title": "Pick your inverter",
+        "description": "These hosts answered on Modbus TCP port 502. Hosts marked 'SunSpec vendor' have a MAC address from a known inverter manufacturer and are most likely your device.",
+        "data": {
+          "host": "Inverter"
+        }
+      },
+      "settings": {
+        "title": "Inverter settings",
+        "description": "Pick which SunSpec models to expose as sensors and optionally set the inverter's peak AC power for plausibility filtering.",
+        "data": {
+          "prefix": "Sensor name prefix",
+          "scan_interval": "Scan interval (seconds)",
+          "models_enabled": "Enabled models",
+          "max_ac_power_kw": "Peak AC power of the inverter (kW, optional)"
+        }
+      }
+    },
+    "error": {
+      "connection": "Cannot reach the inverter. Check the host, port and unit ID, then try again.",
+      "timeout": "Timed out reaching the inverter. The device may be offline or another Modbus client may be holding the connection.",
+      "device_error": "The inverter responded with a Modbus error. Check that the device firmware is up to date.",
+      "invalid_subnet": "The subnet is not valid CIDR notation, or it is too large to scan (use a /22 or smaller).",
+      "no_candidates": "No hosts with Modbus TCP port 502 open were found in this subnet."
+    },
+    "abort": {
+      "already_configured": "This inverter is already configured."
+    }
+  },
   "options": {
     "step": {
+      "host_options": {
+        "title": "Connection settings",
+        "description": "Edit the inverter's host, port and unit ID. The next step lets you change which SunSpec models are exposed as sensors and the peak AC power for plausibility filtering.",
+        "data": {
+          "host": "Host or IP",
+          "port": "Modbus TCP port",
+          "unit_id": "Modbus unit ID"
+        }
+      },
       "model_options": {
         "title": "Device options",
         "description": "Select which SunSpec models (data registers) you want sensors for. The peak AC power is optional and used to discard unrealistic values that some inverters report at dawn or dusk (e.g. spikes in the MW or TWh range). Leave it empty to disable filtering.",
