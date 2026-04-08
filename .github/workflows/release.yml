@@ -1,0 +1,96 @@
+name: Release
+
+# Tag push (vX.Y.Z) is the trigger. The workflow refuses to publish a
+# release until the CI workflow on the same commit has finished green,
+# so a broken main can never accidentally ship to HACS users via a
+# manually-cut tag.
+#
+# The complementary half of this gate lives in the branch protection
+# rules on `main` (required status checks for the four CI jobs). Tags
+# can only sit on commits that already passed CI, but this workflow
+# also re-verifies that at release time as a belt-and-braces check.
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  verify-and-release:
+    name: Verify CI green and publish release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Refuse if CI on this commit is not green
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          SHA="${GITHUB_SHA}"
+          echo "Verifying CI status for tag commit $SHA"
+
+          # The CI workflow on `main` typically starts within seconds
+          # of the parent main push, which is moments before any
+          # tag push. Allow up to ten minutes for it to finish so
+          # back-to-back "merge then tag" sequences are tolerated.
+          for i in $(seq 1 60); do
+            RUN=$(gh run list \
+              --commit "$SHA" \
+              --workflow "CI" \
+              --json status,conclusion,databaseId \
+              --limit 1 \
+              --jq '.[0]')
+
+            if [ -z "$RUN" ] || [ "$RUN" = "null" ]; then
+              echo "Attempt $i/60: no CI run yet for $SHA, sleeping 10s..."
+              sleep 10
+              continue
+            fi
+
+            STATE=$(echo "$RUN" | jq -r '.status')
+            CONCLUSION=$(echo "$RUN" | jq -r '.conclusion')
+
+            if [ "$STATE" = "completed" ]; then
+              if [ "$CONCLUSION" = "success" ]; then
+                echo "CI for $SHA is green - proceeding to release"
+                exit 0
+              fi
+              echo "::error::CI for $SHA finished with conclusion=$CONCLUSION - refusing to publish release"
+              exit 1
+            fi
+
+            echo "Attempt $i/60: CI status=$STATE, waiting 10s..."
+            sleep 10
+          done
+
+          echo "::error::Timed out waiting for CI on $SHA to complete"
+          exit 1
+
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF_NAME}"
+
+          # release-drafter keeps a draft up to date as PRs land on
+          # main. If one already exists for this tag, publish it as-is
+          # so the curated changelog survives. Otherwise create a
+          # fresh release with auto-generated notes.
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Existing release $TAG found - publishing as latest"
+            gh release edit "$TAG" --draft=false --latest
+          else
+            echo "No existing release for $TAG - creating one with auto-generated notes"
+            gh release create "$TAG" \
+              --title "$TAG" \
+              --generate-notes \
+              --latest
+          fi
