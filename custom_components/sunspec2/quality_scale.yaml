@@ -1,10 +1,15 @@
 rules:
   # Bronze
   action-setup:
-    status: exempt
+    status: done
     comment: |
-      This integration only exposes read-only sensors and provides no
-      service actions of its own.
+      v0.12.0 added the experimental ``sunspec2.set_export_limit``
+      service action (gated behind the write-controls beta flag).
+      Registered idempotently in __init__.py via
+      ``hass.services.async_register`` from the first config entry
+      that loads. Service definition lives in services.yaml with
+      typed selectors for config_entry_id, percent (0..100) and
+      the optional enable boolean.
   appropriate-polling:
     status: done
     comment: |
@@ -43,9 +48,15 @@ rules:
       Single dependency pysunspec2[serial], pinned to ==1.3.3 in the
       manifest. Available on PyPI under an open-source licence.
   docs-actions:
-    status: exempt
+    status: done
     comment: |
-      No service actions, see action-setup.
+      README "Experimental: inverter write controls (BETA)"
+      section documents the ``sunspec2.set_export_limit`` service
+      action, the matching Number / Switch entities, the SunSpec
+      model 123 points each one writes to, the opt-in flag, the
+      risk profile, and how to enable the feature. The section
+      explicitly carries an EXPERIMENTAL warning so users
+      understand the BETA status before flipping the flag.
   docs-high-level-description:
     status: done
   docs-installation-instructions:
@@ -108,9 +119,15 @@ rules:
 
   # Silver
   action-exceptions:
-    status: exempt
+    status: done
     comment: |
-      No service actions, see action-setup.
+      The ``sunspec2.set_export_limit`` handler raises
+      ``HomeAssistantError`` for every failure mode: unknown
+      config entry, beta flag not enabled, model 123 not exposed
+      by the device, modbus write failure (wrapped from our typed
+      SunSpecError hierarchy). The Number and Switch entities
+      do the same on async_set_native_value / async_turn_on /
+      async_turn_off.
   config-entry-unloading:
     status: done
     comment: |

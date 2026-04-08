@@ -1,0 +1,41 @@
+set_export_limit:
+  name: Set export limit
+  description: >
+    EXPERIMENTAL (BETA). Set the inverter's export limit as a
+    percentage of WMax via SunSpec model 123 WMaxLimPct, and
+    optionally enable the limit via WMaxLim_Ena. Only available
+    when the matching config entry has "Enable experimental
+    write controls (BETA)" ticked in the options flow AND the
+    inverter actually exposes model 123.
+  fields:
+    config_entry_id:
+      name: Config entry
+      description: The SunSpec inverter config entry to write to.
+      required: true
+      selector:
+        config_entry:
+          integration: sunspec2
+    percent:
+      name: Limit (%)
+      description: >
+        Export limit as a percentage of WMax. 0 = no export
+        ("Nulleinspeisung"), 100 = full nameplate output.
+      required: true
+      example: 70
+      selector:
+        number:
+          min: 0
+          max: 100
+          step: 1
+          unit_of_measurement: "%"
+          mode: box
+    enable:
+      name: Enable limit
+      description: >
+        If true, also enable the limit via WMaxLim_Ena. If false,
+        only the percentage value is written and the limit stays
+        in its current enabled / disabled state.
+      required: false
+      default: true
+      selector:
+        boolean:

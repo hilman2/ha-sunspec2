@@ -253,6 +253,74 @@ Common situations and what to check:
   unreachable - check power, network and that no other Modbus
   client is holding the slot.
 
+## Experimental: inverter write controls (BETA, opt-in)
+
+> **Important: this is genuinely risky.** Read the whole section before
+> ticking the opt-in. Writing to a Modbus register on a real inverter
+> can persist a configuration change that locks you out of the device
+> until a physical reset. There are no test users yet who have
+> validated this code path against real hardware - the integration
+> owner does not have an inverter that exposes SunSpec model 123.
+
+v0.12.0 adds an **opt-in beta** for setpoint control via the standard
+**SunSpec model 123 (Immediate Controls)**. When enabled, the
+integration registers two extra HA platforms (`number` and `switch`)
+plus a service action so you can curtail your inverter's export from
+HA automations.
+
+### What you get when you enable it
+
+| Entity | Type | SunSpec point | What it does |
+|---|---|---|---|
+| Export limit | Number (0..100 %) | model 123 `WMaxLimPct` | Caps AC output to N % of nameplate. Set to 0 for "Nulleinspeisung" |
+| Power factor setpoint | Number (-1..1) | model 123 `OutPFSet` | Cos-phi setpoint for reactive power control |
+| Export limit enabled | Switch | model 123 `WMaxLim_Ena` | The export limit only takes effect while this switch is ON |
+| Power factor enabled | Switch | model 123 `OutPFSet_Ena` | The PF setpoint only takes effect while this switch is ON |
+| Inverter grid connection | Switch | model 123 `Conn` | **Most dangerous**: turning OFF disconnects the inverter from the grid entirely |
+
+Plus the **`sunspec2.set_export_limit`** service action with two
+parameters (`config_entry_id`, `percent`, optional `enable`) so
+automations can flip the export limit without going through a
+Number entity.
+
+### Why it's opt-in
+
+- **Vendor deviations**: SunSpec model 123 is part of the standard
+  but vendors are inconsistent about which firmware revisions
+  expose it, what scale-factor handling they apply, and what
+  ranges they accept. We test against the spec, not against your
+  specific firmware.
+- **Persistence semantics vary**: some inverters persist a write
+  through power-cycle, others reset to defaults on reboot. Some
+  require a non-zero `WMaxLimPct_RvrtTms` (revert timeout) to
+  prevent the limit from sticking forever.
+- **No real-hardware test on the integration owner's side**: my
+  KACO Powador 7.8 TL3 does not expose model 123, so I cannot
+  smoke-test the write path against a live device. The first
+  community user who runs this on a real inverter is doing the
+  validation work, hence the BETA flag.
+
+### How to enable
+
+1. Open *Settings → Devices & Services → SunSpec Modbus → Configure*
+2. Click through to the model options step
+3. Tick **"Enable experimental write controls (BETA)"**
+4. Save - the integration reloads and the Number / Switch entities
+   appear under your inverter's device card
+
+If your inverter does NOT expose model 123, the entities will not
+register even with the flag on - the diagnostics dump's
+`scanned_models` array tells you whether 123 is present.
+
+### Looking for testers
+
+If you are running this beta on a real inverter and want to share
+results, please open an issue on
+<https://github.com/hilman2/ha-sunspec2/issues> with the model name,
+the firmware revision, and a description of which writes worked
+and which did not. That feedback is what will let us drop the
+BETA flag and ship v1.0.
+
 ## Known limitations
 
 - **Single Modbus TCP slot devices** like KACO Powador can only be

@@ -95,7 +95,8 @@
           "scan_interval": "Scan interval (seconds)",
           "models_enabled": "Enabled models",
           "capture_raw_registers": "Capture raw modbus bytes for diagnostics",
-          "max_ac_power_kw": "Peak AC power of the inverter (kW, optional)"
+          "max_ac_power_kw": "Peak AC power of the inverter (kW, optional)",
+          "write_beta_enabled": "Enable experimental write controls (BETA - inverter Number / Switch entities and the set_export_limit service action). Off by default. Read the README before enabling - writing to the wrong Modbus register on an inverter can lock you out until a physical reset."
         }
       }
     },
@@ -105,6 +106,15 @@
     }
   },
   "entity": {
+    "number": {
+      "export_limit_pct": {"name": "Export limit"},
+      "power_factor_set": {"name": "Power factor setpoint"}
+    },
+    "switch": {
+      "export_limit_enabled": {"name": "Export limit enabled"},
+      "power_factor_enabled": {"name": "Power factor setpoint enabled"},
+      "inverter_grid_connection": {"name": "Inverter grid connection"}
+    },
     "sensor": {
       "amps": {"name": "AC current"},
       "amps_l1": {"name": "AC current L1"},
