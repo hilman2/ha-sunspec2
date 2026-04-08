@@ -441,3 +441,78 @@ async def test_scan_step_invalid_subnet_returns_inline_error(hass):
     assert result["type"] == FlowResultType.FORM
     assert result["step_id"] == "scan"
     assert result["errors"] == {"base": "invalid_subnet"}
+
+
+async def test_setup_settings_step_pre_selects_default_models(
+    hass, bypass_get_data, sunspec_client_mock
+):
+    """The settings-step model multi-select must arrive with DEFAULT_MODELS pre-ticked.
+
+    Regression for v0.9.0 and earlier where the default was a Python
+    set: HA's frontend serialises ``vol.Optional`` defaults straight
+    to JSON and a set does not survive that round-trip in a way the
+    multi-select can match against its option keys, so the field
+    rendered with no boxes ticked. The user could then click submit
+    without noticing the empty selection and end up with a config
+    entry that polled zero models.
+    """
+    result = await _open_manual_step(hass)
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], user_input=MOCK_CONFIG_STEP_1
+    )
+    assert result["type"] == FlowResultType.FORM
+    assert result["step_id"] == "settings"
+
+    # Walk the schema to find the models_enabled marker and inspect
+    # its default. Voluptuous stores the default as a callable that
+    # returns the actual value.
+    schema_markers = result["data_schema"].schema
+    models_default = None
+    for marker in schema_markers:
+        if str(marker) == "models_enabled":
+            models_default = marker.default()
+            break
+
+    assert models_default is not None, "models_enabled marker not in schema"
+    # Must be a list (HA frontend serialises this to JSON), and must
+    # contain at least one model that the test fixture exposes.
+    assert isinstance(models_default, list)
+    assert len(models_default) > 0
+    # The test inverter exposes model 103 (inverter three phase) and
+    # model 160 (multi-MPPT extension), both of which are in
+    # DEFAULT_MODELS, so both must be pre-selected.
+    assert 103 in models_default
+    assert 160 in models_default
+
+
+async def test_setup_settings_step_rejects_empty_model_selection(
+    hass, bypass_get_data, sunspec_client_mock
+):
+    """Submitting the settings step with no models picked must show an inline error.
+
+    The OPTIONS flow has had this guard since v0.7.6, but the
+    initial SETUP flow was missing it. Without it the user could
+    click through the form without ticking anything, persist
+    ``models_enabled: []``, and the next coordinator reload would
+    poll zero models and kill every sensor on the integration before
+    they ever existed.
+    """
+    result = await _open_manual_step(hass)
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], user_input=MOCK_CONFIG_STEP_1
+    )
+    assert result["step_id"] == "settings"
+
+    # Submit with an explicitly empty model list. Must come back with
+    # the form again and an inline base error.
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        user_input={
+            "prefix": "",
+            "scan_interval": 30,
+            "models_enabled": [],
+        },
+    )
+    assert result["type"] == FlowResultType.FORM
+    assert result["step_id"] == "settings"
+    assert result["errors"] == {"base": "no_models_selected"}
