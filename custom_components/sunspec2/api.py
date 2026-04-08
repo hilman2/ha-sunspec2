@@ -14,6 +14,10 @@ from sunspec2.modbus.client import SunSpecModbusClientException
 from sunspec2.modbus.client import SunSpecModbusClientTimeout
 from sunspec2.modbus.modbus import ModbusClientError
 
+from .const import DEFAULT_BAUDRATE
+from .const import PARITY_NONE
+from .const import TRANSPORT_RTU
+from .const import TRANSPORT_TCP
 from .errors import DeviceError
 from .errors import ProtocolError
 from .errors import TransientError
@@ -79,8 +83,33 @@ class SunSpecApiClient:
         hass: HomeAssistant,
         capture_enabled: bool = False,
         timeout: int = TIMEOUT,
+        transport: str = TRANSPORT_TCP,
+        serial_port: str | None = None,
+        baudrate: int = DEFAULT_BAUDRATE,
+        parity: str = PARITY_NONE,
     ) -> None:
-        """Sunspec modbus client."""
+        """Sunspec modbus client.
+
+        Two transports are supported:
+
+        * ``transport="tcp"`` (default): connects to ``host:port`` over
+          Modbus TCP. ``host``, ``port`` and ``unit_id`` are the only
+          relevant config keys; the serial-line parameters are
+          ignored.
+        * ``transport="rtu"``: connects to ``serial_port`` over
+          Modbus RTU (RS-485 typically via a USB adapter on
+          ``/dev/ttyUSB0`` or ``COM3``). ``unit_id``, ``serial_port``,
+          ``baudrate`` and ``parity`` are the relevant config keys;
+          ``host`` and ``port`` are kept only so the logger and
+          diagnostics dump can render a stable identifier (we use
+          ``serial_port:baudrate`` as the synthetic host string).
+
+        ``host`` is always required for the logger adapter even on
+        RTU - it ends up in every log line as ``[host:port#unit_id]``
+        prefix - so RTU callers pass the serial port name as ``host``
+        and ``baudrate`` as ``port``. The coordinator does this
+        synthesis transparently.
+        """
 
         self._host = host
         self._port = port
@@ -92,13 +121,22 @@ class SunSpecApiClient:
         # passes ``timeout=SETUP_TIMEOUT`` so the initial scan has time
         # to finish on slower devices.
         self._timeout = timeout
+        self._transport = transport
+        self._serial_port = serial_port
+        self._baudrate = baudrate
+        self._parity = parity
         self._lock = threading.Lock()
         self._reconnect = False
         self._client = None
         self._log = get_adapter(host, port, unit_id)
         self._capture_enabled = capture_enabled
         self._captured_reads: list[dict] = []
-        self._log.debug("New SunspecApi Client (capture=%s, timeout=%ds)", capture_enabled, timeout)
+        self._log.debug(
+            "New SunspecApi Client (transport=%s, capture=%s, timeout=%ds)",
+            transport,
+            capture_enabled,
+            timeout,
+        )
 
     def get_client(self, config=None):
         """Return the active pysunspec2 client, building it on first use.
@@ -192,32 +230,41 @@ class SunSpecApiClient:
         self._client = None
 
     def _force_disconnect(self) -> None:
-        """Tear down ``self._client``'s socket as aggressively as possible.
+        """Tear down ``self._client`` as aggressively as possible.
 
-        Sets SO_LINGER with a zero timeout on the underlying TCP socket
-        before calling pysunspec2's ``disconnect()``. With SO_LINGER=0
-        the kernel sends a TCP RST instead of a normal FIN handshake,
-        which is the difference between "the inverter notices the
-        socket is gone right now" and "the inverter waits for its own
-        keep-alive / 30s+ idle timeout to expire and only then frees
-        the slot". On single-slot devices like KACO Powador the latter
-        means every reconnect after a flaky-network blip races against
-        a still-half-open server-side socket and the new connect
-        either gets refused or times out at our 10s ceiling.
+        For TCP: sets SO_LINGER=(1, 0) on the underlying socket so the
+        kernel sends a TCP RST instead of a polite FIN. This makes
+        single-slot inverters (KACO Powador et al) free their slot
+        immediately instead of waiting on their own keepalive / 30s+
+        idle timeout, which would otherwise race the next reconnect
+        after a flaky-network blip.
 
-        Best-effort: any failure walking pysunspec2's internals is
-        swallowed and a normal ``disconnect()`` is attempted as a
-        fallback. Cleanup must never raise from here.
+        For RTU: there is no socket and no FIN/RST distinction. We
+        just call ``client.close()`` which is pysunspec2's RTU-side
+        teardown method, equivalent in spirit to TCP's
+        ``disconnect()``.
+
+        Best-effort in both modes: any failure walking pysunspec2's
+        internals is swallowed. Cleanup must never raise from here.
         """
         client = self._client
         if client is None:
             return
 
-        # pysunspec2 layout: SunSpecModbusClientDeviceTCP.client is a
-        # ModbusClientTCP whose .socket attribute is the raw Python
-        # socket. Both attributes can legitimately be missing on a
-        # half-built or already-closed client, hence the careful
-        # getattr chain.
+        if self._transport == TRANSPORT_RTU:
+            # RTU lifecycle: client.close() releases the serial port.
+            # No socket-level tricks apply.
+            try:
+                client.close()
+            except Exception as exc:  # noqa: BLE001 - cleanup must not raise
+                self._log.debug("client.close raised %s, ignoring", exc)
+            return
+
+        # TCP path. pysunspec2 layout:
+        # SunSpecModbusClientDeviceTCP.client is a ModbusClientTCP
+        # whose .socket attribute is the raw Python socket. Both
+        # attributes can legitimately be missing on a half-built or
+        # already-closed client, hence the careful getattr chain.
         raw_sock = None
         try:
             raw_sock = getattr(getattr(client, "client", None), "socket", None)
@@ -261,37 +308,29 @@ class SunSpecApiClient:
         return is_open
 
     def modbus_connect(self, config: dict | None = None):
+        """Build a fresh pysunspec2 client and run its initial SunSpec scan.
+
+        Dispatches to TCP or RTU based on ``self._transport``. The
+        legacy ``config`` parameter is only honoured by the TCP path
+        (it predates the transport split). Returns the connected
+        client on success or raises one of our typed errors.
+        """
+        if self._transport == TRANSPORT_RTU:
+            return self._modbus_connect_rtu()
+        return self._modbus_connect_tcp(config)
+
+    def _modbus_connect_tcp(self, config: dict | None = None):
         use_config = SimpleNamespace(
             **(config or {"host": self._host, "port": self._port, "unit_id": self._unit_id})
         )
-        self._log.debug("Client connect using timeout %s", self._timeout)
+        self._log.debug("TCP client connect using timeout %s", self._timeout)
         client = modbus_client.SunSpecModbusClientDeviceTCP(
             slave_id=use_config.unit_id,
             ipaddr=use_config.host,
             ipport=use_config.port,
             timeout=self._timeout,
         )
-        if self._capture_enabled:
-            # Wrap the device-level read so every modbus read on this client
-            # instance lands in self._captured_reads. The diagnostics dump
-            # surfaces these so users can post a reproducible fixture in
-            # bug reports. Capped at 1000 entries to bound JSON size.
-            original_read = client.read
-
-            def capturing_read(addr, count):
-                data = original_read(addr, count)
-                if len(self._captured_reads) < 1000:
-                    self._captured_reads.append(
-                        {
-                            "ts": time.time(),
-                            "addr": addr,
-                            "count": count,
-                            "hex": data.hex() if data else None,
-                        }
-                    )
-                return data
-
-            client.read = capturing_read
+        self._wrap_capturing_read(client)
         if self.check_port():
             self._log.debug("Inverter ready for Modbus TCP connection")
             try:
@@ -325,6 +364,85 @@ class SunSpecApiClient:
         else:
             self._log.debug("Inverter not ready for Modbus TCP connection")
             raise TransportError(f"Inverter not active on {self._host}:{self._port}")
+
+    def _modbus_connect_rtu(self):
+        """Build a Modbus RTU client over a serial port (RS-485).
+
+        Lifecycle is different from TCP: pysunspec2's RTU client uses
+        ``open()`` / ``close()`` instead of ``connect()`` / ``disconnect()``
+        and has no ``is_connected()``. There's also no socket-level
+        ``check_port()`` analogue - if the serial port doesn't exist
+        the constructor (or open()) raises immediately, which we
+        translate into a TransportError.
+        """
+        if not self._serial_port:
+            raise TransportError("Serial port is not configured but transport=rtu was requested")
+        self._log.debug(
+            "RTU client connect on %s @ %d %s, timeout=%s",
+            self._serial_port,
+            self._baudrate,
+            self._parity,
+            self._timeout,
+        )
+        try:
+            with self._lock:
+                client = modbus_client.SunSpecModbusClientDeviceRTU(
+                    slave_id=self._unit_id,
+                    name=self._serial_port,
+                    baudrate=self._baudrate,
+                    parity=self._parity,
+                    timeout=self._timeout,
+                )
+        except SunSpecModbusClientError as err:
+            raise TransportError(
+                f"Could not open serial port {self._serial_port} "
+                f"({self._baudrate} {self._parity}): {err}"
+            ) from err
+        except OSError as err:
+            raise TransportError(f"Serial port {self._serial_port} not available: {err}") from err
+        self._wrap_capturing_read(client)
+        try:
+            with self._lock:
+                client.open()
+            self._log.debug("RTU port opened, perform initial scan")
+            client.scan(connect=False, progress=progress, full_model_read=False, delay=0.5)
+            return client
+        except ModbusClientError as err:
+            raise TransportError(
+                f"Modbus error on serial port {self._serial_port} unit id {self._unit_id}: {err}"
+            ) from err
+        except SunSpecModbusClientError as err:
+            raise ProtocolError(
+                f"SunSpec scan failed on serial port {self._serial_port} "
+                f"unit id {self._unit_id}: {err}"
+            ) from err
+
+    def _wrap_capturing_read(self, client) -> None:
+        """Wrap ``client.read`` so every byte landing on the wire is captured.
+
+        The diagnostics dump surfaces ``self._captured_reads`` so
+        users can post a reproducible fixture in bug reports. Capped
+        at 1000 entries to bound JSON size. No-op when capture is
+        disabled, called from both the TCP and RTU build paths.
+        """
+        if not self._capture_enabled:
+            return
+        original_read = client.read
+
+        def capturing_read(addr, count):
+            data = original_read(addr, count)
+            if len(self._captured_reads) < 1000:
+                self._captured_reads.append(
+                    {
+                        "ts": time.time(),
+                        "addr": addr,
+                        "count": count,
+                        "hex": data.hex() if data else None,
+                    }
+                )
+            return data
+
+        client.read = capturing_read
 
     def read_model(self, model_id: int) -> SunSpecModelWrapper:
         client = self.get_client()

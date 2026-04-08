@@ -24,18 +24,26 @@ from homeassistant.helpers.update_coordinator import UpdateFailed
 from homeassistant.util import dt as dt_util
 
 from .api import SunSpecApiClient
+from .const import CONF_BAUDRATE
 from .const import CONF_CAPTURE_RAW
 from .const import CONF_ENABLED_MODELS
 from .const import CONF_HOST
+from .const import CONF_PARITY
 from .const import CONF_PORT
 from .const import CONF_SCAN_INTERVAL
+from .const import CONF_SERIAL_PORT
+from .const import CONF_TRANSPORT
 from .const import CONF_UNIT_ID
+from .const import DEFAULT_BAUDRATE
 from .const import DEFAULT_MODELS
 from .const import DOMAIN
 from .const import INTERVAL_RETRY_DELAY_SECONDS
+from .const import PARITY_NONE
 from .const import PLATFORMS
 from .const import STALE_DATA_TOLERANCE_CYCLES
 from .const import STARTUP_MESSAGE
+from .const import TRANSPORT_RTU
+from .const import TRANSPORT_TCP
 from .errors import CATEGORIES
 from .errors import SunSpecError
 from .errors import TransportError
@@ -135,9 +143,32 @@ async def async_setup_entry(hass: HomeAssistant, entry: SunSpec2ConfigEntry) -> 
 
     capture_enabled = entry.options.get(CONF_CAPTURE_RAW, False)
 
-    client = SunSpecApiClient(host, port, unit_id, hass, capture_enabled=capture_enabled)
-
-    log = get_adapter(host, port, unit_id)
+    # v0.11.0: Modbus transport selector. Default is TCP so existing
+    # config entries (which never had a CONF_TRANSPORT key) keep
+    # working without a migration. RTU entries pull the serial-line
+    # parameters from data; the synthetic host/port pair is reused
+    # so the structured logger and the diagnostics dump still have a
+    # stable identifier in their `[host:port#unit_id]` prefix.
+    transport = entry.data.get(CONF_TRANSPORT, TRANSPORT_TCP)
+    if transport == TRANSPORT_RTU:
+        serial_port = entry.data.get(CONF_SERIAL_PORT)
+        baudrate = entry.data.get(CONF_BAUDRATE, DEFAULT_BAUDRATE)
+        parity = entry.data.get(CONF_PARITY, PARITY_NONE)
+        client = SunSpecApiClient(
+            host=serial_port or "rtu",
+            port=baudrate,
+            unit_id=unit_id,
+            hass=hass,
+            capture_enabled=capture_enabled,
+            transport=TRANSPORT_RTU,
+            serial_port=serial_port,
+            baudrate=baudrate,
+            parity=parity,
+        )
+        log = get_adapter(serial_port or "rtu", baudrate, unit_id)
+    else:
+        client = SunSpecApiClient(host, port, unit_id, hass, capture_enabled=capture_enabled)
+        log = get_adapter(host, port, unit_id)
     log.debug("Setup config entry for SunSpec")
     coordinator = SunSpecDataUpdateCoordinator(hass, client=client, entry=entry)
     # Bronze rule runtime-data: store the coordinator on the typed

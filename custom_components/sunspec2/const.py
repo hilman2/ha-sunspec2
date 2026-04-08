@@ -4,7 +4,7 @@
 NAME = "SunSpec 2"
 DOMAIN = "sunspec2"
 DOMAIN_DATA = f"{DOMAIN}_data"
-VERSION = "0.10.0"
+VERSION = "0.11.0"
 
 ATTRIBUTION = "Data provided by SunSpec alliance - https://sunspec.org"
 ISSUE_URL = "https://github.com/hilman2/ha-sunspec2/issues"
@@ -30,6 +30,32 @@ CONF_SLAVE_ID = "slave_id"  # Deprecated, use CONF_UNIT_ID
 CONF_PREFIX = "prefix"
 CONF_SCAN_INTERVAL = "scan_interval"
 CONF_ENABLED_MODELS = "models_enabled"
+
+# v0.11.0: Modbus transport selection. ``tcp`` is the default and the
+# only mode that existed before; ``rtu`` is the new serial-line variant
+# that talks to the inverter over an RS-485 (typically via a USB-to-
+# RS-485 adapter on /dev/ttyUSB0 or similar). Existing config entries
+# without CONF_TRANSPORT continue to work because the coordinator
+# defaults to TCP when the field is missing - no migration needed.
+CONF_TRANSPORT = "transport"
+TRANSPORT_TCP = "tcp"
+TRANSPORT_RTU = "rtu"
+
+# Modbus RTU specific config keys.
+CONF_SERIAL_PORT = "serial_port"
+CONF_BAUDRATE = "baudrate"
+CONF_PARITY = "parity"
+
+# pysunspec2 only exposes the two ``N`` (none) and ``E`` (even) parity
+# settings via its modbus client; we mirror those constants directly so
+# the config flow's dropdown values match what the underlying library
+# accepts at construction time.
+PARITY_NONE = "N"
+PARITY_EVEN = "E"
+
+# Sensible default for any inverter we have seen so far. Users with a
+# different setting can override during the serial setup step.
+DEFAULT_BAUDRATE = 9600
 # Phase 2 debugging-first: when True, the next scan also stores raw modbus
 # bytes in api._captured_reads so users can attach a reproducible fixture
 # to bug reports via the diagnostics dump.

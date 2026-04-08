@@ -106,9 +106,13 @@ brand-agnostic by design.
 3. In HACS find **SunSpec Modbus** -> **Download**
 4. **Restart Home Assistant**
 5. **Settings -> Devices & Services -> Add Integration -> SunSpec Modbus**
-6. Pick **Scan my network** if you don't know the inverter's IP, or
-   **Enter manually** if you do
-7. Confirm port (typically 502) and unit ID (typically 1)
+6. Pick the connection type:
+   - **Enter IP address manually** for Modbus TCP if you know the IP
+   - **Scan my network** for Modbus TCP if you don't know the IP
+   - **Connect via serial port** for Modbus RTU over RS-485
+     (typically a USB-to-RS-485 adapter on `/dev/ttyUSB0` or `COM3`)
+7. Confirm the connection details (port 502 + unit ID 1 for TCP, or
+   serial port + baud rate + parity + unit ID for RTU)
 8. Pick the SunSpec models you want sensors for and optionally enter
    the inverter's nameplate AC power for the plausibility filter
 
@@ -121,8 +125,12 @@ automatically and offer it as a discovered integration on the
 
 | Parameter | Where | Default | Purpose |
 |---|---|---|---|
-| `host` | Setup, Reconfigure | - | Inverter IP or hostname |
-| `port` | Setup, Reconfigure | `502` | Modbus TCP port |
+| `transport` | Setup | `tcp` | Modbus transport. Either `tcp` or `rtu`. RTU mode talks to the inverter over a serial line (RS-485) instead of Ethernet |
+| `host` | Setup TCP, Reconfigure | - | Inverter IP or hostname (TCP only) |
+| `port` | Setup TCP, Reconfigure | `502` | Modbus TCP port (TCP only) |
+| `serial_port` | Setup RTU | - | Serial device path, e.g. `/dev/ttyUSB0` or `COM3` (RTU only) |
+| `baudrate` | Setup RTU | `9600` | Serial baud rate (RTU only) |
+| `parity` | Setup RTU | `N` | Serial parity, `N` (none) or `E` (even). RTU only |
 | `unit_id` | Setup, Reconfigure | `1` | Modbus unit / slave ID |
 | `prefix` | Setup, Options | empty | Optional prefix for the device name (e.g. `Garage`, `Cellar`) for multi-inverter setups |
 | `scan_interval` | Setup, Options | `30 s` | How often the coordinator polls the inverter |
@@ -247,9 +255,6 @@ Common situations and what to check:
 
 ## Known limitations
 
-- **Modbus TCP only.** Modbus RTU is not supported. The
-  `pysunspec2[serial]` extra is pulled in transitively but the
-  integration does not expose a serial config flow.
 - **Single Modbus TCP slot devices** like KACO Powador can only be
   polled from one integration at a time. Running ha-sunspec2 in
   parallel with cjne, openHAB, or any other Modbus client against

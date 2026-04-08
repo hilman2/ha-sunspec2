@@ -5,8 +5,9 @@
         "title": "Add a SunSpec inverter",
         "description": "How would you like to set up your inverter?",
         "menu_options": {
-          "manual": "Enter IP address manually",
-          "scan": "Scan my network for inverters"
+          "manual": "Enter IP address manually (Modbus TCP)",
+          "scan": "Scan my network for inverters (Modbus TCP)",
+          "serial": "Connect via serial port (Modbus RTU)"
         }
       },
       "manual": {
@@ -30,6 +31,16 @@
         "description": "These hosts answered on Modbus TCP port 502. Hosts marked 'SunSpec vendor' have a MAC address from a known inverter manufacturer and are most likely your device.",
         "data": {
           "host": "Inverter"
+        }
+      },
+      "serial": {
+        "title": "Modbus RTU connection",
+        "description": "Configure a serial-line (RS-485) connection to a SunSpec-capable inverter. Typical setup is a USB-to-RS-485 adapter on /dev/ttyUSB0 (Linux) or COM3 (Windows). Baud rate is usually 9600 or 19200 - check your inverter's manual.",
+        "data": {
+          "serial_port": "Serial port (e.g. /dev/ttyUSB0 or COM3)",
+          "baudrate": "Baud rate",
+          "parity": "Parity",
+          "unit_id": "Modbus unit ID"
         }
       },
       "settings": {

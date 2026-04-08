@@ -11,7 +11,9 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.sunspec2.const import CONF_ENABLED_MODELS
 from custom_components.sunspec2.const import CONF_MAX_AC_POWER_KW
+from custom_components.sunspec2.const import CONF_PREFIX
 from custom_components.sunspec2.const import CONF_SCAN_INTERVAL
+from custom_components.sunspec2.const import CONF_UNIT_ID
 from custom_components.sunspec2.const import DOMAIN
 
 from . import MockSunSpecDataUpdateCoordinator
@@ -328,20 +330,20 @@ async def test_dhcp_discovery_aborts_when_host_already_configured(hass):
     assert result["reason"] == "already_configured"
 
 
-async def test_user_step_offers_manual_and_scan_menu(hass):
-    """Adding the integration must show a Manual / Scan menu first.
+async def test_user_step_offers_manual_scan_and_serial_menu(hass):
+    """Adding the integration must show a Manual / Scan / Serial menu first.
 
     The user-step menu was introduced in v0.8.1 to make the network
     scan reachable as an explicit user choice without forcing a scan
-    on every install. Two menu options must be present: ``manual``
-    and ``scan``.
+    on every install. v0.11.0 added a third "serial" option for
+    Modbus RTU. All three options must be present.
     """
     result = await hass.config_entries.flow.async_init(
         DOMAIN, context={"source": config_entries.SOURCE_USER}
     )
     assert result["type"] == FlowResultType.MENU
     assert result["step_id"] == "user"
-    assert set(result["menu_options"]) == {"manual", "scan"}
+    assert set(result["menu_options"]) == {"manual", "scan", "serial"}
 
 
 async def test_scan_step_picks_candidate_and_pre_fills_manual_step(hass):
@@ -587,3 +589,84 @@ async def test_reconfigure_flow_refuses_serial_mismatch(
     assert result["errors"] == {"base": "unique_id_mismatch"}
     # Entry data was NOT touched.
     assert entry.data["host"] == "test_host"
+
+
+# ---------------------------------------------------------------------------
+# v0.11.0: Modbus RTU (serial) support
+# ---------------------------------------------------------------------------
+
+
+async def test_user_step_serial_branch_renders_serial_form(hass):
+    """Picking 'serial' from the user-step menu must show the serial form
+    with the four RTU fields (port, baudrate, parity, unit_id).
+    """
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": config_entries.SOURCE_USER}
+    )
+    assert result["type"] == FlowResultType.MENU
+
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], user_input={"next_step_id": "serial"}
+    )
+
+    assert result["type"] == FlowResultType.FORM
+    assert result["step_id"] == "serial"
+    schema_keys = {str(marker) for marker in result["data_schema"].schema}
+    assert {"serial_port", "baudrate", "parity", "unit_id"} <= schema_keys
+
+
+async def test_serial_setup_creates_rtu_entry(hass, sunspec_client_mock):
+    """Walking the serial setup happy path must create an RTU config entry.
+
+    The sunspec_client_mock fixture patches modbus_connect at the
+    SunSpecApiClient level, so the test never opens an actual serial
+    port. The mock returns the same FileClientDevice as for TCP, so
+    the unique-id helper reads the mock inverter's serial number and
+    the entry lands in CREATE_ENTRY state.
+    """
+    from custom_components.sunspec2.const import CONF_BAUDRATE
+    from custom_components.sunspec2.const import CONF_PARITY
+    from custom_components.sunspec2.const import CONF_SERIAL_PORT
+    from custom_components.sunspec2.const import CONF_TRANSPORT
+    from custom_components.sunspec2.const import DEFAULT_BAUDRATE
+    from custom_components.sunspec2.const import PARITY_NONE
+    from custom_components.sunspec2.const import TRANSPORT_RTU
+
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": config_entries.SOURCE_USER}
+    )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], user_input={"next_step_id": "serial"}
+    )
+    assert result["step_id"] == "serial"
+
+    # Submit the serial form
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        user_input={
+            CONF_SERIAL_PORT: "/dev/ttyUSB0",
+            CONF_BAUDRATE: DEFAULT_BAUDRATE,
+            CONF_PARITY: PARITY_NONE,
+            CONF_UNIT_ID: 1,
+        },
+    )
+    # Should land on the settings step (probe succeeded via the mock)
+    assert result["type"] == FlowResultType.FORM
+    assert result["step_id"] == "settings"
+
+    # Submit the settings step
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        user_input={
+            CONF_PREFIX: "",
+            CONF_SCAN_INTERVAL: 30,
+            CONF_ENABLED_MODELS: [103],
+        },
+    )
+
+    assert result["type"] == FlowResultType.CREATE_ENTRY
+    assert result["data"][CONF_TRANSPORT] == TRANSPORT_RTU
+    assert result["data"][CONF_SERIAL_PORT] == "/dev/ttyUSB0"
+    assert result["data"][CONF_BAUDRATE] == DEFAULT_BAUDRATE
+    assert result["data"][CONF_PARITY] == PARITY_NONE
+    assert result["data"][CONF_UNIT_ID] == 1
