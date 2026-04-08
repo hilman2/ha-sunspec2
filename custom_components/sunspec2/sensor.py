@@ -29,6 +29,7 @@ from homeassistant.const import UnitOfTime
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
+from . import SunSpec2ConfigEntry
 from . import get_sunspec_unique_id
 from .const import CONF_MAX_AC_POWER_KW
 from .const import CONF_PREFIX
@@ -36,6 +37,13 @@ from .const import CONF_SCAN_INTERVAL
 from .const import DOMAIN
 from .const import ENERGY_DELTA_SAFETY_FACTOR
 from .entity import SunSpecEntity
+
+# Bronze rule parallel-updates: the coordinator already serialises all
+# I/O via its per-gateway asyncio.Lock, so platform entities never
+# need their own concurrency limit. ``0`` means HA will not attempt
+# to throttle entity updates from this platform - the coordinator
+# does the throttling for us.
+PARALLEL_UPDATES = 0
 
 _LOGGER: logging.Logger = logging.getLogger(__package__)
 
@@ -116,11 +124,11 @@ HA_META = {
 
 async def async_setup_entry(
     hass: HomeAssistant,
-    entry: ConfigEntry,
+    entry: SunSpec2ConfigEntry,
     async_add_devices: AddEntitiesCallback,
 ) -> None:
     """Setup sensor platform."""
-    coordinator = hass.data[DOMAIN][entry.entry_id]
+    coordinator = entry.runtime_data
     sensors = []
     # Read the cached common-model (model 1) from the coordinator. The
     # coordinator populates this during its locked update cycle, so we

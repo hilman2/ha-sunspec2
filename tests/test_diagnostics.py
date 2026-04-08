@@ -141,7 +141,7 @@ async def test_capture_wraps_client_read(hass):
 async def test_capture_appears_in_diagnostics_dump(hass, sunspec_client_mock):
     """When the api has captured reads, they show up in the diagnostics dump."""
     entry = await setup_mock_sunspec_config_entry(hass)
-    coordinator = hass.data["sunspec2"][entry.entry_id]
+    coordinator = entry.runtime_data
     # Inject a synthetic captured read so we don't need to plumb through a
     # real wrap path in the file-client mock fixture.
     coordinator.api._captured_reads.append(

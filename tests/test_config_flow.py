@@ -144,7 +144,7 @@ async def test_options_flow(hass, sunspec_client_mock):
 
     coordinator = MockSunSpecDataUpdateCoordinator(hass, [1, 2])
     # api = SunSpecApiClient(host="test", port=123, unit_id=1, hass=hass)
-    hass.data[DOMAIN] = {entry.entry_id: coordinator}
+    entry.runtime_data = coordinator
 
     # Initialize an options flow
     # await hass.config_entries.async_setup(entry.entry_id)
@@ -200,7 +200,7 @@ async def test_options_flow_rejects_empty_model_selection(hass, sunspec_client_m
     entry.add_to_hass(hass)
 
     coordinator = MockSunSpecDataUpdateCoordinator(hass, [1, 2])
-    hass.data[DOMAIN] = {entry.entry_id: coordinator}
+    entry.runtime_data = coordinator
 
     result = await hass.config_entries.options.async_init(entry.entry_id)
     assert result["step_id"] == "host_options"
@@ -238,7 +238,7 @@ async def test_options_flow_connect_error(hass, sunspec_client_mock_connect_erro
     # Simulate a broken coordinator: this is what triggers the error
     # surface in the new options-flow path.
     coordinator.last_update_success = False
-    hass.data[DOMAIN] = {entry.entry_id: coordinator}
+    entry.runtime_data = coordinator
 
     # Initialize an options flow
     result = await hass.config_entries.options.async_init(entry.entry_id)

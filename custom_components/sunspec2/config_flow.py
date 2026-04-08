@@ -29,6 +29,7 @@ from .errors import DeviceError
 from .errors import ProtocolError
 from .errors import TransientError
 from .errors import TransportError
+from .model_labels import sunspec_model_labels
 
 _LOGGER: logging.Logger = logging.getLogger(__package__)
 
@@ -319,7 +320,11 @@ class SunSpecFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
         empty to disable the plausibility filter.
         """
         models = set(await self.client.async_get_models())
-        model_filter = {model for model in sorted(models)}
+        # Resolve {model_id: "Group label (id)"} so the multi-select
+        # shows "Inverter (Three Phase) (103)" instead of just "103".
+        # Reading the bundled pysunspec2 JSON files is sync IO so it
+        # runs in an executor.
+        model_filter = await self.hass.async_add_executor_job(sunspec_model_labels, models)
         default_enabled = {model for model in DEFAULT_MODELS if model in models}
 
         suggested_peak = await self._probe_nameplate(models)
@@ -410,7 +415,13 @@ class SunSpecOptionsFlowHandler(config_entries.OptionsFlow):
         """Manage the options."""
         self._errors = {}
         self.options = dict(self.config_entry.options)
-        self.coordinator = self.hass.data[DOMAIN][self.config_entry.entry_id]
+        # Read the coordinator from entry.runtime_data (Bronze rule
+        # runtime-data). Falls back to the legacy hass.data lookup
+        # for the test stub coordinator, which doesn't go through
+        # the real async_setup_entry path.
+        self.coordinator = getattr(self.config_entry, "runtime_data", None)
+        if self.coordinator is None:
+            self.coordinator = self.hass.data.get(DOMAIN, {}).get(self.config_entry.entry_id)
         return await self.async_step_host_options()
 
     async def async_step_host_options(self, user_input=None):
@@ -493,7 +504,11 @@ class SunSpecOptionsFlowHandler(config_entries.OptionsFlow):
             models = set(getattr(self.coordinator, "detected_models", set()))
             if not models:
                 models = set(self.coordinator.api.known_models())
-            model_filter = {model for model in sorted(models)}
+            # Resolve {model_id: "Group label (id)"} so the multi-select
+            # shows "Inverter (Three Phase) (103)" instead of just
+            # "103". Reading the bundled pysunspec2 JSON files is
+            # sync IO so it runs in an executor.
+            model_filter = await self.hass.async_add_executor_job(sunspec_model_labels, models)
             default_enabled = {model for model in DEFAULT_MODELS if model in models}
             default_models = self.config_entry.options.get(CONF_ENABLED_MODELS, default_enabled)
 
