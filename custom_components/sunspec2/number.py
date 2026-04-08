@@ -147,10 +147,10 @@ class SunSpecExportLimitNumber(_SunSpecWritablePointNumber):
     """Inverter export limit as a percentage of WMax (model 123 WMaxLimPct).
 
     Setting this to 0 caps the inverter's AC output at zero (the
-    "Nulleinspeisung" use case). Setting it to 100 (the default)
-    lets the inverter run at full nameplate. Note that the limit
-    only takes effect while the matching ``WMaxLim_Ena`` switch is
-    ON - the Number alone does not enable the limit.
+    zero-export use case). Setting it to 100 (the default) lets
+    the inverter run at full nameplate. Note that the limit only
+    takes effect while the matching ``WMaxLim_Ena`` switch is ON -
+    the Number alone does not enable the limit.
     """
 
     _point_name = "WMaxLimPct"

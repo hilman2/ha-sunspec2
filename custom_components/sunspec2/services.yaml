@@ -19,7 +19,7 @@ set_export_limit:
       name: Limit (%)
       description: >
         Export limit as a percentage of WMax. 0 = no export
-        ("Nulleinspeisung"), 100 = full nameplate output.
+        (zero-export operation), 100 = full nameplate output.
       required: true
       example: 70
       selector:
