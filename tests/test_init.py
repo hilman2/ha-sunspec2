@@ -632,3 +632,105 @@ async def test_detected_models_cached_for_options_flow(hass, sunspec_client_mock
     # tests/test_data/inverter.json).
     assert 103 in coordinator.detected_models
     assert 160 in coordinator.detected_models
+
+
+# ---------------------------------------------------------------------------
+# Auto-detected nameplate AC power (model 120 / 121)
+# ---------------------------------------------------------------------------
+#
+# v0.8.0: the coordinator reads SunSpec model 120 ("WRtg" - continuous AC
+# power output) on the first successful cycle, falling back to model 121
+# ("WMax") if 120 is missing. The result is exposed as
+# coordinator.detected_max_ac_power_kw and the options-flow form uses it
+# as a suggested_value for CONF_MAX_AC_POWER_KW so users do not have to
+# type their inverter's nameplate by hand.
+
+
+def _make_coordinator_with_mock_api(hass, model_data: dict):
+    """Build a real coordinator with a hand-rolled mock API for nameplate tests.
+
+    ``model_data`` is a {model_id: value_or_None} dict. ``async_get_data``
+    on the mock returns a wrapper whose ``getValue`` returns the configured
+    value, or raises if the model_id is not in the dict (simulating a
+    pysunspec2 KeyError).
+    """
+    from unittest.mock import AsyncMock
+    from unittest.mock import MagicMock
+
+    from custom_components.sunspec2 import SunSpecDataUpdateCoordinator
+
+    config_entry = MockConfigEntry(domain=DOMAIN, data=MOCK_CONFIG, options={})
+    config_entry.add_to_hass(hass)
+
+    api = MagicMock()
+
+    async def fake_get_data(model_id):
+        if model_id not in model_data:
+            raise KeyError(f"model {model_id} not present")
+        wrapper = MagicMock()
+        wrapper.getValue.return_value = model_data[model_id]
+        return wrapper
+
+    api.async_get_data = AsyncMock(side_effect=fake_get_data)
+    return SunSpecDataUpdateCoordinator(hass, client=api, entry=config_entry)
+
+
+async def test_nameplate_read_from_model_120(hass):
+    """Model 120 WRtg is the canonical SunSpec source for the nameplate.
+
+    Returns the value in kW. The test inverter advertises 7000 W
+    capacity, which the coordinator should expose as 7.0 kW.
+    """
+    coordinator = _make_coordinator_with_mock_api(hass, {120: 7000.0})
+    result = await coordinator._read_nameplate({1, 103, 120})
+    assert result == 7.0
+
+
+async def test_nameplate_falls_back_to_model_121_when_120_missing(hass):
+    """Model 121 WMax is the fallback when the device doesn't expose model 120.
+
+    Some inverters do not implement the Inverter Nameplate model 120 but
+    do expose Inverter Settings model 121. WMax there is the configured
+    max output power, which is usually but not always the nameplate.
+    """
+    coordinator = _make_coordinator_with_mock_api(hass, {121: 8500.0})
+    result = await coordinator._read_nameplate({1, 103, 121})
+    assert result == 8.5
+
+
+async def test_nameplate_returns_none_when_neither_model_present(hass):
+    """Devices without model 120 or 121 must just yield None.
+
+    The auto-detection is a convenience, never a hard requirement; the
+    plausibility filter simply stays unset and the user can configure it
+    manually if they care.
+    """
+    coordinator = _make_coordinator_with_mock_api(hass, {})
+    result = await coordinator._read_nameplate({1, 103, 160})
+    assert result is None
+
+
+async def test_nameplate_swallows_read_errors_and_falls_through(hass):
+    """A flaky model-120 read must not crash the cycle, just try the next.
+
+    Reading model 120 raises -> log at debug, try model 121 -> succeeds.
+    Reading model 121 raises -> log at debug, return None. Either way the
+    update cycle continues normally because the auto-detection is wrapped
+    in a try/except per model_id.
+    """
+    from unittest.mock import AsyncMock
+    from unittest.mock import MagicMock
+
+    from custom_components.sunspec2 import SunSpecDataUpdateCoordinator
+
+    config_entry = MockConfigEntry(domain=DOMAIN, data=MOCK_CONFIG, options={})
+    config_entry.add_to_hass(hass)
+
+    api = MagicMock()
+    api.async_get_data = AsyncMock(side_effect=RuntimeError("simulated read failure"))
+    coordinator = SunSpecDataUpdateCoordinator(hass, client=api, entry=config_entry)
+
+    # Both model 120 and 121 are advertised but the api raises. Must
+    # return None without propagating the exception.
+    result = await coordinator._read_nameplate({120, 121})
+    assert result is None

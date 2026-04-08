@@ -339,6 +339,15 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator):
         # silently saved ``models_enabled: []`` (killing every sensor)
         # was the motivating bug.
         self.detected_models: set[int] = set()
+        # Auto-detected nameplate AC power, in kW. Populated on the first
+        # successful update cycle by reading SunSpec model 120 ("WRtg" -
+        # continuous AC power output capability) with model 121 ("WMax",
+        # the configured max output power) as a fallback. The options
+        # flow uses this as a suggested_value for CONF_MAX_AC_POWER_KW
+        # so users do not have to type their inverter's nameplate by
+        # hand. ``None`` means the inverter does not expose either
+        # model and we have nothing to suggest.
+        self.detected_max_ac_power_kw: float | None = None
 
         self._log.debug("Data: %s", entry.data)
         self._log.debug("Options: %s", entry.options)
@@ -455,10 +464,57 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator):
         if self.device_info is None:
             self.device_info = await self.api.async_get_data(1)
 
+        # Auto-detect the inverter's nameplate AC power once, on the
+        # first cycle that reaches this point. Prefer model 120
+        # (Inverter Nameplate, "WRtg" = continuous output capability)
+        # which is the canonical SunSpec field for this. Fall back to
+        # model 121 (Inverter Settings, "WMax" = currently configured
+        # max output) only if 120 is missing - 121 reflects whatever
+        # the installer set, which is usually but not always the
+        # nameplate. Both reads are guarded by individual try/excepts
+        # so a flaky model read never breaks the whole update cycle.
+        if self.detected_max_ac_power_kw is None:
+            self.detected_max_ac_power_kw = await self._read_nameplate(all_models)
+
         for model_id in model_ids:
             data[model_id] = await self.api.async_get_data(model_id)
         self.api.close()
         return data
+
+    async def _read_nameplate(self, all_models: set[int]) -> float | None:
+        """Read continuous AC power capability from model 120 / 121.
+
+        Returns the nameplate in kW, or ``None`` if neither model is
+        present or both reads failed. Errors are swallowed (logged at
+        debug level only) so a missing-model condition never escalates
+        to an UpdateFailed - the auto-detection is a convenience, not
+        a hard requirement.
+        """
+        for model_id, point_name, label in (
+            (120, "WRtg", "model 120 WRtg"),
+            (121, "WMax", "model 121 WMax"),
+        ):
+            if model_id not in all_models:
+                continue
+            try:
+                wrapper = await self.api.async_get_data(model_id)
+                value = wrapper.getValue(point_name)
+            except Exception as exc:  # noqa: BLE001 - convenience read, never escalate
+                self._log.debug(
+                    "Auto-detect nameplate from %s failed (%s), trying next",
+                    label,
+                    exc,
+                )
+                continue
+            if isinstance(value, (int, float)) and value > 0:
+                kw = float(value) / 1000.0
+                self._log.info(
+                    "Auto-detected inverter nameplate AC power: %.2f kW (from %s)",
+                    kw,
+                    label,
+                )
+                return kw
+        return None
 
     def _after_successful_cycle(self, data):
         """Reset failure bookkeeping after a successful read."""

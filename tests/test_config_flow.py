@@ -264,3 +264,73 @@ async def test_options_flow_connect_error(hass, sunspec_client_mock_connect_erro
     assert result["type"] == FlowResultType.FORM
     assert result["step_id"] == "host_options"
     assert result["errors"] == {"base": "connection"}
+
+
+async def test_dhcp_discovery_pre_fills_host_in_user_step(hass):
+    """A DHCP-discovered inverter must land the user in the user step
+    with the discovered IP already filled in.
+
+    The DHCP handler does not probe the device itself - probing would
+    race against any other Modbus client on the network and we cannot
+    silently steal the inverter's single TCP slot. Instead we trust
+    the IEEE OUI list in manifest.json (it gives us "this MAC almost
+    certainly belongs to a SunSpec-capable inverter vendor") and let
+    the user confirm the rest in the normal user step.
+    """
+    from homeassistant.helpers.service_info.dhcp import DhcpServiceInfo
+
+    discovery = DhcpServiceInfo(
+        ip="192.168.42.17",
+        hostname="solaredge-12345",
+        macaddress="0027020a1b2c",
+    )
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN,
+        context={"source": config_entries.SOURCE_DHCP},
+        data=discovery,
+    )
+
+    assert result["type"] == FlowResultType.FORM
+    assert result["step_id"] == "user"
+
+    # The host field default must equal the discovered IP. Voluptuous
+    # stores defaults as a callable on the marker, so we have to pull
+    # them by walking the schema's marker dict.
+    schema_markers = result["data_schema"].schema
+    host_default = next(
+        (marker.default() for marker in schema_markers if str(marker) == "host"),
+        None,
+    )
+    assert host_default == "192.168.42.17"
+
+
+async def test_dhcp_discovery_aborts_when_host_already_configured(hass):
+    """A second DHCP discovery for an already-configured host must abort.
+
+    Without this guard, every DHCP lease renewal would re-prompt the
+    user with a fresh "discovered integration" tile that they would
+    have to dismiss by hand. Once they've already set up the inverter
+    we should leave them alone.
+    """
+    from homeassistant.helpers.service_info.dhcp import DhcpServiceInfo
+
+    existing = MockConfigEntry(
+        domain=DOMAIN,
+        data={**MOCK_CONFIG, "host": "192.168.42.17"},
+        entry_id="already_configured",
+    )
+    existing.add_to_hass(hass)
+
+    discovery = DhcpServiceInfo(
+        ip="192.168.42.17",
+        hostname="solaredge-12345",
+        macaddress="0027020a1b2c",
+    )
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN,
+        context={"source": config_entries.SOURCE_DHCP},
+        data=discovery,
+    )
+
+    assert result["type"] == FlowResultType.ABORT
+    assert result["reason"] == "already_configured"

@@ -97,6 +97,43 @@ class SunSpecFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
     def __init__(self):
         """Initialize."""
         self._errors = {}
+        # Pre-filled IP from a DHCP discovery, if any. The user step
+        # uses this as the default for the host field so the user just
+        # needs to confirm port and unit ID.
+        self._discovered_host: str | None = None
+
+    async def async_step_dhcp(self, discovery_info):
+        """Handle a DHCP discovery for a known SunSpec inverter vendor.
+
+        The matching MAC OUI list lives in manifest.json. When HA sees
+        a lease whose MAC matches one of those prefixes, it calls this
+        handler with the discovered IP. We pre-fill the user form with
+        that IP and let the user confirm port (default 502) and unit
+        ID (default 1) - we cannot probe the device here without
+        risking a race against any other Modbus client on the network,
+        and the user knows their unit ID anyway.
+        """
+        host = discovery_info.ip
+        _LOGGER.debug(
+            "DHCP discovery for SunSpec inverter at %s (mac=%s, hostname=%s)",
+            host,
+            discovery_info.macaddress,
+            discovery_info.hostname,
+        )
+
+        # Bail if we already have a config entry for this exact host -
+        # the user has already set this device up. ``unique_id`` for an
+        # already-configured entry is the device serial number, which
+        # we cannot derive from a DHCP lease alone, so use the host as
+        # the discovery uniqueness key instead.
+        await self.async_set_unique_id(f"dhcp:{host}")
+        self._abort_if_unique_id_configured()
+        for entry in self._async_current_entries():
+            if entry.data.get(CONF_HOST) == host:
+                return self.async_abort(reason="already_configured")
+
+        self._discovered_host = host
+        return await self.async_step_user()
 
     def _get_unique_id(self, host, port, unit_id):
         """Build a stable unique ID even when device serial data is missing."""
@@ -159,7 +196,11 @@ class SunSpecFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
 
     async def _show_config_form(self, user_input):
         """Show the configuration form to edit connection data."""
-        defaults = user_input or {CONF_HOST: "", CONF_PORT: 502, CONF_UNIT_ID: 1}
+        defaults = user_input or {
+            CONF_HOST: self._discovered_host or "",
+            CONF_PORT: 502,
+            CONF_UNIT_ID: 1,
+        }
         return self.async_show_form(
             step_id="user",
             data_schema=vol.Schema(
@@ -282,7 +323,15 @@ class SunSpecOptionsFlowHandler(config_entries.OptionsFlow):
             CONF_SCAN_INTERVAL, self.config_entry.data.get(CONF_SCAN_INTERVAL)
         )
         capture_raw = self.config_entry.options.get(CONF_CAPTURE_RAW, False)
+        # User-set value wins. If the user has not configured a peak
+        # power yet, fall back to the value the coordinator auto-
+        # detected from SunSpec model 120 / 121 on the first cycle.
+        # That way the form opens with a sensible default for the
+        # plausibility filter without the user having to type the
+        # inverter's nameplate by hand.
         max_ac_power_kw = self.config_entry.options.get(CONF_MAX_AC_POWER_KW)
+        if max_ac_power_kw is None:
+            max_ac_power_kw = getattr(self.coordinator, "detected_max_ac_power_kw", None)
         # Phase 4 hot-reload fix: instead of forcing a fresh probe (which
         # raced with the coordinator's active socket on single-slot
         # inverters like KACO), surface the coordinator's current state.

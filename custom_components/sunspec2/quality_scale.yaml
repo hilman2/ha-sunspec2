@@ -1,0 +1,106 @@
+rules:
+  # Bronze
+  action-setup:
+    status: exempt
+    comment: |
+      This integration only exposes read-only sensors and provides no
+      service actions of its own.
+  appropriate-polling:
+    status: done
+    comment: |
+      DataUpdateCoordinator with a user-configurable scan interval
+      (default 30 s) backed by a per-(host, port) asyncio lock so
+      multiple coordinators sharing the same gateway never open
+      concurrent Modbus TCP connections.
+  brands:
+    status: done
+    comment: |
+      The brand/ folder is bundled with the integration so the HA
+      Brands CDN is not consulted at runtime; offline-friendly and
+      avoids the 30-day 404 cache that the CDN keeps.
+  common-modules:
+    status: done
+    comment: |
+      Coordinator + entity base class + typed exception hierarchy live
+      in __init__.py, entity.py and errors.py respectively. Sensor
+      platform reuses the SunSpecEntity base; CoordinatorEntity is
+      used.
+  config-flow:
+    status: done
+    comment: |
+      User flow with two steps (host then settings) plus options flow
+      and a DHCP discovery step.
+  config-flow-test-coverage:
+    status: done
+    comment: |
+      tests/test_config_flow.py covers the user flow happy path,
+      every error branch (transport, transient, device), the options
+      flow happy path, the empty-models rejection, and a
+      voluptuous_serialize regression guard.
+  dependency-transparency:
+    status: done
+    comment: |
+      Single dependency pysunspec2[serial], pinned to ==1.3.3 in the
+      manifest. Available on PyPI under an open-source licence.
+  docs-actions:
+    status: exempt
+    comment: |
+      No service actions, see action-setup.
+  docs-high-level-description:
+    status: done
+  docs-installation-instructions:
+    status: done
+    comment: |
+      README.md ships HACS install instructions plus the manual
+      copy-into-config-dir fallback.
+  docs-removal-instructions:
+    status: done
+    comment: |
+      README.md "Removing the integration" section.
+  entity-event-setup:
+    status: exempt
+    comment: |
+      The integration polls the inverter via Modbus TCP. No external
+      event subscriptions to register.
+  entity-unique-id:
+    status: done
+    comment: |
+      Stable per-point unique IDs combining config_entry_id, point key,
+      model id and model index. See get_sunspec_unique_id().
+  has-entity-name:
+    status: todo
+    comment: |
+      SunSpecEntity does not currently set _attr_has_entity_name. The
+      sensor name field carries a fully composed "<group> <label>"
+      string today (built in SunSpecSensor.__init__). Switching to
+      has_entity_name with a shorter per-entity name is intentionally
+      scheduled for v0.8.1 - it can change the entity_id slug for
+      brand-new installs and we want that change to land in a
+      release that is focused on the migration alone.
+  runtime-data:
+    status: todo
+    comment: |
+      The integration currently stores its coordinator in
+      hass.data[DOMAIN][entry.entry_id]. Migrating to the typed
+      ConfigEntry.runtime_data API is intentionally scheduled for
+      v0.8.1 - it touches every place that reads the coordinator and
+      we wanted v0.8.0 to focus on the user-visible config flow
+      improvements without an invasive refactor in the same release.
+  test-before-configure:
+    status: done
+    comment: |
+      _test_connection in the user flow opens a fresh probe with the
+      longer SETUP_TIMEOUT and refuses the form on TransportError /
+      ProtocolError / DeviceError / TransientError.
+  test-before-setup:
+    status: done
+    comment: |
+      async_config_entry_first_refresh is called from async_setup_entry
+      and any failure surfaces as ConfigEntryNotReady so HA can retry
+      with backoff.
+  unique-config-entry:
+    status: done
+    comment: |
+      The user flow calls async_set_unique_id with the device serial
+      number from common model 1, and falls back to host:port:unit_id
+      if the device does not provide one.
