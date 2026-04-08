@@ -424,9 +424,7 @@ async def test_migrate_entry_version_2_no_migration_needed(hass):
 # below pin every branch of that contract.
 
 
-async def test_in_cycle_retry_recovers_after_first_failure(
-    hass, sunspec_client_mock, monkeypatch
-):
+async def test_in_cycle_retry_recovers_after_first_failure(hass, sunspec_client_mock, monkeypatch):
     """First read of a cycle fails, retry succeeds -> cycle counts as good.
 
     The whole point of the in-cycle retry is to swallow a single transient
@@ -464,9 +462,7 @@ async def test_in_cycle_retry_recovers_after_first_failure(
     assert fail_state["raised"] is True
 
 
-async def test_in_cycle_retry_exhausted_marks_cycle_failed(
-    hass, sunspec_client_mock, monkeypatch
-):
+async def test_in_cycle_retry_exhausted_marks_cycle_failed(hass, sunspec_client_mock, monkeypatch):
     """Both attempts fail -> UpdateFailed and consecutive_failed_cycles bumps.
 
     Pinned because if the retry path silently swallowed the second
@@ -511,19 +507,19 @@ async def test_first_refresh_failure_skips_retry_delay(hass, sunspec_client_mock
     config_entry.add_to_hass(hass)
     set_entry_setup_in_progress(hass, config_entry)
 
-    with patch(
-        "custom_components.sunspec2.SunSpecApiClient.async_get_data",
-        side_effect=TransportError("first refresh blip"),
-    ) as get_data_mock:
-        with pytest.raises(ConfigEntryNotReady):
-            await async_setup_entry(hass, config_entry)
+    with (
+        patch(
+            "custom_components.sunspec2.SunSpecApiClient.async_get_data",
+            side_effect=TransportError("first refresh blip"),
+        ) as get_data_mock,
+        pytest.raises(ConfigEntryNotReady),
+    ):
+        await async_setup_entry(hass, config_entry)
 
     assert get_data_mock.call_count == 1
 
 
-async def test_stale_data_tolerance_keeps_sensor_available(
-    hass, sunspec_client_mock, monkeypatch
-):
+async def test_stale_data_tolerance_keeps_sensor_available(hass, sunspec_client_mock, monkeypatch):
     """Sensors keep the last value while consecutive failures stay <= N.
 
     Walks the coordinator from a healthy state through
