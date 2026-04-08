@@ -12,6 +12,10 @@
           "max_ac_power_kw": "Peak AC power of the inverter (kW, optional)"
         }
       }
+    },
+    "error": {
+      "no_models_selected": "Select at least one SunSpec model. Saving an empty selection would stop the integration from polling the inverter and all sensors would disappear.",
+      "connection": "Cannot reach the inverter right now. Wait a moment and try again, or check the device is online."
     }
   },
   "issues": {

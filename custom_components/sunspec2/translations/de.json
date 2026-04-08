@@ -12,6 +12,10 @@
           "max_ac_power_kw": "Spitzen-AC-Leistung des Wechselrichters (kW, optional)"
         }
       }
+    },
+    "error": {
+      "no_models_selected": "Wähle mindestens ein SunSpec-Modell aus. Eine leere Auswahl zu speichern würde dazu führen, dass die Integration den Wechselrichter nicht mehr abfragt und alle Sensoren verschwinden.",
+      "connection": "Der Wechselrichter ist gerade nicht erreichbar. Warte einen Moment und versuche es erneut, oder prüfe ob das Gerät online ist."
     }
   },
   "issues": {

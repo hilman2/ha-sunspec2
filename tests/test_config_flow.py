@@ -185,7 +185,7 @@ async def test_options_flow(hass, sunspec_client_mock):
     assert CONF_MAX_AC_POWER_KW in serialised_names
 
     result = await hass.config_entries.options.async_configure(
-        result["flow_id"], user_input={CONF_ENABLED_MODELS: [], CONF_SCAN_INTERVAL: 10}
+        result["flow_id"], user_input={CONF_ENABLED_MODELS: [1], CONF_SCAN_INTERVAL: 10}
     )
 
     # Verify that the flow finishes
@@ -194,6 +194,39 @@ async def test_options_flow(hass, sunspec_client_mock):
 
     # Verify that the options were updated
     # assert entry.options == {BINARY_SENSOR: True, SENSOR: False, SWITCH: True}
+
+
+async def test_options_flow_rejects_empty_model_selection(hass, sunspec_client_mock):
+    """An empty models_enabled save must be refused with an inline error.
+
+    Regression for the v0.7.3 -> v0.7.5 bug where saving the options
+    form with no models ticked silently persisted ``models_enabled: []``
+    to disk and the next coordinator reload polled zero models, killing
+    every sensor on the integration.
+    """
+    entry = MockConfigEntry(domain=DOMAIN, data=MOCK_CONFIG, entry_id="test_empty_models")
+    entry.add_to_hass(hass)
+
+    coordinator = MockSunSpecDataUpdateCoordinator(hass, [1, 2])
+    hass.data[DOMAIN] = {entry.entry_id: coordinator}
+
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    assert result["step_id"] == "host_options"
+
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], user_input=MOCK_CONFIG_STEP_1
+    )
+    assert result["step_id"] == "model_options"
+
+    # Submit with an explicitly empty models list. The form must come
+    # back with an inline base error instead of creating an entry.
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], user_input={CONF_ENABLED_MODELS: [], CONF_SCAN_INTERVAL: 10}
+    )
+
+    assert result["type"] == FlowResultType.FORM
+    assert result["step_id"] == "model_options"
+    assert result["errors"] == {"base": "no_models_selected"}
 
 
 # Test faild connection in options flow

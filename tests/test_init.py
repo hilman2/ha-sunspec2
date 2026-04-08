@@ -14,6 +14,7 @@ from custom_components.sunspec2 import async_setup_entry
 from custom_components.sunspec2.const import CONF_CAPTURE_RAW
 from custom_components.sunspec2.const import CONF_ENABLED_MODELS
 from custom_components.sunspec2.const import CONF_SCAN_INTERVAL
+from custom_components.sunspec2.const import DEFAULT_MODELS
 from custom_components.sunspec2.const import DOMAIN
 from custom_components.sunspec2.const import STALE_DATA_TOLERANCE_CYCLES
 from custom_components.sunspec2.errors import TransportError
@@ -568,3 +569,66 @@ async def test_stale_data_tolerance_keeps_sensor_available(hass, sunspec_client_
     assert coordinator.consecutive_failed_cycles == 0
     recovered_state = hass.states.get(TEST_INVERTER_PREFIX_SENSOR_DC_ENTITY_ID)
     assert recovered_state.state == "90"
+
+
+# ---------------------------------------------------------------------------
+# Defense in depth against the empty models_enabled regression
+# ---------------------------------------------------------------------------
+#
+# v0.7.3 -> v0.7.5: a corrupted options-flow save could persist
+# `models_enabled: []` to disk. The next coordinator reload would then
+# poll zero models and every sensor on the integration would disappear.
+# These two tests pin (a) the coordinator-side fallback that maps an
+# empty filter back to DEFAULT_MODELS at init time and (b) the
+# coordinator's `detected_models` cache that the options-flow form
+# uses instead of api.known_models() so the multi-select can render
+# even between cycles when api._client is closed.
+
+
+async def test_empty_models_filter_falls_back_to_defaults(hass, sunspec_client_mock):
+    """Setup with an empty models_enabled filter must fall back to DEFAULT_MODELS.
+
+    Without this fallback the coordinator would happily poll zero
+    models and the user would see all sensors disappear with nothing
+    actionable in the logs.
+    """
+    config_entry = MockConfigEntry(
+        domain=DOMAIN,
+        data=MOCK_CONFIG,
+        options={CONF_ENABLED_MODELS: []},
+        entry_id="test_empty_filter_fallback",
+    )
+    config_entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(config_entry.entry_id)
+    await hass.async_block_till_done()
+
+    coordinator = hass.data[DOMAIN][config_entry.entry_id]
+    # The coordinator must have rewritten the empty filter to the
+    # full DEFAULT_MODELS set so subsequent cycles actually poll
+    # something.
+    assert coordinator.option_model_filter == set(DEFAULT_MODELS)
+
+
+async def test_detected_models_cached_for_options_flow(hass, sunspec_client_mock):
+    """First successful cycle must populate coordinator.detected_models.
+
+    The options-flow form reads `coordinator.detected_models` to render
+    its multi-select. If the cache stays empty the form would fall back
+    to api.known_models() which returns [] between cycles, and the user
+    would see an empty multi-select and silently re-trigger the very
+    bug this branch is supposed to fix.
+    """
+    config_entry = await setup_mock_sunspec_config_entry(hass, MOCK_CONFIG)
+    coordinator = hass.data[DOMAIN][config_entry.entry_id]
+
+    # detected_models is populated from api.async_get_models() during
+    # the locked update cycle, so it should be non-empty after a
+    # successful first refresh and survive the api.close() at cycle end.
+    assert coordinator.detected_models, (
+        "detected_models should be populated by the first successful cycle"
+    )
+    # Sanity check: the cache contains the models the test fixture
+    # exposes (model 103 inverter and model 160 MPPT are both in
+    # tests/test_data/inverter.json).
+    assert 103 in coordinator.detected_models
+    assert 160 in coordinator.detected_models
