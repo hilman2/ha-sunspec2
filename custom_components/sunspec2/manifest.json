@@ -1,12 +1,33 @@
 {
   "domain": "sunspec2",
-  "name": "SunSpec 2",
+  "name": "SunSpec (KACO, SolarEdge, Fronius, SMA, Kostal, Sungrow, Delta, GoodWe, ABB / FIMER, SunPower, Chint)",
   "codeowners": ["@hilman2"],
   "config_flow": true,
   "dependencies": [],
+  "dhcp": [
+    {"macaddress": "002702*"},
+    {"macaddress": "84D6C5*"},
+    {"macaddress": "0015BB*", "hostname": "sma*"},
+    {"macaddress": "0003AC*"},
+    {"macaddress": "AC199F*"},
+    {"macaddress": "F0C1CE*"},
+    {"macaddress": "002148*"},
+    {"macaddress": "240BB1*"},
+    {"macaddress": "1897F1*"},
+    {"macaddress": "F07F0C*"},
+    {"macaddress": "00066E*"},
+    {"macaddress": "001823*"},
+    {"macaddress": "5C8DE5*"},
+    {"macaddress": "20F85E*"},
+    {"macaddress": "000A5B*"},
+    {"macaddress": "DC5726*"},
+    {"macaddress": "0022F2*"},
+    {"macaddress": "34ADE4*"}
+  ],
   "documentation": "https://github.com/hilman2/ha-sunspec2",
+  "integration_type": "device",
   "iot_class": "local_polling",
   "issue_tracker": "https://github.com/hilman2/ha-sunspec2/issues",
   "requirements": ["pysunspec2[serial]==1.3.3"],
-  "version": "0.7.6"
+  "version": "0.8.0"
 }

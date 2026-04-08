@@ -4,6 +4,15 @@
 [![hacs](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://github.com/hilman2/ha-sunspec2)
 [![GitHub release](https://img.shields.io/github/v/release/hilman2/ha-sunspec2)](https://github.com/hilman2/ha-sunspec2/releases)
 
+**Works with: KACO · SolarEdge · Fronius · SMA · Kostal · Sungrow · Delta ·
+GoodWe · ABB / FIMER · Power-One · SunPower · Chint Power Systems** — and
+any other inverter, meter, or battery that speaks the SunSpec Modbus
+specification. SunSpec is the manufacturer-independent standard for
+photovoltaic equipment communication; if your device documentation
+mentions "SunSpec Modbus" or you can find the SunSpec ID register
+holding `0x53756e53` ("SunS") at one of the standard base addresses,
+this integration will talk to it.
+
 Home Assistant integration for SunSpec Modbus devices: solar inverters,
 energy meters, and battery systems that follow the SunSpec specification.
 
@@ -38,6 +47,28 @@ energy meters, and battery systems that follow the SunSpec specification.
 5. **Settings → Devices & Services → Add Integration → SunSpec 2**
 6. Enter the inverter's host, port (typically 502), and unit ID (typically 1)
 7. On the second step pick which SunSpec models to expose as sensors
+
+If your inverter is on the same LAN as Home Assistant and uses one of
+the supported manufacturers, HA will detect it via DHCP automatically
+and offer it as a discovered integration on the *Devices & Services*
+page — you only have to confirm.
+
+## Removing the integration
+
+1. **Settings → Devices & Services → SunSpec 2** → three-dot menu →
+   **Delete** for each configured device. This removes the entry, all
+   sensor entities, and their device entry from the registry.
+2. (Optional) In HACS, three-dot menu on **SunSpec 2** → **Remove**.
+   This deletes the `custom_components/sunspec2` directory from your
+   config.
+3. **Restart Home Assistant** so HA forgets the integration was ever
+   loaded.
+
+Removing the integration leaves the inverter itself untouched - it
+just stops talking to it. Recorder history for the deleted entities
+is kept by HA's Recorder until its own purge interval kicks in (10
+days by default), so dashboards that reference the entities will go
+to "unknown" but not lose old data immediately.
 
 ## Migration
 
