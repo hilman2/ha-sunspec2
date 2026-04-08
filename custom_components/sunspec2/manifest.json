@@ -3,7 +3,7 @@
   "name": "SunSpec (KACO, SolarEdge, Fronius, SMA, Kostal, Sungrow, Delta, GoodWe, ABB / FIMER, SunPower, Chint)",
   "codeowners": ["@hilman2"],
   "config_flow": true,
-  "dependencies": [],
+  "dependencies": ["network"],
   "dhcp": [
     {"macaddress": "002702*"},
     {"macaddress": "84D6C5*"},
