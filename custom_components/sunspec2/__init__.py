@@ -47,6 +47,12 @@ SCAN_INTERVAL = timedelta(seconds=30)
 
 _LOGGER: logging.Logger = logging.getLogger(__package__)
 
+# Bronze rule runtime-data: typed config entry alias so platforms,
+# diagnostics and the options flow can read the coordinator off
+# ``entry.runtime_data`` with a real type instead of fishing it out
+# of ``hass.data[DOMAIN][entry.entry_id]``.
+type SunSpec2ConfigEntry = ConfigEntry["SunSpecDataUpdateCoordinator"]
+
 # This integration only supports config entries (UI setup), no YAML config.
 # CONFIG_SCHEMA tells hassfest about that explicitly so it does not warn.
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
@@ -87,10 +93,10 @@ async def async_migrate_entry(hass: HomeAssistant, config_entry: ConfigEntry) ->
     return True
 
 
-async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+async def async_setup_entry(hass: HomeAssistant, entry: SunSpec2ConfigEntry) -> bool:
     """Set up this integration using UI."""
-    if hass.data.get(DOMAIN) is None:
-        hass.data.setdefault(DOMAIN, {})
+    if not hass.data.get(f"{DOMAIN}_started"):
+        hass.data[f"{DOMAIN}_started"] = True
         _LOGGER.info(STARTUP_MESSAGE)
 
     host = entry.data.get(CONF_HOST)
@@ -134,7 +140,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     log = get_adapter(host, port, unit_id)
     log.debug("Setup config entry for SunSpec")
     coordinator = SunSpecDataUpdateCoordinator(hass, client=client, entry=entry)
-    hass.data[DOMAIN][entry.entry_id] = coordinator
+    # Bronze rule runtime-data: store the coordinator on the typed
+    # config entry instead of in hass.data so platforms and the
+    # diagnostics dump can read it without a second-level lookup.
+    entry.runtime_data = coordinator
 
     await coordinator.async_config_entry_first_refresh()
 
@@ -208,7 +217,7 @@ def _maybe_migrate_from_cjne(hass: HomeAssistant, entry: ConfigEntry, log) -> No
         log.error("cjne migration produced errors: %s", errors)
 
 
-async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+async def async_unload_entry(hass: HomeAssistant, entry: SunSpec2ConfigEntry) -> bool:
     """Handle removal of an entry."""
 
     _LOGGER.debug("Unload entry %s", entry.entry_id)
@@ -221,7 +230,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         )
     )
     if unloaded:
-        coordinator = hass.data[DOMAIN].pop(entry.entry_id)
+        coordinator = entry.runtime_data
         # Drop any Repairs panel issues this coordinator may have raised.
         # Without this, removing the integration leaves ghost issues
         # in Settings -> Repairs that the user can never clear.
@@ -518,6 +527,16 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator):
 
     def _after_successful_cycle(self, data):
         """Reset failure bookkeeping after a successful read."""
+        # Silver rule log-when-unavailable: emit a single recovery
+        # log line when we come back from an unavailable run, so
+        # the user can correlate "the sensor recovered" with a
+        # specific moment in their HA log without having to grep
+        # through every successful debug line.
+        if self.consecutive_failed_cycles > 0:
+            self._log.warning(
+                "Inverter recovered after %d failed update cycle(s)",
+                self.consecutive_failed_cycles,
+            )
         self.consecutive_failed_cycles = 0
         for cat in self._consecutive_failures:
             self._consecutive_failures[cat] = 0

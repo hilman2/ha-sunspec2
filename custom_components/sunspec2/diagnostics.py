@@ -14,22 +14,21 @@ from __future__ import annotations
 from typing import Any
 
 from homeassistant.components.diagnostics import async_redact_data
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import __version__ as HA_VERSION
 from homeassistant.core import HomeAssistant
 
+from . import SunSpec2ConfigEntry
 from .const import CONF_HOST
-from .const import DOMAIN
 from .const import VERSION
 
 TO_REDACT = {CONF_HOST}
 
 
 async def async_get_config_entry_diagnostics(
-    hass: HomeAssistant, entry: ConfigEntry
+    hass: HomeAssistant, entry: SunSpec2ConfigEntry
 ) -> dict[str, Any]:
     """Return diagnostics for a config entry."""
-    coordinator = hass.data[DOMAIN][entry.entry_id]
+    coordinator = entry.runtime_data
 
     scanned_models: list[dict[str, Any]] = []
     latest_values: dict[str, dict[str, Any]] = {}

@@ -45,18 +45,17 @@ async def test_setup_unload_and_reload_entry(hass, sunspec_client_mock):
     # Use the config entries manager so entry state transitions match real setup.
     assert await hass.config_entries.async_setup(config_entry.entry_id)
     await hass.async_block_till_done()
-    assert DOMAIN in hass.data and config_entry.entry_id in hass.data[DOMAIN]
-    assert type(hass.data[DOMAIN][config_entry.entry_id]) is SunSpecDataUpdateCoordinator
+    assert type(config_entry.runtime_data) is SunSpecDataUpdateCoordinator
 
-    # Reload the entry and assert that the data from above is still there.
+    # Reload the entry and assert that the runtime_data still holds a coordinator.
     assert await hass.config_entries.async_reload(config_entry.entry_id)
     await hass.async_block_till_done()
-    assert DOMAIN in hass.data and config_entry.entry_id in hass.data[DOMAIN]
-    assert type(hass.data[DOMAIN][config_entry.entry_id]) is SunSpecDataUpdateCoordinator
+    assert type(config_entry.runtime_data) is SunSpecDataUpdateCoordinator
 
-    # Unload the entry and verify that the data has been removed.
+    # Unload the entry. HA clears runtime_data on unload, so the
+    # attribute either no longer exists or is None.
     assert await hass.config_entries.async_unload(config_entry.entry_id)
-    assert config_entry.entry_id not in hass.data[DOMAIN]
+    assert getattr(config_entry, "runtime_data", None) is None
 
 
 async def test_options_update_triggers_clean_reload(hass, sunspec_client_mock):
@@ -107,10 +106,10 @@ async def test_options_update_triggers_clean_reload(hass, sunspec_client_mock):
     await hass.async_block_till_done()
 
     # If the bug were back, the entry would be in SETUP_ERROR or some
-    # other failure state and there would be no coordinator in hass.data.
+    # other failure state and runtime_data would not have been
+    # populated by the reload's async_setup_entry call.
     assert config_entry.state == ConfigEntryState.LOADED
-    assert config_entry.entry_id in hass.data[DOMAIN]
-    coordinator = hass.data[DOMAIN][config_entry.entry_id]
+    coordinator = config_entry.runtime_data
     assert isinstance(coordinator, SunSpecDataUpdateCoordinator)
     # The new (post-reload) coordinator picked up the new option.
     assert coordinator.api._capture_enabled is True
@@ -441,7 +440,7 @@ async def test_in_cycle_retry_recovers_after_first_failure(hass, sunspec_client_
     monkeypatch.setattr("custom_components.sunspec2.INTERVAL_RETRY_DELAY_SECONDS", 0)
 
     config_entry = await setup_mock_sunspec_config_entry(hass, MOCK_CONFIG_PREFIX)
-    coordinator = hass.data[DOMAIN][config_entry.entry_id]
+    coordinator = config_entry.runtime_data
     assert coordinator.data is not None
 
     real_get_data = coordinator.api.async_get_data
@@ -473,7 +472,7 @@ async def test_in_cycle_retry_exhausted_marks_cycle_failed(hass, sunspec_client_
     monkeypatch.setattr("custom_components.sunspec2.INTERVAL_RETRY_DELAY_SECONDS", 0)
 
     config_entry = await setup_mock_sunspec_config_entry(hass, MOCK_CONFIG_PREFIX)
-    coordinator = hass.data[DOMAIN][config_entry.entry_id]
+    coordinator = config_entry.runtime_data
     assert coordinator.consecutive_failed_cycles == 0
 
     with patch.object(
@@ -533,7 +532,7 @@ async def test_stale_data_tolerance_keeps_sensor_available(hass, sunspec_client_
     monkeypatch.setattr("custom_components.sunspec2.INTERVAL_RETRY_DELAY_SECONDS", 0)
 
     config_entry = await setup_mock_sunspec_config_entry(hass, MOCK_CONFIG_PREFIX)
-    coordinator = hass.data[DOMAIN][config_entry.entry_id]
+    coordinator = config_entry.runtime_data
     # Sanity-check the seed state - the mocked inverter reports DCA=90
     # on the first MPPT module, so that's the value the stale-data path
     # is meant to keep alive across failures.
@@ -602,7 +601,7 @@ async def test_empty_models_filter_falls_back_to_defaults(hass, sunspec_client_m
     assert await hass.config_entries.async_setup(config_entry.entry_id)
     await hass.async_block_till_done()
 
-    coordinator = hass.data[DOMAIN][config_entry.entry_id]
+    coordinator = config_entry.runtime_data
     # The coordinator must have rewritten the empty filter to the
     # full DEFAULT_MODELS set so subsequent cycles actually poll
     # something.
@@ -619,7 +618,7 @@ async def test_detected_models_cached_for_options_flow(hass, sunspec_client_mock
     bug this branch is supposed to fix.
     """
     config_entry = await setup_mock_sunspec_config_entry(hass, MOCK_CONFIG)
-    coordinator = hass.data[DOMAIN][config_entry.entry_id]
+    coordinator = config_entry.runtime_data
 
     # detected_models is populated from api.async_get_models() during
     # the locked update cycle, so it should be non-empty after a

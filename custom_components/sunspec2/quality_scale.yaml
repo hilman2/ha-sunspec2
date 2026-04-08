@@ -77,14 +77,16 @@ rules:
       so the user sees "Powador 7.8 TL3 Watts" composed by HA without
       hand-rolled prefix concatenation.
   runtime-data:
-    status: todo
+    status: done
     comment: |
-      The integration currently stores its coordinator in
-      hass.data[DOMAIN][entry.entry_id]. Migrating to the typed
-      ConfigEntry.runtime_data API is intentionally scheduled for
-      v0.8.1 - it touches every place that reads the coordinator and
-      we wanted v0.8.0 to focus on the user-visible config flow
-      improvements without an invasive refactor in the same release.
+      v0.9.0 migrated the coordinator handle from
+      hass.data[DOMAIN][entry.entry_id] to entry.runtime_data, with a
+      ``SunSpec2ConfigEntry`` typed alias so the platforms,
+      diagnostics dump and options flow all read it through the
+      typed attribute. The legacy ``hass.data[DOMAIN]`` lookup is
+      gone from production code (only the test stub coordinator
+      still exposes it via a small fallback in
+      SunSpecOptionsFlowHandler.async_step_init).
   test-before-configure:
     status: done
     comment: |
@@ -103,3 +105,73 @@ rules:
       The user flow calls async_set_unique_id with the device serial
       number from common model 1, and falls back to host:port:unit_id
       if the device does not provide one.
+
+  # Silver
+  action-exceptions:
+    status: exempt
+    comment: |
+      No service actions, see action-setup.
+  config-entry-unloading:
+    status: done
+    comment: |
+      async_unload_entry forwards platform unload to HA, then closes
+      the modbus client (with the SO_LINGER=0 RST trick on the
+      underlying socket so single-slot inverters free their slot
+      immediately) and clears the update listener.
+  docs-configuration-parameters:
+    status: todo
+    comment: |
+      The README documents the options flow at a high level but does
+      not yet have a one-row-per-parameter table. Scheduled for the
+      Gold doc pass alongside docs-supported-functions.
+  docs-installation-parameters:
+    status: done
+    comment: |
+      README "Installation via HACS" section walks through every
+      input the user has to provide on the initial setup form
+      (host, port, unit ID, model selection, peak AC power).
+  entity-unavailable:
+    status: done
+    comment: |
+      SunSpecEntity.available returns False once
+      consecutive_failed_cycles exceeds STALE_DATA_TOLERANCE_CYCLES.
+      Below the threshold the entity stays available with the last
+      good value (stale-data tolerance), so transient blips do not
+      bounce the long-term statistics graphs to "unknown".
+  integration-owner:
+    status: done
+    comment: |
+      ``codeowners: ["@hilman2"]`` in manifest.json.
+  log-when-unavailable:
+    status: done
+    comment: |
+      The coordinator's _record_error chain logs every failed update
+      cycle at WARNING level with a per-category in-a-row counter
+      ("TransportError (#3 in a row)"). _after_successful_cycle
+      emits a single recovery WARNING when we come back from a
+      failed run, so the user can correlate the recovery moment
+      against an exact log line.
+  parallel-updates:
+    status: done
+    comment: |
+      sensor.py declares ``PARALLEL_UPDATES = 0`` because the
+      coordinator already serialises every Modbus read through its
+      per-(host, port) asyncio.Lock. Letting HA add a second layer
+      of throttling on top would just inflate latency without any
+      gain in correctness. The lock is also documented as
+      ``_GATEWAY_LOCKS`` in __init__.py for the multi-coordinator
+      single-gateway case.
+  reauthentication-flow:
+    status: exempt
+    comment: |
+      Modbus TCP has no authentication. Reauth is not applicable.
+  test-coverage:
+    status: done
+    comment: |
+      129+ tests covering the config flow (manual + scan + DHCP),
+      coordinator (in-cycle retry, stale tolerance, error
+      categorisation, fallback paths), discovery helper, sensor
+      platform, options flow including the empty-models regression
+      guard, migration from cjne/ha-sunspec, and the v0.7.3 ENUM
+      bitfield voluptuous_serialize regression. Run with
+      ``pytest tests/`` from a WSL Ubuntu uv env.
