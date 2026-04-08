@@ -2,6 +2,7 @@
 
 import logging
 import socket
+import struct
 import threading
 import time
 from types import SimpleNamespace
@@ -31,12 +32,21 @@ from .models import SunSpecModelWrapper
 # single bad cycle delayed three normal cycles, and the per-gateway
 # lock starved any other config entry behind the same TCP endpoint.
 #
-# 10s is the new ceiling: an inverter that has not answered after ten
-# seconds is gone, full stop. The in-cycle retry in the coordinator
-# (5s sleep then one more attempt) and the stale-data tolerance in the
-# entity available property cover the actual flaky-network case much
-# better than a long socket timeout ever did.
+# 10s is the steady-state ceiling: an inverter that has not answered
+# after ten seconds is gone, full stop. The in-cycle retry in the
+# coordinator (5s sleep then one more attempt) and the stale-data
+# tolerance in the entity available property cover the actual
+# flaky-network case much better than a long socket timeout ever did.
 TIMEOUT = 10
+
+# Initial-setup socket timeout (seconds). The very first
+# ``client.scan()`` after a fresh connect walks every SunSpec model
+# block on the device, which can be 16+ models deep on a fully featured
+# inverter and is much slower than a single read in steady state. The
+# steady-state TIMEOUT of 10s is too tight for that walk on slower
+# devices (notably KACO Powador on 100 Mbit), so the config-flow probe
+# and the diagnostics probe pass this longer timeout to the API client.
+SETUP_TIMEOUT = 60
 
 _LOGGER: logging.Logger = logging.getLogger(__package__)
 
@@ -68,6 +78,7 @@ class SunSpecApiClient:
         unit_id: int,
         hass: HomeAssistant,
         capture_enabled: bool = False,
+        timeout: int = TIMEOUT,
     ) -> None:
         """Sunspec modbus client."""
 
@@ -75,16 +86,31 @@ class SunSpecApiClient:
         self._port = port
         self._hass = hass
         self._unit_id = unit_id
+        # Steady-state coordinator instances pass nothing here and get
+        # the short ``TIMEOUT``. The config-flow probe and any other
+        # one-shot caller that needs to walk the full SunSpec model tree
+        # passes ``timeout=SETUP_TIMEOUT`` so the initial scan has time
+        # to finish on slower devices.
+        self._timeout = timeout
         self._lock = threading.Lock()
         self._reconnect = False
         self._client = None
         self._log = get_adapter(host, port, unit_id)
         self._capture_enabled = capture_enabled
         self._captured_reads: list[dict] = []
-        self._log.debug("New SunspecApi Client (capture=%s)", capture_enabled)
+        self._log.debug("New SunspecApi Client (capture=%s, timeout=%ds)", capture_enabled, timeout)
 
     def get_client(self, config=None):
         """Return the active pysunspec2 client, building it on first use.
+
+        On the explicit reconnect path (``reconnect_next()`` set
+        ``_reconnect=True`` after the previous cycle failed) we
+        force-disconnect the old client via :meth:`_force_disconnect`,
+        which sends a TCP RST so single-slot inverters free their slot
+        immediately instead of waiting on their own keep-alive timeout.
+        Within a single update cycle the client is reused across the
+        16+ ``read_model`` calls - hence the conditional, not an
+        unconditional rebuild on every entry.
 
         The legacy ``config`` parameter is ignored - it predates Phase 4
         and was used by the options flow to probe a different host. The
@@ -93,10 +119,7 @@ class SunSpecApiClient:
         passes it through; it can be removed in a later phase.
         """
         if self._client is not None and self._reconnect:
-            try:
-                self._client.disconnect()
-            except Exception as exc:  # noqa: BLE001 - cleanup must not raise
-                self._log.debug("disconnect during reconnect raised %s, ignoring", exc)
+            self._force_disconnect()
             self._client = None
             self._reconnect = False
         if self._client is None:
@@ -158,17 +181,66 @@ class SunSpecApiClient:
         coordinator (built in the subsequent ``async_setup_entry``) tries
         to connect.
 
-        Note: ``pysunspec2.modbus.client.SunSpecModbusClientDevice.close()``
-        is a ``pass`` stub. The real socket teardown is on
-        ``disconnect()``, which we call here.
+        Uses :meth:`_force_disconnect` so the underlying socket goes out
+        with an RST instead of a polite FIN, which makes the inverter
+        free its single Modbus TCP slot immediately instead of waiting
+        on its own TCP keepalive / connection timeout.
         """
         if self._client is None:
             return
+        self._force_disconnect()
+        self._client = None
+
+    def _force_disconnect(self) -> None:
+        """Tear down ``self._client``'s socket as aggressively as possible.
+
+        Sets SO_LINGER with a zero timeout on the underlying TCP socket
+        before calling pysunspec2's ``disconnect()``. With SO_LINGER=0
+        the kernel sends a TCP RST instead of a normal FIN handshake,
+        which is the difference between "the inverter notices the
+        socket is gone right now" and "the inverter waits for its own
+        keep-alive / 30s+ idle timeout to expire and only then frees
+        the slot". On single-slot devices like KACO Powador the latter
+        means every reconnect after a flaky-network blip races against
+        a still-half-open server-side socket and the new connect
+        either gets refused or times out at our 10s ceiling.
+
+        Best-effort: any failure walking pysunspec2's internals is
+        swallowed and a normal ``disconnect()`` is attempted as a
+        fallback. Cleanup must never raise from here.
+        """
+        client = self._client
+        if client is None:
+            return
+
+        # pysunspec2 layout: SunSpecModbusClientDeviceTCP.client is a
+        # ModbusClientTCP whose .socket attribute is the raw Python
+        # socket. Both attributes can legitimately be missing on a
+        # half-built or already-closed client, hence the careful
+        # getattr chain.
+        raw_sock = None
         try:
-            self._client.disconnect()
+            raw_sock = getattr(getattr(client, "client", None), "socket", None)
+        except Exception as exc:  # noqa: BLE001 - cleanup must not raise
+            self._log.debug("could not reach raw socket: %s, ignoring", exc)
+
+        if raw_sock is not None:
+            try:
+                # struct linger { int l_onoff; int l_linger; }
+                # l_onoff=1, l_linger=0 => RST instead of FIN on close
+                raw_sock.setsockopt(
+                    socket.SOL_SOCKET,
+                    socket.SO_LINGER,
+                    struct.pack("ii", 1, 0),
+                )
+                self._log.debug("SO_LINGER=0 set, will RST on close")
+            except OSError as exc:
+                self._log.debug("setsockopt SO_LINGER failed: %s, ignoring", exc)
+
+        try:
+            client.disconnect()
         except Exception as exc:  # noqa: BLE001 - cleanup must not raise
             self._log.debug("client.disconnect raised %s, ignoring", exc)
-        self._client = None
 
     def check_port(self) -> bool:
         """Check if port is available"""
@@ -192,12 +264,12 @@ class SunSpecApiClient:
         use_config = SimpleNamespace(
             **(config or {"host": self._host, "port": self._port, "unit_id": self._unit_id})
         )
-        self._log.debug("Client connect using timeout %s", TIMEOUT)
+        self._log.debug("Client connect using timeout %s", self._timeout)
         client = modbus_client.SunSpecModbusClientDeviceTCP(
             slave_id=use_config.unit_id,
             ipaddr=use_config.host,
             ipport=use_config.port,
-            timeout=TIMEOUT,
+            timeout=self._timeout,
         )
         if self._capture_enabled:
             # Wrap the device-level read so every modbus read on this client

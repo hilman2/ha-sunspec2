@@ -10,6 +10,7 @@ from homeassistant.core import callback
 from homeassistant.helpers import selector
 
 from . import SCAN_INTERVAL
+from .api import SETUP_TIMEOUT
 from .api import SunSpecApiClient
 from .const import CONF_CAPTURE_RAW
 from .const import CONF_ENABLED_MODELS
@@ -192,10 +193,20 @@ class SunSpecFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
         )
 
     async def _test_connection(self, host, port, unit_id):
-        """Return true if credentials is valid."""
+        """Return true if credentials is valid.
+
+        Uses ``SETUP_TIMEOUT`` instead of the steady-state ``TIMEOUT``
+        because the very first ``client.scan()`` walks every SunSpec
+        model on the device, which can be 16+ models deep on a fully
+        featured inverter and is much slower than a single read in
+        steady state. The 10s steady-state ceiling is too tight for
+        the initial walk on slower devices (notably KACO Powador on
+        100 Mbit), so the config-flow probe gets the longer 60s
+        envelope.
+        """
         _LOGGER.debug(f"Test connection to {host}:{port} unit id {unit_id}")
         try:
-            self.client = SunSpecApiClient(host, port, unit_id, self.hass)
+            self.client = SunSpecApiClient(host, port, unit_id, self.hass, timeout=SETUP_TIMEOUT)
             self._device_info = await self.client.async_get_device_info()
             _LOGGER.info(self._device_info)
             return True
@@ -252,9 +263,19 @@ class SunSpecOptionsFlowHandler(config_entries.OptionsFlow):
 
     async def async_step_model_options(self, user_input=None):
         """Handle a flow initialized by the user."""
+        errors: dict[str, str] = {}
+
         if user_input is not None:
-            self.options.update(user_input)
-            return await self._update_options()
+            # Reject empty model selections - silently saving
+            # ``models_enabled: []`` was the v0.7.3 -> v0.7.5 regression
+            # that wiped every sensor on the next reload. Show the form
+            # again with an inline error so the user has a chance to
+            # actually pick something.
+            if not user_input.get(CONF_ENABLED_MODELS):
+                errors["base"] = "no_models_selected"
+            else:
+                self.options.update(user_input)
+                return await self._update_options()
 
         prefix = self.config_entry.options.get(CONF_PREFIX, self.config_entry.data.get(CONF_PREFIX))
         scan_interval = self.config_entry.options.get(
@@ -273,15 +294,28 @@ class SunSpecOptionsFlowHandler(config_entries.OptionsFlow):
         if not getattr(self.coordinator, "last_update_success", True):
             return await self.show_settings_form(data=self.settings, errors={"base": "connection"})
         try:
-            # known_models() reads what the live client has already
-            # discovered during async_setup_entry; it never opens a new
-            # TCP connection.
-            models = set(self.coordinator.api.known_models())
+            # Read the inverter's full model list from the coordinator's
+            # cache (populated during the first successful update cycle).
+            # Falling back to api.known_models() preserves behaviour for
+            # the test stub coordinator that doesn't carry the cache, and
+            # for the very first options-form open before any update has
+            # happened. NEVER call api.known_models() unconditionally:
+            # ``api._client`` is closed at the end of every cycle, so the
+            # call returns ``[]`` between cycles and the form would render
+            # an empty multi-select.
+            models = set(getattr(self.coordinator, "detected_models", set()))
+            if not models:
+                models = set(self.coordinator.api.known_models())
             model_filter = {model for model in sorted(models)}
             default_enabled = {model for model in DEFAULT_MODELS if model in models}
             default_models = self.config_entry.options.get(CONF_ENABLED_MODELS, default_enabled)
 
             default_models = {model for model in default_models if model in models}
+            # If the persisted selection is empty (e.g. corrupted by the
+            # v0.7.3 regression), pre-fill the multi-select with the
+            # defaults so the user doesn't have to start from scratch.
+            if not default_models:
+                default_models = default_enabled
 
             schema: dict[Any, Any] = {
                 vol.Optional(CONF_PREFIX, default=prefix): str,
@@ -306,6 +340,7 @@ class SunSpecOptionsFlowHandler(config_entries.OptionsFlow):
             return self.async_show_form(
                 step_id="model_options",
                 data_schema=vol.Schema(schema),
+                errors=errors or None,
             )
         except Exception as e:
             set_connection_error(

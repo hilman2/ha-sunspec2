@@ -329,12 +329,34 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator):
         # last successfully read value via SunSpecEntity.available
         # instead of flipping to "unavailable" on every transient blip.
         self.consecutive_failed_cycles: int = 0
+        # Set of model IDs the inverter actually exposes, populated by
+        # the first successful update cycle. The options-flow form reads
+        # this to render its model multi-select - it must NOT call
+        # ``api.known_models()`` directly because that returns ``[]``
+        # whenever ``api._client`` is ``None``, which is the steady
+        # state between cycles after ``api.close()``. A v0.7.3 -> v0.7.5
+        # regression where the form rendered an empty multi-select and
+        # silently saved ``models_enabled: []`` (killing every sensor)
+        # was the motivating bug.
+        self.detected_models: set[int] = set()
 
         self._log.debug("Data: %s", entry.data)
         self._log.debug("Options: %s", entry.options)
         models = entry.options.get(
             CONF_ENABLED_MODELS, entry.data.get(CONF_ENABLED_MODELS, DEFAULT_MODELS)
         )
+        # Defense in depth: a previously corrupted options save (see the
+        # detected_models comment above) could persist ``models_enabled: []``
+        # to disk. Without this fallback the coordinator would happily
+        # poll zero models on every cycle and the user would see all
+        # sensors disappear. Fall back to DEFAULT_MODELS so the user gets
+        # *something* to look at while they re-open the options form.
+        if not models:
+            self._log.warning(
+                "Configured models filter is empty, falling back to defaults. "
+                "Re-open the options form and pick the models you want."
+            )
+            models = DEFAULT_MODELS
         scan_interval = timedelta(
             seconds=entry.options.get(
                 CONF_SCAN_INTERVAL,
@@ -416,7 +438,13 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator):
         inflating the per-category thresholds.
         """
         data = {}
-        model_ids = self.option_model_filter & set(await self.api.async_get_models())
+        all_models = set(await self.api.async_get_models())
+        # Cache the full set of models the inverter exposes so the
+        # options-flow form can render its multi-select even between
+        # cycles, when ``api._client`` has already been closed and
+        # ``api.known_models()`` would return an empty list.
+        self.detected_models = all_models
+        model_ids = self.option_model_filter & all_models
         self._log.debug("Update data got models %s", model_ids)
 
         # Fetch common model 1 once per process under the lock so

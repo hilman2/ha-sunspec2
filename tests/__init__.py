@@ -108,6 +108,13 @@ class MockSunSpecDataUpdateCoordinator(DataUpdateCoordinator):
         """Initialize."""
         self.api = SunSpecApiClient(host="test", port=123, unit_id=1, hass=hass)
         self.option_model_filter = set(map(lambda m: int(m), models))
+        # Pre-populate the same cache the real coordinator builds during
+        # its first successful update cycle. The options-flow form reads
+        # this attribute to render its model multi-select; without it the
+        # form would fall back to api.known_models() which always returns
+        # [] for this stub (no live client) and the test schema would
+        # validate against an empty allowed-values set.
+        self.detected_models = set(map(lambda m: int(m), models))
 
     async def _async_update_data(self):
         """Update data via library."""
