@@ -217,6 +217,29 @@ def _maybe_migrate_from_cjne(hass: HomeAssistant, entry: ConfigEntry, log) -> No
         log.error("cjne migration produced errors: %s", errors)
 
 
+async def async_remove_config_entry_device(
+    hass: HomeAssistant,
+    entry: SunSpec2ConfigEntry,
+    device_entry,
+) -> bool:
+    """Gold rule stale-devices: allow the user to remove a stale device.
+
+    A SunSpec inverter that drops one of its model blocks (e.g. an
+    MPPT module that was physically removed) leaves a "ghost" device
+    entry in HA's device registry pointing at a model that no longer
+    appears in the scan. Returning True from this callback unlocks
+    the trash-can icon next to the device on the device-info page so
+    the user can clean it up.
+
+    We never refuse the removal: a SunSpec device is just a thin
+    wrapper around (entry_id, model_info_name) and trying to figure
+    out programmatically whether a model is "really" gone vs.
+    "temporarily missing because the inverter is asleep" is a worse
+    user experience than letting the user decide.
+    """
+    return True
+
+
 async def async_unload_entry(hass: HomeAssistant, entry: SunSpec2ConfigEntry) -> bool:
     """Handle removal of an entry."""
 

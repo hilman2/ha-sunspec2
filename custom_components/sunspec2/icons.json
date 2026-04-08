@@ -1,0 +1,43 @@
+{
+  "entity": {
+    "sensor": {
+      "amps": {"default": "mdi:current-ac"},
+      "amps_l1": {"default": "mdi:current-ac"},
+      "amps_l2": {"default": "mdi:current-ac"},
+      "amps_l3": {"default": "mdi:current-ac"},
+      "phase_voltage_l1_l2": {"default": "mdi:lightning-bolt"},
+      "phase_voltage_l2_l3": {"default": "mdi:lightning-bolt"},
+      "phase_voltage_l3_l1": {"default": "mdi:lightning-bolt"},
+      "phase_voltage_l1_n": {"default": "mdi:lightning-bolt"},
+      "phase_voltage_l2_n": {"default": "mdi:lightning-bolt"},
+      "phase_voltage_l3_n": {"default": "mdi:lightning-bolt"},
+      "watts": {"default": "mdi:solar-power"},
+      "frequency": {"default": "mdi:sine-wave"},
+      "apparent_power": {"default": "mdi:solar-power"},
+      "reactive_power": {"default": "mdi:solar-power"},
+      "power_factor": {"default": "mdi:angle-acute"},
+      "lifetime_energy": {"default": "mdi:solar-panel"},
+      "dc_current": {"default": "mdi:current-dc"},
+      "dc_voltage": {"default": "mdi:lightning-bolt"},
+      "dc_power": {"default": "mdi:solar-power"},
+      "cabinet_temperature": {"default": "mdi:thermometer"},
+      "heat_sink_temperature": {"default": "mdi:thermometer"},
+      "transformer_temperature": {"default": "mdi:thermometer"},
+      "other_temperature": {"default": "mdi:thermometer"},
+      "operating_state": {"default": "mdi:state-machine"},
+      "vendor_operating_state": {"default": "mdi:state-machine"},
+      "events_1": {"default": "mdi:alert-circle-outline"},
+      "events_2": {"default": "mdi:alert-circle-outline"},
+      "vendor_events_1": {"default": "mdi:alert-circle-outline"},
+      "vendor_events_2": {"default": "mdi:alert-circle-outline"},
+      "vendor_events_3": {"default": "mdi:alert-circle-outline"},
+      "vendor_events_4": {"default": "mdi:alert-circle-outline"},
+      "rated_power": {"default": "mdi:gauge"},
+      "rated_apparent_power": {"default": "mdi:gauge"},
+      "rated_current": {"default": "mdi:gauge"},
+      "rated_lifetime_energy": {"default": "mdi:gauge"},
+      "max_power_setting": {"default": "mdi:tune-variant"},
+      "voltage_reference": {"default": "mdi:tune-variant"}
+    }
+  }
+}

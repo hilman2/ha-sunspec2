@@ -516,3 +516,74 @@ async def test_setup_settings_step_rejects_empty_model_selection(
     assert result["type"] == FlowResultType.FORM
     assert result["step_id"] == "settings"
     assert result["errors"] == {"base": "no_models_selected"}
+
+
+# ---------------------------------------------------------------------------
+# Gold rule: reconfiguration-flow
+# ---------------------------------------------------------------------------
+
+
+async def test_reconfigure_flow_updates_host_when_serial_matches(
+    hass, bypass_get_data, sunspec_client_mock
+):
+    """The Gold reconfiguration flow lets the user move an entry to a
+    new IP without losing its history.
+
+    The probe must succeed AND the inverter behind the new IP must
+    report the same serial number as the existing entry's
+    unique_id - otherwise we are looking at a different inverter
+    and refuse to swap the history onto it.
+    """
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data=MOCK_CONFIG,
+        entry_id="test_reconfigure",
+        unique_id="sn-123456789",
+    )
+    entry.add_to_hass(hass)
+    await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    result = await entry.start_reconfigure_flow(hass)
+    assert result["type"] == FlowResultType.FORM
+    assert result["step_id"] == "reconfigure"
+
+    # Submit a new host. The probe via sunspec_client_mock will return
+    # the same serial number, so the entry is updated and the flow
+    # aborts cleanly.
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        user_input={"host": "test_host_new", "port": 502, "unit_id": 1},
+    )
+    assert result["type"] == FlowResultType.ABORT
+    assert result["reason"] == "reconfigure_successful"
+    assert entry.data["host"] == "test_host_new"
+    assert entry.data["port"] == 502
+
+
+async def test_reconfigure_flow_refuses_serial_mismatch(
+    hass, bypass_get_data, sunspec_client_mock, device_info_without_serial
+):
+    """If the new IP serves a different inverter, refuse the swap."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data=MOCK_CONFIG,
+        entry_id="test_reconfigure_mismatch",
+        unique_id="some-other-serial",
+    )
+    entry.add_to_hass(hass)
+    await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    result = await entry.start_reconfigure_flow(hass)
+    assert result["type"] == FlowResultType.FORM
+
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        user_input={"host": "test_host_new", "port": 502, "unit_id": 1},
+    )
+    assert result["type"] == FlowResultType.FORM
+    assert result["step_id"] == "reconfigure"
+    assert result["errors"] == {"base": "unique_id_mismatch"}
+    # Entry data was NOT touched.
+    assert entry.data["host"] == "test_host"

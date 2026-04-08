@@ -41,6 +41,15 @@
           "models_enabled": "Aktive Modelle",
           "max_ac_power_kw": "Spitzen-AC-Leistung des Wechselrichters (kW, optional)"
         }
+      },
+      "reconfigure": {
+        "title": "Wechselrichter-Verbindung neu konfigurieren",
+        "description": "Aktualisiere Host, Port oder Unit-ID eines vorhandenen SunSpec-Wechselrichters ohne seine Historie zu verlieren. Die neue Verbindung wird probiert und der Eintrag nur dann aktualisiert, wenn der Wechselrichter weiterhin dieselbe Seriennummer meldet.",
+        "data": {
+          "host": "Host oder IP",
+          "port": "Modbus-TCP-Port",
+          "unit_id": "Modbus-Unit-ID"
+        }
       }
     },
     "error": {
@@ -48,10 +57,13 @@
       "timeout": "Zeitüberschreitung beim Erreichen des Wechselrichters. Das Gerät ist möglicherweise offline oder ein anderer Modbus-Client belegt die Verbindung.",
       "device_error": "Der Wechselrichter hat mit einem Modbus-Fehler geantwortet. Prüfe ob die Firmware aktuell ist.",
       "invalid_subnet": "Das Subnetz ist keine gültige CIDR-Notation, oder es ist zu groß zum Scannen (max. /22).",
-      "no_candidates": "In diesem Subnetz wurden keine Hosts mit offenem Modbus-TCP-Port 502 gefunden."
+      "no_candidates": "In diesem Subnetz wurden keine Hosts mit offenem Modbus-TCP-Port 502 gefunden.",
+      "no_models_selected": "Wähle mindestens ein SunSpec-Modell aus. Eine leere Auswahl zu speichern würde dazu führen, dass die Integration den Wechselrichter nicht mehr abfragt und alle Sensoren verschwinden.",
+      "unique_id_mismatch": "Der Wechselrichter unter dieser Adresse meldet eine andere Seriennummer als der ursprünglich konfigurierte. Die Sensor-Historie wird nicht auf ein fremdes Gerät umgehängt."
     },
     "abort": {
-      "already_configured": "Dieser Wechselrichter ist bereits konfiguriert."
+      "already_configured": "Dieser Wechselrichter ist bereits konfiguriert.",
+      "reconfigure_successful": "Verbindungseinstellungen aktualisiert."
     }
   },
   "options": {
@@ -80,6 +92,61 @@
     "error": {
       "no_models_selected": "Wähle mindestens ein SunSpec-Modell aus. Eine leere Auswahl zu speichern würde dazu führen, dass die Integration den Wechselrichter nicht mehr abfragt und alle Sensoren verschwinden.",
       "connection": "Der Wechselrichter ist gerade nicht erreichbar. Warte einen Moment und versuche es erneut, oder prüfe ob das Gerät online ist."
+    }
+  },
+  "entity": {
+    "sensor": {
+      "amps": {"name": "AC-Strom"},
+      "amps_l1": {"name": "AC-Strom L1"},
+      "amps_l2": {"name": "AC-Strom L2"},
+      "amps_l3": {"name": "AC-Strom L3"},
+      "phase_voltage_l1_l2": {"name": "Phasenspannung L1-L2"},
+      "phase_voltage_l2_l3": {"name": "Phasenspannung L2-L3"},
+      "phase_voltage_l3_l1": {"name": "Phasenspannung L3-L1"},
+      "phase_voltage_l1_n": {"name": "Phasenspannung L1-N"},
+      "phase_voltage_l2_n": {"name": "Phasenspannung L2-N"},
+      "phase_voltage_l3_n": {"name": "Phasenspannung L3-N"},
+      "watts": {"name": "AC-Leistung"},
+      "frequency": {"name": "AC-Frequenz"},
+      "apparent_power": {"name": "Scheinleistung"},
+      "reactive_power": {"name": "Blindleistung"},
+      "power_factor": {"name": "Leistungsfaktor"},
+      "lifetime_energy": {"name": "Gesamtertrag"},
+      "dc_current": {"name": "DC-Strom"},
+      "dc_voltage": {"name": "DC-Spannung"},
+      "dc_power": {"name": "DC-Leistung"},
+      "cabinet_temperature": {"name": "Gehäusetemperatur"},
+      "heat_sink_temperature": {"name": "Kühlkörpertemperatur"},
+      "transformer_temperature": {"name": "Trafotemperatur"},
+      "other_temperature": {"name": "Sonstige Temperatur"},
+      "operating_state": {"name": "Betriebszustand"},
+      "vendor_operating_state": {"name": "Herstellerspezifischer Betriebszustand"},
+      "events_1": {"name": "Ereignisse"},
+      "events_2": {"name": "Ereignisse 2"},
+      "vendor_events_1": {"name": "Herstellerereignisse 1"},
+      "vendor_events_2": {"name": "Herstellerereignisse 2"},
+      "vendor_events_3": {"name": "Herstellerereignisse 3"},
+      "vendor_events_4": {"name": "Herstellerereignisse 4"},
+      "rated_power": {"name": "Nenn-AC-Leistung"},
+      "rated_apparent_power": {"name": "Nenn-Scheinleistung"},
+      "rated_current": {"name": "Nenn-AC-Strom"},
+      "rated_lifetime_energy": {"name": "Nenn-Gesamtertrag"},
+      "max_power_setting": {"name": "Konfigurierte Maximalleistung"},
+      "voltage_reference": {"name": "Referenzspannung"}
+    }
+  },
+  "exceptions": {
+    "transport_error": {
+      "message": "SunSpec-Wechselrichter unter {host}:{port} nicht erreichbar: {error}"
+    },
+    "protocol_error": {
+      "message": "Gerät unter {host}:{port} spricht kein SunSpec: {error}"
+    },
+    "device_error": {
+      "message": "SunSpec-Wechselrichter unter {host}:{port} hat eine Modbus-Exception zurückgegeben: {error}"
+    },
+    "transient_error": {
+      "message": "Vorübergehender Timeout beim Lesen von {host}:{port}: {error}"
     }
   },
   "issues": {

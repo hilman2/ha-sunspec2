@@ -41,6 +41,15 @@
           "models_enabled": "Enabled models",
           "max_ac_power_kw": "Peak AC power of the inverter (kW, optional)"
         }
+      },
+      "reconfigure": {
+        "title": "Reconfigure inverter connection",
+        "description": "Update the host, port or unit ID of an existing SunSpec inverter without losing its history. The new connection is probed and the entry is only updated if the inverter still reports the same serial number.",
+        "data": {
+          "host": "Host or IP",
+          "port": "Modbus TCP port",
+          "unit_id": "Modbus unit ID"
+        }
       }
     },
     "error": {
@@ -48,10 +57,13 @@
       "timeout": "Timed out reaching the inverter. The device may be offline or another Modbus client may be holding the connection.",
       "device_error": "The inverter responded with a Modbus error. Check that the device firmware is up to date.",
       "invalid_subnet": "The subnet is not valid CIDR notation, or it is too large to scan (use a /22 or smaller).",
-      "no_candidates": "No hosts with Modbus TCP port 502 open were found in this subnet."
+      "no_candidates": "No hosts with Modbus TCP port 502 open were found in this subnet.",
+      "no_models_selected": "Select at least one SunSpec model. Saving an empty selection would stop the integration from polling the inverter and all sensors would disappear.",
+      "unique_id_mismatch": "The inverter at this address reports a different serial number than the one you originally configured. Refusing to swap your sensor history onto a different device."
     },
     "abort": {
-      "already_configured": "This inverter is already configured."
+      "already_configured": "This inverter is already configured.",
+      "reconfigure_successful": "Connection settings updated."
     }
   },
   "options": {
@@ -80,6 +92,61 @@
     "error": {
       "no_models_selected": "Select at least one SunSpec model. Saving an empty selection would stop the integration from polling the inverter and all sensors would disappear.",
       "connection": "Cannot reach the inverter right now. Wait a moment and try again, or check the device is online."
+    }
+  },
+  "entity": {
+    "sensor": {
+      "amps": {"name": "AC current"},
+      "amps_l1": {"name": "AC current L1"},
+      "amps_l2": {"name": "AC current L2"},
+      "amps_l3": {"name": "AC current L3"},
+      "phase_voltage_l1_l2": {"name": "Phase voltage L1-L2"},
+      "phase_voltage_l2_l3": {"name": "Phase voltage L2-L3"},
+      "phase_voltage_l3_l1": {"name": "Phase voltage L3-L1"},
+      "phase_voltage_l1_n": {"name": "Phase voltage L1-N"},
+      "phase_voltage_l2_n": {"name": "Phase voltage L2-N"},
+      "phase_voltage_l3_n": {"name": "Phase voltage L3-N"},
+      "watts": {"name": "AC power"},
+      "frequency": {"name": "AC frequency"},
+      "apparent_power": {"name": "Apparent power"},
+      "reactive_power": {"name": "Reactive power"},
+      "power_factor": {"name": "Power factor"},
+      "lifetime_energy": {"name": "Lifetime energy produced"},
+      "dc_current": {"name": "DC current"},
+      "dc_voltage": {"name": "DC voltage"},
+      "dc_power": {"name": "DC power"},
+      "cabinet_temperature": {"name": "Cabinet temperature"},
+      "heat_sink_temperature": {"name": "Heat sink temperature"},
+      "transformer_temperature": {"name": "Transformer temperature"},
+      "other_temperature": {"name": "Other temperature"},
+      "operating_state": {"name": "Operating state"},
+      "vendor_operating_state": {"name": "Vendor operating state"},
+      "events_1": {"name": "Events"},
+      "events_2": {"name": "Events 2"},
+      "vendor_events_1": {"name": "Vendor events 1"},
+      "vendor_events_2": {"name": "Vendor events 2"},
+      "vendor_events_3": {"name": "Vendor events 3"},
+      "vendor_events_4": {"name": "Vendor events 4"},
+      "rated_power": {"name": "Rated AC power"},
+      "rated_apparent_power": {"name": "Rated apparent power"},
+      "rated_current": {"name": "Rated AC current"},
+      "rated_lifetime_energy": {"name": "Rated lifetime energy"},
+      "max_power_setting": {"name": "Configured max power"},
+      "voltage_reference": {"name": "Voltage reference"}
+    }
+  },
+  "exceptions": {
+    "transport_error": {
+      "message": "Cannot reach the SunSpec inverter at {host}:{port}: {error}"
+    },
+    "protocol_error": {
+      "message": "Device at {host}:{port} does not speak SunSpec: {error}"
+    },
+    "device_error": {
+      "message": "SunSpec inverter at {host}:{port} returned a Modbus exception: {error}"
+    },
+    "transient_error": {
+      "message": "Transient timeout reading from {host}:{port}: {error}"
     }
   },
   "issues": {

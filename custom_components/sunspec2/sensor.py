@@ -27,6 +27,7 @@ from homeassistant.const import UnitOfSpeed
 from homeassistant.const import UnitOfTemperature
 from homeassistant.const import UnitOfTime
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from . import SunSpec2ConfigEntry
@@ -46,6 +47,62 @@ from .entity import SunSpecEntity
 PARALLEL_UPDATES = 0
 
 _LOGGER: logging.Logger = logging.getLogger(__package__)
+
+# Gold rule entity-translations: curated map of common SunSpec point
+# keys to ``translation_key`` slugs. The matching entries live under
+# ``entity.sensor.<slug>`` in translations/en.json and translations/
+# de.json. Points NOT in this map fall back to the per-entity name
+# the SunSpec model definition supplies via pysunspec2 - that name
+# is already a human-readable English string from the SunSpec spec
+# itself, so the field is never empty even for the long tail of
+# vendor-specific or rarely-used points.
+#
+# Entries in repeating groups (e.g. mppt module 0 / 1) deliberately
+# keep their hand-rolled name with the index in front instead of a
+# translation_key, because translation_key + repeating index +
+# device-name composition becomes confusing fast.
+SUNSPEC_POINT_TRANSLATION_KEYS: dict[str, str] = {
+    # Inverter common (model 101 / 102 / 103)
+    "A": "amps",
+    "AphA": "amps_l1",
+    "AphB": "amps_l2",
+    "AphC": "amps_l3",
+    "PPVphAB": "phase_voltage_l1_l2",
+    "PPVphBC": "phase_voltage_l2_l3",
+    "PPVphCA": "phase_voltage_l3_l1",
+    "PhVphA": "phase_voltage_l1_n",
+    "PhVphB": "phase_voltage_l2_n",
+    "PhVphC": "phase_voltage_l3_n",
+    "W": "watts",
+    "Hz": "frequency",
+    "VA": "apparent_power",
+    "VAr": "reactive_power",
+    "PF": "power_factor",
+    "WH": "lifetime_energy",
+    "DCA": "dc_current",
+    "DCV": "dc_voltage",
+    "DCW": "dc_power",
+    "TmpCab": "cabinet_temperature",
+    "TmpSnk": "heat_sink_temperature",
+    "TmpTrns": "transformer_temperature",
+    "TmpOt": "other_temperature",
+    "St": "operating_state",
+    "StVnd": "vendor_operating_state",
+    "Evt1": "events_1",
+    "Evt2": "events_2",
+    "EvtVnd1": "vendor_events_1",
+    "EvtVnd2": "vendor_events_2",
+    "EvtVnd3": "vendor_events_3",
+    "EvtVnd4": "vendor_events_4",
+    # Inverter Nameplate (model 120)
+    "WRtg": "rated_power",
+    "VARtg": "rated_apparent_power",
+    "ARtg": "rated_current",
+    "WHRtg": "rated_lifetime_energy",
+    # Inverter Settings (model 121)
+    "WMax": "max_power_setting",
+    "VRef": "voltage_reference",
+}
 
 ICON_DEFAULT = "mdi:information-outline"
 ICON_AC_AMPS = "mdi:current-ac"
@@ -251,6 +308,68 @@ class SunSpecSensor(SunSpecEntity, SensorEntity):
             name_parts.append(str(self.model_index))
         name_parts.append(desc)
         self._name = " ".join(name_parts)
+
+        # Gold rule entity-translations: set translation_key for the
+        # common SunSpec point keys we have curated translations for.
+        # Repeating-group entries (key contains ":") deliberately keep
+        # the hand-rolled name with the index because translation_key
+        # plus a dynamic index plus device-name composition gets
+        # confusing in the UI. Points without a curated translation
+        # fall back to ``_attr_name`` (the SunSpec spec label, which
+        # is already English).
+        if ":" not in self.key:
+            translation_key = SUNSPEC_POINT_TRANSLATION_KEYS.get(self.key)
+            if translation_key:
+                self._attr_translation_key = translation_key
+
+        # Gold rule entity-category: temperatures, state enums and
+        # event bitfields are diagnostic information, not the primary
+        # data the user cares about. Tagging them lets HA group them
+        # under "Diagnostic" in the device card so the main entity
+        # list stays focused on power / energy / current / voltage.
+        diagnostic_keys = {
+            "TmpCab",
+            "TmpSnk",
+            "TmpTrns",
+            "TmpOt",
+            "Tmp",
+            "St",
+            "StVnd",
+            "Evt1",
+            "Evt2",
+            "EvtVnd1",
+            "EvtVnd2",
+            "EvtVnd3",
+            "EvtVnd4",
+            "DCSt",
+            "DCEvt",
+            "GlbEvt",
+            "Tms",
+        }
+        if self.key in diagnostic_keys or self.use_device_class == SensorDeviceClass.ENUM:
+            self._attr_entity_category = EntityCategory.DIAGNOSTIC
+
+        # Gold rule entity-disabled-by-default: vendor-specific event
+        # bitfields and the static nameplate / settings registers are
+        # noisy or never-changing respectively. Disabling them by
+        # default keeps the device card focused on the values that
+        # actually move; users who care can enable them in the entity
+        # registry.
+        disabled_by_default_keys = {
+            "EvtVnd1",
+            "EvtVnd2",
+            "EvtVnd3",
+            "EvtVnd4",
+            "StVnd",
+            "WRtg",
+            "VARtg",
+            "ARtg",
+            "WHRtg",
+            "WMax",
+            "VRef",
+        }
+        if self.key in disabled_by_default_keys:
+            self._attr_entity_registry_enabled_default = False
         _LOGGER.debug(
             "Created sensor for %s in model %s using prefix %s: %s uid %s, device class %s unit %s",
             self.key,
