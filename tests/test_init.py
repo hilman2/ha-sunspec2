@@ -207,6 +207,37 @@ async def test_gateway_lock_shared_per_host_port(hass):
     SunSpecDataUpdateCoordinator._GATEWAY_LOCKS.clear()
 
 
+async def test_gateway_lock_shared_for_rtu_serial_port(hass):
+    """Two RTU coordinators on the same serial port must share the lock.
+
+    cjne issue #317 (multi-unit-id behind one connection): the same
+    per-(host, port) gateway lock that serialises TCP coordinators
+    also covers RTU because RTU config entries store the serial
+    port path as CONF_HOST and the baud rate as CONF_PORT (the
+    "synthetic" key from the v0.11.0 config flow). So two RTU
+    coordinators on /dev/ttyUSB0 @ 9600 with different unit IDs
+    automatically share lock ("/dev/ttyUSB0", 9600) and never open
+    the serial port concurrently. This test pins that contract.
+    """
+    SunSpecDataUpdateCoordinator._GATEWAY_LOCKS.clear()
+
+    bus_a_unit_1 = SunSpecDataUpdateCoordinator._get_gateway_lock("/dev/ttyUSB0", 9600)
+    bus_a_unit_2 = SunSpecDataUpdateCoordinator._get_gateway_lock("/dev/ttyUSB0", 9600)
+    bus_a_other_baud = SunSpecDataUpdateCoordinator._get_gateway_lock("/dev/ttyUSB0", 19200)
+    bus_b = SunSpecDataUpdateCoordinator._get_gateway_lock("/dev/ttyUSB1", 9600)
+
+    # Same serial port + baud -> same lock (covers two unit IDs on
+    # the same RS-485 bus).
+    assert bus_a_unit_1 is bus_a_unit_2
+    # Same port at a different baud rate is technically a different
+    # bus configuration -> different lock.
+    assert bus_a_unit_1 is not bus_a_other_baud
+    # Different physical serial port -> different lock.
+    assert bus_a_unit_1 is not bus_b
+
+    SunSpecDataUpdateCoordinator._GATEWAY_LOCKS.clear()
+
+
 async def test_setup_runs_cjne_migration_when_entries_present(hass, sunspec_client_mock):
     """async_setup_entry calls the cjne migration helper.
 

@@ -338,12 +338,44 @@ the firmware revision, and a description of which writes worked
 and which did not. That feedback is what will let us drop the
 BETA flag and ship v1.0.
 
+## Multiple inverters behind one gateway
+
+If you have several SunSpec devices sharing one connection - for
+example two Modbus TCP slaves behind a single network gateway, or
+several RS-485 slaves on the same `/dev/ttyUSB0` bus - **just add
+one config entry per unit ID with the same host/port (TCP) or
+serial port/baud rate (RTU)**.
+
+The integration uses a per-(host, port) `asyncio.Lock` that all
+coordinators behind the same connection share. Reads are
+serialised across all matching config entries, so:
+
+- on **Modbus TCP gateways** that only allow one TCP slot at a
+  time (notably the SolarEdge SE-CC, several KACO models), the
+  lock guarantees you never see two concurrent connects fighting
+  for the slot
+- on **RS-485 buses** the same lock covers `/dev/ttyUSB0` so two
+  coordinators never open the serial port concurrently (each
+  coordinator runs an `open() -> scan -> read -> close()` cycle
+  fully within the lock)
+
+Each unit ID lands as its own HA device, with its own friendly
+name from the inverter's `Md` field, its own sensors, its own
+options. The only thing they share is the bus.
+
+You don't have to enable any setting for this. The behaviour
+is automatic the moment you add a second config entry whose
+host/port (TCP) or serial port/baud rate (RTU) matches an
+existing one.
+
 ## Known limitations
 
 - **Single Modbus TCP slot devices** like KACO Powador can only be
-  polled from one integration at a time. Running ha-sunspec2 in
-  parallel with cjne, openHAB, or any other Modbus client against
-  the same device produces flapping sensors. The integration
+  polled from one OS process at a time. ha-sunspec2 itself handles
+  the multi-coordinator case correctly via its per-gateway lock
+  (see "Multiple inverters behind one gateway" above), but you
+  cannot run ha-sunspec2 in parallel with cjne, openHAB, or any
+  other Modbus client against the same device. The integration
   detects an active cjne entry on the same host and refuses to
   start with a clear Repairs panel message.
 - **DHCP discovery requires a fresh lease**, which means it does
