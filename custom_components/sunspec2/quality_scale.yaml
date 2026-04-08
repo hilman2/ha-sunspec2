@@ -168,10 +168,196 @@ rules:
   test-coverage:
     status: done
     comment: |
-      129+ tests covering the config flow (manual + scan + DHCP),
-      coordinator (in-cycle retry, stale tolerance, error
-      categorisation, fallback paths), discovery helper, sensor
-      platform, options flow including the empty-models regression
-      guard, migration from cjne/ha-sunspec, and the v0.7.3 ENUM
-      bitfield voluptuous_serialize regression. Run with
-      ``pytest tests/`` from a WSL Ubuntu uv env.
+      120+ tests covering the config flow (manual + scan + DHCP +
+      reconfigure), coordinator (in-cycle retry, stale tolerance,
+      error categorisation, fallback paths), discovery helper,
+      sensor platform, options flow including the empty-models
+      regression guard, migration from cjne/ha-sunspec, and the
+      v0.7.3 ENUM bitfield voluptuous_serialize regression. Run
+      with ``pytest tests/`` from a WSL Ubuntu uv env.
+
+  # Gold
+  devices:
+    status: done
+    comment: |
+      Each SunSpec model exposed by the inverter is registered as a
+      separate HA device with stable identifiers built from
+      (DOMAIN, entry_id, model_info_name). The device name comes
+      from the inverter's Md field (e.g. "Powador 7.8 TL3") so the
+      user sees the actual hardware label, not a generic group
+      title.
+  diagnostics:
+    status: done
+    comment: |
+      diagnostics.py implements async_get_config_entry_diagnostics
+      with the host field redacted, scanned models, latest values
+      per point, recent errors per category, consecutive failure
+      counters and the optional raw register capture.
+  discovery-update-info:
+    status: exempt
+    comment: |
+      Our config entries use the inverter's serial number from
+      common model 1 as unique_id. DHCP discovery cannot read that
+      serial without opening a fresh Modbus TCP slot, which would
+      race the live coordinator on single-slot inverters. Instead
+      the DHCP step uses ``dhcp:{ip}`` as a discovery-side unique_id
+      so we can detect "new device on this IP" but cannot tie it
+      back to an existing entry by hardware identity. The
+      reconfigure flow lets users update the host explicitly when
+      their inverter's IP changes.
+  discovery:
+    status: done
+    comment: |
+      Two complementary paths: passive DHCP via the manifest's dhcp
+      OUI list (best-case bonus, fires on lease renewal), and an
+      active network scan reachable from the user-step menu via
+      "Scan my network". The scan probes Modbus TCP port 502 on
+      every host in the local /24, ARP-looks up each responder, and
+      sorts SunSpec vendor MAC matches first. Both paths are
+      explicit user-initiated actions or background passive
+      observation - never an unrequested probe of foreign Modbus
+      slaves.
+  docs-data-update:
+    status: done
+    comment: |
+      README "How the integration polls" section explains the
+      coordinator's update interval (default 30 s, configurable),
+      the in-cycle retry, the stale-data tolerance window, and the
+      per-(host, port) gateway lock that serialises multiple
+      coordinator instances behind the same TCP endpoint.
+  docs-examples:
+    status: done
+    comment: |
+      README "Example uses" section walks through the canonical
+      Energy dashboard hookup (lifetime_energy as the Solar
+      production source) and a basic load-shedding automation that
+      reads the AC power sensor.
+  docs-known-limitations:
+    status: done
+    comment: |
+      README "Known limitations" section lists Modbus TCP only (no
+      RTU), single-slot inverter limitation, the static-IP
+      requirement for reliable DHCP discovery, and the
+      vendor-specific point coverage gap.
+  docs-supported-devices:
+    status: done
+    comment: |
+      README "Supported devices" section lists every brand the
+      integration has been tested or expected to work with, plus
+      a note that anything implementing the SunSpec Information
+      Model over Modbus TCP should work.
+  docs-supported-functions:
+    status: done
+    comment: |
+      README "Supported functions" section enumerates the major
+      capabilities: model selection, plausibility filter, prefix
+      naming, raw register capture, diagnostics dump, the
+      configurable peak power, and the active network scan.
+  docs-troubleshooting:
+    status: done
+    comment: |
+      README "Troubleshooting" section walks through the most
+      common failure modes (KACO single slot, cjne migration,
+      empty model selection, dawn / dusk spikes) with the
+      Diagnostics dump as the primary debugging tool.
+  docs-use-cases:
+    status: done
+    comment: |
+      README "Use cases" section explains why a user would pick
+      this integration over the cjne fork or a generic Modbus
+      template, focused on the resilience features and the
+      brand-agnostic SunSpec spec.
+  docs-configuration-parameters:
+    status: done
+    comment: |
+      README "Configuration parameters" section now documents
+      every option in the options flow as a one-row-per-parameter
+      table.
+  dynamic-devices:
+    status: exempt
+    comment: |
+      A SunSpec inverter exposes a fixed set of model blocks for
+      its lifetime; the only "device-add" event would be plugging
+      in a new MPPT module on a multi-MPPT inverter, which is
+      handled implicitly by the next coordinator update reading
+      the new module from model 160. There is no separate
+      discovery surface to subscribe to.
+  entity-category:
+    status: done
+    comment: |
+      sensor.py tags temperatures, operating-state enums and event
+      bitfields with EntityCategory.DIAGNOSTIC so the device card
+      cleanly separates "values that move" from "diagnostic
+      registers". Power, energy, current, voltage and frequency
+      sensors stay in the default (primary) category.
+  entity-device-class:
+    status: done
+    comment: |
+      The HA_META map in sensor.py translates every SunSpec unit
+      string to the matching SensorDeviceClass (POWER, ENERGY,
+      CURRENT, VOLTAGE, TEMPERATURE, etc.).
+  entity-disabled-by-default:
+    status: done
+    comment: |
+      sensor.py disables vendor-specific event bitfields
+      (EvtVnd1-4), the vendor operating state (StVnd) and the
+      static nameplate / settings registers (WRtg, VARtg, ARtg,
+      WHRtg, WMax, VRef) by default. Users who care can enable
+      them via the entity registry.
+  entity-translations:
+    status: done
+    comment: |
+      sensor.py sets _attr_translation_key for every well-known
+      SunSpec point key (W, A, V, Hz, DCA, DCV, DCW, WH,
+      temperatures, state enums, event bitfields, nameplate
+      registers). The matching ``entity.sensor.<slug>`` entries
+      live in translations/en.json and translations/de.json.
+      Repeating-group entries (e.g. mppt module 0 / 1) keep their
+      hand-rolled name with the index because translation_key plus
+      a dynamic index makes the UI confusing. Long-tail
+      vendor-specific points fall back to the SunSpec spec label
+      from pysunspec2, which is already English.
+  exception-translations:
+    status: done
+    comment: |
+      ``exceptions.transport_error`` / ``protocol_error`` /
+      ``device_error`` / ``transient_error`` keys live in
+      translations/en.json and de.json so the four error categories
+      our coordinator surfaces have user-facing messages with
+      placeholders for {host}, {port} and {error}.
+  icon-translations:
+    status: done
+    comment: |
+      icons.json maps every translation_key from the entity
+      translations namespace to an mdi icon, so themes that
+      respect HA's icon-translations layer pick up the right
+      glyph for each sensor type. Hand-rolled icon hooks in
+      sensor.py (DC current vs AC current) still apply where
+      pysunspec2 only exposes a single "amps" unit and we need to
+      distinguish DC from AC at runtime.
+  reconfiguration-flow:
+    status: done
+    comment: |
+      ``async_step_reconfigure`` lets users update host / port /
+      unit ID on an existing entry without losing the device or
+      its sensor history. The new connection is probed first and
+      the entry is only updated when the inverter still reports
+      the same serial number, so a misconfigured rename can never
+      silently swap one inverter's history onto another.
+  repair-issues:
+    status: done
+    comment: |
+      _record_error in __init__.py raises HA Repairs panel issues
+      when the per-category consecutive_failures counter crosses
+      the threshold (1 for protocol errors, 3 for transport /
+      device, never for transient timeouts). Issues are cleared
+      automatically on the next successful update cycle.
+  stale-devices:
+    status: done
+    comment: |
+      ``async_remove_config_entry_device`` returns True so the
+      user can remove a stale device from the device-info page.
+      We never refuse the removal: trying to algorithmically
+      decide whether a model is "really gone" vs "temporarily
+      missing because the inverter is asleep" produces a worse
+      user experience than letting the user decide.

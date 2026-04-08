@@ -201,6 +201,62 @@ class SunSpecFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
 
         return await self._show_config_form(user_input)
 
+    async def async_step_reconfigure(self, user_input=None):
+        """Gold rule reconfiguration-flow: change host / port / unit ID
+        on an existing config entry without losing the device or its
+        sensor history.
+
+        The user reaches this from *Settings → Devices & Services →
+        SunSpec → three-dot menu → Reconfigure*. We probe the new
+        connection details, and if it answers we update the entry's
+        data block in place and reload it. The unique_id (the
+        inverter's serial from common model 1) stays the same so the
+        device entry and the entire sensor entity registry survive.
+        """
+        self._errors = {}
+        entry = self._get_reconfigure_entry()
+
+        if user_input is not None:
+            host = user_input[CONF_HOST]
+            port = user_input[CONF_PORT]
+            unit_id = user_input[CONF_UNIT_ID]
+            valid = await self._test_connection(host, port, unit_id)
+            if valid:
+                # The probe must come back with a serial that matches
+                # the existing entry's unique_id - otherwise this is
+                # a different inverter on the same IP and we refuse
+                # the change to avoid silently swapping a user's
+                # device history onto a stranger's hardware.
+                probed_uid = self._get_unique_id(host, port, unit_id)
+                if entry.unique_id is not None and probed_uid != entry.unique_id:
+                    self._errors["base"] = "unique_id_mismatch"
+                else:
+                    return self.async_update_reload_and_abort(
+                        entry,
+                        data_updates={
+                            CONF_HOST: host,
+                            CONF_PORT: port,
+                            CONF_UNIT_ID: unit_id,
+                        },
+                    )
+
+        defaults = {
+            CONF_HOST: entry.data.get(CONF_HOST, ""),
+            CONF_PORT: entry.data.get(CONF_PORT, 502),
+            CONF_UNIT_ID: entry.data.get(CONF_UNIT_ID, 1),
+        }
+        return self.async_show_form(
+            step_id="reconfigure",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(CONF_HOST, default=defaults[CONF_HOST]): str,
+                    vol.Required(CONF_PORT, default=defaults[CONF_PORT]): int,
+                    vol.Required(CONF_UNIT_ID, default=defaults[CONF_UNIT_ID]): int,
+                }
+            ),
+            errors=self._errors,
+        )
+
     async def async_step_scan(self, user_input=None):
         """Subnet entry form for the active network scan.
 
