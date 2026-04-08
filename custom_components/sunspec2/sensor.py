@@ -27,6 +27,7 @@ from homeassistant.const import UnitOfSpeed
 from homeassistant.const import UnitOfTemperature
 from homeassistant.const import UnitOfTime
 from homeassistant.core import HomeAssistant
+from homeassistant.core import callback
 from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
@@ -184,9 +185,24 @@ async def async_setup_entry(
     entry: SunSpec2ConfigEntry,
     async_add_devices: AddEntitiesCallback,
 ) -> None:
-    """Setup sensor platform."""
+    """Set up the sensor platform with dynamic SunSpec model re-detection.
+
+    v0.13.0 (cjne issue #200): the entity list is no longer fixed at
+    setup time. Instead we register a coordinator listener that runs
+    on every successful update cycle and adds entities for any
+    (model_id, key, model_index) triple we have not seen before.
+    That way an inverter that exposes a new SunSpec model after a
+    firmware update gets its sensors picked up automatically on the
+    next refresh, without an HA restart.
+
+    The "have we seen this entity before" check uses the SunSpec
+    unique_id as the dedup key. Entities for points that vanish from
+    the inverter (the cjne #202 case) are NOT removed - HA's
+    stale-data tolerance keeps them on their last good value and
+    the user can decide via the device-info page whether to delete
+    the device.
+    """
     coordinator = entry.runtime_data
-    sensors = []
     # Read the cached common-model (model 1) from the coordinator. The
     # coordinator populates this during its locked update cycle, so we
     # do NOT open a second Modbus TCP connection here - that would
@@ -194,30 +210,51 @@ async def async_setup_entry(
     # the platform setup after 60s.
     device_info = coordinator.device_info
     prefix = entry.options.get(CONF_PREFIX, entry.data.get(CONF_PREFIX, ""))
-    for model_id in coordinator.data:
-        model_wrapper = coordinator.data[model_id]
-        for key in model_wrapper.getKeys():
-            for model_index in range(model_wrapper.num_models):
-                data = {
-                    "device_info": device_info,
-                    "key": key,
-                    "model_id": model_id,
-                    "model_index": model_index,
-                    "model": model_wrapper,
-                    "prefix": prefix,
-                }
 
-                meta = model_wrapper.getMeta(key)
-                sunspec_unit = meta.get("units", "")
-                ha_meta = HA_META.get(sunspec_unit, [sunspec_unit, None, None])
-                device_class = ha_meta[2]
-                if device_class == SensorDeviceClass.ENERGY:
-                    _LOGGER.debug("Adding energy sensor")
-                    sensors.append(SunSpecEnergySensor(coordinator, entry, data))
-                else:
-                    sensors.append(SunSpecSensor(coordinator, entry, data))
+    known_unique_ids: set[str] = set()
 
-    async_add_devices(sensors)
+    @callback
+    def _async_add_new_sensors() -> None:
+        """Walk coordinator.data and add any sensor we haven't seen yet."""
+        if coordinator.data is None:
+            return
+        new_sensors: list[SunSpecSensor] = []
+        for model_id, model_wrapper in coordinator.data.items():
+            for key in model_wrapper.getKeys():
+                for model_index in range(model_wrapper.num_models):
+                    uid = get_sunspec_unique_id(entry.entry_id, key, model_id, model_index)
+                    if uid in known_unique_ids:
+                        continue
+                    known_unique_ids.add(uid)
+                    data = {
+                        "device_info": device_info,
+                        "key": key,
+                        "model_id": model_id,
+                        "model_index": model_index,
+                        "model": model_wrapper,
+                        "prefix": prefix,
+                    }
+                    meta = model_wrapper.getMeta(key)
+                    sunspec_unit = meta.get("units", "")
+                    ha_meta = HA_META.get(sunspec_unit, [sunspec_unit, None, None])
+                    device_class = ha_meta[2]
+                    if device_class == SensorDeviceClass.ENERGY:
+                        new_sensors.append(SunSpecEnergySensor(coordinator, entry, data))
+                    else:
+                        new_sensors.append(SunSpecSensor(coordinator, entry, data))
+        if new_sensors:
+            _LOGGER.debug(
+                "Adding %d sensor(s) (total tracked: %d)",
+                len(new_sensors),
+                len(known_unique_ids),
+            )
+            async_add_devices(new_sensors)
+
+    # Register the listener so subsequent coordinator refreshes can
+    # also pick up newly-discovered models, then run it once
+    # synchronously to add the initial set.
+    entry.async_on_unload(coordinator.async_add_listener(_async_add_new_sensors))
+    _async_add_new_sensors()
 
 
 class SunSpecSensor(SunSpecEntity, SensorEntity):
