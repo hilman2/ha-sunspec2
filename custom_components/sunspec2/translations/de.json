@@ -5,8 +5,9 @@
         "title": "SunSpec-Wechselrichter hinzufügen",
         "description": "Wie möchtest du deinen Wechselrichter einrichten?",
         "menu_options": {
-          "manual": "IP-Adresse manuell eingeben",
-          "scan": "Mein Netzwerk nach Wechselrichtern durchsuchen"
+          "manual": "IP-Adresse manuell eingeben (Modbus TCP)",
+          "scan": "Mein Netzwerk durchsuchen (Modbus TCP)",
+          "serial": "Über serielle Schnittstelle verbinden (Modbus RTU)"
         }
       },
       "manual": {
@@ -30,6 +31,16 @@
         "description": "Diese Hosts haben auf Modbus-TCP-Port 502 geantwortet. Hosts mit der Markierung 'SunSpec vendor' haben eine MAC-Adresse eines bekannten Wechselrichter-Herstellers und sind höchstwahrscheinlich dein Gerät.",
         "data": {
           "host": "Wechselrichter"
+        }
+      },
+      "serial": {
+        "title": "Modbus-RTU-Verbindung",
+        "description": "Konfiguriere eine serielle (RS-485) Verbindung zu einem SunSpec-fähigen Wechselrichter. Typischer Aufbau ist ein USB-auf-RS-485-Adapter unter /dev/ttyUSB0 (Linux) oder COM3 (Windows). Baudrate ist meist 9600 oder 19200 - prüfe das Handbuch deines Wechselrichters.",
+        "data": {
+          "serial_port": "Serielle Schnittstelle (z.B. /dev/ttyUSB0 oder COM3)",
+          "baudrate": "Baudrate",
+          "parity": "Parität",
+          "unit_id": "Modbus-Unit-ID"
         }
       },
       "settings": {

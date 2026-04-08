@@ -12,16 +12,25 @@ from homeassistant.helpers import selector
 from . import SCAN_INTERVAL
 from .api import SETUP_TIMEOUT
 from .api import SunSpecApiClient
+from .const import CONF_BAUDRATE
 from .const import CONF_CAPTURE_RAW
 from .const import CONF_ENABLED_MODELS
 from .const import CONF_HOST
 from .const import CONF_MAX_AC_POWER_KW
+from .const import CONF_PARITY
 from .const import CONF_PORT
 from .const import CONF_PREFIX
 from .const import CONF_SCAN_INTERVAL
+from .const import CONF_SERIAL_PORT
+from .const import CONF_TRANSPORT
 from .const import CONF_UNIT_ID
+from .const import DEFAULT_BAUDRATE
 from .const import DEFAULT_MODELS
 from .const import DOMAIN
+from .const import PARITY_EVEN
+from .const import PARITY_NONE
+from .const import TRANSPORT_RTU
+from .const import TRANSPORT_TCP
 from .discovery import SunSpecCandidate
 from .discovery import async_discover_sunspec_candidates
 from .discovery import async_get_default_subnet
@@ -159,21 +168,27 @@ class SunSpecFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
         return str(uid)
 
     async def async_step_user(self, user_input=None):
-        """Initial entry: ask whether to enter the IP manually or scan.
+        """Initial entry: ask how the inverter should be connected.
 
-        Manual is the safe default for users who already know their
-        inverter's IP (the typical case for fixed-IP setups). The
-        scan path scans the local subnet for hosts with Modbus TCP
-        port 502 open and returns a pickable list, optionally
-        prioritised by SunSpec vendor MAC OUI matches.
+        Three options:
+
+        * **manual**: TCP, user enters host / port / unit ID by hand.
+          Safe default for users with fixed IPs.
+        * **scan**: TCP scan of the local subnet for Modbus TCP port
+          502, with vendor OUI matching to surface SunSpec inverters
+          first.
+        * **serial**: Modbus RTU over a serial port (RS-485 typically
+          via a USB adapter). Asks for serial port name, baudrate
+          and parity. No network discovery here - serial buses do
+          not have a discovery surface.
         """
         return self.async_show_menu(
             step_id="user",
-            menu_options=["manual", "scan"],
+            menu_options=["manual", "scan", "serial"],
         )
 
     async def async_step_manual(self, user_input=None):
-        """Manual setup: enter host, port and unit ID by hand.
+        """Manual TCP setup: enter host, port and unit ID by hand.
 
         This is the original ``async_step_user`` body from before
         v0.8.1, kept intact and renamed. Reachable from the user-step
@@ -185,7 +200,7 @@ class SunSpecFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
             host = user_input[CONF_HOST]
             port = user_input[CONF_PORT]
             unit_id = user_input.get(CONF_UNIT_ID) or user_input.get("slave_id", 1)
-            valid = await self._test_connection(host, port, unit_id)
+            valid = await self._test_connection_tcp(host, port, unit_id)
             if valid:
                 uid = self._get_unique_id(host, port, unit_id)
                 _LOGGER.debug(f"Sunspec device unique id: {uid}")
@@ -194,12 +209,104 @@ class SunSpecFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
                 self._abort_if_unique_id_configured(
                     updates={CONF_HOST: host, CONF_PORT: port, CONF_UNIT_ID: unit_id}
                 )
-                self.init_info = user_input
+                self.init_info = {
+                    CONF_TRANSPORT: TRANSPORT_TCP,
+                    CONF_HOST: host,
+                    CONF_PORT: port,
+                    CONF_UNIT_ID: unit_id,
+                }
                 return await self.async_step_settings()
 
             return await self._show_config_form(user_input)
 
         return await self._show_config_form(user_input)
+
+    async def async_step_serial(self, user_input=None):
+        """Serial (Modbus RTU) setup: enter port, baudrate, parity, unit ID.
+
+        Reachable only from the user-step menu - serial buses have
+        no discovery surface.
+        """
+        self._errors = {}
+        if user_input is not None:
+            serial_port = user_input[CONF_SERIAL_PORT]
+            baudrate = user_input[CONF_BAUDRATE]
+            parity = user_input[CONF_PARITY]
+            unit_id = user_input[CONF_UNIT_ID]
+            valid = await self._test_connection_rtu(serial_port, baudrate, parity, unit_id)
+            if valid:
+                # The unique_id helper reads the serial number out of
+                # the probe client's common-block-1 ``_device_info``,
+                # so the same fingerprint logic works regardless of
+                # whether the probe ran over TCP or RTU.
+                uid = self._get_unique_id(serial_port, baudrate, unit_id)
+                _LOGGER.debug("Sunspec RTU device unique id: %s", uid)
+                await self.async_set_unique_id(uid)
+                self._abort_if_unique_id_configured(
+                    updates={
+                        CONF_SERIAL_PORT: serial_port,
+                        CONF_BAUDRATE: baudrate,
+                        CONF_PARITY: parity,
+                        CONF_UNIT_ID: unit_id,
+                    }
+                )
+                self.init_info = {
+                    CONF_TRANSPORT: TRANSPORT_RTU,
+                    CONF_SERIAL_PORT: serial_port,
+                    CONF_BAUDRATE: baudrate,
+                    CONF_PARITY: parity,
+                    CONF_UNIT_ID: unit_id,
+                    # Synthetic host/port for the logger and the
+                    # config-entry title - never used as actual
+                    # network coordinates.
+                    CONF_HOST: serial_port,
+                    CONF_PORT: baudrate,
+                }
+                return await self.async_step_settings()
+            return await self._show_serial_form(user_input)
+
+        return await self._show_serial_form(user_input)
+
+    async def _show_serial_form(self, user_input):
+        """Render the serial-setup form with sensible defaults."""
+        defaults = user_input or {
+            CONF_SERIAL_PORT: "/dev/ttyUSB0",
+            CONF_BAUDRATE: DEFAULT_BAUDRATE,
+            CONF_PARITY: PARITY_NONE,
+            CONF_UNIT_ID: 1,
+        }
+        return self.async_show_form(
+            step_id="serial",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(CONF_SERIAL_PORT, default=defaults[CONF_SERIAL_PORT]): str,
+                    vol.Required(
+                        CONF_BAUDRATE, default=defaults[CONF_BAUDRATE]
+                    ): selector.NumberSelector(
+                        selector.NumberSelectorConfig(
+                            min=300,
+                            max=921600,
+                            step=1,
+                            mode=selector.NumberSelectorMode.BOX,
+                        )
+                    ),
+                    vol.Required(
+                        CONF_PARITY, default=defaults[CONF_PARITY]
+                    ): selector.SelectSelector(
+                        selector.SelectSelectorConfig(
+                            options=[
+                                selector.SelectOptionDict(value=PARITY_NONE, label="None"),
+                                selector.SelectOptionDict(value=PARITY_EVEN, label="Even"),
+                            ],
+                            mode=selector.SelectSelectorMode.DROPDOWN,
+                            translation_key="parity",
+                        )
+                    ),
+                    vol.Required(CONF_UNIT_ID, default=defaults[CONF_UNIT_ID]): int,
+                }
+            ),
+            errors=self._errors,
+        )
 
     async def async_step_reconfigure(self, user_input=None):
         """Gold rule reconfiguration-flow: change host / port / unit ID
@@ -220,7 +327,7 @@ class SunSpecFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
             host = user_input[CONF_HOST]
             port = user_input[CONF_PORT]
             unit_id = user_input[CONF_UNIT_ID]
-            valid = await self._test_connection(host, port, unit_id)
+            valid = await self._test_connection_tcp(host, port, unit_id)
             if valid:
                 # The probe must come back with a serial that matches
                 # the existing entry's unique_id - otherwise this is
@@ -457,8 +564,8 @@ class SunSpecFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
                 return float(value) / 1000.0
         return None
 
-    async def _test_connection(self, host, port, unit_id):
-        """Return true if credentials is valid.
+    async def _test_connection_tcp(self, host, port, unit_id):
+        """Probe a Modbus TCP inverter and cache its common-block info.
 
         Uses ``SETUP_TIMEOUT`` instead of the steady-state ``TIMEOUT``
         because the very first ``client.scan()`` walks every SunSpec
@@ -469,7 +576,7 @@ class SunSpecFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
         100 Mbit), so the config-flow probe gets the longer 60s
         envelope.
         """
-        _LOGGER.debug(f"Test connection to {host}:{port} unit id {unit_id}")
+        _LOGGER.debug(f"Test TCP connection to {host}:{port} unit id {unit_id}")
         try:
             self.client = SunSpecApiClient(host, port, unit_id, self.hass, timeout=SETUP_TIMEOUT)
             self._device_info = await self.client.async_get_device_info()
@@ -477,6 +584,42 @@ class SunSpecFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
             return True
         except Exception as err:
             set_connection_error(self._errors, host, port, unit_id, err)
+        return False
+
+    async def _test_connection_rtu(self, serial_port, baudrate, parity, unit_id):
+        """Probe a Modbus RTU inverter over a serial port.
+
+        Same purpose as the TCP probe: opens a fresh client, walks
+        the SunSpec model tree once, caches common-block 1 so the
+        unique-id helper can read the serial number off it. Errors
+        are translated into the same error-base keys the TCP probe
+        uses so the form rendering code can show a single
+        translation per category regardless of transport.
+        """
+        _LOGGER.debug(
+            "Test RTU connection on %s @ %d %s unit id %s",
+            serial_port,
+            baudrate,
+            parity,
+            unit_id,
+        )
+        try:
+            self.client = SunSpecApiClient(
+                host=serial_port,
+                port=baudrate,
+                unit_id=unit_id,
+                hass=self.hass,
+                timeout=SETUP_TIMEOUT,
+                transport=TRANSPORT_RTU,
+                serial_port=serial_port,
+                baudrate=baudrate,
+                parity=parity,
+            )
+            self._device_info = await self.client.async_get_device_info()
+            _LOGGER.info(self._device_info)
+            return True
+        except Exception as err:
+            set_connection_error(self._errors, serial_port, baudrate, unit_id, err)
         return False
 
 
