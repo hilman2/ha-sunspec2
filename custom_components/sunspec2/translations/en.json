@@ -185,6 +185,10 @@
     "cjne_conflict": {
       "title": "cjne/ha-sunspec is still active",
       "description": "SunSpec 2 cannot start up for the inverter at {host}:{port} (unit ID {unit_id}) because the cjne/ha-sunspec integration is still actively running for the same device.\n\nKACO Powador and most other SunSpec inverters only allow ONE Modbus TCP connection at a time. cjne is currently holding that connection, so SunSpec 2 cannot poll the device. Running both integrations against the same inverter would also produce duplicate sensors and unstable values.\n\nTo migrate from cjne to SunSpec 2:\n\n1. Open HACS and uninstall the cjne/ha-sunspec integration\n2. Restart Home Assistant\n3. SunSpec 2 will retry automatically and pick up the existing entities\n\nYour entity IDs and Recorder history will be preserved by the SunSpec 2 migration helper."
+    },
+    "stale_model": {
+      "title": "SunSpec model {model_id} has gone missing",
+      "description": "The inverter at {host}:{port} (unit ID {unit_id}) was previously exposing SunSpec model {model_id}, but it has been missing from the last {missing_cycles} update cycles in a row.\n\nThis usually means the inverter dropped the model permanently (firmware update, vendor reconfiguration, or the underlying hardware module was disconnected). The associated sensors are still in your entity registry but will stay on their last good value.\n\nIf you no longer need them, open the device-info page for the affected device and use the trash-can icon to remove the device. The matching entities will be cleaned up automatically.\n\nIf the model comes back on its own, this Repairs issue will clear automatically on the next successful read."
     }
   }
 }

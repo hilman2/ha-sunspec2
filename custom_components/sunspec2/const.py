@@ -4,7 +4,7 @@
 NAME = "SunSpec 2"
 DOMAIN = "sunspec2"
 DOMAIN_DATA = f"{DOMAIN}_data"
-VERSION = "0.12.0"
+VERSION = "0.13.0"
 
 ATTRIBUTION = "Data provided by SunSpec alliance - https://sunspec.org"
 ISSUE_URL = "https://github.com/hilman2/ha-sunspec2/issues"
@@ -124,6 +124,16 @@ INTERVAL_RETRY_DELAY_SECONDS = 5
 # minutes of dropped connectivity without bouncing the long-term
 # statistics graphs to "unknown".
 STALE_DATA_TOLERANCE_CYCLES = 5
+
+# Number of consecutive cycles a previously-detected SunSpec model can
+# be missing from a successful scan before we raise a Repairs issue
+# suggesting the user remove the related device. The threshold is
+# generous on purpose: SMA Tripower X12 (cjne issue #202) sometimes
+# stops exposing model 714 for hours during low-light conditions, and
+# we don't want a one-time hiccup to escalate. With the default 30s
+# scan interval, 20 cycles is roughly ten minutes of consistent
+# absence before we bother the user.
+STALE_MODEL_TOLERANCE_CYCLES = 20
 
 DEFAULT_MODELS = set(
     [

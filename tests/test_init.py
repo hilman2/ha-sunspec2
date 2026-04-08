@@ -733,3 +733,69 @@ async def test_nameplate_swallows_read_errors_and_falls_through(hass):
     # return None without propagating the exception.
     result = await coordinator._read_nameplate({120, 121})
     assert result is None
+
+
+# ---------------------------------------------------------------------------
+# v0.13.0: stale-model tracking (cjne issue #202)
+# ---------------------------------------------------------------------------
+
+
+async def test_stale_model_tracking_increments_then_clears_on_recovery(hass):
+    """A model that disappears bumps its counter; recovery clears it.
+
+    Walks the coordinator manually through three transitions:
+    1. Initial state: model 103 detected, counter empty
+    2. Cycle without model 103: counter at 1
+    3. Cycle with model 103 back: counter cleared
+    """
+    from unittest.mock import MagicMock as _MagicMock
+
+    config_entry = MockConfigEntry(domain=DOMAIN, data=MOCK_CONFIG, options={})
+    config_entry.add_to_hass(hass)
+    api = _MagicMock()
+    coordinator = SunSpecDataUpdateCoordinator(hass, client=api, entry=config_entry)
+
+    # Pretend the first cycle saw model 103.
+    coordinator.detected_models = {1, 103}
+
+    # Cycle 2: model 103 is gone. _missing_this_cycle would be set
+    # by _run_one_update_cycle; we set it directly to skip the
+    # connect/scan path.
+    coordinator._missing_this_cycle = {103}
+    coordinator._new_this_cycle = set()
+    coordinator.detected_models = {1}
+    coordinator._update_stale_model_tracking()
+    assert coordinator._consecutive_missing_model_cycles == {103: 1}
+
+    # Cycle 3: model 103 is back.
+    coordinator._missing_this_cycle = set()
+    coordinator._new_this_cycle = {103}
+    coordinator.detected_models = {1, 103}
+    coordinator._update_stale_model_tracking()
+    assert coordinator._consecutive_missing_model_cycles == {}
+
+
+async def test_stale_model_tracking_raises_repair_issue_after_threshold(hass):
+    """After STALE_MODEL_TOLERANCE_CYCLES missing cycles, raise a Repairs issue."""
+    from unittest.mock import MagicMock as _MagicMock
+
+    from custom_components.sunspec2.const import STALE_MODEL_TOLERANCE_CYCLES
+
+    config_entry = MockConfigEntry(domain=DOMAIN, data=MOCK_CONFIG, options={})
+    config_entry.add_to_hass(hass)
+    api = _MagicMock()
+    coordinator = SunSpecDataUpdateCoordinator(hass, client=api, entry=config_entry)
+
+    coordinator.detected_models = {1, 103}
+
+    # Walk through STALE_MODEL_TOLERANCE_CYCLES missing cycles.
+    for _ in range(STALE_MODEL_TOLERANCE_CYCLES):
+        coordinator._missing_this_cycle = {103}
+        coordinator._new_this_cycle = set()
+        coordinator.detected_models = {1}
+        coordinator._update_stale_model_tracking()
+
+    issue = ir.async_get(hass).async_get_issue(DOMAIN, f"{config_entry.entry_id}_stale_model_103")
+    assert issue is not None
+    assert issue.translation_key == "stale_model"
+    assert issue.translation_placeholders["model_id"] == "103"

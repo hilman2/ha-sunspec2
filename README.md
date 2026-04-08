@@ -184,10 +184,27 @@ unavailable. Instead:
 ### Energy dashboard
 
 The lifetime energy sensor (`WH` on a three-phase inverter, key
-`watthours`) reports the inverter's total produced energy in Wh and
-has the `total_increasing` state class. Add it to **Settings ->
-Dashboards -> Energy** as a *Solar production* source. No template
-sensor needed.
+`lifetime_energy`) reports the inverter's total produced energy in
+Wh and has the `total_increasing` state class. Add it to **Settings
+-> Dashboards -> Energy** as a *Solar production* source. No
+template sensor needed.
+
+**Tip on units**: SunSpec reports lifetime energy in raw watt-hours,
+which can produce huge numbers (e.g. 50,000,000 Wh after a couple
+of years). HA's Energy Dashboard handles that correctly internally,
+but if you prefer kWh in your dashboards you can change the
+displayed unit per sensor without losing history:
+
+1. Open the lifetime energy entity in *Settings -> Devices &
+   Services -> SunSpec Modbus -> ... -> Lifetime energy*
+2. Click the cog icon in the top right
+3. Change **Unit of Measurement** from `Wh` to `kWh`
+4. HA asks whether to convert the existing long-term statistics -
+   confirm and your historical graph stays consistent.
+
+This is a per-entity HA UI feature, not something the integration
+configures - we expose the raw SunSpec values so the conversion
+choice stays with the user.
 
 ### Surplus-driven wallbox automation
 
