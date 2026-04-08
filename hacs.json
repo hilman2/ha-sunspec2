@@ -1,5 +1,5 @@
 {
-  "name": "SunSpec (KACO, SolarEdge, Fronius, SMA, Kostal, Sungrow, Delta, GoodWe, ABB / FIMER, SunPower, Chint)",
+  "name": "SunSpec Modbus (KACO, SolarEdge, Fronius, SMA, Kostal, Sungrow, Delta, GoodWe, ABB, SunPower)",
   "hacs": "1.6.0",
   "render_readme": true,
   "homeassistant": "2024.6.0"
