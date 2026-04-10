@@ -57,11 +57,16 @@ def sunspec_model_label(model_id: int) -> str:
     return f"{label} ({model_id})"
 
 
-def sunspec_model_labels(model_ids: list[int] | set[int]) -> dict[int, str]:
+def sunspec_model_labels(model_ids: list[int] | set[int]) -> dict[str, str]:
     """Bulk-resolve labels for a set of model IDs.
 
     Returns a dict suitable for ``cv.multi_select``: ``{id: label}``.
+    Keys are strings because ``cv.multi_select`` coerces dict keys to
+    ``str`` internally; using string keys here avoids a type mismatch
+    between the option keys and the ``default`` list the form widget
+    receives, which otherwise causes "X is not a valid option" errors
+    in the HA frontend.
     The dict is sorted by model ID for stable rendering order in the
     UI.
     """
-    return {mid: sunspec_model_label(mid) for mid in sorted(model_ids)}
+    return {str(mid): sunspec_model_label(mid) for mid in sorted(model_ids)}
