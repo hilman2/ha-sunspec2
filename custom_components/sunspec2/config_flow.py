@@ -507,13 +507,15 @@ class SunSpecFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
         # would render with no boxes ticked even though the right
         # values are technically there. Sorted list = stable order
         # in the UI and reliable pre-selection.
-        default_enabled = sorted(model for model in DEFAULT_MODELS if model in models)
+        default_enabled = sorted(str(model) for model in DEFAULT_MODELS if model in models)
         # Preserve the user's previous picks across re-entry into the
         # settings step (e.g. when we bounce them back with the
         # no_models_selected error). Falling back to default_enabled
         # otherwise.
         if user_input is not None and user_input.get(CONF_ENABLED_MODELS):
-            current_selection = sorted(m for m in user_input[CONF_ENABLED_MODELS] if m in models)
+            current_selection = sorted(
+                str(m) for m in user_input[CONF_ENABLED_MODELS] if int(m) in models
+            )
             default_enabled = current_selection or default_enabled
 
         suggested_peak = await self._probe_nameplate(models)
@@ -737,9 +739,9 @@ class SunSpecOptionsFlowHandler(config_entries.OptionsFlow):
             # Sorted list, not set - see comment in
             # _show_settings_form for why this matters for the
             # frontend's pre-selection logic.
-            default_enabled = sorted(m for m in DEFAULT_MODELS if m in models)
+            default_enabled = sorted(str(m) for m in DEFAULT_MODELS if m in models)
             persisted = self.config_entry.options.get(CONF_ENABLED_MODELS, default_enabled)
-            default_models = sorted(m for m in persisted if m in models)
+            default_models = sorted(str(m) for m in persisted if int(m) in models)
             # If the persisted selection is empty (e.g. corrupted by the
             # v0.7.3 regression), pre-fill the multi-select with the
             # defaults so the user doesn't have to start from scratch.

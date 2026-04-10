@@ -179,7 +179,7 @@ async def test_options_flow(hass, sunspec_client_mock):
     assert CONF_MAX_AC_POWER_KW in serialised_names
 
     result = await hass.config_entries.options.async_configure(
-        result["flow_id"], user_input={CONF_ENABLED_MODELS: [1], CONF_SCAN_INTERVAL: 10}
+        result["flow_id"], user_input={CONF_ENABLED_MODELS: ["1"], CONF_SCAN_INTERVAL: 10}
     )
 
     # Verify that the flow finishes
@@ -483,8 +483,8 @@ async def test_setup_settings_step_pre_selects_default_models(
     # The test inverter exposes model 103 (inverter three phase) and
     # model 160 (multi-MPPT extension), both of which are in
     # DEFAULT_MODELS, so both must be pre-selected.
-    assert 103 in models_default
-    assert 160 in models_default
+    assert "103" in models_default
+    assert "160" in models_default
 
 
 async def test_setup_settings_step_rejects_empty_model_selection(
@@ -660,7 +660,7 @@ async def test_serial_setup_creates_rtu_entry(hass, sunspec_client_mock):
         user_input={
             CONF_PREFIX: "",
             CONF_SCAN_INTERVAL: 30,
-            CONF_ENABLED_MODELS: [103],
+            CONF_ENABLED_MODELS: ["103"],
         },
     )
 
