@@ -37,6 +37,7 @@ from .const import CONF_MAX_AC_POWER_KW
 from .const import CONF_PREFIX
 from .const import CONF_SCAN_INTERVAL
 from .const import DOMAIN
+from .const import ENERGY_DELTA_REJECT_RECOVERY_COUNT
 from .const import ENERGY_DELTA_SAFETY_FACTOR
 from .entity import SunSpecEntity
 
@@ -536,6 +537,13 @@ class SunSpecEnergySensor(SunSpecSensor, RestoreSensor):
     def __init__(self, coordinator, config_entry: ConfigEntry, data: dict[str, Any]) -> None:
         super().__init__(coordinator, config_entry, data)
         self.last_known_value: Any = None
+        # Counter for consecutive rejected reads in the delta plausibility
+        # filter. Once it crosses ENERGY_DELTA_REJECT_RECOVERY_COUNT we
+        # accept the new value, otherwise a legitimate large jump (coarse
+        # WH register granularity on KACO Powador, post-restore baseline
+        # mismatch, etc.) would freeze the sensor permanently because the
+        # filter never updates lastKnown while it rejects.
+        self._rejected_delta_count = 0
 
         # Plausibility filter: derive the maximum plausible delta between
         # two consecutive reads from the configured peak power and the
@@ -582,6 +590,15 @@ class SunSpecEnergySensor(SunSpecSensor, RestoreSensor):
         # the read as garbage and fall back to the last known value (same
         # mechanism as the val == 0 path, so total_increasing stats stay
         # intact).
+        #
+        # Recovery escape hatch: count consecutive rejections. If the
+        # inverter keeps reporting the same large jump for several reads
+        # in a row it is almost certainly not a transient spike but a
+        # legitimate counter discontinuity (coarse WH granularity, fresh
+        # restore-state baseline below the truth, inverter firmware that
+        # only updates the register every kWh, ...). Without this hatch
+        # the sensor would freeze on lastKnown forever because lastKnown
+        # is never updated while the filter rejects.
         if (
             val is not None
             and self._max_native_delta is not None
@@ -590,17 +607,34 @@ class SunSpecEnergySensor(SunSpecSensor, RestoreSensor):
             and isinstance(self.lastKnown, (int, float))
             and (val - self.lastKnown) > self._max_native_delta
         ):
+            self._rejected_delta_count += 1
+            if self._rejected_delta_count < ENERGY_DELTA_REJECT_RECOVERY_COUNT:
+                _LOGGER.warning(
+                    "Dropping implausible energy delta for %s: %s -> %s %s exceeds max plausible delta %s %s (rejection %d/%d)",
+                    self.key,
+                    self.lastKnown,
+                    val,
+                    self.unit,
+                    self._max_native_delta,
+                    self.unit,
+                    self._rejected_delta_count,
+                    ENERGY_DELTA_REJECT_RECOVERY_COUNT,
+                )
+                self._assumed_state = True
+                return self.lastKnown
             _LOGGER.warning(
-                "Dropping implausible energy delta for %s: %s -> %s %s exceeds max plausible delta %s %s",
+                "Accepting energy value for %s after %d consecutive rejections: %s -> %s %s. The filter will reset to track this as the new baseline.",
                 self.key,
+                self._rejected_delta_count,
                 self.lastKnown,
                 val,
                 self.unit,
-                self._max_native_delta,
-                self.unit,
             )
-            self._assumed_state = True
-            return self.lastKnown
+            self._rejected_delta_count = 0
+            self.lastKnown = val
+            self._assumed_state = False
+            return val
+        self._rejected_delta_count = 0
         self.lastKnown = val
         self._assumed_state = False
         return val
