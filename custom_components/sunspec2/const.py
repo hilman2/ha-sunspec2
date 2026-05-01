@@ -4,7 +4,7 @@
 NAME = "SunSpec 2"
 DOMAIN = "sunspec2"
 DOMAIN_DATA = f"{DOMAIN}_data"
-VERSION = "0.13.2"
+VERSION = "0.13.3"
 
 ATTRIBUTION = "Data provided by SunSpec alliance - https://sunspec.org"
 ISSUE_URL = "https://github.com/hilman2/ha-sunspec2/issues"
@@ -107,6 +107,13 @@ CONF_MAX_AC_POWER_KW = "max_ac_power_kw"
 # catch the really obvious garbage values (MW / TWh spikes), not legitimate
 # transients near the inverter's nameplate.
 ENERGY_DELTA_SAFETY_FACTOR = 2.0
+# After this many consecutive rejected reads the energy plausibility filter
+# accepts the new value as the new baseline. Without this escape hatch a
+# legitimate large jump (e.g. an inverter that bumps its lifetime counter
+# in coarse 1 kWh steps, or a freshly-started integration whose first read
+# was an outlier below the truth) would freeze the sensor on its initial
+# value forever, since lastKnown is never updated while the filter rejects.
+ENERGY_DELTA_REJECT_RECOVERY_COUNT = 3
 
 # Resilience: when an update cycle fails after the integration is already
 # running, wait this many seconds and retry the cycle once before giving
