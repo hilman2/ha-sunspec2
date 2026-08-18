@@ -47,7 +47,7 @@ async def test_diagnostics_includes_versions(hass, sunspec_client_mock):
     diag = await async_get_config_entry_diagnostics(hass, entry)
 
     versions = diag["versions"]
-    assert versions["pysunspec2"] == "1.3.3"
+    assert versions["pysunspec2"] == "1.3.6"
     assert versions["sunspec2_integration"]
     assert versions["homeassistant"]
 
@@ -60,7 +60,7 @@ async def test_diagnostics_includes_scanned_models(hass, sunspec_client_mock):
 
     model_ids = {m["model_id"] for m in diag["scanned_models"]}
     # MOCK_CONFIG enables 103 and 160; either model name from
-    # pysunspec2 1.3.3 will be present in the inverter.json fixture.
+    # pysunspec2 1.3.6 will be present in the inverter.json fixture.
     assert 103 in model_ids
     assert "103" in diag["latest_values"]
     assert len(diag["latest_values"]["103"]) > 0
