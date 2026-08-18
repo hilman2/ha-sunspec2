@@ -20,12 +20,15 @@ set_export_limit:
       description: >
         Export limit as a percentage of WMax. 0 = no export
         (zero-export operation), 100 = full nameplate output.
+        Values above 100 are accepted because some firmware uses
+        them to mean "no limit"; the inverter clamps anything it
+        will not honour.
       required: true
       example: 70
       selector:
         number:
           min: 0
-          max: 100
+          max: 200
           step: 1
           unit_of_measurement: "%"
           mode: box

@@ -111,6 +111,12 @@ class SunSpecFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
     def __init__(self):
         """Initialize."""
         self._errors = {}
+        # Probe client. Assigned by the two _test_connection_* methods
+        # and reused afterwards by _show_settings_form and
+        # _probe_nameplate, which is why it is not closed at the end of
+        # the probe itself. It IS closed before each new probe and
+        # before the flow terminates - see _close_probe_client.
+        self.client: SunSpecApiClient | None = None
         # Pre-filled IP from a DHCP discovery or a network-scan pick.
         # The manual step uses this as the default for the host field so
         # the user just needs to confirm port and unit ID.
@@ -339,6 +345,10 @@ class SunSpecFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
                 if entry.unique_id is not None and probed_uid != entry.unique_id:
                     self._errors["base"] = "unique_id_mismatch"
                 else:
+                    # Free the probe's Modbus slot before the reload
+                    # builds the coordinator's own client, or a
+                    # single-slot inverter refuses the new connection.
+                    self._close_probe_client()
                     return self.async_update_reload_and_abort(
                         entry,
                         data_updates={
@@ -450,6 +460,9 @@ class SunSpecFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
             port = self.init_info[CONF_PORT]
             unit_id = self.init_info[CONF_UNIT_ID]
             _LOGGER.debug("Creating entry with data %s, options %s", self.init_info, options)
+            # Hand the inverter's Modbus slot back before async_setup_entry
+            # opens the coordinator's client against the same endpoint.
+            self._close_probe_client()
             return self.async_create_entry(
                 title=f"{host}:{port}:{unit_id}",
                 data=self.init_info,
@@ -580,6 +593,7 @@ class SunSpecFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
         envelope.
         """
         _LOGGER.debug(f"Test TCP connection to {host}:{port} unit id {unit_id}")
+        self._close_probe_client()
         try:
             self.client = SunSpecApiClient(host, port, unit_id, self.hass, timeout=SETUP_TIMEOUT)
             self._device_info = await self.client.async_get_device_info()
@@ -606,6 +620,7 @@ class SunSpecFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
             parity,
             unit_id,
         )
+        self._close_probe_client()
         try:
             self.client = SunSpecApiClient(
                 host=serial_port,
@@ -624,6 +639,32 @@ class SunSpecFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
         except Exception as err:
             set_connection_error(self._errors, serial_port, baudrate, unit_id, err)
         return False
+
+    def _close_probe_client(self) -> None:
+        """Release the probe client's Modbus session, if one is open.
+
+        The flow used to assign ``self.client`` on every probe attempt
+        and never close any of them. Each failed attempt therefore left
+        a connected pysunspec2 client behind, and pysunspec2 holds a
+        reference cycle between the device and its client, so refcounting
+        does not collect them either - only the GC eventually does. On a
+        single-slot inverter each abandoned session occupies the one
+        Modbus slot the device has, which turns "I typed the wrong unit
+        id once" into a device that refuses every subsequent attempt.
+
+        Deliberately NOT called at the end of a successful probe:
+        ``_show_settings_form`` and ``_probe_nameplate`` keep using the
+        same client, and closing it there would force a second full
+        SunSpec scan inside the same flow.
+        """
+        client = getattr(self, "client", None)
+        if client is None:
+            return
+        try:
+            client.close()
+        except Exception as exc:  # noqa: BLE001 - cleanup must never raise
+            _LOGGER.debug("Probe client close raised %s, ignoring", exc)
+        self.client = None
 
 
 class SunSpecOptionsFlowHandler(config_entries.OptionsFlow):

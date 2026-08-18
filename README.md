@@ -289,7 +289,7 @@ HA automations.
 
 | Entity | Type | SunSpec point | What it does |
 |---|---|---|---|
-| Export limit | Number (0..100 %) | model 123 `WMaxLimPct` | Caps AC output to N % of nameplate. Set to 0 for zero-export operation |
+| Export limit | Number (0..200 %) | model 123 `WMaxLimPct` | Caps AC output to N % of nameplate. Set to 0 for zero-export operation. Above 100 is allowed because some firmware uses e.g. 110 to mean "no limit"; the inverter clamps what it will not honour |
 | Power factor setpoint | Number (-1..1) | model 123 `OutPFSet` | Cos-phi setpoint for reactive power control |
 | Export limit enabled | Switch | model 123 `WMaxLim_Ena` | The export limit only takes effect while this switch is ON |
 | Power factor enabled | Switch | model 123 `OutPFSet_Ena` | The PF setpoint only takes effect while this switch is ON |

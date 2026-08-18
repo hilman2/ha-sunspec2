@@ -102,14 +102,58 @@ async def test_export_limit_reports_the_device_value_above_100(hass, sunspec_wri
     """A device shipping at 110 % must be readable, not clamped away.
 
     The fixture stores raw 11000 at SF -2, which is tisoft's KACO in
-    #17. Reading it works; writing it back is what the hardcoded
-    0..100 ceiling blocks, and that is a separate change.
+    #17: it shipped at 110 % and its owner could not put it back,
+    because the entity was hardcoded to a 0..100 range and HA rejects
+    an out-of-range service call outright.
     """
     await _setup_write_entry(hass)
 
     limit = next(e for e in _live_entities(hass, "number") if e._point_name == "WMaxLimPct")
 
     assert limit.native_value == 110.0
+    assert limit.native_max_value >= 110
+
+
+async def test_export_limit_step_follows_the_device_scale_factor(hass, sunspec_write_client_mock):
+    """The UI step must be fine enough to express what the device stores.
+
+    The fixture reports WMaxLimPct_SF as -2, so the register resolution
+    is 0.01 %. A hardcoded step of 1 would make the device's own values
+    unenterable in the frontend box whenever the scale factor is finer
+    than whole percent.
+    """
+    await _setup_write_entry(hass)
+
+    limit = next(e for e in _live_entities(hass, "number") if e._point_name == "WMaxLimPct")
+
+    assert limit.native_step == 0.01
+
+
+def test_step_falls_back_when_the_scale_factor_is_missing():
+    """A device that does not implement its *_SF register gets the default.
+
+    pysunspec2 turns the 0x8000 "not implemented" sentinel back into
+    None, so the helper must not crash or produce a nonsense step.
+    """
+    from custom_components.sunspec2.number import _step_from_scale_factor
+
+    class _Wrapper:
+        def __init__(self, sf):
+            self._sf = sf
+
+        def getMeta(self, name):
+            return {"sf": "WMaxLimPct_SF"}
+
+        def getValue(self, name):
+            return self._sf
+
+    assert _step_from_scale_factor(_Wrapper(None), "WMaxLimPct") == 1.0
+    assert _step_from_scale_factor(_Wrapper(0), "WMaxLimPct") == 1.0
+    assert _step_from_scale_factor(_Wrapper(-1), "WMaxLimPct") == 0.1
+    # Never finer than the clamp, and never coarser than the old
+    # hardcoded 1 even for a positive scale factor.
+    assert _step_from_scale_factor(_Wrapper(-9), "WMaxLimPct") == 0.01
+    assert _step_from_scale_factor(_Wrapper(2), "WMaxLimPct") == 1.0
 
 
 async def test_set_value_holds_the_gateway_lock(hass, sunspec_write_client_mock):
