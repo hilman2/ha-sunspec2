@@ -168,7 +168,14 @@ class _SunSpecWritablePointNumber(SunSpecEntity, NumberEntity):
         prefix: str = "",
         native_step: float | None = None,
     ) -> None:
-        super().__init__(coordinator, config_entry, device_info, model_info, prefix=prefix)
+        super().__init__(
+            coordinator,
+            config_entry,
+            device_info,
+            model_info,
+            prefix=prefix,
+            model_id=WRITE_CONTROLS_MODEL_ID,
+        )
         self._attr_unique_id = get_sunspec_unique_id(
             config_entry.entry_id, self._point_name, WRITE_CONTROLS_MODEL_ID, 0
         )

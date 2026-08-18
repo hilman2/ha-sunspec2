@@ -63,9 +63,13 @@ point into a Home Assistant sensor.
   last good value through up to five consecutive failed cycles. A
   KACO Powador with a chronically twitchy ethernet link no longer
   flips to "unavailable" every other minute.
-- **Friendly device names**: the device shows up in HA as
-  `Powador 7.8 TL3` (or whatever the `Md` field of common model 1
-  reports) instead of a generic SunSpec block label.
+- **Friendly device names**: each SunSpec model becomes its own HA
+  device named `Powador 7.8 TL3 Inverter (Three Phase)` - the `Md`
+  field of common model 1 plus the model's block label, so multiple
+  enabled models stay distinguishable in the device list. The
+  device-info card additionally shows the numeric model id
+  (`SunSpec 103`), matching the ids in the options-flow model
+  selection.
 - **Structured per-device logging** with `[host:port#unit_id]` prefix
   on every line so multi-inverter setups stay triageable from a
   single log stream.

@@ -279,6 +279,7 @@ class SunSpecSensor(SunSpecEntity, SensorEntity):
             data["device_info"],
             data["model"].getGroupMeta(),
             prefix=data["prefix"],
+            model_id=data["model_id"],
         )
         self.model_id = data["model_id"]
         self.model_index = data["model_index"]
