@@ -104,6 +104,47 @@ def sunspec_client_mock():
 # In this fixture, we are forcing calls to async_get_data to raise an Exception. This is useful
 # for exception handling.
 @pytest.fixture
+def sunspec_write_client_mock():
+    """Device file exposing model 123, for the write platforms.
+
+    Separate from ``sunspec_client_mock`` because inverter.json's
+    model 103 has Evt1 bits set, which renders as a comma-joined
+    bitfield string that fails HA's strict ENUM validation on any
+    refresh after setup. The write tests drive refreshes constantly
+    (every write triggers one), so they need a device file without
+    that trap. Models here: 1 (device info), 160 (a harmless
+    measurement model) and 123 with realistic scale factors -
+    WMaxLimPct_SF -2 and a raw 11000, i.e. the 110 % a real KACO
+    shipped with in #17.
+    """
+    client = MockFileClientDevice("./tests/test_data/inverter_writecontrols.json")
+    client.scan()
+    with (
+        patch("custom_components.sunspec2.SunSpecApiClient.modbus_connect", return_value=client),
+        patch("custom_components.sunspec2.SunSpecApiClient.check_port", return_value=True),
+    ):
+        yield client
+
+
+@pytest.fixture(autouse=True)
+def clear_gateway_locks():
+    """Drop the class-level per-gateway locks between tests.
+
+    ``SunSpecDataUpdateCoordinator._GATEWAY_LOCKS`` is keyed by
+    ``(host, port)`` and lives for the whole process, so a lock created
+    in one test's event loop would be handed to a coordinator running
+    in the next test's loop. An uncontended ``asyncio.Lock.acquire``
+    never touches its loop reference, so this only bites when two tests
+    actually contend the same key - which the write tests do.
+    """
+    from custom_components.sunspec2 import SunSpecDataUpdateCoordinator
+
+    SunSpecDataUpdateCoordinator._GATEWAY_LOCKS.clear()
+    yield
+    SunSpecDataUpdateCoordinator._GATEWAY_LOCKS.clear()
+
+
+@pytest.fixture
 def sunspec_client_mock_connect_error():
     """Simulate connection error when retrieving data from API."""
     client = MockFileClientDevice("./tests/test_data/inverter.json")

@@ -51,8 +51,10 @@ from .const import STARTUP_MESSAGE
 from .const import TRANSPORT_RTU
 from .const import TRANSPORT_TCP
 from .const import WRITE_CONTROLS_MODEL_ID
+from .const import WRITE_LOCK_TIMEOUT_SECONDS
 from .errors import CATEGORIES
 from .errors import SunSpecError
+from .errors import TransientError
 from .errors import TransportError
 from .logger import get_adapter
 from .migration import find_blocking_cjne_entries
@@ -200,7 +202,17 @@ async def async_setup_entry(hass: HomeAssistant, entry: SunSpec2ConfigEntry) -> 
     # optimisation - the platform-level guards are the source of
     # truth.
     write_beta_enabled = entry.options.get(CONF_WRITE_BETA_ENABLED, False)
-    platforms_to_load = list(PLATFORMS) if write_beta_enabled else PLATFORMS_READ_ONLY
+    platforms_to_load = list(PLATFORMS) if write_beta_enabled else list(PLATFORMS_READ_ONLY)
+    # Remember what we forwarded. async_unload_entry must NOT re-derive
+    # this from entry.options: HA writes the new options BEFORE it
+    # dispatches the update listener, so unticking the beta flag makes
+    # the unload read False and unload only the sensor platform. The
+    # Number / Switch entities then stay in the state machine bound to
+    # a coordinator that has already been replaced, report available
+    # forever off its frozen data, and write through its closed api on
+    # the next press. Set before the forward, not after: if the forward
+    # raises partway, the recorded list still describes intent.
+    coordinator.forwarded_platforms = platforms_to_load
     await hass.config_entries.async_forward_entry_setups(entry, platforms_to_load)
 
     # Register the experimental write service action once per HA
@@ -241,10 +253,16 @@ def _async_register_services(hass: HomeAssistant) -> None:
                 f"Inverter does not expose SunSpec model {WRITE_CONTROLS_MODEL_ID} "
                 "(immediate controls), cannot set export limit."
             )
+        points: list[tuple[str, object]] = [("WMaxLimPct", percent)]
+        if enable:
+            # Same lock hold as the percentage, not a second one. "Set
+            # the limit and turn it on" is one logical operation: with
+            # two acquisitions a poll cycle or a competing service call
+            # can slip in between and leave the inverter running with
+            # the new percentage and the old enable state.
+            points.append(("WMaxLim_Ena", 1))
         try:
-            await coordinator.api.async_write_point(WRITE_CONTROLS_MODEL_ID, "WMaxLimPct", percent)
-            if enable:
-                await coordinator.api.async_write_point(WRITE_CONTROLS_MODEL_ID, "WMaxLim_Ena", 1)
+            await coordinator.async_write_points_locked(WRITE_CONTROLS_MODEL_ID, points)
         except SunSpecError as exc:
             raise HomeAssistantError(f"Failed to set export limit: {exc}") from exc
         await coordinator.async_request_refresh()
@@ -341,11 +359,14 @@ async def async_unload_entry(hass: HomeAssistant, entry: SunSpec2ConfigEntry) ->
     """Handle removal of an entry."""
 
     _LOGGER.debug("Unload entry %s", entry.entry_id)
-    # Unload the same platform set we forwarded to in
-    # async_setup_entry. The number / switch platforms only exist
-    # if the user opted in to the experimental write features.
-    write_beta_enabled = entry.options.get(CONF_WRITE_BETA_ENABLED, False)
-    platforms_to_unload = list(PLATFORMS) if write_beta_enabled else PLATFORMS_READ_ONLY
+    # Unload exactly the platform set async_setup_entry forwarded to,
+    # as recorded on the coordinator. Deriving it from entry.options
+    # here is wrong - see the comment at the forward site. The fallback
+    # covers a coordinator built before this attribute existed.
+    coordinator = entry.runtime_data
+    platforms_to_unload = getattr(coordinator, "forwarded_platforms", None) or list(
+        PLATFORMS_READ_ONLY
+    )
     unloaded = all(
         await asyncio.gather(
             *[
@@ -355,7 +376,6 @@ async def async_unload_entry(hass: HomeAssistant, entry: SunSpec2ConfigEntry) ->
         )
     )
     if unloaded:
-        coordinator = entry.runtime_data
         # Drop any Repairs panel issues this coordinator may have raised.
         # Without this, removing the integration leaves ghost issues
         # in Settings -> Repairs that the user can never clear.
@@ -367,8 +387,21 @@ async def async_unload_entry(hass: HomeAssistant, entry: SunSpec2ConfigEntry) ->
         # one in async_setup_entry, and the new connect would time out.
         coordinator.api.close()
         coordinator.unsub()
+    else:
+        # Do not claim success. Returning True here (which is what this
+        # did before v0.14.0) makes HA mark the entry NOT_LOADED while
+        # the cleanup block above was skipped, so our Modbus socket is
+        # still open and the options update listener is still
+        # registered. The next setup then races a socket it does not
+        # know about, on exactly the single-slot inverters where that
+        # hurts most.
+        _LOGGER.warning(
+            "Unload of entry %s failed for at least one platform; "
+            "the Modbus session and update listener are still active",
+            entry.entry_id,
+        )
 
-    return True  # unloaded
+    return unloaded
 
 
 async def async_reload_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
@@ -588,6 +621,71 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator):
         except Exception as second_err:  # noqa: BLE001 - dispatched below
             return self._after_failed_cycle(second_err)
         return self._after_successful_cycle(data)
+
+    async def async_write_points_locked(
+        self, model_id: int, points: list[tuple[str, object]]
+    ) -> None:
+        """Write one or more points while holding the per-gateway lock.
+
+        Every write must go through here. Before v0.14.0 the Number and
+        Switch entities and the ``set_export_limit`` service called
+        ``coordinator.api.async_write_point`` directly, and a write
+        never took the gateway lock at all. Two silent failure modes:
+
+        * **Mid-cycle**: the write got the coordinator's *live* client
+          back from ``api.get_client()`` and drove ``point.write()`` on
+          it from a second executor thread while ``read_model`` was
+          mid-``recv`` on the same socket. pysunspec2 packs a leading
+          ``0, 0`` MBAP header - the transaction id is hardcoded 0 -
+          and takes no lock of its own, so neither side can tell whose
+          response it just pulled off the socket. This is not a
+          single-slot-inverter problem; frames can interleave on any
+          gateway.
+        * **Between cycles**: ``api._client`` is None because
+          ``_run_one_update_cycle`` closes at the end, so the write
+          opened a *second* TCP session (connect plus a full scan) that
+          nothing ever closed, holding a single-slot inverter's only
+          Modbus slot until the next cycle. v0.13.4's ``model.read()``
+          widened that window by one more block read.
+
+        The method is named ``_locked`` rather than mirroring
+        ``SunSpecApiClient.async_write_point`` on purpose. An identical
+        name one layer up would make the call-site diff a bare deletion
+        of ``.api``, which is the least reviewable possible shape for a
+        race-condition guard and the easiest to regress by accident.
+
+        The timeout wraps only the acquire. Cancelling a write already
+        in flight would hand control back to the caller while the
+        executor thread is still writing to the socket - executor jobs
+        are not cancellable - which is the exact race we are closing.
+
+        ``async_request_refresh()`` deliberately stays at the call
+        sites, OUTSIDE this lock. ``asyncio.Lock`` is not reentrant and
+        ``REQUEST_REFRESH_DEFAULT_IMMEDIATE`` is True, so the debouncer
+        runs ``_async_refresh`` inline and it would deadlock on the
+        lock we are still holding.
+        """
+        try:
+            async with asyncio.timeout(WRITE_LOCK_TIMEOUT_SECONDS):
+                await self._gateway_lock.acquire()
+        except TimeoutError as exc:
+            raise TransientError(
+                f"Timed out after {WRITE_LOCK_TIMEOUT_SECONDS}s waiting for the Modbus "
+                f"gateway to become free; the inverter is busy, try again"
+            ) from exc
+        try:
+            for point_name, value in points:
+                await self.api.async_write_point(model_id, point_name, value)
+        finally:
+            # Whoever opens a session under the lock closes it under the
+            # lock. Leaving the socket open past the release would let
+            # the next coordinator on this gateway win the lock
+            # (asyncio.Lock is FIFO, so a queued waiter is handed the
+            # lock on release) and then fail to connect, which surfaces
+            # as a bogus TransportError in an unrelated config entry -
+            # the hardest possible shape to diagnose.
+            self.api.close()
+            self._gateway_lock.release()
 
     async def _run_one_update_cycle(self):
         """Single connect/read/close attempt. Caller holds the gateway lock.

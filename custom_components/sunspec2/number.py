@@ -16,9 +16,13 @@ because mixing modes in one entity makes the UI confusing.
 
 Behavioural notes:
 
-- Writes go through ``coordinator.api.async_write_point`` which is
-  the same code path the service action uses, so the gateway lock
-  serialises writes against reads.
+- Writes go through ``coordinator.async_write_points_locked``,
+  which takes the per-``(host, port)`` gateway lock for the
+  duration of the write and closes the Modbus session again before
+  releasing it. Calling ``coordinator.api.async_write_point``
+  directly, which is what this platform did before v0.14.0,
+  bypasses that lock entirely and lets a write interleave with the
+  poll cycle on one socket.
 - After a successful write we trigger a coordinator refresh so the
   read-side state catches up immediately instead of waiting for
   the next scheduled cycle.
@@ -132,14 +136,18 @@ class _SunSpecWritablePointNumber(SunSpecEntity, NumberEntity):
 
     async def async_set_native_value(self, value: float) -> None:
         try:
-            await self.coordinator.api.async_write_point(
-                WRITE_CONTROLS_MODEL_ID, self._point_name, value
+            await self.coordinator.async_write_points_locked(
+                WRITE_CONTROLS_MODEL_ID, [(self._point_name, value)]
             )
         except SunSpecError as exc:
             raise HomeAssistantError(f"Failed to write {self._point_name}={value}: {exc}") from exc
         # Refresh the read-side state immediately so the UI shows
         # the inverter's actual response (which may differ from the
         # value we just sent if the inverter clamps it).
+        #
+        # Deliberately OUTSIDE the gateway lock the write just held:
+        # asyncio.Lock is not reentrant and the refresh debouncer runs
+        # the refresh inline, so requesting it under the lock deadlocks.
         await self.coordinator.async_request_refresh()
 
 

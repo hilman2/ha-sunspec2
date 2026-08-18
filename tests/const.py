@@ -46,3 +46,24 @@ MOCK_CONFIG_PREFIX = {
     CONF_PREFIX: "test",
     CONF_ENABLED_MODELS: MOCK_SETTINGS_PREFIX[CONF_ENABLED_MODELS],
 }
+# Config for the experimental write platforms. Pairs with the
+# ``sunspec_write_client_mock`` fixture, whose device file exposes
+# models 1, 160 and 123. Model 123 is listed explicitly because a
+# user on this release has to tick it themselves for the write
+# entities to appear at all.
+MOCK_CONFIG_WRITE = {
+    CONF_TRANSPORT: TRANSPORT_TCP,
+    CONF_HOST: "test_host",
+    CONF_PORT: 123,
+    CONF_UNIT_ID: 1,
+    CONF_PREFIX: "",
+    CONF_SCAN_INTERVAL: 10,
+    CONF_ENABLED_MODELS: ["123", "160"],
+}
+# Entity ids the write platforms produce for the fixture device
+# (Md "Test-1547-1" -> device slug ``test_1547_1``).
+TEST_NUMBER_EXPORT_LIMIT = "number.test_1547_1_export_limit"
+TEST_NUMBER_POWER_FACTOR = "number.test_1547_1_power_factor_setpoint"
+TEST_SWITCH_EXPORT_LIMIT_ENA = "switch.test_1547_1_export_limit_enabled"
+TEST_SWITCH_POWER_FACTOR_ENA = "switch.test_1547_1_power_factor_enabled"
+TEST_SWITCH_CONN = "switch.test_1547_1_inverter_grid_connection"

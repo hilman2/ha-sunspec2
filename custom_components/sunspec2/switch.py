@@ -118,14 +118,20 @@ class _SunSpecWritablePointSwitch(SunSpecEntity, SwitchEntity):
         await self._write(0)
 
     async def _write(self, raw_value: int) -> None:
+        # Routed through the coordinator, not through ``coordinator.api``
+        # directly, so the write holds the per-gateway lock and cannot
+        # interleave with a poll cycle on the same socket. See number.py's
+        # module docstring for the full rationale.
         try:
-            await self.coordinator.api.async_write_point(
-                WRITE_CONTROLS_MODEL_ID, self._point_name, raw_value
+            await self.coordinator.async_write_points_locked(
+                WRITE_CONTROLS_MODEL_ID, [(self._point_name, raw_value)]
             )
         except SunSpecError as exc:
             raise HomeAssistantError(
                 f"Failed to write {self._point_name}={raw_value}: {exc}"
             ) from exc
+        # Outside the lock: the refresh debouncer runs inline and
+        # asyncio.Lock is not reentrant.
         await self.coordinator.async_request_refresh()
 
 
