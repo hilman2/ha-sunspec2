@@ -1,0 +1,76 @@
+{
+ "name": "device_1547",
+ "models": [
+  {
+   "ID": 1,
+   "Mn": "SunSpecTest",
+   "Md": "Test-1547-1",
+   "Opt": "opt_a_b_c",
+   "Vr": "1.2.3",
+   "SN": "sn-123456789",
+   "DA": 1,
+   "Pad": 0
+  },
+  {
+   "ID": 160,
+   "L": null,
+   "Evt": 0,
+   "N": 2,
+   "TmsPer": 123,
+   "module": [
+    {
+     "ID": 1,
+     "IDStr": "MPPT 1",
+     "DCA": 90,
+     "DCV": 900,
+     "DCW": 900,
+     "DCWH": 1,
+     "Tms": 123,
+     "Tmp": 20,
+     "DCSt": 4,
+     "DCEvt": 0
+    },
+    {
+     "ID": 2,
+     "IDStr": "MPPT 2",
+     "DCA": 92,
+     "DCV": 920,
+     "DCW": 920,
+     "DCWH": 2,
+     "Tms": 223,
+     "Tmp": 22,
+     "DCSt": 3,
+     "DCEvt": 0
+    }
+   ]
+  },
+  {
+   "ID": 123,
+   "L": null,
+   "Conn_WinTms": 0,
+   "Conn_RvrtTms": 0,
+   "Conn": 1,
+   "WMaxLimPct": 11000,
+   "WMaxLimPct_WinTms": 0,
+   "WMaxLimPct_RvrtTms": 0,
+   "WMaxLimPct_RmpTms": 0,
+   "WMaxLim_Ena": 1,
+   "OutPFSet": 1000,
+   "OutPFSet_WinTms": 0,
+   "OutPFSet_RvrtTms": 0,
+   "OutPFSet_RmpTms": 0,
+   "OutPFSet_Ena": 0,
+   "VArWMaxPct": null,
+   "VArMaxPct": null,
+   "VArAvalPct": null,
+   "VArPct_WinTms": 0,
+   "VArPct_RvrtTms": 0,
+   "VArPct_RmpTms": 0,
+   "VArPct_Mod": 0,
+   "VArPct_Ena": 0,
+   "WMaxLimPct_SF": -2,
+   "OutPFSet_SF": -3,
+   "VArPct_SF": 0
+  }
+ ]
+}

@@ -124,6 +124,27 @@ ENERGY_DELTA_REJECT_RECOVERY_COUNT = 3
 # and HA's own exponential backoff takes over.
 INTERVAL_RETRY_DELAY_SECONDS = 5
 
+# How long a write waits for the per-gateway lock before giving up.
+#
+# Sizing this off the scan interval is tempting and wrong: the wait is
+# bounded by lock HOLD time times queued waiters, not by how often we
+# poll. One hold is dominated by pysunspec2's own sleeps - scan()
+# sleeps `delay` (0.5s) per discovered model and read_model sleeps
+# 0.6s per model instance - so an 18-model inverter spends roughly 9s
+# in the rescan before a single sensor register is read, and a full
+# hold lands at 15-20s. Two config entries behind one Modbus gateway
+# can therefore legitimately queue past 30s without anything being
+# wrong, and a timeout that fires on healthy hardware is worse than
+# no timeout at all.
+#
+# 120s is "something is genuinely stuck" territory rather than "the
+# gateway is busy". A write that fails with a readable message still
+# beats a write that never returns, which is what we had before: HA
+# has no service-call timeout of its own (SLOW_UPDATE_WARNING only
+# fires inside async_update_ha_state(force_refresh=True), which
+# CoordinatorEntity never reaches because should_poll is False).
+WRITE_LOCK_TIMEOUT_SECONDS = 120
+
 # Resilience: keep serving the last successfully-read value through the
 # entity's `available` property for up to this many consecutive failed
 # update cycles before flipping to "unavailable". With the default 30s
