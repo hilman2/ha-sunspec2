@@ -64,10 +64,12 @@ MOCK_CONFIG_WRITE = {
     CONF_SCAN_INTERVAL: 10,
     CONF_ENABLED_MODELS: ["160"],
 }
-# Entity ids the write platforms produce for the fixture device
-# (Md "Test-1547-1" -> device slug ``test_1547_1``).
-TEST_NUMBER_EXPORT_LIMIT = "number.test_1547_1_export_limit"
-TEST_NUMBER_POWER_FACTOR = "number.test_1547_1_power_factor_setpoint"
-TEST_SWITCH_EXPORT_LIMIT_ENA = "switch.test_1547_1_export_limit_enabled"
-TEST_SWITCH_POWER_FACTOR_ENA = "switch.test_1547_1_power_factor_enabled"
-TEST_SWITCH_CONN = "switch.test_1547_1_inverter_grid_connection"
+# Entity ids the write platforms produce for the fixture device.
+# Since v0.15.0 the device slug carries the model suffix (issue #33):
+# Md "Test-1547-1" plus model 123's label "Immediate Controls" gives
+# ``test_1547_1_immediate_controls``.
+TEST_NUMBER_EXPORT_LIMIT = "number.test_1547_1_immediate_controls_export_limit"
+TEST_NUMBER_POWER_FACTOR = "number.test_1547_1_immediate_controls_power_factor_setpoint"
+TEST_SWITCH_EXPORT_LIMIT_ENA = "switch.test_1547_1_immediate_controls_export_limit_enabled"
+TEST_SWITCH_POWER_FACTOR_ENA = "switch.test_1547_1_immediate_controls_power_factor_enabled"
+TEST_SWITCH_CONN = "switch.test_1547_1_immediate_controls_inverter_grid_connection"

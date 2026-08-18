@@ -3,10 +3,13 @@
 from unittest.mock import patch
 
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import device_registry as dr
 
 from custom_components.sunspec2.const import CONF_MAX_AC_POWER_KW
+from custom_components.sunspec2.const import DOMAIN
 from custom_components.sunspec2.sensor import ICON_DC_AMPS
 
+from . import TEST_CONFIG_ENTRY_ID
 from . import TEST_INVERTER_MM_SENSOR_POWER_ENTITY_ID
 from . import TEST_INVERTER_MM_SENSOR_STATE_ENTITY_ID
 from . import TEST_INVERTER_PREFIX_SENSOR_DC_ENTITY_ID
@@ -59,6 +62,51 @@ async def test_sensor_with_prefix(hass: HomeAssistant, sunspec_client_mock) -> N
 
     entity_state = hass.states.get(TEST_INVERTER_PREFIX_SENSOR_DC_ENTITY_ID)
     assert entity_state
+
+
+async def test_device_names_carry_model_suffix(hass: HomeAssistant, sunspec_client_mock) -> None:
+    """One device per SunSpec model must be distinguishable (issue #33).
+
+    Before v0.15.0 every device of an entry was named after the Md
+    field alone, so a user with many enabled models saw a wall of
+    identical names in the device list. The device name now appends
+    the model's block label (curated short form for the unwieldy
+    ones, e.g. model 160), and the numeric id lands in the registry's
+    ``model_id`` field so the device-info card shows what the device
+    actually is.
+    """
+    await setup_mock_sunspec_config_entry(hass)
+
+    device_registry = dr.async_get(hass)
+    inverter = device_registry.async_get_device(
+        identifiers={(DOMAIN, TEST_CONFIG_ENTRY_ID, "inverter_three_phase")}
+    )
+    assert inverter is not None
+    assert inverter.name == "Test-1547-1 Inverter (Three Phase)"
+    assert inverter.model == "Test-1547-1"
+    assert inverter.model_id == "SunSpec 103"
+
+    mppt = device_registry.async_get_device(identifiers={(DOMAIN, TEST_CONFIG_ENTRY_ID, "mppt")})
+    assert mppt is not None
+    assert mppt.name == "Test-1547-1 MPPT"
+    assert mppt.model_id == "SunSpec 160"
+
+
+async def test_device_name_with_prefix_keeps_model_suffix(
+    hass: HomeAssistant, sunspec_client_mock
+) -> None:
+    """A user prefix replaces the Md base but never the model suffix.
+
+    The prefix exists to tell two inverters apart, the suffix exists
+    to tell two models of one inverter apart - dropping either brings
+    back an ambiguity.
+    """
+    await setup_mock_sunspec_config_entry(hass, MOCK_CONFIG_PREFIX)
+
+    device_registry = dr.async_get(hass)
+    mppt = device_registry.async_get_device(identifiers={(DOMAIN, TEST_CONFIG_ENTRY_ID, "mppt")})
+    assert mppt is not None
+    assert mppt.name == "test MPPT"
 
 
 async def test_sensor_state(hass: HomeAssistant, sunspec_client_mock) -> None:
