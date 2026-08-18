@@ -231,6 +231,11 @@ async def test_write_point_blocking_resolves_and_writes(hass):
     ``models[123]`` returns a list with one model whose ``points``
     map has the point we want to write. The test asserts the
     cvalue assignment and the write() call.
+
+    Note what this test cannot see: a Mock point accepts any cvalue,
+    so the scale-factor bug from #17 stayed invisible here. The real
+    coverage for the encoding path lives in ``test_write.py``, which
+    drives actual pysunspec2 model objects.
     """
     api = SunSpecApiClient(host="test", port=502, unit_id=1, hass=hass)
 
@@ -244,6 +249,7 @@ async def test_write_point_blocking_resolves_and_writes(hass):
 
     api._write_point_blocking(123, "WMaxLimPct", 50)
 
+    fake_model.read.assert_called_once_with()
     assert fake_point.cvalue == 50
     fake_point.write.assert_called_once_with()
 

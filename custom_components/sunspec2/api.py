@@ -9,10 +9,14 @@ from types import SimpleNamespace
 
 import sunspec2.modbus.client as modbus_client
 from homeassistant.core import HomeAssistant
+from sunspec2.device import ModelError
 from sunspec2.modbus.client import SunSpecModbusClientError
 from sunspec2.modbus.client import SunSpecModbusClientException
 from sunspec2.modbus.client import SunSpecModbusClientTimeout
+from sunspec2.modbus.client import SunSpecModbusValueError
 from sunspec2.modbus.modbus import ModbusClientError
+from sunspec2.modbus.modbus import ModbusClientException
+from sunspec2.modbus.modbus import ModbusClientTimeout
 
 from .const import DEFAULT_BAUDRATE
 from .const import PARITY_NONE
@@ -205,13 +209,38 @@ class SunSpecApiClient:
         Switch / service-action write features take. Resolves the
         point on the live client, sets ``cvalue`` (which lets
         pysunspec2 handle the scale-factor encoding for us), and
-        flushes via ``point.write()``. Each call ends up as a Modbus
-        write-multiple-registers request on the wire.
+        flushes via ``point.write()``. Single-register points - which
+        is every point model 123 exposes - go out as Modbus
+        write-single-register (FC 0x06); only multi-register points
+        use write-multiple (FC 0x10).
 
         Errors translate into the same typed exception hierarchy the
         read path uses, so the service handler / entity layer can
         surface them as ``HomeAssistantError`` with consistent
         messaging.
+
+        The handler chain below has to be this wide because pysunspec2
+        has three unrelated exception roots and only one of them
+        (``SunSpecModbusClientError``) was covered before v0.13.4:
+
+        - ``sunspec2.device.ModelError`` is a plain ``Exception``. It is
+          what an unread scale factor or an unimplemented ``*_SF``
+          register produces on the ``cvalue`` assignment.
+        - ``SunSpecModbusValueError`` is a plain ``Exception`` too,
+          despite the name suggesting it sits under the client tree.
+        - ``ModbusClientError`` and its subclasses come from the
+          transport layer below the SunSpec client and are the ones
+          raised when the device NAKs the write with a Modbus
+          exception code or the socket write fails.
+          ``SunSpecModbusClientDeviceTCP.write`` does not translate
+          them into the SunSpec hierarchy.
+
+        Anything left uncaught here reaches the Number / Switch entity
+        as a raw traceback in the UI, because their ``except
+        SunSpecError`` never matches. Subclasses must be listed before
+        their bases: ``ModbusClientTimeout`` and
+        ``SunSpecModbusClientTimeout`` are transient, their respective
+        base classes are not.
         """
         with_model = SunSpecLoggerAdapter(
             self._log.logger, {**self._log.extra, "model_id": model_id}
@@ -221,12 +250,30 @@ class SunSpecApiClient:
             await self._hass.async_add_executor_job(
                 self._write_point_blocking, model_id, point_name, value
             )
-        except SunSpecModbusClientTimeout as exc:
+        except (SunSpecModbusClientTimeout, ModbusClientTimeout) as exc:
             with_model.warning("Modbus write timeout")
             raise TransientError(
                 f"Modbus write timeout for model {model_id} point {point_name}"
             ) from exc
-        except SunSpecModbusClientException as exc:
+        except ModelError as exc:
+            # Almost always an unimplemented scale factor: the device
+            # answers the *_SF register with 0x8000 ("not implemented"),
+            # pysunspec2 nulls sf_value in Point.set_mb, and the cvalue
+            # assignment cannot encode the value. Re-reading the model
+            # (see _write_point_blocking) fixes the merely-unread case,
+            # not this one, so say what is actually wrong.
+            with_model.warning("Model error while writing: %s", exc)
+            raise DeviceError(
+                f"Device rejected the value for model {model_id} point {point_name}. "
+                f"The inverter may not implement the scale factor this point needs: {exc}"
+            ) from exc
+        except (
+            SunSpecModbusValueError,
+            SunSpecModbusClientException,
+            SunSpecModbusClientError,
+            ModbusClientException,
+            ModbusClientError,
+        ) as exc:
             with_model.warning("Modbus exception while writing")
             raise DeviceError(
                 f"Modbus exception while writing model {model_id} point {point_name}: {exc}"
@@ -247,6 +294,30 @@ class SunSpecApiClient:
             point = model.points[point_name]
         except KeyError as exc:
             raise DeviceError(f"Point {point_name} not present in model {model_id}") from exc
+        # Populate the model block before touching cvalue. Without this,
+        # every scaled write fails on real hardware with
+        #   ModelError: SF field WMaxLimPct_SF value not initialized
+        # (reported for a KACO bp 20.0 NX3 M2 in #17, but it is not
+        # vendor specific - it hits every device and every scaled point).
+        #
+        # Why the point is empty: the coordinator calls api.close() at the
+        # end of each update cycle, so get_client() above builds a brand
+        # new client and rescans with full_model_read=False. pysunspec2
+        # only calls model.read() during scan when that flag is set, so
+        # every point except ID and L is still None here - including the
+        # scale factor that Point.set_value(computed=True) needs to encode
+        # the value. The model objects the coordinator read into are a
+        # different, already discarded client.
+        #
+        # The switches never hit this because Conn, WMaxLim_Ena and
+        # OutPFSet_Ena are enum16 with sf: null, so sf_required is False.
+        # That is why #17 reported working switches and broken numbers.
+        #
+        # Cost is one block read of len + 2 registers, which is noise next
+        # to the reconnect and full scan this call already paid for. Read
+        # before setting cvalue, never after: Group.read() ends in
+        # set_mb(dirty=False) and would discard a pending value.
+        model.read()
         point.cvalue = value
         point.write()
 
