@@ -352,8 +352,14 @@ class SunSpecApiClient:
         self._force_disconnect()
         self._client = None
 
-    def _force_disconnect(self) -> None:
-        """Tear down ``self._client`` as aggressively as possible.
+    def _force_disconnect(self, client=None) -> None:
+        """Tear down a client as aggressively as possible.
+
+        Defaults to ``self._client``. Callers holding a client that is
+        not (yet) ``self._client`` pass it explicitly: the connect paths
+        only adopt their client on success, so on the failure path there
+        is a fully connected socket that neither this method nor
+        :meth:`close` could otherwise reach.
 
         For TCP: sets SO_LINGER=(1, 0) on the underlying socket so the
         kernel sends a TCP RST instead of a polite FIN. This makes
@@ -370,7 +376,8 @@ class SunSpecApiClient:
         Best-effort in both modes: any failure walking pysunspec2's
         internals is swallowed. Cleanup must never raise from here.
         """
-        client = self._client
+        if client is None:
+            client = self._client
         if client is None:
             return
 
@@ -413,12 +420,25 @@ class SunSpecApiClient:
             self._log.debug("client.disconnect raised %s, ignoring", exc)
 
     def check_port(self) -> bool:
-        """Check if port is available"""
+        """Check if port is available.
+
+        Note this opens and closes a full TCP session of its own,
+        roughly 100 ms before the real client connects. On inverters
+        that allow exactly one Modbus TCP slot that is a second
+        connection to the same endpoint in quick succession, which is
+        an open suspect in #25. Removing it needs a reporter to confirm
+        the double-connect hypothesis first, so for now it stays and
+        only its process-global side effect is gone.
+        """
         with self._lock:
             sock_timeout = float(3)
             self._log.debug("Check_Port: opening socket with %ss timeout", sock_timeout)
-            socket.setdefaulttimeout(sock_timeout)
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            # Per-socket, not socket.setdefaulttimeout(): that mutates
+            # process-global state, so our 3s leaked into every other
+            # integration in the same Home Assistant process that
+            # created a socket without setting its own timeout.
+            sock.settimeout(sock_timeout)
             sock_res = sock.connect_ex((self._host, self._port))
             is_open = sock_res == 0  # True if open, False if not
             if is_open:
@@ -454,39 +474,55 @@ class SunSpecApiClient:
             timeout=self._timeout,
         )
         self._wrap_capturing_read(client)
-        if self.check_port():
-            self._log.debug("Inverter ready for Modbus TCP connection")
-            try:
-                with self._lock:
-                    client.connect()
-                if not client.is_connected():
-                    raise TransportError(
-                        f"Failed to connect to {self._host}:{self._port} unit id {self._unit_id}"
-                    )
-                self._log.debug("Client connected, perform initial scan")
-                client.scan(connect=False, progress=progress, full_model_read=False, delay=0.5)
-                return client
-            except ModbusClientError as err:
-                raise TransportError(
-                    f"Modbus error while connecting to "
-                    f"{use_config.host}:{use_config.port} unit id "
-                    f"{use_config.unit_id}: {err}"
-                ) from err
-            except SunSpecModbusClientError as err:
-                # Raised by client.scan() when no SunSpec base address is
-                # found, when the device responds without the SunSpec marker,
-                # or on read timeouts during the scan. Without this catch the
-                # original message ("Unknown error", "data time out", etc.)
-                # is hidden behind a generic "Unexpected error" further up
-                # the stack and the user has nothing actionable to report.
-                raise ProtocolError(
-                    f"SunSpec scan failed for "
-                    f"{use_config.host}:{use_config.port} unit id "
-                    f"{use_config.unit_id}: {err}"
-                ) from err
-        else:
+        if not self.check_port():
             self._log.debug("Inverter not ready for Modbus TCP connection")
             raise TransportError(f"Inverter not active on {self._host}:{self._port}")
+
+        self._log.debug("Inverter ready for Modbus TCP connection")
+        # Tear the client down on every failure path. Without this a
+        # connect that SUCCEEDS and a scan that then fails - which is
+        # exactly the shape reported in #25, where the socket survives
+        # long enough to be reset during the base-address walk - leaves
+        # a fully connected client behind that nothing can reach:
+        # get_client() only assigns self._client on success, so both
+        # close() and _force_disconnect() see None and do nothing. On a
+        # single-slot inverter that makes the failure sticky, because
+        # the next attempt genuinely does find the slot occupied, and
+        # the second error message describes our own leak rather than
+        # the original fault.
+        handed_off = False
+        try:
+            with self._lock:
+                client.connect()
+            if not client.is_connected():
+                raise TransportError(
+                    f"Failed to connect to {self._host}:{self._port} unit id {self._unit_id}"
+                )
+            self._log.debug("Client connected, perform initial scan")
+            client.scan(connect=False, progress=progress, full_model_read=False, delay=0.5)
+            handed_off = True
+            return client
+        except ModbusClientError as err:
+            raise TransportError(
+                f"Modbus error while connecting to "
+                f"{use_config.host}:{use_config.port} unit id "
+                f"{use_config.unit_id}: {err}"
+            ) from err
+        except SunSpecModbusClientError as err:
+            # Raised by client.scan() when no SunSpec base address is
+            # found, when the device responds without the SunSpec marker,
+            # or on read timeouts during the scan. Without this catch the
+            # original message ("Unknown error", "data time out", etc.)
+            # is hidden behind a generic "Unexpected error" further up
+            # the stack and the user has nothing actionable to report.
+            raise ProtocolError(
+                f"SunSpec scan failed for "
+                f"{use_config.host}:{use_config.port} unit id "
+                f"{use_config.unit_id}: {err}"
+            ) from err
+        finally:
+            if not handed_off:
+                self._force_disconnect(client)
 
     def _modbus_connect_rtu(self):
         """Build a Modbus RTU client over a serial port (RS-485).
@@ -524,11 +560,16 @@ class SunSpecApiClient:
         except OSError as err:
             raise TransportError(f"Serial port {self._serial_port} not available: {err}") from err
         self._wrap_capturing_read(client)
+        # Same leak as the TCP path: open() can succeed and scan() fail,
+        # and the serial port would then stay claimed by a client that
+        # nothing holds a reference to.
+        handed_off = False
         try:
             with self._lock:
                 client.open()
             self._log.debug("RTU port opened, perform initial scan")
             client.scan(connect=False, progress=progress, full_model_read=False, delay=0.5)
+            handed_off = True
             return client
         except ModbusClientError as err:
             raise TransportError(
@@ -539,6 +580,9 @@ class SunSpecApiClient:
                 f"SunSpec scan failed on serial port {self._serial_port} "
                 f"unit id {self._unit_id}: {err}"
             ) from err
+        finally:
+            if not handed_off:
+                self._force_disconnect(client)
 
     def _wrap_capturing_read(self, client) -> None:
         """Wrap ``client.read`` so every byte landing on the wire is captured.

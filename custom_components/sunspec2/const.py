@@ -4,7 +4,7 @@
 NAME = "SunSpec 2"
 DOMAIN = "sunspec2"
 DOMAIN_DATA = f"{DOMAIN}_data"
-VERSION = "0.13.4"
+VERSION = "0.14.0"
 
 ATTRIBUTION = "Data provided by SunSpec alliance - https://sunspec.org"
 ISSUE_URL = "https://github.com/hilman2/ha-sunspec2/issues"
@@ -84,6 +84,27 @@ CONF_WRITE_BETA_ENABLED = "write_beta_enabled"
 # only registers write entities when this model is part of
 # coordinator.detected_models.
 WRITE_CONTROLS_MODEL_ID = 123
+
+# Upper bound for the model 123 WMaxLimPct Number entity, in percent of
+# WMax. The SunSpec definition describes WMaxLimPct as a percentage of
+# WMax and the obvious reading is 0..100, but real firmware uses values
+# above 100 as a "no limit" sentinel: a KACO in #17 shipped with 110 and
+# the user could not restore it, because HA's number component rejects
+# an out-of-range service call and clamps the native value on top.
+#
+# Flat headroom on purpose, NOT derived from the current value. A
+# ceiling that tracks what the device currently reports collapses back
+# to 100 the moment the user writes 50, which puts 110 out of reach
+# again - the exact bug, one write later.
+EXPORT_LIMIT_HARD_MAX_PCT = 200
+
+# UI step bounds for the same entity. The real step comes from the
+# device's own WMaxLimPct_SF scale factor (10 ** SF): at SF -1 the
+# inverter reports and accepts 99.5, and a hardcoded step of 1 makes
+# the device's own value unenterable in the frontend box. Clamped so we
+# are never coarser than the old behaviour and never finer than 0.01 %.
+EXPORT_LIMIT_DEFAULT_STEP_PCT = 1.0
+EXPORT_LIMIT_MIN_STEP_PCT = 0.01
 
 # SunSpec models whose points are control setpoints, not measurements.
 # The sensor platform skips them entirely. Two reasons, both learned
