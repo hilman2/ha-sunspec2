@@ -552,8 +552,15 @@ class SunSpecApiClient:
             return
         original_read = client.read
 
-        def capturing_read(addr, count):
-            data = original_read(addr, count)
+        # Signature must stay compatible with the method it replaces.
+        # SunSpecModbusClientDeviceTCP.read takes a third positional
+        # ``op`` argument selecting the Modbus function code, and
+        # pysunspec2 passes it positionally from a few internal call
+        # sites. A two-parameter wrapper raises TypeError the moment
+        # one of those runs, but only while capture is enabled, which
+        # is exactly when a user is already trying to debug something.
+        def capturing_read(addr, count, *args, **kwargs):
+            data = original_read(addr, count, *args, **kwargs)
             if len(self._captured_reads) < 1000:
                 self._captured_reads.append(
                     {
