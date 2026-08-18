@@ -16,6 +16,8 @@ Three switches from model 123 (Immediate Controls):
 
 from __future__ import annotations
 
+import logging
+
 from homeassistant.components.switch import SwitchEntity
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
@@ -28,6 +30,8 @@ from .const import CONF_WRITE_BETA_ENABLED
 from .const import WRITE_CONTROLS_MODEL_ID
 from .entity import SunSpecEntity
 from .errors import SunSpecError
+
+_LOGGER: logging.Logger = logging.getLogger(__name__)
 
 PARALLEL_UPDATES = 0
 
@@ -49,6 +53,15 @@ async def async_setup_entry(
         return
     model_wrapper = coordinator.data.get(WRITE_CONTROLS_MODEL_ID)
     if model_wrapper is None:
+        # See the matching guard in number.py: unreachable since
+        # v0.14.0, and worth a log line rather than a silent return if
+        # it ever trips again.
+        getattr(coordinator, "_log", _LOGGER).warning(
+            "Write beta is on and model %s was detected, but it is not in the "
+            "polled data, so no write entities will be created. write_model_filter=%s",
+            WRITE_CONTROLS_MODEL_ID,
+            getattr(coordinator, "write_model_filter", None),
+        )
         return
     group_meta = model_wrapper.getGroupMeta()
     common = {

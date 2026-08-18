@@ -20,6 +20,8 @@ async def test_diagnostics_basic_shape(hass, sunspec_client_mock):
     assert set(diag.keys()) == {
         "config",
         "options",
+        "detected_models",
+        "model_filters",
         "scanned_models",
         "latest_values",
         "recent_errors",
@@ -64,6 +66,29 @@ async def test_diagnostics_includes_scanned_models(hass, sunspec_client_mock):
     assert 103 in model_ids
     assert "103" in diag["latest_values"]
     assert len(diag["latest_values"]["103"]) > 0
+
+
+async def test_diagnostics_reports_models_the_user_did_not_enable(hass, sunspec_client_mock):
+    """The dump must show what the device HAS, not just what we poll.
+
+    #17: a KACO Blueplanet that had been answering writes to registers
+    40295 and 40299 for two years appeared to have no model 123,
+    because scanned_models is built from the filtered poll result and
+    the user's persisted selection was only 103 and 160. The README
+    told people to check scanned_models, so the instruction could not
+    work. detected_models is the raw scan.
+    """
+    entry = await setup_mock_sunspec_config_entry(hass)
+
+    diag = await async_get_config_entry_diagnostics(hass, entry)
+
+    polled = set(diag["model_filters"]["polled_models"])
+    detected = set(diag["detected_models"])
+
+    # The fixture device exposes far more than MOCK_CONFIG enables.
+    assert detected > polled
+    assert 704 in detected and 704 not in polled
+    assert diag["model_filters"]["option_model_filter"] == [103, 160]
 
 
 async def test_diagnostics_recent_errors_starts_empty(hass, sunspec_client_mock):

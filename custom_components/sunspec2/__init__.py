@@ -558,6 +558,24 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator):
             )
         )
         self.option_model_filter = set(map(lambda m: int(m), models))
+        # #17: model 123 has to be polled whenever the experimental
+        # write controls are on, even if the user never ticked 123 in
+        # the model multi-select. number.py and switch.py read the
+        # current setpoint from ``coordinator.data[123]``; without the
+        # model in the polled set they bail out at
+        # ``coordinator.data.get(...) is None`` and no write entity ever
+        # registers, so ticking the beta flag looks like it did nothing.
+        #
+        # Deliberately a SEPARATE set from option_model_filter.
+        # option_model_filter mirrors exactly what the user picked and
+        # is what the options form round-trips, so folding 123 into it
+        # would render a tick the user never made and then persist it
+        # on their next save.
+        self.write_model_filter: set[int] = (
+            {WRITE_CONTROLS_MODEL_ID}
+            if entry.options.get(CONF_WRITE_BETA_ENABLED, False)
+            else set()
+        )
         self.unsub = entry.add_update_listener(async_reload_entry)
         self._log.debug(
             "Setup entry with models %s, scan interval %s",
@@ -710,7 +728,10 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator):
         # cycles, when ``api._client`` has already been closed and
         # ``api.known_models()`` would return an empty list.
         self.detected_models = all_models
-        model_ids = self.option_model_filter & all_models
+        # Union first, intersect second: a model the device does not
+        # expose is still never read, but the write-beta model gets in
+        # without polluting the user's own selection.
+        model_ids = (self.option_model_filter | self.write_model_filter) & all_models
         self._log.debug("Update data got models %s", model_ids)
 
         # Fetch common model 1 once per process under the lock so

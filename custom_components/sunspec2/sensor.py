@@ -39,6 +39,7 @@ from .const import CONF_SCAN_INTERVAL
 from .const import DOMAIN
 from .const import ENERGY_DELTA_REJECT_RECOVERY_COUNT
 from .const import ENERGY_DELTA_SAFETY_FACTOR
+from .const import SENSOR_EXCLUDED_MODELS
 from .entity import SunSpecEntity
 
 # Bronze rule parallel-updates: the coordinator already serialises all
@@ -221,6 +222,11 @@ async def async_setup_entry(
             return
         new_sensors: list[SunSpecSensor] = []
         for model_id, model_wrapper in coordinator.data.items():
+            if model_id in SENSOR_EXCLUDED_MODELS:
+                # Control model, not a measurement model. Its points are
+                # Number / Switch entities. See SENSOR_EXCLUDED_MODELS
+                # for why a sensor would be actively harmful here.
+                continue
             for key in model_wrapper.getKeys():
                 for model_index in range(model_wrapper.num_models):
                     uid = get_sunspec_unique_id(entry.entry_id, key, model_id, model_index)
