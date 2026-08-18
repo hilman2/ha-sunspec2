@@ -325,9 +325,22 @@ Number entity.
 4. Save - the integration reloads and the Number / Switch entities
    appear under your inverter's device card
 
+You do NOT need to tick model 123 in the model list yourself. The
+integration polls it automatically while the beta flag is on, and
+keeps it out of the sensor list because its points are setpoints
+rather than measurements.
+
 If your inverter does NOT expose model 123, the entities will not
-register even with the flag on - the diagnostics dump's
-`scanned_models` array tells you whether 123 is present.
+register even with the flag on. To check, download the diagnostics
+dump (*three-dot menu → Download diagnostics*) and look at the
+top-level **`detected_models`** array, which is the raw scan result.
+
+Do not use `scanned_models` for this: it is built from the models
+actually being polled, so a model your inverter has but you never
+enabled will be missing from it. That is what made a KACO Blueplanet
+look like it had no model 123 in
+[#17](https://github.com/hilman2/ha-sunspec2/issues/17), even though
+it had been answering writes to the matching registers for two years.
 
 ### Looking for testers
 

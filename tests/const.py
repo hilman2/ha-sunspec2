@@ -48,9 +48,13 @@ MOCK_CONFIG_PREFIX = {
 }
 # Config for the experimental write platforms. Pairs with the
 # ``sunspec_write_client_mock`` fixture, whose device file exposes
-# models 1, 160 and 123. Model 123 is listed explicitly because a
-# user on this release has to tick it themselves for the write
-# entities to appear at all.
+# models 1, 160 and 123.
+#
+# Note what is NOT in CONF_ENABLED_MODELS: model 123. That is the
+# realistic case and the one #17 tripped over. 123 is not in
+# DEFAULT_MODELS, so nobody has it ticked unless they went looking,
+# and before v0.14.0 the write entities silently never appeared. The
+# coordinator now adds it to the polled set from the beta flag alone.
 MOCK_CONFIG_WRITE = {
     CONF_TRANSPORT: TRANSPORT_TCP,
     CONF_HOST: "test_host",
@@ -58,7 +62,7 @@ MOCK_CONFIG_WRITE = {
     CONF_UNIT_ID: 1,
     CONF_PREFIX: "",
     CONF_SCAN_INTERVAL: 10,
-    CONF_ENABLED_MODELS: ["123", "160"],
+    CONF_ENABLED_MODELS: ["160"],
 }
 # Entity ids the write platforms produce for the fixture device
 # (Md "Test-1547-1" -> device slug ``test_1547_1``).

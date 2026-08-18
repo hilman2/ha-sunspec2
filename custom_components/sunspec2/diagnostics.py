@@ -56,6 +56,21 @@ async def async_get_config_entry_diagnostics(
     return {
         "config": async_redact_data(dict(entry.data), TO_REDACT),
         "options": async_redact_data(dict(entry.options), TO_REDACT),
+        # #17: scanned_models below is built from coordinator.data,
+        # which is the FILTERED poll result. A model the inverter
+        # exposes but the user never ticked can therefore never show up
+        # there, which is exactly why a KACO Blueplanet that had been
+        # answering writes to registers 40295 and 40299 for two years
+        # appeared to have no model 123 at all.
+        #
+        # detected_models is the raw scan result and is the field to
+        # look at when the question is "does this device have model N".
+        "detected_models": sorted(getattr(coordinator, "detected_models", set()) or []),
+        "model_filters": {
+            "option_model_filter": sorted(getattr(coordinator, "option_model_filter", set()) or []),
+            "write_model_filter": sorted(getattr(coordinator, "write_model_filter", set()) or []),
+            "polled_models": sorted(coordinator.data or {}),
+        },
         "scanned_models": scanned_models,
         "latest_values": latest_values,
         "recent_errors": _recent_errors_dump(coordinator),

@@ -85,6 +85,20 @@ CONF_WRITE_BETA_ENABLED = "write_beta_enabled"
 # coordinator.detected_models.
 WRITE_CONTROLS_MODEL_ID = 123
 
+# SunSpec models whose points are control setpoints, not measurements.
+# The sensor platform skips them entirely. Two reasons, both learned
+# from #17:
+#
+#   * Their writable points are already exposed as Number / Switch
+#     entities, so a sensor would be a read-only duplicate of a
+#     control the user can actually operate.
+#   * Five of model 123's points carry units HA has no equivalent for
+#     ("% WMax", "cos()", "% VArMax", "% VArAval"). sensor.py falls
+#     back to the raw SunSpec string as the native unit with
+#     state_class MEASUREMENT, which starts a long-term statistics
+#     series under a unit the recorder can never convert or merge.
+SENSOR_EXCLUDED_MODELS = frozenset({WRITE_CONTROLS_MODEL_ID})
+
 # Service action names. The service handler reads the entry by
 # entry_id from the service-call data so multi-inverter installs
 # pick the right device.

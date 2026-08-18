@@ -41,14 +41,54 @@ async def _setup_write_entry(hass, beta=True):
 
 
 async def test_number_entities_appear_with_beta_on(hass, sunspec_write_client_mock):
-    """Both model 123 Number entities register when the beta flag is on."""
-    await _setup_write_entry(hass)
+    """Both model 123 Number entities register when the beta flag is on.
+
+    MOCK_CONFIG_WRITE deliberately does NOT list 123 in its enabled
+    models, which is the realistic case: 123 is not in DEFAULT_MODELS,
+    so nobody has it ticked unless they went looking. Before v0.14.0
+    the entities silently never appeared for those users (#17). The
+    beta flag alone must be enough.
+    """
+    entry = await _setup_write_entry(hass)
 
     entities = _live_entities(hass, "number")
 
     assert len(entities) == 2
     points = {e._point_name for e in entities}
     assert points == {"WMaxLimPct", "OutPFSet"}
+    # The user's own selection stays untouched - only the separate
+    # write filter pulled 123 in.
+    coordinator = entry.runtime_data
+    assert coordinator.option_model_filter == {160}
+    assert coordinator.write_model_filter == {123}
+
+
+async def test_beta_off_does_not_poll_model_123(hass, sunspec_write_client_mock):
+    """Without the beta flag we must not poll 123 behind the user's back."""
+    entry = await _setup_write_entry(hass, beta=False)
+    coordinator = entry.runtime_data
+
+    assert coordinator.write_model_filter == set()
+    assert 123 not in coordinator.data
+
+
+async def test_model_123_does_not_become_sensors(hass, sunspec_write_client_mock):
+    """Polling 123 must not spawn 21 read-only sensors.
+
+    Five of its points carry units HA has no mapping for ("% WMax",
+    "cos()", "% VArMax", "% VArAval"). sensor.py would fall back to the
+    raw SunSpec string as the native unit with state_class MEASUREMENT,
+    starting a long-term statistics series under a unit the recorder
+    can never convert or merge. The writable points are Number and
+    Switch entities anyway.
+    """
+    entry = await _setup_write_entry(hass)
+    assert 123 in entry.runtime_data.data, "precondition: 123 really is polled"
+
+    sensor_ids = [e.entity_id for e in _live_entities(hass, "sensor")]
+
+    assert not any("wmaxlimpct" in eid or "outpfset" in eid for eid in sensor_ids)
+    assert sensor_ids, "the other models still produce sensors"
 
 
 async def test_number_entities_absent_with_beta_off(hass, sunspec_write_client_mock):

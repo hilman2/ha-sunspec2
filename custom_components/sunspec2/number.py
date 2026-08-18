@@ -35,6 +35,7 @@ Behavioural notes:
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from homeassistant.components.number import NumberEntity
@@ -51,6 +52,8 @@ from .const import CONF_WRITE_BETA_ENABLED
 from .const import WRITE_CONTROLS_MODEL_ID
 from .entity import SunSpecEntity
 from .errors import SunSpecError
+
+_LOGGER: logging.Logger = logging.getLogger(__name__)
 
 PARALLEL_UPDATES = 0
 
@@ -78,6 +81,17 @@ async def async_setup_entry(
 
     model_wrapper = coordinator.data.get(WRITE_CONTROLS_MODEL_ID)
     if model_wrapper is None:
+        # Unreachable in the normal path since v0.14.0: the coordinator
+        # adds model 123 to the polled set whenever the beta flag is on.
+        # If it ever trips again something new is broken, and silently
+        # returning is what made this class of bug invisible for three
+        # releases.
+        getattr(coordinator, "_log", _LOGGER).warning(
+            "Write beta is on and model %s was detected, but it is not in the "
+            "polled data, so no write entities will be created. write_model_filter=%s",
+            WRITE_CONTROLS_MODEL_ID,
+            getattr(coordinator, "write_model_filter", None),
+        )
         return
     group_meta = model_wrapper.getGroupMeta()
     common = {
