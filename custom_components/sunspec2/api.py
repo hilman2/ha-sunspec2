@@ -240,17 +240,16 @@ class SunSpecApiClient:
     async def read(self, model_id: int) -> SunSpecModelWrapper:
         return await self._hass.async_add_executor_job(self.read_model, model_id)
 
-    async def async_write_point(self, model_id: int, point_name: str, value) -> None:
-        """Write a single point on a SunSpec model.
+    async def async_write_points(self, model_id: int, points: list[tuple[str, object]]) -> None:
+        """Write one or more points on a SunSpec model as a single batch.
 
         v0.12.0 EXPERIMENTAL: this is the only path the new Number /
         Switch / service-action write features take. Resolves the
-        point on the live client, sets ``cvalue`` (which lets
+        points on the live client, sets each ``cvalue`` (which lets
         pysunspec2 handle the scale-factor encoding for us), and
-        flushes via ``point.write()``. Single-register points - which
-        is every point model 123 exposes - go out as Modbus
-        write-single-register (FC 0x06); only multi-register points
-        use write-multiple (FC 0x10).
+        flushes them together via ``model.write()``. That emits one
+        Modbus frame per run of consecutive registers, so a batch
+        touching adjacent points costs a single write.
 
         Errors translate into the same typed exception hierarchy the
         read path uses, so the service handler / entity layer can
@@ -283,11 +282,10 @@ class SunSpecApiClient:
         with_model = SunSpecLoggerAdapter(
             self._log.logger, {**self._log.extra, "model_id": model_id}
         )
-        with_model.debug("Write %s = %r", point_name, value)
+        with_model.debug("Write %s", ", ".join(f"{n} = {v!r}" for n, v in points))
+        point_name = ", ".join(name for name, _ in points)
         try:
-            await self._hass.async_add_executor_job(
-                self._write_point_blocking, model_id, point_name, value
-            )
+            await self._hass.async_add_executor_job(self._write_points_blocking, model_id, points)
         except (SunSpecModbusClientTimeout, ModbusClientTimeout) as exc:
             with_model.warning("Modbus write timeout")
             raise TransientError(
@@ -298,7 +296,7 @@ class SunSpecApiClient:
             # answers the *_SF register with 0x8000 ("not implemented"),
             # pysunspec2 nulls sf_value in Point.set_mb, and the cvalue
             # assignment cannot encode the value. Re-reading the model
-            # (see _write_point_blocking) fixes the merely-unread case,
+            # (see _write_points_blocking) fixes the merely-unread case,
             # not this one, so say what is actually wrong.
             with_model.warning("Model error while writing: %s", exc)
             raise DeviceError(
@@ -317,21 +315,22 @@ class SunSpecApiClient:
                 f"Modbus exception while writing model {model_id} point {point_name}: {exc}"
             ) from exc
 
-    def _write_point_blocking(self, model_id: int, point_name: str, value) -> None:
+    def _write_points_blocking(self, model_id: int, points: list[tuple[str, object]]) -> None:
         client = self.get_client()
         models = client.models.get(model_id)
         if not models:
-            raise DeviceError(
-                f"Model {model_id} not present on this device, cannot write {point_name}"
-            )
+            names = ", ".join(name for name, _ in points)
+            raise DeviceError(f"Model {model_id} not present on this device, cannot write {names}")
         # SunSpec model blocks can repeat (multiple MPPT modules etc.)
         # but model 123 (immediate controls) is always a single
         # instance per inverter, so we always target index 0.
         model = models[0]
-        try:
-            point = model.points[point_name]
-        except KeyError as exc:
-            raise DeviceError(f"Point {point_name} not present in model {model_id}") from exc
+        resolved = []
+        for point_name, value in points:
+            try:
+                resolved.append((model.points[point_name], value))
+            except KeyError as exc:
+                raise DeviceError(f"Point {point_name} not present in model {model_id}") from exc
         # Populate the model block before touching cvalue. Without this,
         # every scaled write fails on real hardware with
         #   ModelError: SF field WMaxLimPct_SF value not initialized
@@ -356,8 +355,23 @@ class SunSpecApiClient:
         # before setting cvalue, never after: Group.read() ends in
         # set_mb(dirty=False) and would discard a pending value.
         model.read()
-        point.cvalue = value
-        point.write()
+        for point, value in resolved:
+            point.cvalue = value
+        # One flush for the whole batch, not one per point.
+        # ``Group.write_points`` only emits the points it finds dirty
+        # and coalesces consecutive registers into a single frame, so
+        # "set the limit and enable it" leaves as one Modbus write on
+        # model 704, where WMaxLimPctEna and WMaxLimPct are adjacent.
+        # Writing point by point also meant one model.read() per point,
+        # since each call re-entered this function.
+        #
+        # It matters beyond efficiency: with two writes the inverter can
+        # act on the first before the second arrives, so a limit briefly
+        # applies at the old percentage or the new percentage briefly
+        # applies while still disabled. Borrowed from
+        # milanhin/pv_curtailment, which does the same thing for the
+        # same reason.
+        model.write()
 
     async def async_get_device_info(self) -> SunSpecModelWrapper:
         return await self.read(1)

@@ -112,6 +112,7 @@
       "export_limit_revert_time": {"name": "Export limit revert time"},
       "power_factor_set": {"name": "Power factor setpoint"},
       "active_power_setpoint": {"name": "Active power setpoint"},
+      "export_limit_revert_value": {"name": "Export limit revert value"},
       "battery_charge_rate": {"name": "Battery charge rate"},
       "battery_discharge_rate": {"name": "Battery discharge rate"},
       "battery_max_charge_power": {"name": "Battery max charge power"},
@@ -140,7 +141,8 @@
       "export_limit_enabled": {"name": "Export limit enabled"},
       "power_factor_enabled": {"name": "Power factor setpoint enabled"},
       "inverter_grid_connection": {"name": "Inverter grid connection"},
-      "active_power_setpoint_enabled": {"name": "Active power setpoint enabled"}
+      "active_power_setpoint_enabled": {"name": "Active power setpoint enabled"},
+      "export_limit_revert_enabled": {"name": "Export limit stays on after revert"}
     },
     "sensor": {
       "amps": {"name": "AC current"},

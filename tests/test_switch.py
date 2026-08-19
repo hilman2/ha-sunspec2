@@ -59,11 +59,12 @@ async def test_turn_on_holds_the_gateway_lock(hass, sunspec_write_client_mock):
 
     observed = []
 
-    async def _spy(model_id, point_name, value):
-        observed.append((model_id, point_name, value, coordinator._gateway_lock.locked()))
+    async def _spy(model_id, points):
+        for point_name, value in points:
+            observed.append((model_id, point_name, value, coordinator._gateway_lock.locked()))
 
     with (
-        patch.object(coordinator.api, "async_write_point", side_effect=_spy),
+        patch.object(coordinator.api, "async_write_points", side_effect=_spy),
         patch.object(coordinator, "async_request_refresh"),
     ):
         await switch.async_turn_on()
@@ -81,7 +82,7 @@ async def test_turn_off_surfaces_write_errors(hass, sunspec_write_client_mock):
     with (
         patch.object(
             coordinator.api,
-            "async_write_point",
+            "async_write_points",
             side_effect=DeviceError("model 123 is read only on this firmware"),
         ),
         pytest.raises(HomeAssistantError, match="read only"),
@@ -110,11 +111,11 @@ async def test_set_export_limit_service_uses_one_lock_hold(hass, sunspec_write_c
 
     written = []
 
-    async def _spy(model_id, point_name, value):
-        written.append((point_name, value))
+    async def _spy(model_id, points):
+        written.extend(points)
 
     with (
-        patch.object(coordinator.api, "async_write_point", side_effect=_spy),
+        patch.object(coordinator.api, "async_write_points", side_effect=_spy),
         patch.object(coordinator, "async_request_refresh"),
         patch.object(coordinator._gateway_lock, "acquire", side_effect=_counting_acquire),
     ):

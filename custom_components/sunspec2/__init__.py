@@ -729,8 +729,10 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator):
                 f"gateway to become free; the inverter is busy, try again"
             ) from exc
         try:
-            for point_name, value in points:
-                await self.api.async_write_point(model_id, point_name, value)
+            # One batch, not one call per point: the API layer flushes
+            # them together so adjacent registers go out in a single
+            # Modbus frame and the inverter cannot act on half of them.
+            await self.api.async_write_points(model_id, points)
         finally:
             # Whoever opens a session under the lock closes it under the
             # lock. Leaving the socket open past the release would let

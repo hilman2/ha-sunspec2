@@ -250,12 +250,13 @@ async def test_known_models_returns_int_keys_only(hass):
 
 async def test_write_point_blocking_resolves_and_writes(hass):
     """The blocking write path resolves model[0].points[name], assigns
-    cvalue, and calls .write() on the point.
+    cvalue, and flushes the model once.
 
     No real client is involved - we hand-roll a fake client whose
     ``models[123]`` returns a list with one model whose ``points``
-    map has the point we want to write. The test asserts the
-    cvalue assignment and the write() call.
+    map has the point we want to write. The test asserts the cvalue
+    assignment and that the flush is one model.write() for the batch
+    rather than a write() per point (v0.20.0).
 
     Note what this test cannot see: a Mock point accepts any cvalue,
     so the scale-factor bug from #17 stayed invisible here. The real
@@ -272,11 +273,12 @@ async def test_write_point_blocking_resolves_and_writes(hass):
     fake_client.models = {123: [fake_model]}
     api._client = fake_client
 
-    api._write_point_blocking(123, "WMaxLimPct", 50)
+    api._write_points_blocking(123, [("WMaxLimPct", 50)])
 
     fake_model.read.assert_called_once_with()
     assert fake_point.cvalue == 50
-    fake_point.write.assert_called_once_with()
+    fake_model.write.assert_called_once_with()
+    fake_point.write.assert_not_called()
 
 
 async def test_write_point_blocking_raises_when_model_missing(hass):
@@ -289,7 +291,7 @@ async def test_write_point_blocking_raises_when_model_missing(hass):
     api._client = fake_client
 
     with pytest.raises(DeviceError, match="Model 123 not present"):
-        api._write_point_blocking(123, "WMaxLimPct", 50)
+        api._write_points_blocking(123, [("WMaxLimPct", 50)])
 
 
 async def test_write_point_blocking_raises_when_point_missing(hass):
@@ -304,4 +306,4 @@ async def test_write_point_blocking_raises_when_point_missing(hass):
     api._client = fake_client
 
     with pytest.raises(DeviceError, match="Point WMaxLimPct not present"):
-        api._write_point_blocking(123, "WMaxLimPct", 50)
+        api._write_points_blocking(123, [("WMaxLimPct", 50)])

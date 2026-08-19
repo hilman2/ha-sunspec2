@@ -112,6 +112,7 @@
       "export_limit_revert_time": {"name": "Ablaufzeit Einspeiselimit"},
       "power_factor_set": {"name": "Leistungsfaktor-Sollwert"},
       "active_power_setpoint": {"name": "Wirkleistungs-Sollwert"},
+      "export_limit_revert_value": {"name": "Ruecksprungwert Einspeiselimit"},
       "battery_charge_rate": {"name": "Batterie-Laderate"},
       "battery_discharge_rate": {"name": "Batterie-Entladerate"},
       "battery_max_charge_power": {"name": "Batterie-Ladeleistung (max)"},
@@ -140,7 +141,8 @@
       "export_limit_enabled": {"name": "Einspeise-Limit aktiv"},
       "power_factor_enabled": {"name": "Leistungsfaktor-Sollwert aktiv"},
       "inverter_grid_connection": {"name": "Wechselrichter mit Netz verbunden"},
-      "active_power_setpoint_enabled": {"name": "Wirkleistungs-Sollwert aktiv"}
+      "active_power_setpoint_enabled": {"name": "Wirkleistungs-Sollwert aktiv"},
+      "export_limit_revert_enabled": {"name": "Einspeiselimit bleibt nach Ruecksprung aktiv"}
     },
     "sensor": {
       "amps": {"name": "AC-Strom"},

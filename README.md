@@ -306,6 +306,8 @@ HA automations.
 | Export limit | Number (0..200 %) | 123 `WMaxLimPct` / 704 `WMaxLimPct` | Caps AC output to N % of nameplate. Set to 0 for zero-export operation. Above 100 is allowed because some firmware uses e.g. 110 to mean "no limit"; the inverter clamps what it will not honour |
 | Export limit enabled | Switch | 123 `WMaxLim_Ena` / 704 `WMaxLimPctEna` | The export limit only takes effect while this switch is ON |
 | Export limit revert time | Number (seconds) | 123 `WMaxLimPct_RvrtTms` / 704 `WMaxLimPctRvrtTms` | How long the inverter honours the limit before reverting on its own. Some devices lapse silently: the limit stops applying while the enable flag and the setpoint still report it as active (KACO in #17). 0 disables the timeout where the device supports it, which removes a dead-man switch, so leave it alone unless you want a permanent cap |
+| Export limit revert value | Number (0..200 %) | 704 `WMaxLimPctRvrt` | The percentage the inverter falls back to when the revert timer expires. Set it to the limit you just wrote and the expiry becomes a no-op. Disabled by default |
+| Export limit stays on after revert | Switch | 704 `WMaxLimPctEnaRvrt` | Whether the limit stays enabled once the timer expires. With the row above, a lapse changes nothing. Disabled by default |
 | Active power setpoint | Number (watts) | 704 `WSet` | Absolute setpoint in watts rather than percent of nameplate. Usually what a zero-export control loop wants, since percent requires the automation to know the nameplate. Needs the setpoint mode on `WATTS` |
 | Active power setpoint enabled | Switch | 704 `WSetEna` | |
 | Active power setpoint mode | Select | 704 `WSetMod` | Whether `WSet` (watts) or `WSetPct` (percent) is in force. Disabled by default |
@@ -338,6 +340,36 @@ can take an absolute watt setpoint, and on the one device we have
 evidence from it reports a lapsed limit honestly while 123 on the same
 inverter still shows it as active. Two controls for one physical setting
 would be confusing even if they agreed.
+
+### Keeping a limit from lapsing
+
+Most inverters treat an export limit as a **dead-man switch**: they
+apply it for `WMaxLimPct_RvrtTms` seconds and then revert on their own,
+so an inverter driven by a controller that dies returns to normal
+operation instead of staying throttled forever. On some devices the
+enable flag and the setpoint keep reporting the old value afterwards,
+so the limit looks active when it is not (KACO in
+[#17](https://github.com/hilman2/ha-sunspec2/issues/17)).
+
+Three ways to deal with it, in descending order of how much of the
+safety net they keep:
+
+1. **Re-write on a schedule (recommended).** Set the revert time to
+   comfortably more than your automation's interval, for example 120 s
+   for an automation that runs every 15 s, and write the limit each
+   time. The limit holds while your control loop is alive and lapses on
+   its own if Home Assistant stops. This is what
+   [milanhin/pv_curtailment](https://github.com/milanhin/pv_curtailment)
+   does, and it is the pattern to copy.
+2. **Make the lapse harmless.** Model 704 only: set
+   *Export limit revert value* to the same percentage and
+   *Export limit stays on after revert* to on. The timer still fires,
+   it just lands on the value you already wanted.
+3. **Turn the timeout off.** Set the revert time to 0 where the device
+   supports it. Simplest, and it removes the dead-man switch entirely,
+   so the inverter stays throttled if your automation, Home Assistant
+   or the network goes away. Reasonable for a permanent cap, a bad idea
+   for a dynamic control loop.
 
 **Which models are deliberately not writable.** SunSpec marks far more
 points RW than it is safe to expose: 1586 of them across 67 models.
