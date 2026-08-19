@@ -109,6 +109,7 @@
   "entity": {
     "number": {
       "export_limit_pct": {"name": "Export limit"},
+      "export_limit_revert_time": {"name": "Export limit revert time"},
       "power_factor_set": {"name": "Power factor setpoint"}
     },
     "switch": {

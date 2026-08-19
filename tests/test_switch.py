@@ -146,7 +146,7 @@ async def test_turning_the_beta_off_unloads_the_write_platforms(hass, sunspec_wr
     visible as "unavailable" either way.
     """
     entry = await _setup_write_entry(hass)
-    assert len(_live_entities(hass, "number")) == 2
+    assert len(_live_entities(hass, "number")) == 3
     assert len(_live_entities(hass, "switch")) == 3
     first_coordinator = entry.runtime_data
 
@@ -170,5 +170,5 @@ async def test_beta_toggle_off_then_on_restores_the_entities(hass, sunspec_write
     hass.config_entries.async_update_entry(entry, options={CONF_WRITE_BETA_ENABLED: True})
     await hass.async_block_till_done()
 
-    assert len(_live_entities(hass, "number")) == 2
+    assert len(_live_entities(hass, "number")) == 3
     assert len(_live_entities(hass, "switch")) == 3

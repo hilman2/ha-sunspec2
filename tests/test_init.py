@@ -924,8 +924,16 @@ async def test_setup_removes_orphaned_control_model_sensors(hass, sunspec_client
     orphan = registry.async_get_or_create(
         "sensor",
         DOMAIN,
-        f"{config_entry.entry_id}_WMaxLimPct_RvrtTms-123-0",
-        suggested_object_id="wmaxlimpct_rvrttms",
+        f"{config_entry.entry_id}_WMaxLimPct-123-0",
+        suggested_object_id="wmaxlimpct",
+        config_entry=config_entry,
+    ).entity_id
+    # Came back in v0.18.0: a timer point the user needs to see.
+    kept = registry.async_get_or_create(
+        "sensor",
+        DOMAIN,
+        f"{config_entry.entry_id}_WMaxLimPct_RmpTms-123-0",
+        suggested_object_id="wmaxlimpct_rmptms",
         config_entry=config_entry,
     ).entity_id
 
@@ -933,3 +941,4 @@ async def test_setup_removes_orphaned_control_model_sensors(hass, sunspec_client
     await hass.async_block_till_done()
 
     assert registry.async_get(orphan) is None
+    assert registry.async_get(kept) is not None
