@@ -22,6 +22,7 @@ from homeassistant.const import UnitOfIrradiance
 from homeassistant.const import UnitOfLength
 from homeassistant.const import UnitOfPower
 from homeassistant.const import UnitOfPressure
+from homeassistant.const import UnitOfReactiveEnergy
 from homeassistant.const import UnitOfReactivePower
 from homeassistant.const import UnitOfSpeed
 from homeassistant.const import UnitOfTemperature
@@ -177,9 +178,58 @@ HA_META = {
     "mm": [UnitOfLength.MILLIMETERS, ICON_DEFAULT, None],
     "%": [PERCENTAGE, ICON_DEFAULT, None],
     "Secs": [UnitOfTime.SECONDS, ICON_DEFAULT, None],
+    "Sec": [UnitOfTime.SECONDS, ICON_DEFAULT, None],
+    # SunSpec spells reactive power four ways across its model
+    # definitions and we only had one of them, so "var" and "Var" points
+    # (49 and 10 respectively) fell through to the raw-string fallback.
+    "var": [UnitOfReactivePower.VOLT_AMPERE_REACTIVE, ICON_POWER, None],
+    "Var": [UnitOfReactivePower.VOLT_AMPERE_REACTIVE, ICON_POWER, None],
+    "varh": [
+        UnitOfReactiveEnergy.VOLT_AMPERE_REACTIVE_HOUR,
+        ICON_ENERGY,
+        SensorDeviceClass.REACTIVE_ENERGY,
+    ],
+    "Varh": [
+        UnitOfReactiveEnergy.VOLT_AMPERE_REACTIVE_HOUR,
+        ICON_ENERGY,
+        SensorDeviceClass.REACTIVE_ENERGY,
+    ],
+    "VArh": [
+        UnitOfReactiveEnergy.VOLT_AMPERE_REACTIVE_HOUR,
+        ICON_ENERGY,
+        SensorDeviceClass.REACTIVE_ENERGY,
+    ],
+    # Percentages of some reference quantity. The reference belongs in
+    # the entity name, not in the unit: HA has one percent and the
+    # recorder can only merge series that agree on it.
+    "Pct": [PERCENTAGE, ICON_DEFAULT, None],
+    "% VRef": [PERCENTAGE, ICON_DEFAULT, None],
+    "% WMax": [PERCENTAGE, ICON_DEFAULT, None],
+    "% WRef": [PERCENTAGE, ICON_DEFAULT, None],
+    "% VArMax": [PERCENTAGE, ICON_DEFAULT, None],
+    "% VArAval": [PERCENTAGE, ICON_DEFAULT, None],
+    "VNomPct": [PERCENTAGE, ICON_DEFAULT, None],
+    "%WHRtg": [PERCENTAGE, ICON_DEFAULT, None],
+    # Power factor is dimensionless in SunSpec (cosine of the phase
+    # angle, -1..1). HA's POWER_FACTOR device class accepts exactly no
+    # unit or percent, and the value is not a percentage.
+    "cos()": [None, ICON_DEFAULT, SensorDeviceClass.POWER_FACTOR],
+    "PF": [None, ICON_DEFAULT, SensorDeviceClass.POWER_FACTOR],
+    "W/m^2": [UnitOfIrradiance.WATTS_PER_SQUARE_METER, ICON_DEFAULT, None],
     "enum16": [None, ICON_DEFAULT, SensorDeviceClass.ENUM],
     "bitfield32": [None, ICON_DEFAULT, SensorDeviceClass.ENUM],
 }
+
+# Deliberately absent, and this is the point of the None fallback rather
+# than a growing table:
+#
+#   * Rates ("% WMax/min", "%Max/Sec", "% PF/min", "V/s", "%ARtg/%dV").
+#     HA has no compound percent-per-time unit and inventing one would
+#     put the series right back under something unconvertible.
+#   * Quantities HA has no unit for at all: "VAh" (apparent energy, 67
+#     points), "Ah" / "AH" (charge).
+#   * Things that are not measurements: "SF" (scale factor), "Tms"
+#     (a SunSpec timestamp, not a duration), "YYYYMMDD".
 
 
 async def async_setup_entry(
@@ -290,7 +340,16 @@ class SunSpecSensor(SunSpecEntity, SensorEntity):
         self._group_meta = self.model_wrapper.getGroupMeta()
         self._point_meta = self.model_wrapper.getPoint(self.key).pdef
         sunspec_unit = self._meta.get("units", self._meta.get("type", ""))
-        ha_meta = HA_META.get(sunspec_unit, [sunspec_unit, ICON_DEFAULT, None])
+        # Unknown units resolve to no unit at all, NOT to the raw SunSpec
+        # string. Passing the string through made it the entity's
+        # native_unit_of_measurement, and state_class returns MEASUREMENT
+        # for anything with a unit, so every unmapped unit started a
+        # long-term statistics series under a unit the recorder can never
+        # convert or merge. There are 29 such units across the bundled
+        # model definitions ("% VRef" alone appears on 184 points), so
+        # this was never specific to model 123. The value stays visible,
+        # it just stops pretending to be a measurable quantity.
+        ha_meta = HA_META.get(sunspec_unit, [None, ICON_DEFAULT, None])
         self.unit = ha_meta[0]
         self.use_icon = ha_meta[1]
         self.use_device_class = ha_meta[2]
