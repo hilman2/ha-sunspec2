@@ -1,9 +1,11 @@
 """Tests for SunSpec api."""
 
 import socket
+import time
 from unittest.mock import Mock
 
 import pytest
+import sunspec2.mb as mb
 from sunspec2.modbus.client import SunSpecModbusClientError
 from sunspec2.modbus.client import SunSpecModbusClientException
 from sunspec2.modbus.client import SunSpecModbusClientTimeout
@@ -13,6 +15,7 @@ from custom_components.sunspec2.api import SunSpecApiClient
 from custom_components.sunspec2.const import DEFAULT_SCAN_DELAY_SECONDS
 from custom_components.sunspec2.const import MAX_SCAN_DELAY_SECONDS
 from custom_components.sunspec2.const import MIN_SCAN_DELAY_SECONDS
+from custom_components.sunspec2.const import MODEL_STRUCTURE_TTL_SECONDS
 from custom_components.sunspec2.errors import DeviceError
 from custom_components.sunspec2.errors import ProtocolError
 from custom_components.sunspec2.errors import TransientError
@@ -275,3 +278,202 @@ async def test_scan_delay_is_clamped(hass, given, expected):
     api = SunSpecApiClient(host="test", port=123, unit_id=1, hass=hass, scan_delay=given)
 
     assert api._scan_delay == expected
+
+
+# ---------- cached model structure (#17) ------------------------------------
+
+
+class _FakeModel:
+    def __init__(self, model_id=None, model_addr=0, model_len=0, data=None, mb_device=None):
+        self.model_id = model_id
+        self.model_addr = model_addr
+        self.model_len = model_len
+        self.data = data
+        self.device = mb_device
+        self.mid = None
+        self.gname = f"model_{model_id}"
+
+
+class _FakeClient:
+    """Enough of a pysunspec2 client to exercise scan-vs-restore.
+
+    scan() populates models the way the real walk does; read() answers
+    the base-address header so the validating read can succeed.
+    """
+
+    model_class = _FakeModel
+
+    def __init__(self, layout=None, header_model_id=None):
+        self.base_addr = 40000
+        self.did = "fake-did"
+        self.models = {}
+        self.scan_calls = 0
+        self.reads = []
+        self._layout = layout if layout is not None else [(1, 40002, 66), (103, 40070, 50)]
+        self._header_model_id = (
+            header_model_id if header_model_id is not None else self._layout[0][0]
+        )
+
+    def scan(self, **kwargs):
+        self.scan_calls += 1
+        self.models = {}
+        for model_id, addr, length in self._layout:
+            self.models.setdefault(model_id, []).append(_FakeModel(model_id, addr, length))
+
+    def read(self, addr, count):
+        self.reads.append((addr, count))
+        return b"SunS" + mb.u16_to_data(self._header_model_id)
+
+    def delete_models(self):
+        self.models = {}
+
+    def add_model(self, model):
+        self.models.setdefault(model.model_id, []).append(model)
+
+    def connect(self):
+        pass
+
+    def is_connected(self):
+        return True
+
+
+def _api_with_structure(hass, client):
+    """An api client that has already scanned ``client`` once."""
+    api = SunSpecApiClient(host="test", port=123, unit_id=1, hass=hass)
+    api._scan_or_restore(client)
+    return api
+
+
+async def test_first_connect_scans_and_caches(hass):
+    client = _FakeClient()
+    api = _api_with_structure(hass, client)
+
+    assert client.scan_calls == 1
+    assert api._model_structure == [(1, 40002, 66), (103, 40070, 50)]
+    assert api._base_addr == 40000
+
+
+async def test_second_connect_restores_without_scanning(hass):
+    """The whole point: a reconnect must not walk the model tree again."""
+    client = _FakeClient()
+    api = _api_with_structure(hass, client)
+
+    fresh = _FakeClient()
+    api._scan_or_restore(fresh)
+
+    assert fresh.scan_calls == 0
+    assert sorted(k for k in fresh.models) == [1, 103]
+    rebuilt = fresh.models[103][0]
+    assert (rebuilt.model_addr, rebuilt.model_len) == (40070, 50)
+    # Exactly one read: the base-address validation.
+    assert fresh.reads == [(40000, 3)]
+
+
+async def test_expired_structure_triggers_a_rescan(hass):
+    client = _FakeClient()
+    api = _api_with_structure(hass, client)
+    api._structure_scanned_at -= MODEL_STRUCTURE_TTL_SECONDS + 1
+
+    fresh = _FakeClient()
+    api._scan_or_restore(fresh)
+
+    assert fresh.scan_calls == 1
+
+
+async def test_changed_model_tree_triggers_a_rescan(hass):
+    """A firmware update that reorders the tree must not be read at old offsets.
+
+    Without the validating read this is the dangerous case: the reads
+    would succeed and return values that are simply wrong.
+    """
+    client = _FakeClient()
+    api = _api_with_structure(hass, client)
+
+    swapped = _FakeClient(layout=[(103, 40002, 50)], header_model_id=103)
+    api._scan_or_restore(swapped)
+
+    assert swapped.scan_calls == 1
+
+
+async def test_failed_validation_read_falls_back_to_scanning(hass):
+    client = _FakeClient()
+    api = _api_with_structure(hass, client)
+
+    fresh = _FakeClient()
+    fresh.read = Mock(side_effect=OSError("boom"))
+    api._scan_or_restore(fresh)
+
+    assert fresh.scan_calls == 1
+
+
+async def test_reconnect_next_drops_the_cached_structure(hass):
+    """After a failure the layout is a suspect, not an asset."""
+    client = _FakeClient()
+    api = _api_with_structure(hass, client)
+    assert api._model_structure is not None
+
+    api.reconnect_next()
+
+    assert api._model_structure is None
+    fresh = _FakeClient()
+    api._scan_or_restore(fresh)
+    assert fresh.scan_calls == 1
+
+
+async def test_close_keeps_the_cached_structure(hass, sunspec_modbus_client_mock):
+    """close() runs at the end of every healthy cycle and must not invalidate.
+
+    If it did, the cache would never survive to its second use and the
+    scan would still run on every poll.
+    """
+    api = SunSpecApiClient(host="test", port=123, unit_id=1, hass=hass)
+    api._base_addr = 40000
+    api._model_structure = [(1, 40002, 66)]
+    api._structure_scanned_at = time.monotonic()
+
+    api.close()
+
+    assert api._model_structure == [(1, 40002, 66)]
+
+
+async def test_vendor_models_without_a_group_name_stay_cached(hass):
+    """model_list would drop them; models keeps them.
+
+    A vendor block with no bundled definition gets no gname, so
+    add_model() never puts it in model_list. Capturing from there would
+    silently stop polling it after the first reconnect.
+    """
+    client = _FakeClient(layout=[(1, 40002, 66), (64110, 40120, 30)])
+    api = _api_with_structure(hass, client)
+
+    assert (64110, 40120, 30) in api._model_structure
+
+
+async def test_restore_builds_real_pysunspec2_models(hass):
+    """Proof against the library, not just against our fake client.
+
+    The rebuild reproduces what scan() does internally, so it has to be
+    checked against the real SunSpecModbusClientModel: if the model
+    definition does not resolve, model.read() later has nothing to
+    decode registers with and every point comes back None.
+    """
+    import sunspec2.modbus.client as real_client
+
+    client = real_client.SunSpecModbusClientDeviceTCP(slave_id=1, ipaddr="1.2.3.4")
+    client.read = Mock(return_value=b"SunS" + mb.u16_to_data(103))
+
+    api = SunSpecApiClient(host="test", port=123, unit_id=1, hass=hass)
+    api._base_addr = 40000
+    api._model_structure = [(103, 40002, 50)]
+    api._structure_scanned_at = time.monotonic()
+
+    assert api._restore_model_structure(client) is True
+
+    assert client.base_addr == 40000
+    model = client.models[103][0]
+    assert (model.model_addr, model.model_len) == (40002, 50)
+    # The bundled model_103.json resolved, so the points are decodable.
+    assert model.model_def is not None
+    assert model.gname == "inverter_three_phase"
+    # And it is reachable the way read_model() reaches it.
+    assert client.models[103] == [model]

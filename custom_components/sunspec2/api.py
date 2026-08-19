@@ -7,6 +7,7 @@ import threading
 import time
 from types import SimpleNamespace
 
+import sunspec2.mb as mb
 import sunspec2.modbus.client as modbus_client
 from homeassistant.core import HomeAssistant
 from sunspec2.device import ModelError
@@ -22,6 +23,7 @@ from .const import DEFAULT_BAUDRATE
 from .const import DEFAULT_SCAN_DELAY_SECONDS
 from .const import MAX_SCAN_DELAY_SECONDS
 from .const import MIN_SCAN_DELAY_SECONDS
+from .const import MODEL_STRUCTURE_TTL_SECONDS
 from .const import PARITY_NONE
 from .const import TRANSPORT_RTU
 from .const import TRANSPORT_TCP
@@ -146,6 +148,14 @@ class SunSpecApiClient:
         self._lock = threading.Lock()
         self._reconnect = False
         self._client = None
+        # Cached SunSpec layout: base address plus (model_id, addr, len)
+        # per block. Survives close(), which runs at the end of every
+        # cycle, and is dropped by reconnect_next(), which only runs
+        # after a failure: the one situation where the layout is a
+        # suspect rather than an asset. See MODEL_STRUCTURE_TTL_SECONDS.
+        self._base_addr: int | None = None
+        self._model_structure: list[tuple[int, int, int]] | None = None
+        self._structure_scanned_at: float | None = None
         self._log = get_adapter(host, port, unit_id)
         self._capture_enabled = capture_enabled
         self._captured_reads: list[dict] = []
@@ -346,7 +356,140 @@ class SunSpecApiClient:
         return model_ids
 
     def reconnect_next(self) -> None:
+        """Force a fresh client, and a fresh scan, on the next get_client().
+
+        Drops the cached model layout too. This only ever runs after a
+        failed cycle, and a layout read at addresses that just stopped
+        answering is exactly the thing not to reuse: a different device
+        answering on a recycled IP would otherwise be read at the
+        previous device's offsets and return plausible garbage rather
+        than an error.
+        """
         self._reconnect = True
+        self._invalidate_model_structure()
+
+    def _invalidate_model_structure(self) -> None:
+        self._base_addr = None
+        self._model_structure = None
+        self._structure_scanned_at = None
+
+    def _model_structure_is_fresh(self) -> bool:
+        if self._model_structure is None or self._structure_scanned_at is None:
+            return False
+        return (time.monotonic() - self._structure_scanned_at) < MODEL_STRUCTURE_TTL_SECONDS
+
+    def _scan_or_restore(self, client) -> None:
+        """Give ``client`` its model objects, rescanning only when needed.
+
+        pysunspec2 populates ``client.models`` exclusively inside
+        ``scan()``, so a reconnect used to mean walking the entire model
+        tree again even though nothing about the device had changed, and
+        the coordinator reconnects on every single cycle to free the
+        inverter's Modbus slot. Restoring the cached layout produces the
+        same model objects from one read instead of ``1 + 2n``, and
+        skips the per-model pacing sleep completely.
+        """
+        if self._model_structure_is_fresh() and self._restore_model_structure(client):
+            self._log.debug(
+                "Restored %d cached SunSpec models, skipping scan",
+                len(self._model_structure or []),
+            )
+            return
+        self._log.debug("Scanning SunSpec model tree")
+        client.scan(
+            connect=False,
+            progress=progress,
+            full_model_read=False,
+            # 0 means "no pacing at all"; pysunspec2 only skips the
+            # sleep on None, and time.sleep(0) still yields the GIL
+            # inside the executor thread on every model.
+            delay=self._scan_delay or None,
+        )
+        self._capture_model_structure(client)
+
+    def _capture_model_structure(self, client) -> None:
+        """Remember the layout a successful scan just discovered.
+
+        Reads back out of ``client.models`` rather than hooking into
+        scan(), and deliberately not out of ``client.model_list``:
+        add_model() only appends to that list for models it could
+        resolve a group name for, so a vendor block with no bundled
+        model definition would silently vanish from the cache and stop
+        being polled after the first reconnect.
+        """
+        structure: list[tuple[int, int, int]] = []
+        try:
+            for key, instances in client.models.items():
+                if not isinstance(key, int):
+                    continue
+                for model in instances:
+                    structure.append((model.model_id, model.model_addr, model.model_len))
+        except (AttributeError, TypeError) as err:
+            # The cache is an optimisation and must never be able to
+            # break a poll. Anything unexpected in the client's model
+            # map means "no cache", not "no data".
+            self._log.debug("Could not capture the model structure: %s", err)
+            self._invalidate_model_structure()
+            return
+        if not structure:
+            self._invalidate_model_structure()
+            return
+        # Address order is the order the device lays the blocks out,
+        # which is the order scan() would rediscover them in.
+        structure.sort(key=lambda entry: entry[1])
+        self._base_addr = client.base_addr
+        self._model_structure = structure
+        self._structure_scanned_at = time.monotonic()
+
+    def _restore_model_structure(self, client) -> bool:
+        """Rebuild ``client.models`` from the cache. False means "scan instead".
+
+        Every failure path returns False rather than raising, so a cache
+        that no longer matches the device costs one wasted read and
+        falls back to exactly the behaviour we had before.
+
+        The validating read is not optional. Without it a firmware
+        update that reorders the model tree would be read at the old
+        offsets and produce values that are wrong rather than absent,
+        which is far harder to notice than a failed poll.
+        """
+        structure = self._model_structure
+        if not structure or self._base_addr is None:
+            return False
+        try:
+            header = client.read(self._base_addr, 3)
+        except Exception as err:  # noqa: BLE001 - any failure just means "scan"
+            self._log.debug("Cached model structure could not be validated: %s", err)
+            return False
+        if not header or len(header) < 6 or header[:4] != b"SunS":
+            self._log.debug("Cached base address no longer answers with the SunSpec marker")
+            return False
+        if mb.data_to_u16(header[4:6]) != structure[0][0]:
+            self._log.info("SunSpec model tree changed at the base address, rescanning")
+            return False
+
+        client.base_addr = self._base_addr
+        client.delete_models()
+        try:
+            for index, (model_id, model_addr, model_len) in enumerate(structure):
+                model = client.model_class(
+                    model_id=model_id,
+                    model_addr=model_addr,
+                    model_len=model_len,
+                    # scan() hands the constructor the raw id and length
+                    # registers it just read; rebuilt from the cache
+                    # those are the same two words.
+                    data=mb.u16_to_data(model_id) + mb.u16_to_data(model_len),
+                    mb_device=client,
+                )
+                model.mid = f"{client.did}_{index}"
+                client.add_model(model)
+        except Exception as err:  # noqa: BLE001 - a half-built client is worse than none
+            self._log.debug("Rebuilding models from cache failed, falling back to scan: %s", err)
+            client.delete_models()
+            self._invalidate_model_structure()
+            return False
+        return True
 
     def close(self) -> None:
         """Tear down the active client's TCP socket and drop the reference.
@@ -514,15 +657,7 @@ class SunSpecApiClient:
                     f"Failed to connect to {self._host}:{self._port} unit id {self._unit_id}"
                 )
             self._log.debug("Client connected, perform initial scan")
-            client.scan(
-                connect=False,
-                progress=progress,
-                full_model_read=False,
-                # 0 means "no pacing at all"; pysunspec2 only skips the
-                # sleep on None, and time.sleep(0) still yields the GIL
-                # inside the executor thread on every model.
-                delay=self._scan_delay or None,
-            )
+            self._scan_or_restore(client)
             handed_off = True
             return client
         except ModbusClientError as err:
@@ -591,15 +726,7 @@ class SunSpecApiClient:
             with self._lock:
                 client.open()
             self._log.debug("RTU port opened, perform initial scan")
-            client.scan(
-                connect=False,
-                progress=progress,
-                full_model_read=False,
-                # 0 means "no pacing at all"; pysunspec2 only skips the
-                # sleep on None, and time.sleep(0) still yields the GIL
-                # inside the executor thread on every model.
-                delay=self._scan_delay or None,
-            )
+            self._scan_or_restore(client)
             handed_off = True
             return client
         except ModbusClientError as err:

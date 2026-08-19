@@ -93,7 +93,7 @@
         "data": {
           "prefix": "Sensor-Namens-Präfix",
           "scan_interval": "Scan-Intervall (Sekunden)",
-          "scan_delay": "Pause zwischen den Modellen beim SunSpec-Scan (Sekunden). Der komplette Modellbaum wird bei jedem Poll neu gescannt, der Wert fällt also einmal pro Modell und Zyklus an: bei einem Wechselrichter mit 20 Modellen kostet 0.5 jedes Mal 10 Sekunden. Verringern, wenn Updates später als das Scan-Intervall eintreffen; erhöhen, wenn Scans auf langsamer Hardware fehlschlagen.",
+          "scan_delay": "Pause zwischen den Modellen beim Scan des SunSpec-Modellbaums (Sekunden). Der Baum wird nur etwa alle 10 Minuten gescannt, nicht bei jedem Poll, im Normalbetrieb kostet die Pause also fast nichts. Erhöhen, wenn Scans auf langsamer Hardware fehlschlagen; verringern nur, wenn der Rescan selbst stört.",
           "models_enabled": "Aktive Modelle",
           "capture_raw_registers": "Rohe Modbus-Bytes für Diagnose mitschneiden",
           "max_ac_power_kw": "Spitzen-AC-Leistung des Wechselrichters (kW, optional)",
@@ -189,7 +189,7 @@
     },
     "stale_model": {
       "title": "SunSpec-Modell {model_id} fehlt",
-      "description": "Der Wechselrichter unter {host}:{port} (Unit-ID {unit_id}) hat zuvor SunSpec-Modell {model_id} ausgeliefert, aber in den letzten {missing_cycles} Update-Zyklen in Folge ist es nicht mehr aufgetaucht.\n\nMeistens bedeutet das, dass der Wechselrichter das Modell dauerhaft entfernt hat (Firmware-Update, Hersteller-Rekonfiguration oder ein zugehöriges Hardware-Modul wurde abgeklemmt). Die zugehörigen Sensoren bleiben in der Entity-Registry und behalten ihren letzten guten Wert.\n\nWenn du sie nicht mehr brauchst, öffne die Geräte-Info-Seite für das betroffene Gerät und entferne es per Mülleimer-Icon. Die zugehörigen Entities werden automatisch aufgeräumt.\n\nKommt das Modell von selbst zurück, wird dieser Repairs-Eintrag beim nächsten erfolgreichen Lesen automatisch gelöscht."
+      "description": "Der Wechselrichter unter {host}:{port} (Unit-ID {unit_id}) hat zuvor SunSpec-Modell {model_id} ausgeliefert, aber seit {missing_minutes} Minuten taucht es in keinem Scan mehr auf.\n\nMeistens bedeutet das, dass der Wechselrichter das Modell dauerhaft entfernt hat (Firmware-Update, Hersteller-Rekonfiguration oder ein zugehöriges Hardware-Modul wurde abgeklemmt). Die zugehörigen Sensoren bleiben in der Entity-Registry und behalten ihren letzten guten Wert.\n\nWenn du sie nicht mehr brauchst, öffne die Geräte-Info-Seite für das betroffene Gerät und entferne es per Mülleimer-Icon. Die zugehörigen Entities werden automatisch aufgeräumt.\n\nKommt das Modell von selbst zurück, wird dieser Repairs-Eintrag beim nächsten erfolgreichen Lesen automatisch gelöscht."
     }
   }
 }

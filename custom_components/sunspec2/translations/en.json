@@ -93,7 +93,7 @@
         "data": {
           "prefix": "Sensor name prefix",
           "scan_interval": "Scan interval (seconds)",
-          "scan_delay": "Pause between models during the SunSpec scan (seconds). The full model tree is re-scanned on every poll, so this is paid once per model per cycle: on an inverter with 20 models, 0.5 costs 10 seconds every time. Lower it if your updates arrive later than your scan interval; raise it if scans fail on slow hardware.",
+          "scan_delay": "Pause between models while scanning the SunSpec model tree (seconds). The tree is scanned about once every 10 minutes, not on every poll, so this pacing costs almost nothing in normal operation. Raise it if scans fail on slow hardware, lower it only if the rescan itself is disruptive.",
           "models_enabled": "Enabled models",
           "capture_raw_registers": "Capture raw modbus bytes for diagnostics",
           "max_ac_power_kw": "Peak AC power of the inverter (kW, optional)",
@@ -189,7 +189,7 @@
     },
     "stale_model": {
       "title": "SunSpec model {model_id} has gone missing",
-      "description": "The inverter at {host}:{port} (unit ID {unit_id}) was previously exposing SunSpec model {model_id}, but it has been missing from the last {missing_cycles} update cycles in a row.\n\nThis usually means the inverter dropped the model permanently (firmware update, vendor reconfiguration, or the underlying hardware module was disconnected). The associated sensors are still in your entity registry but will stay on their last good value.\n\nIf you no longer need them, open the device-info page for the affected device and use the trash-can icon to remove the device. The matching entities will be cleaned up automatically.\n\nIf the model comes back on its own, this Repairs issue will clear automatically on the next successful read."
+      "description": "The inverter at {host}:{port} (unit ID {unit_id}) was previously exposing SunSpec model {model_id}, but it has now been missing from every scan for {missing_minutes} minutes.\n\nThis usually means the inverter dropped the model permanently (firmware update, vendor reconfiguration, or the underlying hardware module was disconnected). The associated sensors are still in your entity registry but will stay on their last good value.\n\nIf you no longer need them, open the device-info page for the affected device and use the trash-can icon to remove the device. The matching entities will be cleaned up automatically.\n\nIf the model comes back on its own, this Repairs issue will clear automatically on the next successful read."
     }
   }
 }

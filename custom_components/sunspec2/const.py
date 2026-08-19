@@ -4,7 +4,7 @@
 NAME = "SunSpec 2"
 DOMAIN = "sunspec2"
 DOMAIN_DATA = f"{DOMAIN}_data"
-VERSION = "0.16.0"
+VERSION = "0.17.0"
 
 ATTRIBUTION = "Data provided by SunSpec alliance - https://sunspec.org"
 ISSUE_URL = "https://github.com/hilman2/ha-sunspec2/issues"
@@ -120,11 +120,37 @@ EXPORT_LIMIT_MIN_STEP_PCT = 0.01
 # The delay is not pointless: it paces the request stream for slow
 # devices (KACO Powador on 100 Mbit was the original reason the setup
 # timeout had to grow), which is why it stays configurable rather than
-# being removed. 0.25 halves the cost while keeping the pacing.
+# being removed.
+#
+# The default stays at the inherited 0.5 rather than being tuned down,
+# because MODEL_STRUCTURE_TTL_SECONDS took the scan out of the steady
+# state: it now runs about once every 10 minutes instead of twice a
+# minute, so the pacing costs roughly a fiftieth of what it did and
+# there is no longer a trade to make between "fast polling" and "gentle
+# on slow hardware". Lowering it only matters for the rescan itself.
 CONF_SCAN_DELAY = "scan_delay"
-DEFAULT_SCAN_DELAY_SECONDS = 0.25
+DEFAULT_SCAN_DELAY_SECONDS = 0.5
 MIN_SCAN_DELAY_SECONDS = 0.0
 MAX_SCAN_DELAY_SECONDS = 2.0
+
+# How long a cached SunSpec model structure stays valid before the
+# next connect walks the model tree again.
+#
+# The coordinator closes its client at the end of every cycle so
+# single-slot inverters get their Modbus slot back, and a fresh
+# pysunspec2 client has an empty ``client.models``. That is the only
+# reason the scan ran on every poll: it was never about detecting
+# change, it was about rebuilding state we had already thrown away. On
+# an inverter exposing 20 models, at 30 s intervals, that is 41 modbus
+# round trips and 20 pacing sleeps every 30 seconds to rediscover a
+# layout that changes on firmware updates and never otherwise.
+#
+# Caching the layout (base address plus model id / address / length per
+# block) lets a reconnect rebuild the same model objects with a single
+# validating read. The scan still happens, just on this interval rather
+# than on every cycle, which is also what keeps the pacing question out
+# of the steady state: a scan every 10 minutes can afford to be slow.
+MODEL_STRUCTURE_TTL_SECONDS = 600
 
 # SunSpec models whose points are control setpoints, not measurements.
 # The sensor platform skips them entirely. Two reasons, both learned
@@ -208,15 +234,21 @@ WRITE_LOCK_TIMEOUT_SECONDS = 120
 # statistics graphs to "unknown".
 STALE_DATA_TOLERANCE_CYCLES = 5
 
-# Number of consecutive cycles a previously-detected SunSpec model can
-# be missing from a successful scan before we raise a Repairs issue
-# suggesting the user remove the related device. The threshold is
-# generous on purpose: SMA Tripower X12 (cjne issue #202) sometimes
-# stops exposing model 714 for hours during low-light conditions, and
-# we don't want a one-time hiccup to escalate. With the default 30s
-# scan interval, 20 cycles is roughly ten minutes of consistent
-# absence before we bother the user.
-STALE_MODEL_TOLERANCE_CYCLES = 20
+# How long a previously-detected SunSpec model has to stay missing
+# from successful scans before we raise a Repairs issue suggesting the
+# user remove the related device. Generous on purpose: SMA Tripower X12
+# (cjne issue #202) sometimes stops exposing model 714 for hours during
+# low-light conditions, and a one-time hiccup should not escalate.
+#
+# Measured in seconds, not cycles. It used to be 20 cycles, chosen
+# because "with the default 30s scan interval that is roughly ten
+# minutes". That equivalence broke the moment the model tree stopped
+# being scanned on every cycle (MODEL_STRUCTURE_TTL_SECONDS): a counter
+# that only advances on a real scan would have stretched the same 20
+# steps to over three hours. Wall-clock time is what the threshold
+# always meant, so it is now what it measures, and it no longer moves
+# when a poll or rescan interval changes.
+STALE_MODEL_TOLERANCE_SECONDS = 600
 
 DEFAULT_MODELS = set(
     [

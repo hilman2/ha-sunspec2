@@ -798,21 +798,24 @@ async def test_stale_model_tracking_increments_then_clears_on_recovery(hass):
     coordinator._new_this_cycle = set()
     coordinator.detected_models = {1}
     coordinator._update_stale_model_tracking()
-    assert coordinator._consecutive_missing_model_cycles == {103: 1}
+    assert list(coordinator._model_missing_since) == [103]
 
     # Cycle 3: model 103 is back.
     coordinator._missing_this_cycle = set()
     coordinator._new_this_cycle = {103}
     coordinator.detected_models = {1, 103}
     coordinator._update_stale_model_tracking()
-    assert coordinator._consecutive_missing_model_cycles == {}
+    assert coordinator._model_missing_since == {}
 
 
 async def test_stale_model_tracking_raises_repair_issue_after_threshold(hass):
-    """After STALE_MODEL_TOLERANCE_CYCLES missing cycles, raise a Repairs issue."""
+    """A model gone for STALE_MODEL_TOLERANCE_SECONDS raises a Repairs issue."""
+    from datetime import timedelta as _timedelta
     from unittest.mock import MagicMock as _MagicMock
 
-    from custom_components.sunspec2.const import STALE_MODEL_TOLERANCE_CYCLES
+    from homeassistant.util import dt as _dt_util
+
+    from custom_components.sunspec2.const import STALE_MODEL_TOLERANCE_SECONDS
 
     config_entry = MockConfigEntry(domain=DOMAIN, data=MOCK_CONFIG, options={})
     config_entry.add_to_hass(hass)
@@ -820,18 +823,59 @@ async def test_stale_model_tracking_raises_repair_issue_after_threshold(hass):
     coordinator = SunSpecDataUpdateCoordinator(hass, client=api, entry=config_entry)
 
     coordinator.detected_models = {1, 103}
+    coordinator._missing_this_cycle = {103}
+    coordinator._new_this_cycle = set()
+    coordinator.detected_models = {1}
+    coordinator._update_stale_model_tracking()
 
-    # Walk through STALE_MODEL_TOLERANCE_CYCLES missing cycles.
-    for _ in range(STALE_MODEL_TOLERANCE_CYCLES):
+    # Below the threshold nothing is raised, however many cycles run.
+    for _ in range(50):
         coordinator._missing_this_cycle = {103}
-        coordinator._new_this_cycle = set()
-        coordinator.detected_models = {1}
         coordinator._update_stale_model_tracking()
+    registry = ir.async_get(hass)
+    assert registry.async_get_issue(DOMAIN, f"{config_entry.entry_id}_stale_model_103") is None
 
-    issue = ir.async_get(hass).async_get_issue(DOMAIN, f"{config_entry.entry_id}_stale_model_103")
+    # Backdate the stamp past the threshold: one more cycle raises it.
+    coordinator._model_missing_since[103] = _dt_util.utcnow() - _timedelta(
+        seconds=STALE_MODEL_TOLERANCE_SECONDS + 60
+    )
+    coordinator._missing_this_cycle = {103}
+    coordinator._update_stale_model_tracking()
+
+    issue = registry.async_get_issue(DOMAIN, f"{config_entry.entry_id}_stale_model_103")
     assert issue is not None
     assert issue.translation_key == "stale_model"
     assert issue.translation_placeholders["model_id"] == "103"
+    assert issue.translation_placeholders["missing_minutes"] == "11"
+
+
+async def test_stale_stamp_is_not_reset_by_later_cycles(hass):
+    """The stamp records when a model went missing, not when it was last seen missing.
+
+    Re-stamping on every cycle would restart the clock forever and the
+    threshold could never be reached.
+    """
+    from datetime import timedelta as _timedelta
+    from unittest.mock import MagicMock as _MagicMock
+
+    from homeassistant.util import dt as _dt_util
+
+    config_entry = MockConfigEntry(domain=DOMAIN, data=MOCK_CONFIG, options={})
+    config_entry.add_to_hass(hass)
+    coordinator = SunSpecDataUpdateCoordinator(hass, client=_MagicMock(), entry=config_entry)
+
+    coordinator.detected_models = {1}
+    coordinator._missing_this_cycle = {103}
+    coordinator._update_stale_model_tracking()
+    first = coordinator._model_missing_since[103]
+
+    coordinator._model_missing_since[103] = first - _timedelta(seconds=120)
+    backdated = coordinator._model_missing_since[103]
+    coordinator._missing_this_cycle = {103}
+    coordinator._update_stale_model_tracking()
+
+    assert coordinator._model_missing_since[103] == backdated
+    assert coordinator._model_missing_since[103] < _dt_util.utcnow()
 
 
 async def test_scan_delay_option_reaches_the_api_client(hass, sunspec_client_mock):
