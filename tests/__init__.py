@@ -29,6 +29,9 @@ TEST_SERIAL_NO = "abc123"
 # per-point label without any group prefix. For prefixed installs
 # the Md part of the device-slug is replaced by the user prefix.
 TEST_INVERTER_SENSOR_STATE_ENTITY_ID = "sensor.test_1547_1_inverter_three_phase_operating_state"
+# model 103 Evt1, a bitfield32. The fixture sets it to 3, so two bits
+# are on and the state is a comma-joined pair (cjne/ha-sunspec#370).
+TEST_INVERTER_SENSOR_EVENT_ENTITY_ID = "sensor.test_1547_1_inverter_three_phase_event1"
 TEST_INVERTER_SENSOR_POWER_ENTITY_ID = "sensor.test_1547_1_inverter_three_phase_watts"
 TEST_INVERTER_SENSOR_VAR_ID = "sensor.test_1547_1_inverter_three_phase_var"
 TEST_INVERTER_SENSOR_ENERGY_ENTITY_ID = "sensor.test_1547_1_inverter_three_phase_watthours"
