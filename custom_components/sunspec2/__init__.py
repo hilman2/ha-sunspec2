@@ -32,6 +32,7 @@ from .const import CONF_ENABLED_MODELS
 from .const import CONF_HOST
 from .const import CONF_PARITY
 from .const import CONF_PORT
+from .const import CONF_SCAN_DELAY
 from .const import CONF_SCAN_INTERVAL
 from .const import CONF_SERIAL_PORT
 from .const import CONF_TRANSPORT
@@ -39,6 +40,7 @@ from .const import CONF_UNIT_ID
 from .const import CONF_WRITE_BETA_ENABLED
 from .const import DEFAULT_BAUDRATE
 from .const import DEFAULT_MODELS
+from .const import DEFAULT_SCAN_DELAY_SECONDS
 from .const import DOMAIN
 from .const import INTERVAL_RETRY_DELAY_SECONDS
 from .const import PARITY_NONE
@@ -57,6 +59,7 @@ from .errors import SunSpecError
 from .errors import TransientError
 from .errors import TransportError
 from .logger import get_adapter
+from .migration import cleanup_excluded_model_sensors
 from .migration import find_blocking_cjne_entries
 from .migration import migrate_from_cjne_sync
 
@@ -151,6 +154,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: SunSpec2ConfigEntry) -> 
     ir.async_delete_issue(hass, DOMAIN, f"{entry.entry_id}_cjne_conflict")
 
     capture_enabled = entry.options.get(CONF_CAPTURE_RAW, False)
+    # #17: how long pysunspec2 pauses between models while walking the
+    # SunSpec model tree. Read from options on every setup so changing
+    # it in the options flow takes effect on the reload that follows.
+    scan_delay = entry.options.get(CONF_SCAN_DELAY, DEFAULT_SCAN_DELAY_SECONDS)
 
     # v0.11.0: Modbus transport selector. Default is TCP so existing
     # config entries (which never had a CONF_TRANSPORT key) keep
@@ -173,10 +180,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: SunSpec2ConfigEntry) -> 
             serial_port=serial_port,
             baudrate=baudrate,
             parity=parity,
+            scan_delay=scan_delay,
         )
         log = get_adapter(serial_port or "rtu", baudrate, unit_id)
     else:
-        client = SunSpecApiClient(host, port, unit_id, hass, capture_enabled=capture_enabled)
+        client = SunSpecApiClient(
+            host, port, unit_id, hass, capture_enabled=capture_enabled, scan_delay=scan_delay
+        )
         log = get_adapter(host, port, unit_id)
     log.debug("Setup config entry for SunSpec")
     coordinator = SunSpecDataUpdateCoordinator(hass, client=client, entry=entry)
@@ -194,6 +204,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: SunSpec2ConfigEntry) -> 
     # async_forward_entry_setups so any entity_id collisions in the
     # platform setup that follows resolve to the migrated entity.
     _maybe_migrate_from_cjne(hass, entry, log)
+
+    # #17: drop sensor entities the sensor platform stopped building
+    # when v0.14.0 introduced SENSOR_EXCLUDED_MODELS. Without this they
+    # linger in the registry as permanently "Unavailable" rows. Runs
+    # after the cjne migration so freshly retargeted orphans from a
+    # cjne install that had model 123 ticked are cleaned up in the same
+    # pass, and before the platform forward so the removals are done
+    # before any entity claims an entity_id.
+    cleanup_excluded_model_sensors(hass, entry, log)
 
     # v0.12.0: forward to the write platforms (number, switch) only
     # when the user has opted in via CONF_WRITE_BETA_ENABLED. The

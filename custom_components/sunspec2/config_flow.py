@@ -20,6 +20,7 @@ from .const import CONF_MAX_AC_POWER_KW
 from .const import CONF_PARITY
 from .const import CONF_PORT
 from .const import CONF_PREFIX
+from .const import CONF_SCAN_DELAY
 from .const import CONF_SCAN_INTERVAL
 from .const import CONF_SERIAL_PORT
 from .const import CONF_TRANSPORT
@@ -27,7 +28,10 @@ from .const import CONF_UNIT_ID
 from .const import CONF_WRITE_BETA_ENABLED
 from .const import DEFAULT_BAUDRATE
 from .const import DEFAULT_MODELS
+from .const import DEFAULT_SCAN_DELAY_SECONDS
 from .const import DOMAIN
+from .const import MAX_SCAN_DELAY_SECONDS
+from .const import MIN_SCAN_DELAY_SECONDS
 from .const import PARITY_EVEN
 from .const import PARITY_NONE
 from .const import TRANSPORT_RTU
@@ -54,6 +58,23 @@ _MAX_AC_POWER_SELECTOR = selector.NumberSelector(
         step=0.1,
         mode=selector.NumberSelectorMode.BOX,
         unit_of_measurement="kW",
+    )
+)
+
+
+# #17: pacing between models during the SunSpec scan. Exposed because
+# the right value is a property of the device and the wiring, not
+# something we can pick for everyone: a KACO Powador on 100 Mbit wants
+# the pacing, a modern inverter on gigabit does not. BOX rather than a
+# slider so the value is typed exactly, and capped at MAX_SCAN_DELAY
+# because every 0.1 here costs 0.1 per model on every single poll.
+_SCAN_DELAY_SELECTOR = selector.NumberSelector(
+    selector.NumberSelectorConfig(
+        min=MIN_SCAN_DELAY_SECONDS,
+        max=MAX_SCAN_DELAY_SECONDS,
+        step=0.05,
+        mode=selector.NumberSelectorMode.BOX,
+        unit_of_measurement="s",
     )
 )
 
@@ -740,6 +761,7 @@ class SunSpecOptionsFlowHandler(config_entries.OptionsFlow):
             CONF_SCAN_INTERVAL, self.config_entry.data.get(CONF_SCAN_INTERVAL)
         )
         capture_raw = self.config_entry.options.get(CONF_CAPTURE_RAW, False)
+        scan_delay = self.config_entry.options.get(CONF_SCAN_DELAY, DEFAULT_SCAN_DELAY_SECONDS)
         # User-set value wins. If the user has not configured a peak
         # power yet, fall back to the value the coordinator auto-
         # detected from SunSpec model 120 / 121 on the first cycle.
@@ -793,6 +815,7 @@ class SunSpecOptionsFlowHandler(config_entries.OptionsFlow):
             schema: dict[Any, Any] = {
                 vol.Optional(CONF_PREFIX, default=prefix): str,
                 vol.Optional(CONF_SCAN_INTERVAL, default=scan_interval): int,
+                vol.Optional(CONF_SCAN_DELAY, default=scan_delay): _SCAN_DELAY_SELECTOR,
                 vol.Optional(
                     CONF_ENABLED_MODELS,
                     default=default_models,

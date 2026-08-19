@@ -93,6 +93,7 @@
         "data": {
           "prefix": "Sensor-Namens-Präfix",
           "scan_interval": "Scan-Intervall (Sekunden)",
+          "scan_delay": "Pause zwischen den Modellen beim SunSpec-Scan (Sekunden). Der komplette Modellbaum wird bei jedem Poll neu gescannt, der Wert fällt also einmal pro Modell und Zyklus an: bei einem Wechselrichter mit 20 Modellen kostet 0.5 jedes Mal 10 Sekunden. Verringern, wenn Updates später als das Scan-Intervall eintreffen; erhöhen, wenn Scans auf langsamer Hardware fehlschlagen.",
           "models_enabled": "Aktive Modelle",
           "capture_raw_registers": "Rohe Modbus-Bytes für Diagnose mitschneiden",
           "max_ac_power_kw": "Spitzen-AC-Leistung des Wechselrichters (kW, optional)",

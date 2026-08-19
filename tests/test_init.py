@@ -13,8 +13,10 @@ from custom_components.sunspec2 import SunSpecDataUpdateCoordinator
 from custom_components.sunspec2 import async_setup_entry
 from custom_components.sunspec2.const import CONF_CAPTURE_RAW
 from custom_components.sunspec2.const import CONF_ENABLED_MODELS
+from custom_components.sunspec2.const import CONF_SCAN_DELAY
 from custom_components.sunspec2.const import CONF_SCAN_INTERVAL
 from custom_components.sunspec2.const import DEFAULT_MODELS
+from custom_components.sunspec2.const import DEFAULT_SCAN_DELAY_SECONDS
 from custom_components.sunspec2.const import DOMAIN
 from custom_components.sunspec2.const import STALE_DATA_TOLERANCE_CYCLES
 from custom_components.sunspec2.errors import TransportError
@@ -830,3 +832,60 @@ async def test_stale_model_tracking_raises_repair_issue_after_threshold(hass):
     assert issue is not None
     assert issue.translation_key == "stale_model"
     assert issue.translation_placeholders["model_id"] == "103"
+
+
+async def test_scan_delay_option_reaches_the_api_client(hass, sunspec_client_mock):
+    """The options value has to survive the trip into SunSpecApiClient.
+
+    Purely wiring, and wiring is exactly what breaks silently: the
+    option would still be saved and shown in the form while every poll
+    kept using the default pacing.
+    """
+    config_entry = MockConfigEntry(
+        domain=DOMAIN,
+        data=MOCK_CONFIG,
+        options={CONF_SCAN_DELAY: 0.1},
+        entry_id="scan_delay_entry",
+    )
+    config_entry.add_to_hass(hass)
+
+    assert await hass.config_entries.async_setup(config_entry.entry_id)
+    await hass.async_block_till_done()
+
+    assert config_entry.runtime_data.api._scan_delay == 0.1
+
+
+async def test_scan_delay_defaults_when_option_absent(hass, sunspec_client_mock):
+    """An entry saved before this option existed keeps working."""
+    config_entry = MockConfigEntry(domain=DOMAIN, data=MOCK_CONFIG, entry_id="no_scan_delay_entry")
+    config_entry.add_to_hass(hass)
+
+    assert await hass.config_entries.async_setup(config_entry.entry_id)
+    await hass.async_block_till_done()
+
+    assert config_entry.runtime_data.api._scan_delay == DEFAULT_SCAN_DELAY_SECONDS
+
+
+async def test_setup_removes_orphaned_control_model_sensors(hass, sunspec_client_mock):
+    """Setup drops sensor rows for models the sensor platform stopped building.
+
+    End to end version of the migration-level tests: a user who ticked
+    model 123 before v0.14.0 has 21 registry entries that nothing feeds
+    any more, and they render as "Unavailable" forever until something
+    removes them.
+    """
+    config_entry = MockConfigEntry(domain=DOMAIN, data=MOCK_CONFIG, entry_id="orphan_entry")
+    config_entry.add_to_hass(hass)
+    registry = er.async_get(hass)
+    orphan = registry.async_get_or_create(
+        "sensor",
+        DOMAIN,
+        f"{config_entry.entry_id}_WMaxLimPct_RvrtTms-123-0",
+        suggested_object_id="wmaxlimpct_rvrttms",
+        config_entry=config_entry,
+    ).entity_id
+
+    assert await hass.config_entries.async_setup(config_entry.entry_id)
+    await hass.async_block_till_done()
+
+    assert registry.async_get(orphan) is None

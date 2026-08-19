@@ -19,6 +19,9 @@ from sunspec2.modbus.modbus import ModbusClientException
 from sunspec2.modbus.modbus import ModbusClientTimeout
 
 from .const import DEFAULT_BAUDRATE
+from .const import DEFAULT_SCAN_DELAY_SECONDS
+from .const import MAX_SCAN_DELAY_SECONDS
+from .const import MIN_SCAN_DELAY_SECONDS
 from .const import PARITY_NONE
 from .const import TRANSPORT_RTU
 from .const import TRANSPORT_TCP
@@ -91,6 +94,7 @@ class SunSpecApiClient:
         serial_port: str | None = None,
         baudrate: int = DEFAULT_BAUDRATE,
         parity: str = PARITY_NONE,
+        scan_delay: float = DEFAULT_SCAN_DELAY_SECONDS,
     ) -> None:
         """Sunspec modbus client.
 
@@ -125,6 +129,16 @@ class SunSpecApiClient:
         # passes ``timeout=SETUP_TIMEOUT`` so the initial scan has time
         # to finish on slower devices.
         self._timeout = timeout
+        # Seconds pysunspec2 sleeps between models during scan(). The
+        # coordinator rescans on every cycle (it closes the client to
+        # free the inverter's Modbus slot), so this is paid once per
+        # model per poll, not once per setup. See CONF_SCAN_DELAY.
+        # Clamped here rather than trusting the caller because a
+        # corrupted options save reaching pysunspec2 as a negative
+        # sleep would raise ValueError deep inside the scan walk.
+        self._scan_delay = min(
+            MAX_SCAN_DELAY_SECONDS, max(MIN_SCAN_DELAY_SECONDS, float(scan_delay))
+        )
         self._transport = transport
         self._serial_port = serial_port
         self._baudrate = baudrate
@@ -136,10 +150,11 @@ class SunSpecApiClient:
         self._capture_enabled = capture_enabled
         self._captured_reads: list[dict] = []
         self._log.debug(
-            "New SunspecApi Client (transport=%s, capture=%s, timeout=%ds)",
+            "New SunspecApi Client (transport=%s, capture=%s, timeout=%ds, scan_delay=%ss)",
             transport,
             capture_enabled,
             timeout,
+            self._scan_delay,
         )
 
     def get_client(self, config=None):
@@ -499,7 +514,15 @@ class SunSpecApiClient:
                     f"Failed to connect to {self._host}:{self._port} unit id {self._unit_id}"
                 )
             self._log.debug("Client connected, perform initial scan")
-            client.scan(connect=False, progress=progress, full_model_read=False, delay=0.5)
+            client.scan(
+                connect=False,
+                progress=progress,
+                full_model_read=False,
+                # 0 means "no pacing at all"; pysunspec2 only skips the
+                # sleep on None, and time.sleep(0) still yields the GIL
+                # inside the executor thread on every model.
+                delay=self._scan_delay or None,
+            )
             handed_off = True
             return client
         except ModbusClientError as err:
@@ -568,7 +591,15 @@ class SunSpecApiClient:
             with self._lock:
                 client.open()
             self._log.debug("RTU port opened, perform initial scan")
-            client.scan(connect=False, progress=progress, full_model_read=False, delay=0.5)
+            client.scan(
+                connect=False,
+                progress=progress,
+                full_model_read=False,
+                # 0 means "no pacing at all"; pysunspec2 only skips the
+                # sleep on None, and time.sleep(0) still yields the GIL
+                # inside the executor thread on every model.
+                delay=self._scan_delay or None,
+            )
             handed_off = True
             return client
         except ModbusClientError as err:
