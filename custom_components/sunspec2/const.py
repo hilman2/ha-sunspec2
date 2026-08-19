@@ -4,7 +4,7 @@
 NAME = "SunSpec 2"
 DOMAIN = "sunspec2"
 DOMAIN_DATA = f"{DOMAIN}_data"
-VERSION = "0.18.0"
+VERSION = "0.19.0"
 
 ATTRIBUTION = "Data provided by SunSpec alliance - https://sunspec.org"
 ISSUE_URL = "https://github.com/hilman2/ha-sunspec2/issues"
@@ -19,10 +19,11 @@ BINARY_SENSOR_DEVICE_CLASS = "connectivity"
 SENSOR = "sensor"
 NUMBER = "number"
 SWITCH = "switch"
+SELECT = "select"
 # v0.12.0: write controls (Number, Switch) are kept off by default
 # and only forwarded when the user explicitly opts in via the
 # CONF_WRITE_BETA_ENABLED option. The sensor platform is always on.
-PLATFORMS = [SENSOR, NUMBER, SWITCH]
+PLATFORMS = [SENSOR, NUMBER, SWITCH, SELECT]
 PLATFORMS_READ_ONLY = [SENSOR]
 
 
@@ -84,6 +85,11 @@ CONF_WRITE_BETA_ENABLED = "write_beta_enabled"
 # only registers write entities when this model is part of
 # coordinator.detected_models.
 WRITE_CONTROLS_MODEL_ID = 123
+# Every model the write platforms can build controls for. The
+# coordinator polls whichever of these a device exposes while the beta
+# flag is on, so users do not have to find and tick them in the model
+# list first, which is the bug #30 fixed for model 123 alone.
+WRITE_CAPABLE_MODEL_IDS: frozenset[int] = frozenset({123, 124, 704})
 
 # Upper bound for the model 123 WMaxLimPct Number entity, in percent of
 # WMax. The SunSpec definition describes WMaxLimPct as a percentage of
@@ -152,46 +158,20 @@ MAX_SCAN_DELAY_SECONDS = 2.0
 # of the steady state: a scan every 10 minutes can afford to be slow.
 MODEL_STRUCTURE_TTL_SECONDS = 600
 
-# Points the sensor platform must not build an entity for, per model.
+# Points the sensor platform must not build an entity for.
 #
-# This started life as SENSOR_EXCLUDED_MODELS, which skipped model 123
-# wholesale. That was too blunt, and @tisoft found the hole in #17: his
-# KACO silently drops the export limit after WMaxLimPct_RvrtTms seconds
-# while WMaxLim_Ena and WMaxLimPct keep reporting the old setpoint, so
-# the integration shows a limit that is no longer in force. The points
-# that expose the timer are exactly the ones a user needs to notice
-# that, and they were the collateral damage of the model-wide skip.
+# Derived from the write-control specs rather than hand-maintained: a
+# point that is a Number, Switch or Select must not also be a read-only
+# sensor, because the two disagree during a write and the user has no
+# way to tell which one is lying. Keeping a second list in sync with
+# write_controls.py by hand is exactly the kind of bookkeeping that
+# quietly rots.
 #
-# Only two kinds of point actually have to go:
-#
-#   * Points already exposed as a Number or Switch. A sensor there is a
-#     read-only duplicate of a control the user can operate, and the
-#     two would disagree during a write.
-#   * Points whose SunSpec unit has no HA equivalent ("% WMax",
-#     "% VArMax", "% VArAval"). sensor.py falls back to the raw SunSpec
-#     string as the native unit with state_class MEASUREMENT, which
-#     starts a long-term statistics series under a unit the recorder
-#     can never convert or merge.
-#
-# Everything else in model 123 is a "Secs" timer or an enum16, both of
-# which HA maps cleanly, so they come back as diagnostic sensors.
-SENSOR_EXCLUDED_POINTS: dict[int, frozenset[str]] = {
-    WRITE_CONTROLS_MODEL_ID: frozenset(
-        {
-            # Exposed as Number / Switch entities.
-            "Conn",
-            "WMaxLimPct",
-            "WMaxLim_Ena",
-            "OutPFSet",
-            "OutPFSet_Ena",
-            "WMaxLimPct_RvrtTms",
-            # Units HA has no equivalent for.
-            "VArWMaxPct",
-            "VArMaxPct",
-            "VArAvalPct",
-        }
-    )
-}
+# The unit problem that motivated half of the old hand-written set is
+# fixed properly in sensor.py as of v0.19.0: an unmapped SunSpec unit
+# resolves to no unit rather than to the raw string, so it can no longer
+# start a statistics series the recorder cannot convert, and "% WMax"
+# and its relatives map to PERCENTAGE anyway.
 
 
 def is_excluded_sensor_point(model_id: int, key: str) -> bool:
@@ -201,11 +181,18 @@ def is_excluded_sensor_point(model_id: int, key: str) -> bool:
     arrives as ``group:idx:point``. Only the trailing point name is
     matched, because the exclusion is a property of the point, not of
     the group instance it happens to live in.
+
+    Imported lazily: write_controls imports nothing from const, but
+    const is imported by everything, and a module-level import here
+    would make that a cycle waiting for someone to add one line.
     """
-    excluded = SENSOR_EXCLUDED_POINTS.get(model_id)
-    if not excluded:
+    from .write_controls import specs_for_model
+
+    specs = specs_for_model(model_id)
+    if not specs:
         return False
-    return key.rsplit(":", 1)[-1] in excluded
+    point_name = key.rsplit(":", 1)[-1]
+    return any(spec.point_name == point_name for spec in specs)
 
 
 # Service action names. The service handler reads the entry by

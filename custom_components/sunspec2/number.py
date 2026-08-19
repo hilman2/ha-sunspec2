@@ -1,50 +1,40 @@
-"""Number platform for SunSpec experimental write controls.
+"""Number platform for SunSpec write controls.
 
-v0.12.0 EXPERIMENTAL. Disabled by default. Only registers entities
-when:
+EXPERIMENTAL, opt-in. Entities only register when the user has ticked
+"Enable experimental write controls (BETA)" in the options flow and the
+inverter exposes a model :mod:`write_controls` has specs for.
 
-1. The user has explicitly ticked "Enable experimental write
-   controls (BETA)" in the options flow (CONF_WRITE_BETA_ENABLED).
-2. The inverter actually exposes SunSpec model 123 (Immediate
-   Controls), checked against ``coordinator.detected_models``.
-
-The Number platform exposes the writable continuous-value points
-from model 123: ``WMaxLimPct`` (export limit as percent of WMax;
-100 is full nameplate, higher values are allowed because some
-firmware uses them to mean "no limit"), ``WMaxLimPct_RvrtTms``
-(how long the inverter honours that limit before reverting), and
-``OutPFSet`` (power factor setpoint, -1.0..1.0).
-The matching enable/disable booleans live on the Switch platform
-because mixing modes in one entity makes the UI confusing.
+v0.19.0 replaced one hand-written class per point with one class driven
+by a :class:`~.write_controls.WriteControlSpec`. The platform now spans
+three models (123 immediate controls, 704 DER AC controls, 124 basic
+storage control) and the per-point classes were already mostly
+identical boilerplate.
 
 Behavioural notes:
 
-- Writes go through ``coordinator.async_write_points_locked``,
-  which takes the per-``(host, port)`` gateway lock for the
-  duration of the write and closes the Modbus session again before
-  releasing it. Calling ``coordinator.api.async_write_point``
-  directly, which is what this platform did before v0.14.0,
-  bypasses that lock entirely and lets a write interleave with the
-  poll cycle on one socket.
+- Writes go through ``coordinator.async_write_points_locked``, which
+  takes the per-``(host, port)`` gateway lock for the duration of the
+  write and closes the Modbus session again before releasing it.
+  Calling ``coordinator.api.async_write_point`` directly, which is what
+  this platform did before v0.14.0, bypasses that lock entirely and
+  lets a write interleave with the poll cycle on one socket.
 - After a successful write we trigger a coordinator refresh so the
-  read-side state catches up immediately instead of waiting for
-  the next scheduled cycle.
-- Reading the current value comes from ``coordinator.data[123]``
-  which is populated by the normal read cycle - so the entity
-  state always reflects what the inverter actually reports, not
-  what we last wrote (the inverter may clamp or refuse a write
-  for vendor-specific reasons).
+  read-side state catches up immediately instead of waiting for the
+  next scheduled cycle.
+- ``native_value`` reads from ``coordinator.data``, populated by the
+  normal read cycle, so the entity state reflects what the inverter
+  reports rather than what we last wrote. Inverters clamp and refuse
+  writes for vendor-specific reasons, and a device that ignored a value
+  should look like it ignored it.
 """
 
 from __future__ import annotations
 
 import logging
-from typing import Any
 
 from homeassistant.components.number import NumberEntity
 from homeassistant.components.number import NumberMode
 from homeassistant.const import PERCENTAGE
-from homeassistant.const import UnitOfTime
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity import EntityCategory
@@ -54,25 +44,46 @@ from . import SunSpec2ConfigEntry
 from . import get_sunspec_unique_id
 from .const import CONF_WRITE_BETA_ENABLED
 from .const import EXPORT_LIMIT_DEFAULT_STEP_PCT
-from .const import EXPORT_LIMIT_HARD_MAX_PCT
 from .const import EXPORT_LIMIT_MIN_STEP_PCT
-from .const import WRITE_CONTROLS_MODEL_ID
 from .entity import SunSpecEntity
 from .errors import SunSpecError
+from .write_controls import PLATFORM_NUMBER
+from .write_controls import WriteControlSpec
+from .write_controls import active_specs_for_platform
 
-_LOGGER: logging.Logger = logging.getLogger(__name__)
+_LOGGER: logging.Logger = logging.getLogger(__package__)
 
 PARALLEL_UPDATES = 0
+
+# SunSpec spells "percent of some reference quantity" several ways, and
+# model_124.json even ships one with a leading space (" % WChaMax").
+# They are all a percent as far as the frontend is concerned; which
+# quantity it is a percent OF belongs in the entity name.
+_PERCENT_UNITS = frozenset(
+    {"%", "Pct", "% WMax", "% WChaMax", "% WDisChaMax", "% VArMax", "% VArAval"}
+)
+
+
+def has_point(wrapper, point_name: str) -> bool:
+    """True if the device actually implements this point.
+
+    A device can implement a model without implementing every optional
+    point in it. Building a control for a missing point would give the
+    user an entity whose every write fails.
+    """
+    try:
+        wrapper.getPoint(point_name)
+    except (KeyError, AttributeError, IndexError, TypeError):
+        return False
+    return True
 
 
 def _step_from_scale_factor(wrapper, point_name: str) -> float:
     """Derive the UI step from the point's SunSpec scale factor.
 
-    model_123.json declares ``WMaxLimPct`` as uint16 with sf
-    ``WMaxLimPct_SF``, so the register resolution is ``10 ** SF``
-    percent. A device reporting SF -1 stores 995 for 99.5 %, and with a
-    hardcoded step of 1 the frontend number box rejects 99.5: the
-    inverter's own value becomes unenterable.
+    A device reporting SF -1 stores 995 for 99.5 %, and with a hardcoded
+    step of 1 the frontend number box rejects 99.5: the inverter's own
+    value becomes unenterable (#17).
 
     Reads the SF through ``getValue(<sf point name>)`` and NOT through
     ``getPoint(point_name).sf_value``. pysunspec2 only backfills
@@ -94,6 +105,46 @@ def _step_from_scale_factor(wrapper, point_name: str) -> float:
     return min(EXPORT_LIMIT_DEFAULT_STEP_PCT, max(10.0**sf, EXPORT_LIMIT_MIN_STEP_PCT))
 
 
+def _unit_for(spec: WriteControlSpec, wrapper) -> str | None:
+    """Resolve the entity's unit: spec override first, model definition second."""
+    if spec.unit is not None:
+        return spec.unit
+    try:
+        raw = wrapper.getMeta(spec.point_name).get("units")
+    except (KeyError, AttributeError):
+        return None
+    if isinstance(raw, str) and raw.strip() in _PERCENT_UNITS:
+        return PERCENTAGE
+    return None
+
+
+def build_specs(coordinator, platform: str):
+    """Yield (spec, wrapper) for every control this device can support.
+
+    Shared by the number, switch and select platforms so the three
+    cannot drift on which models they consider present.
+    """
+    for spec in active_specs_for_platform(coordinator.detected_models, platform):
+        model_wrapper = (coordinator.data or {}).get(spec.model_id)
+        if model_wrapper is None:
+            # Unreachable in the normal path since v0.14.0: the
+            # coordinator adds every write-capable model to the polled
+            # set whenever the beta flag is on. If it trips again
+            # something new is broken, and silently returning is what
+            # made this class of bug invisible for three releases.
+            getattr(coordinator, "_log", _LOGGER).warning(
+                "Write beta is on and model %s was detected, but it is not in the "
+                "polled data, so no write entities will be created for it. "
+                "write_model_filter=%s",
+                spec.model_id,
+                getattr(coordinator, "write_model_filter", None),
+            )
+            continue
+        if not has_point(model_wrapper, spec.point_name):
+            continue
+        yield spec, model_wrapper
+
+
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: SunSpec2ConfigEntry,
@@ -102,63 +153,34 @@ async def async_setup_entry(
     """Set up the experimental write Number entities, gated by the beta flag."""
     coordinator = entry.runtime_data
     if not entry.options.get(CONF_WRITE_BETA_ENABLED, False):
-        # Beta flag is off - do not expose any write entities. The
-        # user can still enable them later via the options flow,
-        # which triggers a config-entry reload and a fresh setup.
-        return
-    if WRITE_CONTROLS_MODEL_ID not in coordinator.detected_models:
-        # The inverter does not expose model 123, so writes are
-        # impossible regardless of the beta flag.
+        # Beta flag is off - do not expose any write entities. The user
+        # can still enable them later via the options flow, which
+        # triggers a config-entry reload and a fresh setup.
         return
 
     device_info = coordinator.device_info
     if device_info is None:
         return
 
-    model_wrapper = coordinator.data.get(WRITE_CONTROLS_MODEL_ID)
-    if model_wrapper is None:
-        # Unreachable in the normal path since v0.14.0: the coordinator
-        # adds model 123 to the polled set whenever the beta flag is on.
-        # If it ever trips again something new is broken, and silently
-        # returning is what made this class of bug invisible for three
-        # releases.
-        getattr(coordinator, "_log", _LOGGER).warning(
-            "Write beta is on and model %s was detected, but it is not in the "
-            "polled data, so no write entities will be created. write_model_filter=%s",
-            WRITE_CONTROLS_MODEL_ID,
-            getattr(coordinator, "write_model_filter", None),
-        )
-        return
-    group_meta = model_wrapper.getGroupMeta()
-    common = {
-        "coordinator": coordinator,
-        "config_entry": entry,
-        "device_info": device_info,
-        "model_info": group_meta,
-        "prefix": entry.options.get("prefix", ""),
-    }
     async_add_devices(
         [
-            SunSpecExportLimitNumber(
-                **common,
-                native_step=_step_from_scale_factor(model_wrapper, "WMaxLimPct"),
-            ),
-            SunSpecExportLimitRevertTimeNumber(**common),
-            SunSpecPowerFactorNumber(**common),
+            SunSpecWriteNumber(
+                coordinator=coordinator,
+                config_entry=entry,
+                device_info=device_info,
+                model_info=wrapper.getGroupMeta(),
+                prefix=entry.options.get("prefix", ""),
+                spec=spec,
+                model_wrapper=wrapper,
+            )
+            for spec, wrapper in build_specs(coordinator, PLATFORM_NUMBER)
         ]
     )
 
 
-class _SunSpecWritablePointNumber(SunSpecEntity, NumberEntity):
-    """Base class for the model 123 writable Number points.
+class SunSpecWriteNumber(SunSpecEntity, NumberEntity):
+    """A writable continuous-value SunSpec point."""
 
-    Subclasses set ``_point_name``, ``_attr_translation_key``, range
-    bounds and unit. The base class handles the
-    coordinator->wrapper->getValue read path and the
-    api.async_write_point write path.
-    """
-
-    _point_name: str = ""
     _attr_mode = NumberMode.BOX
     _attr_entity_category = EntityCategory.CONFIG
 
@@ -168,8 +190,9 @@ class _SunSpecWritablePointNumber(SunSpecEntity, NumberEntity):
         config_entry,
         device_info,
         model_info,
-        prefix: str = "",
-        native_step: float | None = None,
+        prefix: str,
+        spec: WriteControlSpec,
+        model_wrapper,
     ) -> None:
         super().__init__(
             coordinator,
@@ -177,21 +200,36 @@ class _SunSpecWritablePointNumber(SunSpecEntity, NumberEntity):
             device_info,
             model_info,
             prefix=prefix,
-            model_id=WRITE_CONTROLS_MODEL_ID,
+            model_id=spec.model_id,
         )
+        self._spec = spec
         self._attr_unique_id = get_sunspec_unique_id(
-            config_entry.entry_id, self._point_name, WRITE_CONTROLS_MODEL_ID, 0
+            config_entry.entry_id, spec.point_name, spec.model_id, 0
         )
-        if native_step is not None:
-            self._attr_native_step = native_step
+        self._attr_translation_key = spec.translation_key
+        self._attr_icon = spec.icon
+        self._attr_entity_registry_enabled_default = spec.enabled_by_default
+        self._attr_native_min_value = spec.native_min
+        self._attr_native_max_value = spec.native_max
+        self._attr_native_step = (
+            spec.native_step
+            if spec.native_step is not None
+            else _step_from_scale_factor(model_wrapper, spec.point_name)
+        )
+        self._attr_native_unit_of_measurement = _unit_for(spec, model_wrapper)
+
+    @property
+    def _point_name(self) -> str:
+        """The SunSpec point this entity writes. Read by the tests."""
+        return self._spec.point_name
 
     @property
     def native_value(self) -> float | None:
-        wrapper = self.coordinator.data.get(WRITE_CONTROLS_MODEL_ID)
+        wrapper = self.coordinator.data.get(self._spec.model_id)
         if wrapper is None:
             return None
         try:
-            value = wrapper.getValue(self._point_name)
+            value = wrapper.getValue(self._spec.point_name)
         except (KeyError, AttributeError):
             return None
         if isinstance(value, (int, float)):
@@ -201,103 +239,17 @@ class _SunSpecWritablePointNumber(SunSpecEntity, NumberEntity):
     async def async_set_native_value(self, value: float) -> None:
         try:
             await self.coordinator.async_write_points_locked(
-                WRITE_CONTROLS_MODEL_ID, [(self._point_name, value)]
+                self._spec.model_id, [(self._spec.point_name, value)]
             )
         except SunSpecError as exc:
-            raise HomeAssistantError(f"Failed to write {self._point_name}={value}: {exc}") from exc
-        # Refresh the read-side state immediately so the UI shows
-        # the inverter's actual response (which may differ from the
-        # value we just sent if the inverter clamps it).
+            raise HomeAssistantError(
+                f"Failed to write {self._spec.point_name}={value}: {exc}"
+            ) from exc
+        # Refresh the read-side state immediately so the UI shows the
+        # inverter's actual response, which may differ from the value we
+        # just sent if the inverter clamps it.
         #
         # Deliberately OUTSIDE the gateway lock the write just held:
         # asyncio.Lock is not reentrant and the refresh debouncer runs
         # the refresh inline, so requesting it under the lock deadlocks.
         await self.coordinator.async_request_refresh()
-
-
-class SunSpecExportLimitNumber(_SunSpecWritablePointNumber):
-    """Inverter export limit as a percentage of WMax (model 123 WMaxLimPct).
-
-    Setting this to 0 caps the inverter's AC output at zero (the
-    zero-export use case). 100 lets the inverter run at full
-    nameplate. Note that the limit only takes effect while the
-    matching ``WMaxLim_Ena`` switch is ON - the Number alone does
-    not enable the limit.
-
-    Values above 100 are permitted up to
-    ``EXPORT_LIMIT_HARD_MAX_PCT`` because some firmware uses them as
-    a "no limit" sentinel: the KACO in #17 shipped with 110 and its
-    owner could not put it back. The inverter is free to clamp or
-    refuse anything it will not honour, and ``native_value`` always
-    re-reads what the device actually reports, so a rejected write
-    shows up as the value snapping back rather than as a lie in the
-    UI.
-    """
-
-    _point_name = "WMaxLimPct"
-    _attr_translation_key = "export_limit_pct"
-    _attr_native_unit_of_measurement = PERCENTAGE
-    _attr_native_min_value = 0
-    _attr_native_max_value = EXPORT_LIMIT_HARD_MAX_PCT
-    # Per-instance in __init__, derived from the device's own
-    # WMaxLimPct_SF. This class-level value is only the fallback for a
-    # device that does not implement that register.
-    _attr_native_step = EXPORT_LIMIT_DEFAULT_STEP_PCT
-    _attr_icon = "mdi:transmission-tower-export"
-
-
-class SunSpecExportLimitRevertTimeNumber(_SunSpecWritablePointNumber):
-    """How long the inverter honours an export limit (model 123 WMaxLimPct_RvrtTms).
-
-    Reported by @tisoft in #17: his KACO stops applying the limit after
-    this many seconds, but leaves ``WMaxLim_Ena`` on and ``WMaxLimPct``
-    at the setpoint. Nothing in the integration disagreed with that, so
-    a limit that had already lapsed still looked active. The value is
-    RW in the SunSpec definition ("Timeout period for power limit"), so
-    the fix is to let the user own it instead of re-writing the limit
-    on a timer from an automation.
-
-    0 means no timeout on devices that implement it that way. That is
-    deliberately reachable, and deliberately not the default: the
-    timeout is a dead-man switch. It exists so an inverter driven by a
-    controller that dies returns to normal operation on its own rather
-    than staying throttled indefinitely. Turning it off is a reasonable
-    choice for a permanent export cap and a bad one for a dynamic
-    control loop, and only the user knows which they are building.
-
-    Devices are free to reject or clamp a value, and ``native_value``
-    re-reads what the inverter reports, so an unsupported 0 shows up as
-    the field snapping back rather than as a silent lie.
-    """
-
-    _point_name = "WMaxLimPct_RvrtTms"
-    _attr_translation_key = "export_limit_revert_time"
-    _attr_native_unit_of_measurement = UnitOfTime.SECONDS
-    _attr_native_min_value = 0
-    # uint16 in the model definition.
-    _attr_native_max_value = 65535
-    _attr_native_step = 1
-    _attr_icon = "mdi:timer-sand"
-
-
-class SunSpecPowerFactorNumber(_SunSpecWritablePointNumber):
-    """Inverter power factor setpoint (model 123 OutPFSet).
-
-    Range -1.0 to 1.0 in cos() units. Negative values mean leading
-    (capacitive), positive mean lagging (inductive). Only effective
-    while the matching ``OutPFSet_Ena`` switch is ON.
-    """
-
-    _point_name = "OutPFSet"
-    _attr_translation_key = "power_factor_set"
-    _attr_native_min_value = -1.0
-    _attr_native_max_value = 1.0
-    _attr_native_step = 0.01
-    _attr_icon = "mdi:angle-acute"
-
-    @property
-    def native_value(self) -> Any:
-        v = super().native_value
-        if v is None:
-            return None
-        return round(v, 3)

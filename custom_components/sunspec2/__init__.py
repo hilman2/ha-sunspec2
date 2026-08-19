@@ -53,7 +53,7 @@ from .const import STALE_MODEL_TOLERANCE_SECONDS
 from .const import STARTUP_MESSAGE
 from .const import TRANSPORT_RTU
 from .const import TRANSPORT_TCP
-from .const import WRITE_CONTROLS_MODEL_ID
+from .const import WRITE_CAPABLE_MODEL_IDS
 from .const import WRITE_LOCK_TIMEOUT_SECONDS
 from .errors import CATEGORIES
 from .errors import SunSpecError
@@ -61,8 +61,10 @@ from .errors import TransientError
 from .errors import TransportError
 from .logger import get_adapter
 from .migration import cleanup_excluded_sensor_entities
+from .migration import cleanup_superseded_control_entities
 from .migration import find_blocking_cjne_entries
 from .migration import migrate_from_cjne_sync
+from .write_controls import export_limit_points
 
 SCAN_INTERVAL = timedelta(seconds=30)
 
@@ -214,6 +216,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: SunSpec2ConfigEntry) -> 
     # pass, and before the platform forward so the removals are done
     # before any entity claims an entity_id.
     cleanup_excluded_sensor_entities(hass, entry, log)
+    # #17: and control entities whose model lost to a better one. A
+    # device with both 123 and 704 is driven from 704 since v0.19.0, so
+    # the 123 Number / Switch entities from an earlier release have
+    # nothing feeding them any more.
+    if entry.options.get(CONF_WRITE_BETA_ENABLED, False):
+        cleanup_superseded_control_entities(hass, entry, coordinator.detected_models, log)
 
     # v0.12.0: forward to the write platforms (number, switch) only
     # when the user has opted in via CONF_WRITE_BETA_ENABLED. The
@@ -268,21 +276,26 @@ def _async_register_services(hass: HomeAssistant) -> None:
                 "'Enable experimental write controls (BETA)' first."
             )
         coordinator = target_entry.runtime_data
-        if WRITE_CONTROLS_MODEL_ID not in coordinator.detected_models:
+        # Resolve the model the same way the entities do, so the service
+        # and the UI cannot end up driving different registers on a
+        # device that exposes both 123 and 704.
+        target = export_limit_points(coordinator.detected_models)
+        if target is None:
             raise HomeAssistantError(
-                f"Inverter does not expose SunSpec model {WRITE_CONTROLS_MODEL_ID} "
-                "(immediate controls), cannot set export limit."
+                "Inverter exposes neither SunSpec model 123 (immediate controls) "
+                "nor 704 (DER AC controls), cannot set export limit."
             )
-        points: list[tuple[str, object]] = [("WMaxLimPct", percent)]
+        model_id, percent_point, enable_point = target
+        points: list[tuple[str, object]] = [(percent_point, percent)]
         if enable:
             # Same lock hold as the percentage, not a second one. "Set
             # the limit and turn it on" is one logical operation: with
             # two acquisitions a poll cycle or a competing service call
             # can slip in between and leave the inverter running with
             # the new percentage and the old enable state.
-            points.append(("WMaxLim_Ena", 1))
+            points.append((enable_point, 1))
         try:
-            await coordinator.async_write_points_locked(WRITE_CONTROLS_MODEL_ID, points)
+            await coordinator.async_write_points_locked(model_id, points)
         except SunSpecError as exc:
             raise HomeAssistantError(f"Failed to set export limit: {exc}") from exc
         await coordinator.async_request_refresh()
@@ -596,7 +609,7 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator):
         # would render a tick the user never made and then persist it
         # on their next save.
         self.write_model_filter: set[int] = (
-            {WRITE_CONTROLS_MODEL_ID}
+            set(WRITE_CAPABLE_MODEL_IDS)
             if entry.options.get(CONF_WRITE_BETA_ENABLED, False)
             else set()
         )

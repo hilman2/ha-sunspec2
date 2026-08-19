@@ -249,3 +249,49 @@ def _parse_sunspec_unique_id(unique_id: str, entry_id: str) -> tuple[int, str] |
         return int(model_id), key
     except ValueError:
         return None
+
+
+def cleanup_superseded_control_entities(
+    hass: HomeAssistant, entry: ConfigEntry, detected_models: set[int], log
+) -> list[str]:
+    """Delete control entities no longer backed by an active spec.
+
+    A device exposing both model 123 and model 704 gets its controls
+    from 704 as of v0.19.0, which leaves the model 123 Number and Switch
+    entities from earlier releases in the registry with nothing feeding
+    them. HA keeps a registry entry no platform claims and renders it
+    unavailable forever, which is exactly the complaint @haraldg raised
+    in #17 about the model 123 sensors.
+
+    Only runs while the write beta is enabled. With the flag off there
+    are no active specs at all, and deleting every control entity would
+    destroy the entity ids a user's automations point at just because
+    they toggled the feature off for an afternoon.
+    """
+    from .write_controls import active_specs
+
+    live = {(spec.model_id, spec.point_name) for spec in active_specs(detected_models)}
+    if not live:
+        return []
+
+    registry = er.async_get(hass)
+    removed: list[str] = []
+    for re_entry in list(er.async_entries_for_config_entry(registry, entry.entry_id)):
+        if re_entry.domain not in ("number", "switch", "select"):
+            continue
+        parsed = _parse_sunspec_unique_id(re_entry.unique_id, entry.entry_id)
+        if parsed is None:
+            continue
+        model_id, key = parsed
+        if (model_id, key.rsplit(":", 1)[-1]) in live:
+            continue
+        registry.async_remove(re_entry.entity_id)
+        removed.append(re_entry.entity_id)
+
+    if removed:
+        log.info(
+            "Removed %d control entities superseded by another model: %s",
+            len(removed),
+            ", ".join(removed),
+        )
+    return removed
