@@ -10,6 +10,9 @@ from sunspec2.modbus.client import SunSpecModbusClientTimeout
 from sunspec2.modbus.modbus import ModbusClientError
 
 from custom_components.sunspec2.api import SunSpecApiClient
+from custom_components.sunspec2.const import DEFAULT_SCAN_DELAY_SECONDS
+from custom_components.sunspec2.const import MAX_SCAN_DELAY_SECONDS
+from custom_components.sunspec2.const import MIN_SCAN_DELAY_SECONDS
 from custom_components.sunspec2.errors import DeviceError
 from custom_components.sunspec2.errors import ProtocolError
 from custom_components.sunspec2.errors import TransientError
@@ -221,3 +224,54 @@ async def test_check_port_does_not_mutate_the_process_default_timeout(hass, mock
 
     fake_sock.settimeout.assert_called_once_with(3.0)
     assert socket.getdefaulttimeout() == before
+
+
+# ---------- scan delay (#17) ------------------------------------------------
+
+
+async def test_scan_delay_defaults_and_reaches_pysunspec2(hass, sunspec_modbus_client_mock):
+    """The configured pacing is what scan() is actually called with.
+
+    The coordinator rebuilds its client on every cycle, so scan() runs
+    once per poll and pysunspec2 sleeps this long after every model it
+    walks. A default that never reaches scan() would be invisible.
+    """
+    api = SunSpecApiClient(host="test", port=123, unit_id=1, hass=hass)
+    client = api.get_client()
+
+    assert api._scan_delay == DEFAULT_SCAN_DELAY_SECONDS
+    assert client.scan.call_args.kwargs["delay"] == DEFAULT_SCAN_DELAY_SECONDS
+
+
+async def test_scan_delay_is_configurable(hass, sunspec_modbus_client_mock):
+    api = SunSpecApiClient(host="test", port=123, unit_id=1, hass=hass, scan_delay=0.75)
+    client = api.get_client()
+
+    assert client.scan.call_args.kwargs["delay"] == 0.75
+
+
+async def test_scan_delay_zero_passes_none(hass, sunspec_modbus_client_mock):
+    """0 has to become None: pysunspec2 only skips the sleep on None."""
+    api = SunSpecApiClient(host="test", port=123, unit_id=1, hass=hass, scan_delay=0)
+    client = api.get_client()
+
+    assert client.scan.call_args.kwargs["delay"] is None
+
+
+@pytest.mark.parametrize(
+    ("given", "expected"),
+    [
+        (-1.0, MIN_SCAN_DELAY_SECONDS),
+        (99.0, MAX_SCAN_DELAY_SECONDS),
+        ("0.5", 0.5),
+    ],
+)
+async def test_scan_delay_is_clamped(hass, given, expected):
+    """A corrupted options save must not reach time.sleep() as-is.
+
+    A negative delay raises ValueError deep inside pysunspec2's scan
+    walk, where the error message says nothing about our options form.
+    """
+    api = SunSpecApiClient(host="test", port=123, unit_id=1, hass=hass, scan_delay=given)
+
+    assert api._scan_delay == expected

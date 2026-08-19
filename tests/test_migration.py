@@ -10,6 +10,7 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.sunspec2.const import DOMAIN
 from custom_components.sunspec2.migration import CJNE_DOMAIN
+from custom_components.sunspec2.migration import cleanup_excluded_model_sensors
 from custom_components.sunspec2.migration import find_blocking_cjne_entries
 from custom_components.sunspec2.migration import migrate_from_cjne_sync
 
@@ -266,3 +267,108 @@ async def test_find_blocking_loaded_but_different_host_does_not_block(hass):
     cjne.mock_state(hass, ConfigEntryState.LOADED)
 
     assert find_blocking_cjne_entries(hass, entry) == []
+
+
+# ---------- orphaned control-model sensor cleanup (#17) ---------------------
+
+
+def _register_ours(
+    hass,
+    our_entry: MockConfigEntry,
+    domain: str,
+    suffix: str,
+) -> str:
+    """Register an entity under OUR platform with a given unique_id suffix."""
+    registry = er.async_get(hass)
+    entry = registry.async_get_or_create(
+        domain,
+        DOMAIN,
+        f"{our_entry.entry_id}_{suffix}",
+        suggested_object_id=suffix.lower().replace("-", "_").replace(":", "_"),
+        config_entry=our_entry,
+    )
+    return entry.entity_id
+
+
+async def test_cleanup_removes_orphaned_model_123_sensors(hass):
+    """Sensors left over from a pre-v0.14.0 install of model 123 are removed."""
+    entry = _our_entry(hass)
+    revert = _register_ours(hass, entry, "sensor", "WMaxLimPct_RvrtTms-123-0")
+    limit = _register_ours(hass, entry, "sensor", "WMaxLimPct-123-0")
+
+    removed = cleanup_excluded_model_sensors(hass, entry, _LOG)
+
+    assert sorted(removed) == sorted([revert, limit])
+    registry = er.async_get(hass)
+    assert registry.async_get(revert) is None
+    assert registry.async_get(limit) is None
+
+
+async def test_cleanup_keeps_the_write_entities(hass):
+    """The Number / Switch controls share model 123 and must survive.
+
+    They use the same get_sunspec_unique_id helper, so a cleanup keyed
+    on the unique_id alone would delete the controls the user operates
+    on every single setup while the beta flag is on.
+    """
+    entry = _our_entry(hass)
+    number = _register_ours(hass, entry, "number", "WMaxLimPct-123-0")
+    switch = _register_ours(hass, entry, "switch", "WMaxLim_Ena-123-0")
+    orphan = _register_ours(hass, entry, "sensor", "WMaxLimPct_RvrtTms-123-0")
+
+    removed = cleanup_excluded_model_sensors(hass, entry, _LOG)
+
+    assert removed == [orphan]
+    registry = er.async_get(hass)
+    assert registry.async_get(number) is not None
+    assert registry.async_get(switch) is not None
+
+
+async def test_cleanup_leaves_normal_model_sensors_alone(hass):
+    """Only models in SENSOR_EXCLUDED_MODELS are touched."""
+    entry = _our_entry(hass)
+    watts = _register_ours(hass, entry, "sensor", "W-103-0")
+    mppt = _register_ours(hass, entry, "sensor", "module:0:DCW-160-0")
+
+    removed = cleanup_excluded_model_sensors(hass, entry, _LOG)
+
+    assert removed == []
+    registry = er.async_get(hass)
+    assert registry.async_get(watts) is not None
+    assert registry.async_get(mppt) is not None
+
+
+async def test_cleanup_ignores_foreign_unique_id_formats(hass):
+    """A unique_id we did not write is left alone rather than guessed at."""
+    entry = _our_entry(hass)
+    weird = _register_ours(hass, entry, "sensor", "no-model-suffix")
+    trailing = _register_ours(hass, entry, "sensor", "W-123-notanindex")
+
+    removed = cleanup_excluded_model_sensors(hass, entry, _LOG)
+
+    assert removed == []
+    registry = er.async_get(hass)
+    assert registry.async_get(weird) is not None
+    assert registry.async_get(trailing) is not None
+
+
+async def test_cleanup_does_not_touch_other_config_entries(hass):
+    """A second inverter's orphans are that entry's business, not ours."""
+    ours = _our_entry(hass)
+    other = MockConfigEntry(domain=DOMAIN, data=MOCK_CONFIG, entry_id="ours_bbb")
+    other.add_to_hass(hass)
+    theirs = _register_ours(hass, other, "sensor", "WMaxLimPct_RvrtTms-123-0")
+
+    removed = cleanup_excluded_model_sensors(hass, ours, _LOG)
+
+    assert removed == []
+    assert er.async_get(hass).async_get(theirs) is not None
+
+
+async def test_cleanup_is_idempotent(hass):
+    """Running twice removes nothing the second time."""
+    entry = _our_entry(hass)
+    _register_ours(hass, entry, "sensor", "WMaxLimPct_RvrtTms-123-0")
+
+    assert len(cleanup_excluded_model_sensors(hass, entry, _LOG)) == 1
+    assert cleanup_excluded_model_sensors(hass, entry, _LOG) == []

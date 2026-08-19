@@ -138,6 +138,7 @@ automatically and offer it as a discovered integration on the
 | `unit_id` | Setup, Reconfigure | `1` | Modbus unit / slave ID |
 | `prefix` | Setup, Options | empty | Optional prefix for the device name (e.g. `Garage`, `Cellar`) for multi-inverter setups |
 | `scan_interval` | Setup, Options | `30 s` | How often the coordinator polls the inverter |
+| `scan_delay` | Options | `0.25 s` | Pause between models while walking the SunSpec model tree. The tree is re-scanned on every poll, so it costs this much per model per cycle. Lower it if updates arrive later than `scan_interval`, raise it if scans fail on slow hardware |
 | `models_enabled` | Setup, Options | sensible defaults | Which SunSpec model blocks become sensors |
 | `max_ac_power_kw` | Setup, Options | auto-detect from model 120/121 | Plausibility filter ceiling. Drops readings above this value |
 | `capture_raw_registers` | Options | off | Wraps every Modbus read so the bytes appear in the diagnostics dump |

@@ -4,7 +4,7 @@
 NAME = "SunSpec 2"
 DOMAIN = "sunspec2"
 DOMAIN_DATA = f"{DOMAIN}_data"
-VERSION = "0.15.0"
+VERSION = "0.16.0"
 
 ATTRIBUTION = "Data provided by SunSpec alliance - https://sunspec.org"
 ISSUE_URL = "https://github.com/hilman2/ha-sunspec2/issues"
@@ -105,6 +105,26 @@ EXPORT_LIMIT_HARD_MAX_PCT = 200
 # are never coarser than the old behaviour and never finer than 0.01 %.
 EXPORT_LIMIT_DEFAULT_STEP_PCT = 1.0
 EXPORT_LIMIT_MIN_STEP_PCT = 0.01
+
+# Seconds pysunspec2 sleeps after every model it walks during
+# ``client.scan()``. Inherited verbatim at 0.5 from cjne/ha-sunspec in
+# the phase 0 baseline, never chosen deliberately, and it is the single
+# largest cost of a poll cycle: the coordinator closes its client at the
+# end of every cycle (single-slot inverters need their Modbus slot back),
+# so every cycle rescans the whole model tree from scratch. On an
+# inverter exposing 20+ models that is 10+ seconds of pure sleep per
+# cycle, independent of the network. Reported by @haraldg in #17 as
+# "HA often needs quite a bit longer to update the values than expected"
+# at a 30 s interval.
+#
+# The delay is not pointless: it paces the request stream for slow
+# devices (KACO Powador on 100 Mbit was the original reason the setup
+# timeout had to grow), which is why it stays configurable rather than
+# being removed. 0.25 halves the cost while keeping the pacing.
+CONF_SCAN_DELAY = "scan_delay"
+DEFAULT_SCAN_DELAY_SECONDS = 0.25
+MIN_SCAN_DELAY_SECONDS = 0.0
+MAX_SCAN_DELAY_SECONDS = 2.0
 
 # SunSpec models whose points are control setpoints, not measurements.
 # The sensor platform skips them entirely. Two reasons, both learned

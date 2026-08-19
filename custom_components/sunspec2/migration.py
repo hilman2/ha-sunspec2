@@ -44,6 +44,7 @@ from homeassistant.helpers import entity_registry as er
 from .const import CONF_HOST
 from .const import CONF_PORT
 from .const import CONF_UNIT_ID
+from .const import SENSOR_EXCLUDED_MODELS
 
 CJNE_DOMAIN = "sunspec"
 """The legacy domain we migrate FROM."""
@@ -170,3 +171,76 @@ def migrate_from_cjne_sync(
             migrated += 1
 
     return (migrated, skipped_loaded, errors)
+
+
+def cleanup_excluded_model_sensors(hass: HomeAssistant, entry: ConfigEntry, log) -> list[str]:
+    """Delete sensor entities for models the sensor platform no longer builds.
+
+    Reported by @haraldg in #17 after updating 0.13.3 -> 0.15.0: points
+    like ``WMaxLimPct_RvrtTms`` sat in the UI as "Unavailable" forever.
+
+    v0.14.0 added ``SENSOR_EXCLUDED_MODELS`` and the sensor platform
+    stopped building entities for model 123, because its writable points
+    duplicate the Number / Switch controls and five of its points carry
+    units HA cannot map. Anyone who had ticked 123 before that release
+    already had all 21 points in the registry, and a registry entry
+    whose platform never claims it again does not disappear on its own:
+    HA keeps it and renders it unavailable. There is nothing left to
+    feed those entities, so removing them is the only way they stop
+    being noise.
+
+    Scoped to ``domain == "sensor"`` on purpose. The Number and Switch
+    write entities carry model 123 in their unique_id too (same
+    ``get_sunspec_unique_id`` helper), and those are the entities the
+    user actually operates. Matching on the unique_id alone would
+    delete the controls on every setup while the beta flag is on.
+
+    Runs on every setup rather than behind a one-shot migration
+    version. It is a registry scan over one config entry's entities
+    and it is idempotent, and a user who re-ticks 123 in an older
+    version and downgrades back would otherwise keep the orphans
+    forever.
+
+    Returns the list of removed entity ids.
+    """
+    registry = er.async_get(hass)
+    removed: list[str] = []
+
+    # Snapshot before mutating: async_remove writes to the same dict.
+    for re_entry in list(er.async_entries_for_config_entry(registry, entry.entry_id)):
+        if re_entry.domain != "sensor":
+            continue
+        model_id = _model_id_from_unique_id(re_entry.unique_id)
+        if model_id is None or model_id not in SENSOR_EXCLUDED_MODELS:
+            continue
+        registry.async_remove(re_entry.entity_id)
+        removed.append(re_entry.entity_id)
+
+    if removed:
+        log.info(
+            "Removed %d orphaned sensor entities for control-only models %s: %s",
+            len(removed),
+            sorted(SENSOR_EXCLUDED_MODELS),
+            ", ".join(removed),
+        )
+    return removed
+
+
+def _model_id_from_unique_id(unique_id: str) -> int | None:
+    """Extract the model id from ``{entry_id}_{key}-{model_id}-{model_index}``.
+
+    Parses from the right because the key is the only free-form part and
+    is the one that can contain a separator: repeating-group points are
+    flattened to ``group:idx:point`` in models.py. The two trailing
+    fields are always integers, so a suffix that does not parse means
+    the unique_id was not written by ``get_sunspec_unique_id`` and is
+    left alone rather than guessed at.
+    """
+    parts = unique_id.rsplit("-", 2)
+    if len(parts) != 3:
+        return None
+    try:
+        int(parts[2])
+        return int(parts[1])
+    except ValueError:
+        return None
