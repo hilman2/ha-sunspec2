@@ -138,7 +138,7 @@ automatically and offer it as a discovered integration on the
 | `unit_id` | Setup, Reconfigure | `1` | Modbus unit / slave ID |
 | `prefix` | Setup, Options | empty | Optional prefix for the device name (e.g. `Garage`, `Cellar`) for multi-inverter setups |
 | `scan_interval` | Setup, Options | `30 s` | How often the coordinator polls the inverter |
-| `scan_delay` | Options | `0.25 s` | Pause between models while walking the SunSpec model tree. The tree is re-scanned on every poll, so it costs this much per model per cycle. Lower it if updates arrive later than `scan_interval`, raise it if scans fail on slow hardware |
+| `scan_delay` | Options | `0.5 s` | Pause between models while scanning the SunSpec model tree. The tree is scanned about once every 10 minutes, not on every poll, so this costs almost nothing in normal operation. Raise it if scans fail on slow hardware |
 | `models_enabled` | Setup, Options | sensible defaults | Which SunSpec model blocks become sensors |
 | `max_ac_power_kw` | Setup, Options | auto-detect from model 120/121 | Plausibility filter ceiling. Drops readings above this value |
 | `capture_raw_registers` | Options | off | Wraps every Modbus read so the bytes appear in the diagnostics dump |
@@ -153,15 +153,24 @@ loop, by default every 30 seconds:
    gateway: KACO Powador and many other devices only allow one
    Modbus TCP slot at a time, so two coordinators behind one
    gateway would race each other without this lock.
-2. Walk every enabled SunSpec model and read its valid points.
-3. On the first successful cycle: cache the inverter's full model
+2. Rebuild the model layout. pysunspec2 only fills `client.models`
+   during a scan, and step 5 throws the client away every cycle, so
+   this used to mean walking the whole model tree on every poll:
+   `1 + 2n` Modbus round trips plus a `scan_delay` pause per model,
+   twice a minute, to rediscover a layout that only changes on a
+   firmware update. The layout is now cached and restored with a
+   single validating read, and genuinely re-scanned about every 10
+   minutes (or immediately after any failed cycle, since a layout
+   read at addresses that just stopped answering is a suspect).
+3. Walk every enabled SunSpec model and read its valid points.
+4. On the first successful cycle: cache the inverter's full model
    list, the common-block device info, and the auto-detected
    nameplate.
-4. On a successful cycle: reset every per-category failure counter
+5. On a successful cycle: reset every per-category failure counter
    and clear any active Repairs issues. If the previous run had
    failed, log a single recovery WARNING so the user can correlate
    the recovery moment in the log.
-5. Close the TCP socket with `SO_LINGER=0` so the kernel sends a
+6. Close the TCP socket with `SO_LINGER=0` so the kernel sends a
    TCP RST instead of a polite FIN. Single-slot inverters free
    their slot immediately on RST instead of waiting on their own
    keep-alive.

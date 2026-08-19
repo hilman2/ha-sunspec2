@@ -8,6 +8,7 @@ https://github.com/cjne/ha-sunspec
 import asyncio
 import logging
 from collections import deque
+from datetime import datetime
 from datetime import timedelta
 
 from homeassistant.components.persistent_notification import (
@@ -48,7 +49,7 @@ from .const import PLATFORMS
 from .const import PLATFORMS_READ_ONLY
 from .const import SERVICE_SET_EXPORT_LIMIT
 from .const import STALE_DATA_TOLERANCE_CYCLES
-from .const import STALE_MODEL_TOLERANCE_CYCLES
+from .const import STALE_MODEL_TOLERANCE_SECONDS
 from .const import STARTUP_MESSAGE
 from .const import TRANSPORT_RTU
 from .const import TRANSPORT_TCP
@@ -534,17 +535,21 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator):
         # hand. ``None`` means the inverter does not expose either
         # model and we have nothing to suggest.
         self.detected_max_ac_power_kw: float | None = None
-        # Per-model "missing for N consecutive cycles" counter (cjne
-        # issue #202). Once a model has been seen, every subsequent
-        # cycle that does NOT see it bumps its counter; a successful
-        # re-detection resets the counter to zero. When the counter
-        # crosses ``STALE_MODEL_TOLERANCE_CYCLES`` we raise a Repairs
-        # issue suggesting the user remove the related device entry,
-        # because the inverter has stopped exposing that model entirely
-        # (typical for SMA Tripower X12 with DER 714 after a firmware
-        # update). The decision to actually remove the device stays
-        # with the user.
-        self._consecutive_missing_model_cycles: dict[int, int] = {}
+        # Per-model "first cycle that stopped seeing it" timestamp (cjne
+        # issue #202). Once a model has been seen, the first cycle that
+        # does NOT see it records the time; a successful re-detection
+        # clears the entry. When a model has been gone for
+        # ``STALE_MODEL_TOLERANCE_SECONDS`` we raise a Repairs issue
+        # suggesting the user remove the related device entry, because
+        # the inverter has stopped exposing that model entirely (typical
+        # for SMA Tripower X12 with DER 714 after a firmware update).
+        # The decision to actually remove the device stays with the user.
+        #
+        # Wall-clock rather than a cycle counter: the model tree is only
+        # rescanned every MODEL_STRUCTURE_TTL_SECONDS now, so counting
+        # cycles would mean counting events that mostly cannot observe
+        # the thing being counted.
+        self._model_missing_since: dict[int, datetime] = {}
         # Per-cycle scratch sets populated by _run_one_update_cycle
         # and consumed by _after_successful_cycle. They live as
         # instance state instead of being passed through the call
@@ -838,44 +843,47 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator):
                 len(self._new_this_cycle),
                 sorted(self._new_this_cycle),
             )
-            # Reset any stale-counter for re-appearing models so
+            # Clear the missing-since stamp for re-appearing models so
             # a flapping device doesn't accumulate.
             for mid in self._new_this_cycle:
-                self._consecutive_missing_model_cycles.pop(mid, None)
-        # cjne issue #202: track per-model "missing for N cycles"
-        # and raise a Repairs issue once a previously-known model
-        # has been gone for STALE_MODEL_TOLERANCE_CYCLES in a row.
-        # Models that re-appear get their counter cleared.
+                self._model_missing_since.pop(mid, None)
+        # cjne issue #202: track how long each model has been missing
+        # and raise a Repairs issue once a previously-known model has
+        # been gone for STALE_MODEL_TOLERANCE_SECONDS. Models that
+        # re-appear get their stamp cleared.
         self._update_stale_model_tracking()
         return data
 
     def _update_stale_model_tracking(self) -> None:
-        """Increment missing-cycle counters and surface long-gone models."""
-        # Bump counters for models that should still be there but
-        # weren't seen this cycle.
+        """Stamp newly-missing models and surface long-gone ones."""
+        now = dt_util.utcnow()
+        # Stamp models that should still be there but weren't seen this
+        # cycle. setdefault, not assignment: the stamp records when the
+        # model went missing, so re-stamping it on every later cycle
+        # would keep resetting the clock and the threshold would never
+        # be reached.
         for mid in self._missing_this_cycle:
-            self._consecutive_missing_model_cycles[mid] = (
-                self._consecutive_missing_model_cycles.get(mid, 0) + 1
-            )
-        # Reset counters for models that ARE present this cycle.
-        for mid in list(self._consecutive_missing_model_cycles):
+            self._model_missing_since.setdefault(mid, now)
+        # Clear stamps for models that ARE present this cycle.
+        for mid in list(self._model_missing_since):
             if mid in self.detected_models:
-                self._consecutive_missing_model_cycles.pop(mid)
+                self._model_missing_since.pop(mid)
                 # Also clear any open Repairs issue for this model.
                 ir.async_delete_issue(self.hass, DOMAIN, f"{self.entry.entry_id}_stale_model_{mid}")
-        # Raise / refresh Repairs issues for models that have crossed
-        # the threshold. Idempotent: HA's issue registry treats a
-        # second create_issue call with the same id as an update.
-        for mid, count in self._consecutive_missing_model_cycles.items():
-            if count >= STALE_MODEL_TOLERANCE_CYCLES:
-                self._raise_stale_model_issue(mid, count)
+        # Raise / refresh Repairs issues for models past the threshold.
+        # Idempotent: HA's issue registry treats a second create_issue
+        # call with the same id as an update.
+        for mid, since in self._model_missing_since.items():
+            missing_for = (now - since).total_seconds()
+            if missing_for >= STALE_MODEL_TOLERANCE_SECONDS:
+                self._raise_stale_model_issue(mid, missing_for)
         # Per-cycle scratch is consumed - reset for the next cycle so
         # an unrelated coordinator refresh path that doesn't run
         # _run_one_update_cycle can't accidentally use stale data.
         self._missing_this_cycle = set()
         self._new_this_cycle = set()
 
-    def _raise_stale_model_issue(self, model_id: int, missing_cycles: int) -> None:
+    def _raise_stale_model_issue(self, model_id: int, missing_seconds: float) -> None:
         """Raise a Repairs issue suggesting the user remove a stale device."""
         ir.async_create_issue(
             self.hass,
@@ -889,7 +897,7 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator):
                 "port": str(self.entry.data.get(CONF_PORT, "?")),
                 "unit_id": str(self.entry.data.get(CONF_UNIT_ID, "?")),
                 "model_id": str(model_id),
-                "missing_cycles": str(missing_cycles),
+                "missing_minutes": str(int(missing_seconds // 60)),
             },
         )
 
@@ -1003,5 +1011,5 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator):
         # cjne #202: clear any open stale-model issues so the Repairs
         # panel doesn't carry ghosts after the model came back or
         # the integration was removed.
-        for mid in list(self._consecutive_missing_model_cycles):
+        for mid in list(self._model_missing_since):
             ir.async_delete_issue(self.hass, DOMAIN, f"{self.entry.entry_id}_stale_model_{mid}")
