@@ -1,7 +1,13 @@
+<picture>
+  <source media="(prefers-color-scheme: dark)"
+          srcset="custom_components/sunspec2/brand/dark_logo@2x.png">
+  <img alt="SunSpec 2" src="custom_components/sunspec2/brand/logo@2x.png" width="360">
+</picture>
+
 # SunSpec 2
 
 [![CI](https://github.com/hilman2/ha-sunspec2/actions/workflows/ci.yml/badge.svg)](https://github.com/hilman2/ha-sunspec2/actions/workflows/ci.yml)
-[![hacs](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://github.com/hilman2/ha-sunspec2)
+[![hacs](https://img.shields.io/badge/HACS-Default-41BDF5.svg)](https://github.com/hacs/default)
 [![GitHub release](https://img.shields.io/github/v/release/hilman2/ha-sunspec2)](https://github.com/hilman2/ha-sunspec2/releases)
 [![Quality Scale](https://img.shields.io/badge/Quality%20Scale-Gold-FFD700.svg)](https://developers.home-assistant.io/docs/core/integration-quality-scale/)
 
@@ -105,19 +111,20 @@ brand-agnostic by design.
 
 ## Installation via HACS
 
-1. **HACS** -> three-dot menu -> **Custom repositories**
-2. URL: `https://github.com/hilman2/ha-sunspec2`, Type: `Integration`
-3. In HACS find **SunSpec Modbus** -> **Download**
-4. **Restart Home Assistant**
-5. **Settings -> Devices & Services -> Add Integration -> SunSpec Modbus**
-6. Pick the connection type:
+This integration is in the **default HACS store**, so there is no
+custom repository to add.
+
+1. **HACS** -> search for **SunSpec Modbus** -> **Download**
+2. **Restart Home Assistant**
+3. **Settings -> Devices & Services -> Add Integration -> SunSpec Modbus**
+4. Pick the connection type:
    - **Enter IP address manually** for Modbus TCP if you know the IP
    - **Scan my network** for Modbus TCP if you don't know the IP
    - **Connect via serial port** for Modbus RTU over RS-485
      (typically a USB-to-RS-485 adapter on `/dev/ttyUSB0` or `COM3`)
-7. Confirm the connection details (port 502 + unit ID 1 for TCP, or
+5. Confirm the connection details (port 502 + unit ID 1 for TCP, or
    serial port + baud rate + parity + unit ID for RTU)
-8. Pick the SunSpec models you want sensors for and optionally enter
+6. Pick the SunSpec models you want sensors for and optionally enter
    the inverter's nameplate AC power for the plausibility filter
 
 If your inverter is on the same LAN as Home Assistant and uses one of
