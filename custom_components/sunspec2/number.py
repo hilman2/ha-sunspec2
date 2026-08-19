@@ -8,11 +8,12 @@ when:
 2. The inverter actually exposes SunSpec model 123 (Immediate
    Controls), checked against ``coordinator.detected_models``.
 
-The Number platform exposes the two writable continuous-value
-points from model 123: ``WMaxLimPct`` (export limit as percent of
-WMax; 100 is full nameplate, higher values are allowed because
-some firmware uses them to mean "no limit") and ``OutPFSet``
-(power factor setpoint, -1.0..1.0).
+The Number platform exposes the writable continuous-value points
+from model 123: ``WMaxLimPct`` (export limit as percent of WMax;
+100 is full nameplate, higher values are allowed because some
+firmware uses them to mean "no limit"), ``WMaxLimPct_RvrtTms``
+(how long the inverter honours that limit before reverting), and
+``OutPFSet`` (power factor setpoint, -1.0..1.0).
 The matching enable/disable booleans live on the Switch platform
 because mixing modes in one entity makes the UI confusing.
 
@@ -43,6 +44,7 @@ from typing import Any
 from homeassistant.components.number import NumberEntity
 from homeassistant.components.number import NumberMode
 from homeassistant.const import PERCENTAGE
+from homeassistant.const import UnitOfTime
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity import EntityCategory
@@ -141,6 +143,7 @@ async def async_setup_entry(
                 **common,
                 native_step=_step_from_scale_factor(model_wrapper, "WMaxLimPct"),
             ),
+            SunSpecExportLimitRevertTimeNumber(**common),
             SunSpecPowerFactorNumber(**common),
         ]
     )
@@ -241,6 +244,40 @@ class SunSpecExportLimitNumber(_SunSpecWritablePointNumber):
     # device that does not implement that register.
     _attr_native_step = EXPORT_LIMIT_DEFAULT_STEP_PCT
     _attr_icon = "mdi:transmission-tower-export"
+
+
+class SunSpecExportLimitRevertTimeNumber(_SunSpecWritablePointNumber):
+    """How long the inverter honours an export limit (model 123 WMaxLimPct_RvrtTms).
+
+    Reported by @tisoft in #17: his KACO stops applying the limit after
+    this many seconds, but leaves ``WMaxLim_Ena`` on and ``WMaxLimPct``
+    at the setpoint. Nothing in the integration disagreed with that, so
+    a limit that had already lapsed still looked active. The value is
+    RW in the SunSpec definition ("Timeout period for power limit"), so
+    the fix is to let the user own it instead of re-writing the limit
+    on a timer from an automation.
+
+    0 means no timeout on devices that implement it that way. That is
+    deliberately reachable, and deliberately not the default: the
+    timeout is a dead-man switch. It exists so an inverter driven by a
+    controller that dies returns to normal operation on its own rather
+    than staying throttled indefinitely. Turning it off is a reasonable
+    choice for a permanent export cap and a bad one for a dynamic
+    control loop, and only the user knows which they are building.
+
+    Devices are free to reject or clamp a value, and ``native_value``
+    re-reads what the inverter reports, so an unsupported 0 shows up as
+    the field snapping back rather than as a silent lie.
+    """
+
+    _point_name = "WMaxLimPct_RvrtTms"
+    _attr_translation_key = "export_limit_revert_time"
+    _attr_native_unit_of_measurement = UnitOfTime.SECONDS
+    _attr_native_min_value = 0
+    # uint16 in the model definition.
+    _attr_native_max_value = 65535
+    _attr_native_step = 1
+    _attr_icon = "mdi:timer-sand"
 
 
 class SunSpecPowerFactorNumber(_SunSpecWritablePointNumber):

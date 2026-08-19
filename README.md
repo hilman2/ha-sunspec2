@@ -304,6 +304,7 @@ HA automations.
 | Entity | Type | SunSpec point | What it does |
 |---|---|---|---|
 | Export limit | Number (0..200 %) | model 123 `WMaxLimPct` | Caps AC output to N % of nameplate. Set to 0 for zero-export operation. Above 100 is allowed because some firmware uses e.g. 110 to mean "no limit"; the inverter clamps what it will not honour |
+| Export limit revert time | Number (0..65535 s) | model 123 `WMaxLimPct_RvrtTms` | How long the inverter honours the limit before reverting on its own. Some devices lapse silently: the limit stops applying while `WMaxLim_Ena` and `WMaxLimPct` still report it as active (KACO in #17). 0 disables the timeout where the device supports it, which removes a dead-man switch, so leave it alone unless you want a permanent cap |
 | Power factor setpoint | Number (-1..1) | model 123 `OutPFSet` | Cos-phi setpoint for reactive power control |
 | Export limit enabled | Switch | model 123 `WMaxLim_Ena` | The export limit only takes effect while this switch is ON |
 | Power factor enabled | Switch | model 123 `OutPFSet_Ena` | The PF setpoint only takes effect while this switch is ON |
@@ -315,6 +316,14 @@ automations can flip the export limit without going through a
 Number entity.
 
 ### Why it's opt-in
+
+Model 123's remaining points (the `*_WinTms` / `*_RmpTms` timers and
+the VAR percentage enums) are exposed as read-only sensors, so you can
+see when a limit is about to lapse. Its writable percentage points are
+not: a sensor there would duplicate the control above and disagree with
+it mid-write, and `% WMax` / `cos()` / `% VArMax` / `% VArAval` have no
+Home Assistant unit, which would start long-term statistics under a unit
+the recorder can never convert.
 
 - **Vendor deviations**: SunSpec model 123 is part of the standard
   but vendors are inconsistent about which firmware revisions

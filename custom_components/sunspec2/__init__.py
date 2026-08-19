@@ -60,7 +60,7 @@ from .errors import SunSpecError
 from .errors import TransientError
 from .errors import TransportError
 from .logger import get_adapter
-from .migration import cleanup_excluded_model_sensors
+from .migration import cleanup_excluded_sensor_entities
 from .migration import find_blocking_cjne_entries
 from .migration import migrate_from_cjne_sync
 
@@ -206,14 +206,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: SunSpec2ConfigEntry) -> 
     # platform setup that follows resolve to the migrated entity.
     _maybe_migrate_from_cjne(hass, entry, log)
 
-    # #17: drop sensor entities the sensor platform stopped building
-    # when v0.14.0 introduced SENSOR_EXCLUDED_MODELS. Without this they
-    # linger in the registry as permanently "Unavailable" rows. Runs
+    # #17: drop sensor entities the sensor platform no longer builds.
+    # Without this they linger in the registry as permanently
+    # "Unavailable" rows. Runs
     # after the cjne migration so freshly retargeted orphans from a
     # cjne install that had model 123 ticked are cleaned up in the same
     # pass, and before the platform forward so the removals are done
     # before any entity claims an entity_id.
-    cleanup_excluded_model_sensors(hass, entry, log)
+    cleanup_excluded_sensor_entities(hass, entry, log)
 
     # v0.12.0: forward to the write platforms (number, switch) only
     # when the user has opted in via CONF_WRITE_BETA_ENABLED. The

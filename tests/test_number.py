@@ -41,7 +41,7 @@ async def _setup_write_entry(hass, beta=True):
 
 
 async def test_number_entities_appear_with_beta_on(hass, sunspec_write_client_mock):
-    """Both model 123 Number entities register when the beta flag is on.
+    """All model 123 Number entities register when the beta flag is on.
 
     MOCK_CONFIG_WRITE deliberately does NOT list 123 in its enabled
     models, which is the realistic case: 123 is not in DEFAULT_MODELS,
@@ -53,9 +53,9 @@ async def test_number_entities_appear_with_beta_on(hass, sunspec_write_client_mo
 
     entities = _live_entities(hass, "number")
 
-    assert len(entities) == 2
+    assert len(entities) == 3
     points = {e._point_name for e in entities}
-    assert points == {"WMaxLimPct", "OutPFSet"}
+    assert points == {"WMaxLimPct", "WMaxLimPct_RvrtTms", "OutPFSet"}
     # The user's own selection stays untouched - only the separate
     # write filter pulled 123 in.
     coordinator = entry.runtime_data
@@ -72,23 +72,60 @@ async def test_beta_off_does_not_poll_model_123(hass, sunspec_write_client_mock)
     assert 123 not in coordinator.data
 
 
-async def test_model_123_does_not_become_sensors(hass, sunspec_write_client_mock):
-    """Polling 123 must not spawn 21 read-only sensors.
+async def test_model_123_control_points_do_not_become_sensors(hass, sunspec_write_client_mock):
+    """The controls and the unmappable-unit points stay off the sensor platform.
 
-    Five of its points carry units HA has no mapping for ("% WMax",
-    "cos()", "% VArMax", "% VArAval"). sensor.py would fall back to the
-    raw SunSpec string as the native unit with state_class MEASUREMENT,
-    starting a long-term statistics series under a unit the recorder
-    can never convert or merge. The writable points are Number and
-    Switch entities anyway.
+    A sensor for a writable point is a read-only duplicate of a control
+    the user can operate, and the two disagree during a write. The
+    percentage points carry units HA has no mapping for ("% WMax",
+    "cos()", "% VArMax", "% VArAval"), where sensor.py falls back to the
+    raw SunSpec string as the native unit with state_class MEASUREMENT
+    and starts a long-term statistics series the recorder can never
+    convert or merge.
     """
     entry = await _setup_write_entry(hass)
     assert 123 in entry.runtime_data.data, "precondition: 123 really is polled"
 
     sensor_ids = [e.entity_id for e in _live_entities(hass, "sensor")]
 
-    assert not any("wmaxlimpct" in eid or "outpfset" in eid for eid in sensor_ids)
+    for excluded in (
+        "wmaxlimpct_123",
+        "outpfset_123",
+        "wmaxlim_ena",
+        "outpfset_ena",
+        "varmaxpct",
+        "varavalpct",
+        "varwmaxpct",
+    ):
+        assert not any(eid.endswith(excluded) for eid in sensor_ids), excluded
     assert sensor_ids, "the other models still produce sensors"
+
+
+async def test_model_123_timer_points_do_become_sensors(hass, sunspec_write_client_mock):
+    """The Secs timers come back as sensors (v0.18.0, #17).
+
+    @tisoft's KACO drops the export limit after WMaxLimPct_RvrtTms
+    seconds while WMaxLim_Ena and WMaxLimPct keep reporting the old
+    setpoint, so these are the only points that reveal a limit has
+    lapsed. The model-wide exclusion took them out as collateral.
+    """
+    await _setup_write_entry(hass)
+
+    sensor_ids = [e.entity_id for e in _live_entities(hass, "sensor")]
+
+    assert any(eid.endswith("wmaxlimpct_rmptms") for eid in sensor_ids)
+    assert any(eid.endswith("wmaxlimpct_wintms") for eid in sensor_ids)
+
+
+async def test_revert_time_is_a_number_not_a_sensor(hass, sunspec_write_client_mock):
+    """WMaxLimPct_RvrtTms is writable, so it is a control, not a reading."""
+    await _setup_write_entry(hass)
+
+    sensor_ids = [e.entity_id for e in _live_entities(hass, "sensor")]
+    number_points = {e._point_name for e in _live_entities(hass, "number")}
+
+    assert "WMaxLimPct_RvrtTms" in number_points
+    assert not any(eid.endswith("wmaxlimpct_rvrttms") for eid in sensor_ids)
 
 
 async def test_number_entities_absent_with_beta_off(hass, sunspec_write_client_mock):

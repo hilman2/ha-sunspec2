@@ -4,7 +4,7 @@
 NAME = "SunSpec 2"
 DOMAIN = "sunspec2"
 DOMAIN_DATA = f"{DOMAIN}_data"
-VERSION = "0.17.0"
+VERSION = "0.18.0"
 
 ATTRIBUTION = "Data provided by SunSpec alliance - https://sunspec.org"
 ISSUE_URL = "https://github.com/hilman2/ha-sunspec2/issues"
@@ -152,19 +152,61 @@ MAX_SCAN_DELAY_SECONDS = 2.0
 # of the steady state: a scan every 10 minutes can afford to be slow.
 MODEL_STRUCTURE_TTL_SECONDS = 600
 
-# SunSpec models whose points are control setpoints, not measurements.
-# The sensor platform skips them entirely. Two reasons, both learned
-# from #17:
+# Points the sensor platform must not build an entity for, per model.
 #
-#   * Their writable points are already exposed as Number / Switch
-#     entities, so a sensor would be a read-only duplicate of a
-#     control the user can actually operate.
-#   * Five of model 123's points carry units HA has no equivalent for
-#     ("% WMax", "cos()", "% VArMax", "% VArAval"). sensor.py falls
-#     back to the raw SunSpec string as the native unit with
-#     state_class MEASUREMENT, which starts a long-term statistics
-#     series under a unit the recorder can never convert or merge.
-SENSOR_EXCLUDED_MODELS = frozenset({WRITE_CONTROLS_MODEL_ID})
+# This started life as SENSOR_EXCLUDED_MODELS, which skipped model 123
+# wholesale. That was too blunt, and @tisoft found the hole in #17: his
+# KACO silently drops the export limit after WMaxLimPct_RvrtTms seconds
+# while WMaxLim_Ena and WMaxLimPct keep reporting the old setpoint, so
+# the integration shows a limit that is no longer in force. The points
+# that expose the timer are exactly the ones a user needs to notice
+# that, and they were the collateral damage of the model-wide skip.
+#
+# Only two kinds of point actually have to go:
+#
+#   * Points already exposed as a Number or Switch. A sensor there is a
+#     read-only duplicate of a control the user can operate, and the
+#     two would disagree during a write.
+#   * Points whose SunSpec unit has no HA equivalent ("% WMax",
+#     "% VArMax", "% VArAval"). sensor.py falls back to the raw SunSpec
+#     string as the native unit with state_class MEASUREMENT, which
+#     starts a long-term statistics series under a unit the recorder
+#     can never convert or merge.
+#
+# Everything else in model 123 is a "Secs" timer or an enum16, both of
+# which HA maps cleanly, so they come back as diagnostic sensors.
+SENSOR_EXCLUDED_POINTS: dict[int, frozenset[str]] = {
+    WRITE_CONTROLS_MODEL_ID: frozenset(
+        {
+            # Exposed as Number / Switch entities.
+            "Conn",
+            "WMaxLimPct",
+            "WMaxLim_Ena",
+            "OutPFSet",
+            "OutPFSet_Ena",
+            "WMaxLimPct_RvrtTms",
+            # Units HA has no equivalent for.
+            "VArWMaxPct",
+            "VArMaxPct",
+            "VArAvalPct",
+        }
+    )
+}
+
+
+def is_excluded_sensor_point(model_id: int, key: str) -> bool:
+    """True if the sensor platform must not build an entity for this point.
+
+    ``key`` is the flattened models.py key, so a repeating-group point
+    arrives as ``group:idx:point``. Only the trailing point name is
+    matched, because the exclusion is a property of the point, not of
+    the group instance it happens to live in.
+    """
+    excluded = SENSOR_EXCLUDED_POINTS.get(model_id)
+    if not excluded:
+        return False
+    return key.rsplit(":", 1)[-1] in excluded
+
 
 # Service action names. The service handler reads the entry by
 # entry_id from the service-call data so multi-inverter installs

@@ -10,7 +10,7 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.sunspec2.const import DOMAIN
 from custom_components.sunspec2.migration import CJNE_DOMAIN
-from custom_components.sunspec2.migration import cleanup_excluded_model_sensors
+from custom_components.sunspec2.migration import cleanup_excluded_sensor_entities
 from custom_components.sunspec2.migration import find_blocking_cjne_entries
 from custom_components.sunspec2.migration import migrate_from_cjne_sync
 
@@ -296,7 +296,7 @@ async def test_cleanup_removes_orphaned_model_123_sensors(hass):
     revert = _register_ours(hass, entry, "sensor", "WMaxLimPct_RvrtTms-123-0")
     limit = _register_ours(hass, entry, "sensor", "WMaxLimPct-123-0")
 
-    removed = cleanup_excluded_model_sensors(hass, entry, _LOG)
+    removed = cleanup_excluded_sensor_entities(hass, entry, _LOG)
 
     assert sorted(removed) == sorted([revert, limit])
     registry = er.async_get(hass)
@@ -316,7 +316,7 @@ async def test_cleanup_keeps_the_write_entities(hass):
     switch = _register_ours(hass, entry, "switch", "WMaxLim_Ena-123-0")
     orphan = _register_ours(hass, entry, "sensor", "WMaxLimPct_RvrtTms-123-0")
 
-    removed = cleanup_excluded_model_sensors(hass, entry, _LOG)
+    removed = cleanup_excluded_sensor_entities(hass, entry, _LOG)
 
     assert removed == [orphan]
     registry = er.async_get(hass)
@@ -325,12 +325,12 @@ async def test_cleanup_keeps_the_write_entities(hass):
 
 
 async def test_cleanup_leaves_normal_model_sensors_alone(hass):
-    """Only models in SENSOR_EXCLUDED_MODELS are touched."""
+    """Only points in SENSOR_EXCLUDED_POINTS are touched."""
     entry = _our_entry(hass)
     watts = _register_ours(hass, entry, "sensor", "W-103-0")
     mppt = _register_ours(hass, entry, "sensor", "module:0:DCW-160-0")
 
-    removed = cleanup_excluded_model_sensors(hass, entry, _LOG)
+    removed = cleanup_excluded_sensor_entities(hass, entry, _LOG)
 
     assert removed == []
     registry = er.async_get(hass)
@@ -344,7 +344,7 @@ async def test_cleanup_ignores_foreign_unique_id_formats(hass):
     weird = _register_ours(hass, entry, "sensor", "no-model-suffix")
     trailing = _register_ours(hass, entry, "sensor", "W-123-notanindex")
 
-    removed = cleanup_excluded_model_sensors(hass, entry, _LOG)
+    removed = cleanup_excluded_sensor_entities(hass, entry, _LOG)
 
     assert removed == []
     registry = er.async_get(hass)
@@ -359,7 +359,7 @@ async def test_cleanup_does_not_touch_other_config_entries(hass):
     other.add_to_hass(hass)
     theirs = _register_ours(hass, other, "sensor", "WMaxLimPct_RvrtTms-123-0")
 
-    removed = cleanup_excluded_model_sensors(hass, ours, _LOG)
+    removed = cleanup_excluded_sensor_entities(hass, ours, _LOG)
 
     assert removed == []
     assert er.async_get(hass).async_get(theirs) is not None
@@ -370,5 +370,47 @@ async def test_cleanup_is_idempotent(hass):
     entry = _our_entry(hass)
     _register_ours(hass, entry, "sensor", "WMaxLimPct_RvrtTms-123-0")
 
-    assert len(cleanup_excluded_model_sensors(hass, entry, _LOG)) == 1
-    assert cleanup_excluded_model_sensors(hass, entry, _LOG) == []
+    assert len(cleanup_excluded_sensor_entities(hass, entry, _LOG)) == 1
+    assert cleanup_excluded_sensor_entities(hass, entry, _LOG) == []
+
+
+async def test_cleanup_keeps_the_model_123_timer_sensors(hass):
+    """The timers came back in v0.18.0 and must survive the cleanup pass.
+
+    @tisoft needs exactly these to see that a limit has lapsed (#17).
+    A cleanup still keyed on "model 123" would delete them on every
+    setup, which is why it shares the platform's predicate instead of
+    keeping its own copy of the rule.
+    """
+    entry = _our_entry(hass)
+    ramp = _register_ours(hass, entry, "sensor", "WMaxLimPct_RmpTms-123-0")
+    window = _register_ours(hass, entry, "sensor", "WMaxLimPct_WinTms-123-0")
+    pf_revert = _register_ours(hass, entry, "sensor", "OutPFSet_RvrtTms-123-0")
+
+    removed = cleanup_excluded_sensor_entities(hass, entry, _LOG)
+
+    assert removed == []
+    registry = er.async_get(hass)
+    for entity_id in (ramp, window, pf_revert):
+        assert registry.async_get(entity_id) is not None
+
+
+async def test_cleanup_removes_unmappable_unit_points(hass):
+    """% VArMax and friends have no HA unit and must stay out."""
+    entry = _our_entry(hass)
+    var_max = _register_ours(hass, entry, "sensor", "VArMaxPct-123-0")
+    var_aval = _register_ours(hass, entry, "sensor", "VArAvalPct-123-0")
+
+    removed = cleanup_excluded_sensor_entities(hass, entry, _LOG)
+
+    assert sorted(removed) == sorted([var_max, var_aval])
+
+
+async def test_cleanup_matches_the_point_inside_a_repeating_group_key(hass):
+    """Group-flattened keys arrive as group:idx:point and must still match."""
+    entry = _our_entry(hass)
+    grouped = _register_ours(hass, entry, "sensor", "ctl:0:WMaxLimPct-123-0")
+
+    removed = cleanup_excluded_sensor_entities(hass, entry, _LOG)
+
+    assert removed == [grouped]
