@@ -113,8 +113,11 @@ def test_storage_control_mode_is_a_single_select_not_two_switches():
 
     mode = [spec for spec in selects if spec.point_name == "StorCtl_Mod"]
     assert len(mode) == 1
-    assert set(mode[0].options) == {"NONE", "CHARGE", "DISCHARGE", "BOTH"}
-    assert mode[0].options["BOTH"] == 3
+    assert set(mode[0].options) == {"off", "charge", "discharge", "both"}
+    assert mode[0].options["both"] == 3
+    # HA rejects a translation key that is not [a-z0-9-_]+, and hassfest
+    # catches it only in CI, so assert it where it is cheap to see.
+    assert all(key.islower() for key in mode[0].options)
     assert switches == []
 
 
@@ -191,3 +194,16 @@ def test_daily_use_controls_are_enabled_by_default():
 )
 def test_storage_bits_to_int(symbols, expected):
     assert storage_bits_to_int(symbols) == expected
+
+
+def test_select_option_keys_are_valid_ha_translation_keys():
+    """hassfest rejects anything outside [a-z0-9-_], and only in CI."""
+    import re
+
+    for model_id in (123, 124, 704):
+        for spec in specs_for_model(model_id):
+            for option in spec.options:
+                assert re.fullmatch(r"[a-z0-9][a-z0-9_-]*[a-z0-9]", option), (
+                    spec.point_name,
+                    option,
+                )

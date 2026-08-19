@@ -122,17 +122,17 @@
         "battery_control_mode": {
           "name": "Batterie-Steuermodus",
           "state": {
-            "NONE": "Aus",
-            "CHARGE": "Nur laden",
-            "DISCHARGE": "Nur entladen",
-            "BOTH": "Laden und entladen"
+            "off": "Aus",
+            "charge": "Nur laden",
+            "discharge": "Nur entladen",
+            "both": "Laden und entladen"
           }
         },
         "active_power_setpoint_mode": {
           "name": "Modus Wirkleistungs-Sollwert",
           "state": {
-            "W_MAX_PCT": "Prozent vom Maximum",
-            "WATTS": "Watt"
+            "w_max_pct": "Prozent vom Maximum",
+            "watts": "Watt"
           }
         }
       },

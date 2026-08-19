@@ -213,7 +213,10 @@ _MODEL_704: tuple[WriteControlSpec, ...] = (
         # Decides whether WSet (watts) or WSetPct (percent) is the
         # setpoint in force, so an absolute setpoint that appears to do
         # nothing is usually this being on the wrong one.
-        options={"W_MAX_PCT": 0, "WATTS": 1},
+        # Lowercase because HA translation keys must match [a-z0-9-_]+.
+        # These are the SunSpec symbols W_MAX_PCT / WATTS folded down,
+        # and the select platform matches symbols case-insensitively.
+        options={"w_max_pct": 0, "watts": 1},
         enabled_by_default=False,
     ),
 )
@@ -267,7 +270,7 @@ _MODEL_124: tuple[WriteControlSpec, ...] = (
         # each read their read-modify-write base from coordinator.data,
         # which is at most one scan interval fresh, so flipping both in
         # the same automation would silently clobber the first write.
-        options={"NONE": 0, "CHARGE": 1, "DISCHARGE": 2, "BOTH": 3},
+        options={"off": 0, "charge": 1, "discharge": 2, "both": 3},
     ),
     WriteControlSpec(
         model_id=124,

@@ -122,17 +122,17 @@
         "battery_control_mode": {
           "name": "Battery control mode",
           "state": {
-            "NONE": "Off",
-            "CHARGE": "Charge only",
-            "DISCHARGE": "Discharge only",
-            "BOTH": "Charge and discharge"
+            "off": "Off",
+            "charge": "Charge only",
+            "discharge": "Discharge only",
+            "both": "Charge and discharge"
           }
         },
         "active_power_setpoint_mode": {
           "name": "Active power setpoint mode",
           "state": {
-            "W_MAX_PCT": "Percent of maximum",
-            "WATTS": "Watts"
+            "w_max_pct": "Percent of maximum",
+            "watts": "Watts"
           }
         }
       },

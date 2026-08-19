@@ -122,6 +122,7 @@ class SunSpecWriteSelect(SunSpecEntity, SelectEntity):
         self._attr_entity_registry_enabled_default = spec.enabled_by_default
         self._attr_options = list(spec.options)
         self._value_to_option = {value: name for name, value in spec.options.items()}
+        self._symbol_to_option = {name.upper(): name for name in spec.options}
 
     @property
     def _point_name(self) -> str:
@@ -145,7 +146,10 @@ class SunSpecWriteSelect(SunSpecEntity, SelectEntity):
         if isinstance(value, list):
             value = storage_bits_to_int(value)
         if isinstance(value, str):
-            return value if value in self._spec.options else None
+            # Firmware may answer with the SunSpec symbol ("WATTS")
+            # while our option keys are the lowercase form HA requires
+            # of translation keys.
+            return self._symbol_to_option.get(value.upper())
         return self._value_to_option.get(int(value))
 
     async def async_select_option(self, option: str) -> None:
