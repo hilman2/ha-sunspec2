@@ -217,7 +217,10 @@ HA_META = {
     "PF": [None, ICON_DEFAULT, SensorDeviceClass.POWER_FACTOR],
     "W/m^2": [UnitOfIrradiance.WATTS_PER_SQUARE_METER, ICON_DEFAULT, None],
     "enum16": [None, ICON_DEFAULT, SensorDeviceClass.ENUM],
-    "bitfield32": [None, ICON_DEFAULT, SensorDeviceClass.ENUM],
+    # Bitfields are deliberately NOT the ENUM device class. See the
+    # vtype handling in SunSpecSensor.__init__ for why.
+    "bitfield16": [None, ICON_DEFAULT, None],
+    "bitfield32": [None, ICON_DEFAULT, None],
 }
 
 # Deliberately absent, and this is the point of the None fallback rather
@@ -370,14 +373,39 @@ class SunSpecSensor(SunSpecEntity, SensorEntity):
         )
 
         vtype = self._meta["type"]
-        if vtype in ("enum16", "bitfield32"):
-            self._options = self._point_meta.get("symbols", None)
-            if self._options is None:
+        # A bitfield is a SET of flags, an enum is one of N states, and
+        # only the second is what HA's ENUM device class describes.
+        #
+        # Both used to be ENUM here, with ``options`` listing the
+        # individual symbol names. An inverter reporting two events at
+        # once renders as "GROUND_FAULT,DC_OVER_VOLT", which is not in
+        # that list, and HA validates ENUM states against it strictly:
+        # async_write_ha_state raises ValueError. entity_platform
+        # swallows it during the initial setup, so it looked harmless,
+        # but every later coordinator refresh re-fires the listener and
+        # the exception escapes. cjne/ha-sunspec#370 is the same bug,
+        # and our own test suite had been steering around it by using a
+        # fixture without a multi-bit event value.
+        #
+        # Enumerating the combinations instead is not an option: n flags
+        # give 2**n states, and model 103's Evt1 alone has 32.
+        self._is_bitfield = vtype in ("bitfield16", "bitfield32")
+        if vtype == "enum16":
+            symbols = self._point_meta.get("symbols", None)
+            if symbols is None:
                 self.use_device_class = None
             else:
                 self.use_device_class = SensorDeviceClass.ENUM
-                self._options = [item["name"] for item in self._options]
+                self._options = [item["name"] for item in symbols]
+                # The empty string is a real state: an enum point whose
+                # value matches no symbol renders as "".
                 self._options.append("")
+        elif self._is_bitfield:
+            # No device class, so no options and no state validation.
+            # The decoded flag names stay in the state string, which is
+            # what people build template sensors on, and land in an
+            # attribute for anything that wants them as a list.
+            self.use_device_class = None
 
         self._device_id = config_entry.entry_id
         # Use the coordinator's context-bound logger when available so warnings
@@ -451,7 +479,11 @@ class SunSpecSensor(SunSpecEntity, SensorEntity):
             "GlbEvt",
             "Tms",
         }
-        if self.key in diagnostic_keys or self.use_device_class == SensorDeviceClass.ENUM:
+        if (
+            self.key in diagnostic_keys
+            or self.use_device_class == SensorDeviceClass.ENUM
+            or self._is_bitfield
+        ):
             self._attr_entity_category = EntityCategory.DIAGNOSTIC
 
         # Gold rule entity-disabled-by-default: vendor-specific event
@@ -595,8 +627,14 @@ class SunSpecSensor(SunSpecEntity, SensorEntity):
             attrs["label"] = label
 
         vtype = self._meta["type"]
-        if vtype in ("enum16", "bitfield32"):
+        if vtype in ("enum16", "bitfield32", "bitfield16"):
             attrs["raw"] = self.coordinator.data[self.model_id].getValue(self.key, self.model_index)
+        if self._is_bitfield:
+            # The state string is convenient to read and awkward to
+            # parse. Templates and automations get the same information
+            # as a list here rather than splitting on commas.
+            state = self.native_value
+            attrs["active_flags"] = state.split(",") if state else []
         return attrs
 
 

@@ -477,3 +477,95 @@ async def test_restore_builds_real_pysunspec2_models(hass):
     assert model.gname == "inverter_three_phase"
     # And it is reachable the way read_model() reaches it.
     assert client.models[103] == [model]
+
+
+# ---------- partial scan tolerance (cjne/ha-sunspec#375) --------------------
+
+
+async def test_partial_scan_keeps_the_models_it_found(hass, mocker):
+    """A read that fails partway must not discard the whole chain.
+
+    pysunspec2 walks the model chain and calls add_model() as it goes,
+    so a failure at model seven throws away models one to six and the
+    inverter looks like it speaks no SunSpec at all. Reported upstream
+    for an SMA STP110-60 (cjne/ha-sunspec#375).
+    """
+    mocker.patch("sunspec2.modbus.client.SunSpecModbusClientDeviceTCP.connect")
+    mocker.patch(
+        "sunspec2.modbus.client.SunSpecModbusClientDeviceTCP.is_connected",
+        return_value=True,
+    )
+    mocker.patch("custom_components.sunspec2.SunSpecApiClient.check_port", return_value=True)
+
+    def _partial_scan(self, **kwargs):
+        self.models = {1: [Mock()], "common": [Mock()], 103: [Mock()]}
+        raise SunSpecModbusClientError("Unknown error")
+
+    mocker.patch(
+        "sunspec2.modbus.client.SunSpecModbusClientDeviceTCP.scan",
+        _partial_scan,
+        create=True,
+    )
+
+    api = SunSpecApiClient(host="test", port=123, unit_id=1, hass=hass)
+    client = api.get_client()
+
+    assert sorted(k for k in client.models if isinstance(k, int)) == [1, 103]
+
+
+async def test_partial_scan_does_not_cache_the_truncated_layout(hass, mocker):
+    """Caching a layout we know is short would pin the missing models out.
+
+    The cache lives for MODEL_STRUCTURE_TTL_SECONDS, so a truncated
+    capture would keep the rest of the chain invisible for ten minutes
+    after the device started answering again.
+    """
+    mocker.patch("sunspec2.modbus.client.SunSpecModbusClientDeviceTCP.connect")
+    mocker.patch(
+        "sunspec2.modbus.client.SunSpecModbusClientDeviceTCP.is_connected",
+        return_value=True,
+    )
+    mocker.patch("custom_components.sunspec2.SunSpecApiClient.check_port", return_value=True)
+
+    def _partial_scan(self, **kwargs):
+        self.models = {1: [Mock()]}
+        raise SunSpecModbusClientError("Unknown error")
+
+    mocker.patch(
+        "sunspec2.modbus.client.SunSpecModbusClientDeviceTCP.scan",
+        _partial_scan,
+        create=True,
+    )
+
+    api = SunSpecApiClient(host="test", port=123, unit_id=1, hass=hass)
+    api.get_client()
+
+    assert api._model_structure is None
+
+
+async def test_scan_that_found_nothing_still_fails(hass, mocker):
+    """Tolerating a partial scan must not tolerate a total failure.
+
+    A device that answers nothing is a misconfiguration the user needs
+    told about, not something to paper over with an empty model list.
+    """
+    mocker.patch("sunspec2.modbus.client.SunSpecModbusClientDeviceTCP.connect")
+    mocker.patch(
+        "sunspec2.modbus.client.SunSpecModbusClientDeviceTCP.is_connected",
+        return_value=True,
+    )
+    mocker.patch("custom_components.sunspec2.SunSpecApiClient.check_port", return_value=True)
+
+    def _failed_scan(self, **kwargs):
+        self.models = {}
+        raise SunSpecModbusClientError("Error scanning SunSpec base addresses")
+
+    mocker.patch(
+        "sunspec2.modbus.client.SunSpecModbusClientDeviceTCP.scan",
+        _failed_scan,
+        create=True,
+    )
+
+    api = SunSpecApiClient(host="test", port=123, unit_id=1, hass=hass)
+    with pytest.raises(ProtocolError):
+        api.get_client()

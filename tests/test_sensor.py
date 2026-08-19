@@ -21,6 +21,7 @@ from . import TEST_INVERTER_MM_SENSOR_STATE_ENTITY_ID
 from . import TEST_INVERTER_PREFIX_SENSOR_DC_ENTITY_ID
 from . import TEST_INVERTER_SENSOR_DC_ENTITY_ID
 from . import TEST_INVERTER_SENSOR_ENERGY_ENTITY_ID
+from . import TEST_INVERTER_SENSOR_EVENT_ENTITY_ID
 from . import TEST_INVERTER_SENSOR_POWER_ENTITY_ID
 from . import TEST_INVERTER_SENSOR_STATE_ENTITY_ID
 from . import TEST_INVERTER_SENSOR_VAR_ID
@@ -420,3 +421,73 @@ def test_unknown_units_do_not_become_ha_units(sunspec_unit):
 
     assert unit is None
     assert device_class is None
+
+
+# ---------- bitfield sensors (cjne/ha-sunspec#370) --------------------------
+
+
+async def test_multi_bit_event_survives_a_refresh(hass: HomeAssistant, sunspec_client_mock) -> None:
+    """Two events at once must not break the entity on every poll.
+
+    tests/test_data/inverter.json sets model 103 Evt1 to 3, so two bits
+    are on and the state renders "GROUND_FAULT,DC_OVER_VOLT". While
+    bitfields carried the ENUM device class, that string was not in
+    ``options`` and HA raised ValueError from async_write_ha_state.
+    entity_platform swallows it during setup, which is why this looked
+    harmless, so the refresh below is the part that matters: it re-fires
+    the listener and the exception escapes.
+
+    The rest of the suite used to avoid MOCK_CONFIG for exactly this
+    reason. Using it here is the point of the test.
+    """
+    config_entry = await setup_mock_sunspec_config_entry(hass, MOCK_CONFIG)
+
+    state = hass.states.get(TEST_INVERTER_SENSOR_EVENT_ENTITY_ID)
+    assert state is not None
+    assert state.state == "GROUND_FAULT,DC_OVER_VOLT"
+
+    # Would raise before the fix.
+    await config_entry.runtime_data.async_refresh()
+    await hass.async_block_till_done()
+
+    assert hass.states.get(TEST_INVERTER_SENSOR_EVENT_ENTITY_ID).state == (
+        "GROUND_FAULT,DC_OVER_VOLT"
+    )
+
+
+async def test_bitfield_has_no_enum_device_class(hass: HomeAssistant, sunspec_client_mock) -> None:
+    """A set of flags is not one-of-N, so it must not claim to be.
+
+    Enumerating combinations is not the alternative: 32 flags would be
+    4 billion options.
+    """
+    await setup_mock_sunspec_config_entry(hass, MOCK_CONFIG)
+
+    state = hass.states.get(TEST_INVERTER_SENSOR_EVENT_ENTITY_ID)
+
+    assert state.attributes.get("device_class") is None
+    assert "options" not in state.attributes
+
+
+async def test_bitfield_exposes_active_flags_as_a_list(
+    hass: HomeAssistant, sunspec_client_mock
+) -> None:
+    """The comma string is readable; the list is what templates want."""
+    await setup_mock_sunspec_config_entry(hass, MOCK_CONFIG)
+
+    state = hass.states.get(TEST_INVERTER_SENSOR_EVENT_ENTITY_ID)
+
+    assert state.attributes["active_flags"] == ["GROUND_FAULT", "DC_OVER_VOLT"]
+    assert state.attributes["raw"] == 3
+
+
+async def test_enum_sensor_still_has_its_device_class(
+    hass: HomeAssistant, sunspec_client_mock
+) -> None:
+    """enum16 is genuinely one-of-N and keeps ENUM."""
+    await setup_mock_sunspec_config_entry(hass, MOCK_CONFIG)
+
+    state = hass.states.get(TEST_INVERTER_SENSOR_STATE_ENTITY_ID)
+
+    assert state.attributes.get("device_class") == "enum"
+    assert state.state in state.attributes["options"]

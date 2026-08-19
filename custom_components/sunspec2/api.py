@@ -70,6 +70,19 @@ def progress(msg):
     return True
 
 
+def _discovered_model_count(client) -> int:
+    """How many models a (possibly failed) scan managed to register.
+
+    Counts the integer keys only: pysunspec2 indexes ``client.models``
+    by model id and by group name, so len() would double-count every
+    model whose definition it could resolve.
+    """
+    try:
+        return sum(1 for key in client.models if isinstance(key, int))
+    except (AttributeError, TypeError):
+        return 0
+
+
 class SunSpecApiClient:
     """Modbus client wrapper, instance-scoped lifecycle.
 
@@ -396,15 +409,40 @@ class SunSpecApiClient:
             )
             return
         self._log.debug("Scanning SunSpec model tree")
-        client.scan(
-            connect=False,
-            progress=progress,
-            full_model_read=False,
-            # 0 means "no pacing at all"; pysunspec2 only skips the
-            # sleep on None, and time.sleep(0) still yields the GIL
-            # inside the executor thread on every model.
-            delay=self._scan_delay or None,
-        )
+        try:
+            client.scan(
+                connect=False,
+                progress=progress,
+                full_model_read=False,
+                # 0 means "no pacing at all"; pysunspec2 only skips the
+                # sleep on None, and time.sleep(0) still yields the GIL
+                # inside the executor thread on every model.
+                delay=self._scan_delay or None,
+            )
+        except (SunSpecModbusClientError, ModbusClientError) as err:
+            # pysunspec2 walks the model chain by reading a length and
+            # then the next id, and calls add_model() as it goes. A read
+            # that fails partway therefore throws away every model it
+            # had already found, which turns one unreadable block into
+            # "this inverter is not SunSpec". Reported against the
+            # upstream integration for an SMA STP110-60 in
+            # cjne/ha-sunspec#375, with this fix; the bug is the same
+            # here.
+            if not _discovered_model_count(client):
+                raise
+            self._log.warning(
+                "SunSpec scan stopped early (%s: %s). Continuing with the %d model(s) "
+                "found before the failure; the rest of the chain was not read.",
+                err.__class__.__name__,
+                err,
+                _discovered_model_count(client),
+            )
+            # Deliberately no _capture_model_structure() here. Caching a
+            # layout we know is truncated would pin the missing models
+            # out of existence for MODEL_STRUCTURE_TTL_SECONDS; leaving
+            # the cache empty means the next cycle scans again and can
+            # pick them up as soon as the device answers.
+            return
         self._capture_model_structure(client)
 
     def _capture_model_structure(self, client) -> None:
