@@ -199,7 +199,7 @@ async def test_set_value_holds_the_gateway_lock(hass, sunspec_write_client_mock)
     """The write must run while the per-gateway lock is held.
 
     Regression for the pre-v0.14.0 behaviour, where number.py called
-    ``coordinator.api.async_write_point`` directly. Mid-cycle that
+    ``coordinator.api.async_write_points`` directly. Mid-cycle that
     shared one socket with ``read_model`` running in another executor
     thread, and pysunspec2 hardcodes the MBAP transaction id to 0, so
     neither side could tell whose response it had just read.
@@ -210,11 +210,12 @@ async def test_set_value_holds_the_gateway_lock(hass, sunspec_write_client_mock)
 
     observed = []
 
-    async def _spy(model_id, point_name, value):
-        observed.append((model_id, point_name, value, coordinator._gateway_lock.locked()))
+    async def _spy(model_id, points):
+        for point_name, value in points:
+            observed.append((model_id, point_name, value, coordinator._gateway_lock.locked()))
 
     with (
-        patch.object(coordinator.api, "async_write_point", side_effect=_spy),
+        patch.object(coordinator.api, "async_write_points", side_effect=_spy),
         patch.object(coordinator, "async_request_refresh"),
     ):
         await limit.async_set_native_value(80)
@@ -241,7 +242,7 @@ async def test_set_value_refreshes_outside_the_lock(hass, sunspec_write_client_m
         locked_during_refresh.append(coordinator._gateway_lock.locked())
 
     with (
-        patch.object(coordinator.api, "async_write_point"),
+        patch.object(coordinator.api, "async_write_points"),
         patch.object(coordinator, "async_request_refresh", side_effect=_spy_refresh),
     ):
         await limit.async_set_native_value(80)
@@ -268,7 +269,7 @@ async def test_set_value_closes_the_session(hass, sunspec_write_client_mock):
     closes = []
 
     with (
-        patch.object(coordinator.api, "async_write_point"),
+        patch.object(coordinator.api, "async_write_points"),
         patch.object(coordinator, "async_request_refresh"),
         patch.object(
             coordinator.api,
@@ -290,7 +291,7 @@ async def test_set_value_releases_the_lock_when_the_write_fails(hass, sunspec_wr
     with (
         patch.object(
             coordinator.api,
-            "async_write_point",
+            "async_write_points",
             side_effect=DeviceError("inverter said no"),
         ),
         pytest.raises(HomeAssistantError, match="inverter said no"),

@@ -185,6 +185,32 @@ _MODEL_704: tuple[WriteControlSpec, ...] = (
     ),
     WriteControlSpec(
         model_id=704,
+        point_name="WMaxLimPctRvrt",
+        platform=PLATFORM_NUMBER,
+        translation_key="export_limit_revert_value",
+        icon="mdi:undo-variant",
+        native_min=0,
+        native_max=200,
+        # The percentage the inverter falls back to when the revert
+        # timer expires. Setting it to the limit you just wrote makes
+        # the expiry a no-op, which is the alternative to disabling the
+        # timeout: the dead-man switch still fires, it just lands
+        # somewhere harmless. Model 123 has no equivalent, which is
+        # part of why 704 is preferred where both exist.
+        enabled_by_default=False,
+    ),
+    WriteControlSpec(
+        model_id=704,
+        point_name="WMaxLimPctEnaRvrt",
+        platform=PLATFORM_SWITCH,
+        translation_key="export_limit_revert_enabled",
+        icon="mdi:undo-variant",
+        # Whether the limit stays enabled after the timer expires. With
+        # this on and the revert value set, a lapse changes nothing.
+        enabled_by_default=False,
+    ),
+    WriteControlSpec(
+        model_id=704,
         point_name="WSet",
         platform=PLATFORM_NUMBER,
         translation_key="active_power_setpoint",
