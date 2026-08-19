@@ -11,6 +11,7 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 from custom_components.sunspec2.const import DOMAIN
 from custom_components.sunspec2.migration import CJNE_DOMAIN
 from custom_components.sunspec2.migration import cleanup_excluded_sensor_entities
+from custom_components.sunspec2.migration import cleanup_superseded_control_entities
 from custom_components.sunspec2.migration import find_blocking_cjne_entries
 from custom_components.sunspec2.migration import migrate_from_cjne_sync
 
@@ -395,15 +396,24 @@ async def test_cleanup_keeps_the_model_123_timer_sensors(hass):
         assert registry.async_get(entity_id) is not None
 
 
-async def test_cleanup_removes_unmappable_unit_points(hass):
-    """% VArMax and friends have no HA unit and must stay out."""
+async def test_cleanup_keeps_points_that_are_only_readable(hass):
+    """The VAr percentages are sensors again as of v0.19.0.
+
+    They were excluded for their units ("% VArMax", "% VArAval"), which
+    sensor.py now maps to PERCENTAGE, and they are not controls: the
+    curated write list covers the export limit and the battery, not the
+    reactive-power setpoints. So nothing should remove them.
+    """
     entry = _our_entry(hass)
     var_max = _register_ours(hass, entry, "sensor", "VArMaxPct-123-0")
     var_aval = _register_ours(hass, entry, "sensor", "VArAvalPct-123-0")
 
     removed = cleanup_excluded_sensor_entities(hass, entry, _LOG)
 
-    assert sorted(removed) == sorted([var_max, var_aval])
+    assert removed == []
+    registry = er.async_get(hass)
+    assert registry.async_get(var_max) is not None
+    assert registry.async_get(var_aval) is not None
 
 
 async def test_cleanup_matches_the_point_inside_a_repeating_group_key(hass):
@@ -414,3 +424,64 @@ async def test_cleanup_matches_the_point_inside_a_repeating_group_key(hass):
     removed = cleanup_excluded_sensor_entities(hass, entry, _LOG)
 
     assert removed == [grouped]
+
+
+# ---------- superseded control entities (#17) -------------------------------
+
+
+async def test_cleanup_removes_model_123_controls_when_704_wins(hass):
+    """A device with both models drives from 704, so 123's controls are dead.
+
+    Leaving them behind reproduces exactly the complaint that started
+    this: registry rows nothing feeds, rendered Unavailable forever.
+    """
+    entry = _our_entry(hass)
+    old_number = _register_ours(hass, entry, "number", "WMaxLimPct-123-0")
+    old_switch = _register_ours(hass, entry, "switch", "WMaxLim_Ena-123-0")
+    live_number = _register_ours(hass, entry, "number", "WMaxLimPct-704-0")
+
+    removed = cleanup_superseded_control_entities(hass, entry, {123, 704}, _LOG)
+
+    assert sorted(removed) == sorted([old_number, old_switch])
+    registry = er.async_get(hass)
+    assert registry.async_get(live_number) is not None
+
+
+async def test_cleanup_keeps_model_123_controls_when_704_is_absent(hass):
+    """Most devices only have 123, and it is their only control model."""
+    entry = _our_entry(hass)
+    number = _register_ours(hass, entry, "number", "WMaxLimPct-123-0")
+    switch = _register_ours(hass, entry, "switch", "WMaxLim_Ena-123-0")
+
+    removed = cleanup_superseded_control_entities(hass, entry, {1, 103, 123}, _LOG)
+
+    assert removed == []
+    registry = er.async_get(hass)
+    assert registry.async_get(number) is not None
+    assert registry.async_get(switch) is not None
+
+
+async def test_cleanup_keeps_storage_controls_alongside_the_export_limit(hass):
+    """124 is orthogonal and must not be swept up by the 704-over-123 rule."""
+    entry = _our_entry(hass)
+    storage = _register_ours(hass, entry, "number", "InWRte-124-0")
+
+    removed = cleanup_superseded_control_entities(hass, entry, {123, 704, 124}, _LOG)
+
+    assert storage not in removed
+    assert er.async_get(hass).async_get(storage) is not None
+
+
+async def test_cleanup_does_nothing_without_a_control_model(hass):
+    """No active specs means no basis to judge, so nothing is deleted.
+
+    With the beta flag off the caller skips this entirely; this covers
+    the device that simply has no control model at all.
+    """
+    entry = _our_entry(hass)
+    stray = _register_ours(hass, entry, "number", "WMaxLimPct-123-0")
+
+    removed = cleanup_superseded_control_entities(hass, entry, {1, 103}, _LOG)
+
+    assert removed == []
+    assert er.async_get(hass).async_get(stray) is not None

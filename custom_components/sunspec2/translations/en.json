@@ -110,12 +110,37 @@
     "number": {
       "export_limit_pct": {"name": "Export limit"},
       "export_limit_revert_time": {"name": "Export limit revert time"},
-      "power_factor_set": {"name": "Power factor setpoint"}
+      "power_factor_set": {"name": "Power factor setpoint"},
+      "active_power_setpoint": {"name": "Active power setpoint"},
+      "battery_charge_rate": {"name": "Battery charge rate"},
+      "battery_discharge_rate": {"name": "Battery discharge rate"},
+      "battery_max_charge_power": {"name": "Battery max charge power"},
+      "battery_rate_revert_time": {"name": "Battery rate revert time"},
+      "battery_min_reserve": {"name": "Battery minimum reserve"}
     },
-    "switch": {
+    "select": {
+        "battery_control_mode": {
+          "name": "Battery control mode",
+          "state": {
+            "off": "Off",
+            "charge": "Charge only",
+            "discharge": "Discharge only",
+            "both": "Charge and discharge"
+          }
+        },
+        "active_power_setpoint_mode": {
+          "name": "Active power setpoint mode",
+          "state": {
+            "w_max_pct": "Percent of maximum",
+            "watts": "Watts"
+          }
+        }
+      },
+      "switch": {
       "export_limit_enabled": {"name": "Export limit enabled"},
       "power_factor_enabled": {"name": "Power factor setpoint enabled"},
-      "inverter_grid_connection": {"name": "Inverter grid connection"}
+      "inverter_grid_connection": {"name": "Inverter grid connection"},
+      "active_power_setpoint_enabled": {"name": "Active power setpoint enabled"}
     },
     "sensor": {
       "amps": {"name": "AC current"},

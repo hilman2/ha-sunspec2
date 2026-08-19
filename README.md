@@ -303,12 +303,21 @@ HA automations.
 
 | Entity | Type | SunSpec point | What it does |
 |---|---|---|---|
-| Export limit | Number (0..200 %) | model 123 `WMaxLimPct` | Caps AC output to N % of nameplate. Set to 0 for zero-export operation. Above 100 is allowed because some firmware uses e.g. 110 to mean "no limit"; the inverter clamps what it will not honour |
-| Export limit revert time | Number (0..65535 s) | model 123 `WMaxLimPct_RvrtTms` | How long the inverter honours the limit before reverting on its own. Some devices lapse silently: the limit stops applying while `WMaxLim_Ena` and `WMaxLimPct` still report it as active (KACO in #17). 0 disables the timeout where the device supports it, which removes a dead-man switch, so leave it alone unless you want a permanent cap |
-| Power factor setpoint | Number (-1..1) | model 123 `OutPFSet` | Cos-phi setpoint for reactive power control |
-| Export limit enabled | Switch | model 123 `WMaxLim_Ena` | The export limit only takes effect while this switch is ON |
-| Power factor enabled | Switch | model 123 `OutPFSet_Ena` | The PF setpoint only takes effect while this switch is ON |
-| Inverter grid connection | Switch | model 123 `Conn` | **Most dangerous**: turning OFF disconnects the inverter from the grid entirely |
+| Export limit | Number (0..200 %) | 123 `WMaxLimPct` / 704 `WMaxLimPct` | Caps AC output to N % of nameplate. Set to 0 for zero-export operation. Above 100 is allowed because some firmware uses e.g. 110 to mean "no limit"; the inverter clamps what it will not honour |
+| Export limit enabled | Switch | 123 `WMaxLim_Ena` / 704 `WMaxLimPctEna` | The export limit only takes effect while this switch is ON |
+| Export limit revert time | Number (seconds) | 123 `WMaxLimPct_RvrtTms` / 704 `WMaxLimPctRvrtTms` | How long the inverter honours the limit before reverting on its own. Some devices lapse silently: the limit stops applying while the enable flag and the setpoint still report it as active (KACO in #17). 0 disables the timeout where the device supports it, which removes a dead-man switch, so leave it alone unless you want a permanent cap |
+| Active power setpoint | Number (watts) | 704 `WSet` | Absolute setpoint in watts rather than percent of nameplate. Usually what a zero-export control loop wants, since percent requires the automation to know the nameplate. Needs the setpoint mode on `WATTS` |
+| Active power setpoint enabled | Switch | 704 `WSetEna` | |
+| Active power setpoint mode | Select | 704 `WSetMod` | Whether `WSet` (watts) or `WSetPct` (percent) is in force. Disabled by default |
+| Battery charge rate | Number (0..100 %) | 124 `InWRte` | Charge power as a percentage of the maximum. The dynamic half of battery control, meant to be moved from an automation |
+| Battery discharge rate | Number (0..100 %) | 124 `OutWRte` | Discharge power as a percentage of the maximum |
+| Battery max charge power | Number (watts) | 124 `WChaMax` | The ceiling the two rates above are a percentage of |
+| Battery control mode | Select | 124 `StorCtl_Mod` | Off / charge only / discharge only / both. One entity rather than two switches on purpose: the point is a bitfield, and two switches would compute their read-modify-write base from the same possibly stale poll data and clobber each other |
+| Battery rate revert time | Number (seconds) | 124 `InOutWRte_RvrtTms` | Same lapse behaviour as the export limit's revert time |
+| Battery minimum reserve | Number (0..100 %) | 124 `MinRsvPct` | State of charge to hold back, e.g. for backup power. Disabled by default |
+| Power factor setpoint | Number (-1..1) | 123 `OutPFSet` | Cos-phi setpoint for reactive power control |
+| Power factor enabled | Switch | 123 `OutPFSet_Ena` | The PF setpoint only takes effect while this switch is ON |
+| Inverter grid connection | Switch | 123 `Conn` | **Most dangerous**: turning OFF disconnects the inverter from the grid entirely |
 
 Plus the **`sunspec2.set_export_limit`** service action with two
 parameters (`config_entry_id`, `percent`, optional `enable`) so
@@ -317,13 +326,30 @@ Number entity.
 
 ### Why it's opt-in
 
-Model 123's remaining points (the `*_WinTms` / `*_RmpTms` timers and
-the VAR percentage enums) are exposed as read-only sensors, so you can
-see when a limit is about to lapse. Its writable percentage points are
-not: a sensor there would duplicate the control above and disagree with
-it mid-write, and `% WMax` / `cos()` / `% VArMax` / `% VArAval` have no
-Home Assistant unit, which would start long-term statistics under a unit
-the recorder can never convert.
+Every remaining point of these models is exposed as a read-only sensor,
+including the `*_WinTms` / `*_RmpTms` timers, so you can see when a
+limit is about to lapse. Only the points that are controls are held
+back, because a sensor there would duplicate the entity above and
+disagree with it mid-write.
+
+**Where a device exposes both model 123 and model 704**, the controls are
+built from 704 and 123 stays read-only. 704 is the modern equivalent, it
+can take an absolute watt setpoint, and on the one device we have
+evidence from it reports a lapsed limit honestly while 123 on the same
+inverter still shows it as active. Two controls for one physical setting
+would be confusing even if they agreed.
+
+**Which models are deliberately not writable.** SunSpec marks far more
+points RW than it is safe to expose: 1586 of them across 67 models.
+Models 707 to 710 are the over/under voltage and frequency trip curves,
+model 703 is the enter-service envelope, and `AntiIslEna` in model 704 is
+islanding detection. Those are type-approved grid protection settings
+(VDE-AR-N 4105 and equivalents), not preferences. Model 121 looks like a
+settings model but holds `VMax` / `VMin` and `WMax`, the last of which is
+the reference every percentage in the device is measured against.
+Models 126 and 129 to 142 are curves in repeating groups, where writing
+one point without the others produces a shape the device never agreed to.
+None of those are exposed, and that is not an oversight.
 
 - **Vendor deviations**: SunSpec model 123 is part of the standard
   but vendors are inconsistent about which firmware revisions

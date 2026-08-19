@@ -57,10 +57,12 @@ async def test_number_entities_appear_with_beta_on(hass, sunspec_write_client_mo
     points = {e._point_name for e in entities}
     assert points == {"WMaxLimPct", "WMaxLimPct_RvrtTms", "OutPFSet"}
     # The user's own selection stays untouched - only the separate
-    # write filter pulled 123 in.
+    # write filter pulled the control models in. It carries every
+    # write-capable model, not just the ones this device has: the
+    # coordinator intersects it with what the scan actually found.
     coordinator = entry.runtime_data
     assert coordinator.option_model_filter == {160}
-    assert coordinator.write_model_filter == {123}
+    assert coordinator.write_model_filter == {123, 124, 704}
 
 
 async def test_beta_off_does_not_poll_model_123(hass, sunspec_write_client_mock):

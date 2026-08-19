@@ -2,11 +2,17 @@
 
 from unittest.mock import patch
 
+import pytest
+from homeassistant.components.sensor import SensorDeviceClass
+from homeassistant.const import PERCENTAGE
+from homeassistant.const import UnitOfReactiveEnergy
+from homeassistant.const import UnitOfReactivePower
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import device_registry as dr
 
 from custom_components.sunspec2.const import CONF_MAX_AC_POWER_KW
 from custom_components.sunspec2.const import DOMAIN
+from custom_components.sunspec2.sensor import HA_META
 from custom_components.sunspec2.sensor import ICON_DC_AMPS
 
 from . import TEST_CONFIG_ENTRY_ID
@@ -355,3 +361,62 @@ async def test_energy_sensor_recovers_after_repeated_rejected_deltas(
     # And the final reading must reflect the actual inverter value, not
     # the stale baseline.
     assert readings[-1] != 100000, f"sensor still glued to baseline on last read: {readings}"
+
+
+# ---------- unit mapping (#17) ----------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("sunspec_unit", "expected_unit", "expected_device_class"),
+    [
+        # Percentages of a reference quantity: the reference belongs in
+        # the name, HA has exactly one percent.
+        ("% WMax", PERCENTAGE, None),
+        ("% VArMax", PERCENTAGE, None),
+        ("% VRef", PERCENTAGE, None),
+        ("Pct", PERCENTAGE, None),
+        # Reactive power, all four spellings SunSpec uses.
+        ("VAr", UnitOfReactivePower.VOLT_AMPERE_REACTIVE, None),
+        ("var", UnitOfReactivePower.VOLT_AMPERE_REACTIVE, None),
+        ("Var", UnitOfReactivePower.VOLT_AMPERE_REACTIVE, None),
+        ("varh", UnitOfReactiveEnergy.VOLT_AMPERE_REACTIVE_HOUR, SensorDeviceClass.REACTIVE_ENERGY),
+        # Dimensionless, and specifically not a percentage.
+        ("cos()", None, SensorDeviceClass.POWER_FACTOR),
+        ("PF", None, SensorDeviceClass.POWER_FACTOR),
+    ],
+)
+def test_known_units_map_to_ha_units(sunspec_unit, expected_unit, expected_device_class):
+    unit, _icon, device_class = HA_META[sunspec_unit]
+
+    assert unit == expected_unit
+    assert device_class == expected_device_class
+
+
+@pytest.mark.parametrize(
+    "sunspec_unit",
+    [
+        # Rates: HA has no compound percent-per-time unit.
+        "% WMax/min",
+        "%Max/Sec",
+        "V/s",
+        # Quantities HA has no unit for.
+        "VAh",
+        "Ah",
+        # Not measurements at all.
+        "SF",
+        "YYYYMMDD",
+        "something the spec has not invented yet",
+    ],
+)
+def test_unknown_units_do_not_become_ha_units(sunspec_unit):
+    """The fallback must drop the unit, not pass the raw string through.
+
+    Passing it through made it the entity's native_unit_of_measurement,
+    and state_class returns MEASUREMENT for anything with a unit, so
+    every unmapped unit started a long-term statistics series under
+    something the recorder can never convert.
+    """
+    unit, _icon, device_class = HA_META.get(sunspec_unit, [None, None, None])
+
+    assert unit is None
+    assert device_class is None

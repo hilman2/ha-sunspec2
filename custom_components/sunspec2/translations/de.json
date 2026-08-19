@@ -110,12 +110,37 @@
     "number": {
       "export_limit_pct": {"name": "Einspeise-Limit"},
       "export_limit_revert_time": {"name": "Ablaufzeit Einspeiselimit"},
-      "power_factor_set": {"name": "Leistungsfaktor-Sollwert"}
+      "power_factor_set": {"name": "Leistungsfaktor-Sollwert"},
+      "active_power_setpoint": {"name": "Wirkleistungs-Sollwert"},
+      "battery_charge_rate": {"name": "Batterie-Laderate"},
+      "battery_discharge_rate": {"name": "Batterie-Entladerate"},
+      "battery_max_charge_power": {"name": "Batterie-Ladeleistung (max)"},
+      "battery_rate_revert_time": {"name": "Ablaufzeit Batterie-Rate"},
+      "battery_min_reserve": {"name": "Batterie-Mindestreserve"}
     },
-    "switch": {
+    "select": {
+        "battery_control_mode": {
+          "name": "Batterie-Steuermodus",
+          "state": {
+            "off": "Aus",
+            "charge": "Nur laden",
+            "discharge": "Nur entladen",
+            "both": "Laden und entladen"
+          }
+        },
+        "active_power_setpoint_mode": {
+          "name": "Modus Wirkleistungs-Sollwert",
+          "state": {
+            "w_max_pct": "Prozent vom Maximum",
+            "watts": "Watt"
+          }
+        }
+      },
+      "switch": {
       "export_limit_enabled": {"name": "Einspeise-Limit aktiv"},
       "power_factor_enabled": {"name": "Leistungsfaktor-Sollwert aktiv"},
-      "inverter_grid_connection": {"name": "Wechselrichter mit Netz verbunden"}
+      "inverter_grid_connection": {"name": "Wechselrichter mit Netz verbunden"},
+      "active_power_setpoint_enabled": {"name": "Wirkleistungs-Sollwert aktiv"}
     },
     "sensor": {
       "amps": {"name": "AC-Strom"},

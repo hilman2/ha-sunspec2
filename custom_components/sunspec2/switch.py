@@ -1,17 +1,11 @@
-"""Switch platform for SunSpec experimental write controls.
+"""Switch platform for SunSpec write controls.
 
-v0.12.0 EXPERIMENTAL. Same opt-in beta gating as the Number
-platform - see ``number.py`` for the rationale.
+EXPERIMENTAL, opt-in, same gating as the Number platform. Covers the
+SunSpec points that are booleans in everything but name: the spec
+spells them as two-symbol enums (ENABLED / DISABLED,
+CONNECTED / DISCONNECTED) rather than as a boolean type.
 
-Three switches from model 123 (Immediate Controls):
-
-- ``WMaxLim_Ena``: enable / disable the export-limit Number. The
-  ``WMaxLimPct`` value only takes effect while this switch is ON.
-- ``OutPFSet_Ena``: enable / disable the power-factor setpoint.
-- ``Conn``: inverter grid connection. Setting this to OFF
-  disconnects the inverter from the grid entirely. **The most
-  dangerous one** - users who flip this off and forget about it
-  will be confused when the inverter "stops working".
+v0.19.0 made this spec-driven, see :mod:`write_controls`.
 """
 
 from __future__ import annotations
@@ -27,13 +21,19 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from . import SunSpec2ConfigEntry
 from . import get_sunspec_unique_id
 from .const import CONF_WRITE_BETA_ENABLED
-from .const import WRITE_CONTROLS_MODEL_ID
 from .entity import SunSpecEntity
 from .errors import SunSpecError
+from .number import build_specs
+from .write_controls import PLATFORM_SWITCH
+from .write_controls import WriteControlSpec
 
-_LOGGER: logging.Logger = logging.getLogger(__name__)
+_LOGGER: logging.Logger = logging.getLogger(__package__)
 
 PARALLEL_UPDATES = 0
+
+# Symbol strings that mean "on". Some firmware returns the enum symbol
+# rather than its ordinal through the wrapper's decoding path.
+_TRUTHY_SYMBOLS = frozenset({"ENABLED", "ON", "CONNECTED", "ACTIVE", "1"})
 
 
 async def async_setup_entry(
@@ -45,52 +45,29 @@ async def async_setup_entry(
     coordinator = entry.runtime_data
     if not entry.options.get(CONF_WRITE_BETA_ENABLED, False):
         return
-    if WRITE_CONTROLS_MODEL_ID not in coordinator.detected_models:
-        return
 
     device_info = coordinator.device_info
     if device_info is None:
         return
-    model_wrapper = coordinator.data.get(WRITE_CONTROLS_MODEL_ID)
-    if model_wrapper is None:
-        # See the matching guard in number.py: unreachable since
-        # v0.14.0, and worth a log line rather than a silent return if
-        # it ever trips again.
-        getattr(coordinator, "_log", _LOGGER).warning(
-            "Write beta is on and model %s was detected, but it is not in the "
-            "polled data, so no write entities will be created. write_model_filter=%s",
-            WRITE_CONTROLS_MODEL_ID,
-            getattr(coordinator, "write_model_filter", None),
-        )
-        return
-    group_meta = model_wrapper.getGroupMeta()
-    common = {
-        "coordinator": coordinator,
-        "config_entry": entry,
-        "device_info": device_info,
-        "model_info": group_meta,
-        "prefix": entry.options.get("prefix", ""),
-    }
+
     async_add_devices(
         [
-            SunSpecExportLimitEnabledSwitch(**common),
-            SunSpecPowerFactorEnabledSwitch(**common),
-            SunSpecInverterConnectionSwitch(**common),
+            SunSpecWriteSwitch(
+                coordinator=coordinator,
+                config_entry=entry,
+                device_info=device_info,
+                model_info=wrapper.getGroupMeta(),
+                prefix=entry.options.get("prefix", ""),
+                spec=spec,
+            )
+            for spec, wrapper in build_specs(coordinator, PLATFORM_SWITCH)
         ]
     )
 
 
-class _SunSpecWritablePointSwitch(SunSpecEntity, SwitchEntity):
-    """Base class for the model 123 boolean writable points.
+class SunSpecWriteSwitch(SunSpecEntity, SwitchEntity):
+    """A writable two-state SunSpec point."""
 
-    Subclasses set ``_point_name`` and ``_attr_translation_key``.
-    pysunspec2 returns the underlying enum value as int (0 or 1)
-    via ``getValue()`` for these CONNECTED-style enum16 points;
-    we coerce to bool for HA's switch interface and write back
-    the same int.
-    """
-
-    _point_name: str = ""
     _attr_entity_category = EntityCategory.CONFIG
 
     def __init__(
@@ -99,7 +76,8 @@ class _SunSpecWritablePointSwitch(SunSpecEntity, SwitchEntity):
         config_entry,
         device_info,
         model_info,
-        prefix: str = "",
+        prefix: str,
+        spec: WriteControlSpec,
     ) -> None:
         super().__init__(
             coordinator,
@@ -107,35 +85,41 @@ class _SunSpecWritablePointSwitch(SunSpecEntity, SwitchEntity):
             device_info,
             model_info,
             prefix=prefix,
-            model_id=WRITE_CONTROLS_MODEL_ID,
+            model_id=spec.model_id,
         )
+        self._spec = spec
         self._attr_unique_id = get_sunspec_unique_id(
-            config_entry.entry_id, self._point_name, WRITE_CONTROLS_MODEL_ID, 0
+            config_entry.entry_id, spec.point_name, spec.model_id, 0
         )
+        self._attr_translation_key = spec.translation_key
+        self._attr_icon = spec.icon
+        self._attr_entity_registry_enabled_default = spec.enabled_by_default
+
+    @property
+    def _point_name(self) -> str:
+        """The SunSpec point this entity writes. Read by the tests."""
+        return self._spec.point_name
 
     @property
     def is_on(self) -> bool | None:
-        wrapper = self.coordinator.data.get(WRITE_CONTROLS_MODEL_ID)
+        wrapper = self.coordinator.data.get(self._spec.model_id)
         if wrapper is None:
             return None
         try:
-            value = wrapper.getValue(self._point_name)
+            value = wrapper.getValue(self._spec.point_name)
         except (KeyError, AttributeError):
             return None
         if value is None:
             return None
-        # SunSpec model 123 enables: 1 = on, 0 = off. Some firmware
-        # returns the value as a symbol string ("ENABLED" / "DISABLED")
-        # via the wrapper's enum-decoding path; accept either form.
         if isinstance(value, str):
-            return value.upper() in {"ENABLED", "ON", "CONNECTED", "1"}
-        return bool(value)
+            return value.upper() in _TRUTHY_SYMBOLS
+        return value == self._spec.on_value
 
     async def async_turn_on(self, **kwargs) -> None:
-        await self._write(1)
+        await self._write(self._spec.on_value)
 
     async def async_turn_off(self, **kwargs) -> None:
-        await self._write(0)
+        await self._write(self._spec.off_value)
 
     async def _write(self, raw_value: int) -> None:
         # Routed through the coordinator, not through ``coordinator.api``
@@ -144,40 +128,12 @@ class _SunSpecWritablePointSwitch(SunSpecEntity, SwitchEntity):
         # module docstring for the full rationale.
         try:
             await self.coordinator.async_write_points_locked(
-                WRITE_CONTROLS_MODEL_ID, [(self._point_name, raw_value)]
+                self._spec.model_id, [(self._spec.point_name, raw_value)]
             )
         except SunSpecError as exc:
             raise HomeAssistantError(
-                f"Failed to write {self._point_name}={raw_value}: {exc}"
+                f"Failed to write {self._spec.point_name}={raw_value}: {exc}"
             ) from exc
         # Outside the lock: the refresh debouncer runs inline and
         # asyncio.Lock is not reentrant.
         await self.coordinator.async_request_refresh()
-
-
-class SunSpecExportLimitEnabledSwitch(_SunSpecWritablePointSwitch):
-    """Enable / disable the export-limit setpoint (model 123 WMaxLim_Ena)."""
-
-    _point_name = "WMaxLim_Ena"
-    _attr_translation_key = "export_limit_enabled"
-    _attr_icon = "mdi:transmission-tower-export"
-
-
-class SunSpecPowerFactorEnabledSwitch(_SunSpecWritablePointSwitch):
-    """Enable / disable the power-factor setpoint (model 123 OutPFSet_Ena)."""
-
-    _point_name = "OutPFSet_Ena"
-    _attr_translation_key = "power_factor_enabled"
-    _attr_icon = "mdi:angle-acute"
-
-
-class SunSpecInverterConnectionSwitch(_SunSpecWritablePointSwitch):
-    """Connect / disconnect the inverter from the grid (model 123 Conn).
-
-    Most dangerous switch in the platform: turning this OFF
-    disconnects the inverter from the grid entirely. Use with care.
-    """
-
-    _point_name = "Conn"
-    _attr_translation_key = "inverter_grid_connection"
-    _attr_icon = "mdi:transmission-tower"
