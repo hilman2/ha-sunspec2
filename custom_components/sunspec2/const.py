@@ -4,7 +4,7 @@
 NAME = "SunSpec 2"
 DOMAIN = "sunspec2"
 DOMAIN_DATA = f"{DOMAIN}_data"
-VERSION = "0.20.0"
+VERSION = "0.21.0"
 
 ATTRIBUTION = "Data provided by SunSpec alliance - https://sunspec.org"
 ISSUE_URL = "https://github.com/hilman2/ha-sunspec2/issues"
@@ -129,34 +129,41 @@ EXPORT_LIMIT_MIN_STEP_PCT = 0.01
 # being removed.
 #
 # The default stays at the inherited 0.5 rather than being tuned down,
-# because MODEL_STRUCTURE_TTL_SECONDS took the scan out of the steady
-# state: it now runs about once every 10 minutes instead of twice a
-# minute, so the pacing costs roughly a fiftieth of what it did and
-# there is no longer a trade to make between "fast polling" and "gentle
-# on slow hardware". Lowering it only matters for the rescan itself.
+# because the persisted model layout took the scan out of the steady
+# state entirely: it now runs on the first setup and after a firmware
+# change, not twice a minute, so there is no longer a trade to make
+# between "fast polling" and "gentle on slow hardware". Lowering it
+# only affects that rare rescan.
 CONF_SCAN_DELAY = "scan_delay"
 DEFAULT_SCAN_DELAY_SECONDS = 0.5
 MIN_SCAN_DELAY_SECONDS = 0.0
 MAX_SCAN_DELAY_SECONDS = 2.0
 
-# How long a cached SunSpec model structure stays valid before the
-# next connect walks the model tree again.
+# Storage key and version for the persisted SunSpec model layout.
 #
 # The coordinator closes its client at the end of every cycle so
 # single-slot inverters get their Modbus slot back, and a fresh
 # pysunspec2 client has an empty ``client.models``. That is the only
-# reason the scan ran on every poll: it was never about detecting
-# change, it was about rebuilding state we had already thrown away. On
-# an inverter exposing 20 models, at 30 s intervals, that is 41 modbus
+# reason the scan ever ran on every poll: it was never about detecting
+# change, it was about rebuilding state we had just thrown away. On an
+# inverter exposing 20 models, at 30 s intervals, that is 41 modbus
 # round trips and 20 pacing sleeps every 30 seconds to rediscover a
 # layout that changes on firmware updates and never otherwise.
 #
 # Caching the layout (base address plus model id / address / length per
-# block) lets a reconnect rebuild the same model objects with a single
-# validating read. The scan still happens, just on this interval rather
-# than on every cycle, which is also what keeps the pacing question out
-# of the steady state: a scan every 10 minutes can afford to be slow.
-MODEL_STRUCTURE_TTL_SECONDS = 600
+# block) lets a reconnect rebuild the same model objects from three
+# short validating reads. Persisting it means a Home Assistant restart
+# does not have to scan either, which is where the scan actually hurt:
+# it runs inside the setup timeout, on the slowest devices, at the
+# worst possible moment.
+#
+# There is deliberately no expiry. A rescan cannot confirm a layout, it
+# can only replace it, and it is the one operation that can silently
+# corrupt it (see the comment on the cache in api.py). Freshness is
+# established by re-reading both ends of the chain on every connect,
+# not by a clock.
+STRUCTURE_STORAGE_VERSION = 1
+STRUCTURE_STORAGE_KEY = f"{DOMAIN}.model_structure"
 
 # Points the sensor platform must not build an entity for.
 #
@@ -217,6 +224,20 @@ CONF_MAX_AC_POWER_KW = "max_ac_power_kw"
 # catch the really obvious garbage values (MW / TWh spikes), not legitimate
 # transients near the inverter's nameplate.
 ENERGY_DELTA_SAFETY_FACTOR = 2.0
+# Headroom applied to the AUTO-DETECTED nameplate when it stands in for
+# a peak the user never configured.
+#
+# Both plausibility filters used to be off entirely unless the user
+# found and filled in "peak AC power" in the options, which is exactly
+# the user who does not know they need it. The nameplate we already read
+# from model 120 (WRtg) is a better default than no filter at all, but
+# it is not a hard ceiling: inverters legitimately overshoot their
+# continuous rating in cold, bright weather, and an installer-set WMax
+# from model 121 can sit below what the hardware really does. 1.2 leaves
+# room for that while still catching the order-of-magnitude garbage the
+# filter exists for. A user-configured value is used as-is, without this
+# factor, because that number is a deliberate statement about the site.
+NAMEPLATE_FILTER_HEADROOM = 1.2
 # After this many consecutive rejected reads the energy plausibility filter
 # accepts the new value as the new baseline. Without this escape hatch a
 # legitimate large jump (e.g. an inverter that bumps its lifetime counter
@@ -272,11 +293,10 @@ STALE_DATA_TOLERANCE_CYCLES = 5
 # Measured in seconds, not cycles. It used to be 20 cycles, chosen
 # because "with the default 30s scan interval that is roughly ten
 # minutes". That equivalence broke the moment the model tree stopped
-# being scanned on every cycle (MODEL_STRUCTURE_TTL_SECONDS): a counter
-# that only advances on a real scan would have stretched the same 20
-# steps to over three hours. Wall-clock time is what the threshold
-# always meant, so it is now what it measures, and it no longer moves
-# when a poll or rescan interval changes.
+# being scanned on every cycle: a counter that only advances on a real
+# scan now never advances at all on a healthy device, because a healthy
+# device never needs a rescan. Wall-clock time is what the threshold
+# always meant, so it is now what it measures.
 STALE_MODEL_TOLERANCE_SECONDS = 600
 
 DEFAULT_MODELS = set(

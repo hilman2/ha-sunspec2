@@ -15,7 +15,6 @@ from custom_components.sunspec2.api import SunSpecApiClient
 from custom_components.sunspec2.const import DEFAULT_SCAN_DELAY_SECONDS
 from custom_components.sunspec2.const import MAX_SCAN_DELAY_SECONDS
 from custom_components.sunspec2.const import MIN_SCAN_DELAY_SECONDS
-from custom_components.sunspec2.const import MODEL_STRUCTURE_TTL_SECONDS
 from custom_components.sunspec2.errors import DeviceError
 from custom_components.sunspec2.errors import ProtocolError
 from custom_components.sunspec2.errors import TransientError
@@ -313,6 +312,10 @@ class _FakeClient:
         self._header_model_id = (
             header_model_id if header_model_id is not None else self._layout[0][0]
         )
+        # What sits right behind the last block. The end-of-chain marker
+        # unless a test wants to model a firmware update that appended
+        # models to the tree.
+        self.end_marker = mb.SUNS_END_MODEL_ID
 
     def scan(self, **kwargs):
         self.scan_calls += 1
@@ -322,7 +325,15 @@ class _FakeClient:
 
     def read(self, addr, count):
         self.reads.append((addr, count))
-        return b"SunS" + mb.u16_to_data(self._header_model_id)
+        if addr == self.base_addr:
+            return b"SunS" + mb.u16_to_data(self._header_model_id)
+        for model_id, model_addr, model_len in self._layout:
+            if addr == model_addr:
+                return mb.u16_to_data(model_id) + mb.u16_to_data(model_len)
+        last_id, last_addr, last_len = self._layout[-1]
+        if addr == last_addr + 2 + last_len:
+            return mb.u16_to_data(self.end_marker)
+        raise SunSpecModbusClientError(f"unexpected read at {addr}")
 
     def delete_models(self):
         self.models = {}
@@ -365,19 +376,85 @@ async def test_second_connect_restores_without_scanning(hass):
     assert sorted(k for k in fresh.models) == [1, 103]
     rebuilt = fresh.models[103][0]
     assert (rebuilt.model_addr, rebuilt.model_len) == (40070, 50)
-    # Exactly one read: the base-address validation.
-    assert fresh.reads == [(40000, 3)]
+    # Three reads, and no more: base address, chain tail, end marker.
+    assert fresh.reads == [(40000, 3), (40070, 2), (40122, 1)]
 
 
-async def test_expired_structure_triggers_a_rescan(hass):
+async def test_cached_structure_does_not_expire(hass):
+    """There is no timer. A layout stays valid while it keeps validating.
+
+    A rescan cannot confirm a layout, only replace it, and it is the one
+    operation that can silently corrupt it: pysunspec2 walks the chain
+    with ``addr += model_len + 2``, so a single misread length shifts
+    every block behind it and scan() still returns without raising.
+    """
     client = _FakeClient()
     api = _api_with_structure(hass, client)
-    api._structure_scanned_at -= MODEL_STRUCTURE_TTL_SECONDS + 1
 
-    fresh = _FakeClient()
-    api._scan_or_restore(fresh)
+    for _ in range(50):
+        fresh = _FakeClient()
+        api._scan_or_restore(fresh)
+        assert fresh.scan_calls == 0
 
-    assert fresh.scan_calls == 1
+
+async def test_changed_chain_tail_triggers_a_rescan(hass):
+    """The check that actually catches a moved model tree.
+
+    Validating only the base address validates nothing: the first model
+    is 1 (Common) on every SunSpec device ever built. Anything that
+    changes in the middle of the chain moves the tail, so the tail is
+    what has to be re-read.
+    """
+    client = _FakeClient()
+    api = _api_with_structure(hass, client)
+
+    # Same first model, same base address, but the second block grew.
+    moved = _FakeClient(layout=[(1, 40002, 66), (103, 40070, 60)])
+    api._scan_or_restore(moved)
+
+    assert moved.scan_calls == 1
+
+
+async def test_chain_that_grew_past_its_end_triggers_a_rescan(hass):
+    """A firmware update that only appends models still gets noticed.
+
+    The tail block is where it always was, so only the end marker can
+    tell us the chain now continues past it.
+    """
+    client = _FakeClient()
+    api = _api_with_structure(hass, client)
+
+    grown = _FakeClient()
+    grown.end_marker = 704
+    api._scan_or_restore(grown)
+
+    assert grown.scan_calls == 1
+
+
+async def test_device_that_will_not_read_past_the_chain_is_not_punished(hass):
+    """pysunspec2's own scan tolerates a chain that just stops answering.
+
+    So a device that errors on the register behind the last block keeps
+    its cache instead of rescanning on every single connect.
+    """
+    client = _FakeClient()
+    api = _api_with_structure(hass, client)
+
+    quiet = _FakeClient()
+    last_id, last_addr, last_len = quiet._layout[-1]
+    end_addr = last_addr + 2 + last_len
+
+    original_read = quiet.read
+
+    def _read(addr, count):
+        if addr == end_addr:
+            raise SunSpecModbusClientError("Illegal data address")
+        return original_read(addr, count)
+
+    quiet.read = _read
+    api._scan_or_restore(quiet)
+
+    assert quiet.scan_calls == 0
 
 
 async def test_changed_model_tree_triggers_a_rescan(hass):
@@ -460,12 +537,19 @@ async def test_restore_builds_real_pysunspec2_models(hass):
     import sunspec2.modbus.client as real_client
 
     client = real_client.SunSpecModbusClientDeviceTCP(slave_id=1, ipaddr="1.2.3.4")
-    client.read = Mock(return_value=b"SunS" + mb.u16_to_data(103))
+
+    def _read(addr, count):
+        if addr == 40000:
+            return b"SunS" + mb.u16_to_data(103)
+        if addr == 40002:
+            return mb.u16_to_data(103) + mb.u16_to_data(50)
+        return mb.u16_to_data(mb.SUNS_END_MODEL_ID)
+
+    client.read = Mock(side_effect=_read)
 
     api = SunSpecApiClient(host="test", port=123, unit_id=1, hass=hass)
     api._base_addr = 40000
     api._model_structure = [(103, 40002, 50)]
-    api._structure_scanned_at = time.monotonic()
 
     assert api._restore_model_structure(client) is True
 
@@ -516,9 +600,9 @@ async def test_partial_scan_keeps_the_models_it_found(hass, mocker):
 async def test_partial_scan_does_not_cache_the_truncated_layout(hass, mocker):
     """Caching a layout we know is short would pin the missing models out.
 
-    The cache lives for MODEL_STRUCTURE_TTL_SECONDS, so a truncated
-    capture would keep the rest of the chain invisible for ten minutes
-    after the device started answering again.
+    And it would validate cleanly while doing so, because a truncated
+    chain still has a well-formed tail, so nothing would ever prompt the
+    rescan that would find the rest.
     """
     mocker.patch("sunspec2.modbus.client.SunSpecModbusClientDeviceTCP.connect")
     mocker.patch(
@@ -569,3 +653,104 @@ async def test_scan_that_found_nothing_still_fails(hass, mocker):
     api = SunSpecApiClient(host="test", port=123, unit_id=1, hass=hass)
     with pytest.raises(ProtocolError):
         api.get_client()
+
+
+async def test_partial_scan_falls_back_to_the_last_known_layout(hass):
+    """A scan that stops early must not shorten the model list.
+
+    A truncated list drops the affected entities to "unknown" on a cycle
+    that still counts as a success, so the stale-data tolerance never
+    gets to hold the last good value and the user sees a gap that looks
+    exactly like a connection drop (#42). The layout we already have
+    still validates against the device, so it is strictly better than
+    what the failed scan produced.
+    """
+    api = _api_with_structure(hass, _FakeClient())
+
+    class _TruncatingClient(_FakeClient):
+        def scan(self, **kwargs):
+            self.scan_calls += 1
+            self.models = {1: [_FakeModel(1, 40002, 66)]}
+            raise SunSpecModbusClientException("Illegal data address")
+
+    truncated = _TruncatingClient()
+    api._scan_or_restore(truncated)
+
+    assert sorted(k for k in truncated.models) == [1, 103]
+    assert api.last_scan_was_partial is False
+
+
+async def test_scan_timeout_is_never_swallowed(hass):
+    """A timeout leaves the socket suspect, so the cycle has to fail.
+
+    pysunspec2 builds every Modbus TCP frame with transaction id 0 and
+    never checks it on the way in, so a late answer to the request we
+    gave up on is read as the answer to the next one. From there every
+    register lands in the wrong point and the values look plausible
+    rather than missing. Continuing on that socket, with a cached layout
+    or without, is the one thing that must not happen.
+    """
+    api = _api_with_structure(hass, _FakeClient())
+
+    class _TimingOutClient(_FakeClient):
+        def scan(self, **kwargs):
+            self.scan_calls += 1
+            self.models = {1: [_FakeModel(1, 40002, 66)]}
+            raise SunSpecModbusClientTimeout("Response timeout")
+
+    stuck = _TimingOutClient()
+    # Make the cached layout unusable so the code has to reach the scan.
+    stuck.end_marker = 704
+
+    with pytest.raises(SunSpecModbusClientTimeout):
+        api._scan_or_restore(stuck)
+
+
+async def test_structure_survives_an_export_import_round_trip(hass):
+    """What the coordinator persists has to rebuild the same layout."""
+    api = _api_with_structure(hass, _FakeClient())
+    payload = api.export_model_structure()
+
+    restored = SunSpecApiClient(host="test", port=123, unit_id=1, hass=hass)
+    assert restored.import_model_structure(payload) is True
+
+    fresh = _FakeClient()
+    restored._scan_or_restore(fresh)
+
+    assert fresh.scan_calls == 0
+    assert sorted(k for k in fresh.models) == [1, 103]
+
+
+async def test_import_rejects_junk(hass):
+    """A hand-edited or half-written store file must not reach the device."""
+    api = SunSpecApiClient(host="test", port=123, unit_id=1, hass=hass)
+
+    for junk in (
+        None,
+        {},
+        {"base_addr": 40000},
+        {"base_addr": "40000", "models": [[1, 40002, 66]]},
+        {"base_addr": 40000, "models": []},
+        {"base_addr": 40000, "models": [[1, 40002]]},
+        {"base_addr": 40000, "models": [[1, "40002", 66]]},
+    ):
+        assert api.import_model_structure(junk) is False
+        assert api._model_structure is None
+
+
+async def test_revision_only_moves_when_the_layout_does(hass):
+    """A rescan that confirms the layout must not trigger a store write."""
+    client = _FakeClient()
+    api = _api_with_structure(hass, client)
+    revision = api.structure_revision
+
+    # Force a real rescan by invalidating, then rescan the same device.
+    api._invalidate_model_structure()
+    api._scan_or_restore(_FakeClient())
+    assert api.structure_revision > revision
+
+    revision = api.structure_revision
+    same = _FakeClient()
+    same.scan()
+    api._capture_model_structure(same)
+    assert api.structure_revision == revision

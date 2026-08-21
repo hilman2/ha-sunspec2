@@ -491,3 +491,113 @@ async def test_enum_sensor_still_has_its_device_class(
 
     assert state.attributes.get("device_class") == "enum"
     assert state.state in state.attributes["options"]
+
+
+async def test_power_filter_falls_back_to_the_detected_nameplate(
+    hass: HomeAssistant, sunspec_client_mock
+) -> None:
+    """A user who never filled in the peak still gets a filter.
+
+    Both plausibility filters used to be off entirely unless
+    CONF_MAX_AC_POWER_KW was set in the options, which is exactly the
+    user who does not know they need it: #42 reported a 10 kW spike on
+    an inverter that never approaches 10 kW. The nameplate the
+    coordinator already reads from model 120 is a better default than no
+    filter, with headroom on top because a real inverter does overshoot
+    its continuous rating.
+    """
+    config_entry = create_mock_sunspec_config_entry(hass, data=MOCK_CONFIG, options={})
+    await setup_mock_sunspec_config_entry(hass, config_entry=config_entry)
+    coordinator = config_entry.runtime_data
+
+    power_sensor = None
+    for entity in hass.data["entity_components"]["sensor"].entities:
+        if entity.entity_id == TEST_INVERTER_SENSOR_POWER_ENTITY_ID:
+            power_sensor = entity
+            break
+    assert power_sensor is not None
+
+    # No nameplate, no filter: exactly the behaviour before this change.
+    coordinator.detected_max_ac_power_kw = None
+    with patch.object(coordinator.data[103], "getValue", return_value=10000.0):
+        assert power_sensor.native_value == 10000.0
+
+    # Nameplate known: the same reading is now recognised as garbage.
+    coordinator.detected_max_ac_power_kw = 0.5
+    with patch.object(coordinator.data[103], "getValue", return_value=10000.0):
+        assert power_sensor.native_value is None
+
+    # And a plausible reading still passes, headroom included.
+    with patch.object(coordinator.data[103], "getValue", return_value=550.0):
+        assert power_sensor.native_value == 550.0
+
+
+async def test_user_peak_wins_over_the_detected_nameplate(
+    hass: HomeAssistant, sunspec_client_mock
+) -> None:
+    """A configured peak is a deliberate statement about the site.
+
+    So it is used as given, without the headroom the auto-detected
+    nameplate gets.
+    """
+    config_entry = create_mock_sunspec_config_entry(
+        hass,
+        data=MOCK_CONFIG,
+        options={CONF_MAX_AC_POWER_KW: 10.0},
+    )
+    await setup_mock_sunspec_config_entry(hass, config_entry=config_entry)
+    coordinator = config_entry.runtime_data
+    coordinator.detected_max_ac_power_kw = 0.5
+
+    power_sensor = None
+    for entity in hass.data["entity_components"]["sensor"].entities:
+        if entity.entity_id == TEST_INVERTER_SENSOR_POWER_ENTITY_ID:
+            power_sensor = entity
+            break
+    assert power_sensor is not None
+
+    with patch.object(coordinator.data[103], "getValue", return_value=9000.0):
+        assert power_sensor.native_value == 9000.0
+
+
+async def test_energy_sensor_keeps_its_baseline_across_a_gap(
+    hass: HomeAssistant, sunspec_client_mock
+) -> None:
+    """One missing reading must not cost two, plus the delta baseline.
+
+    A None reading used to fall through to the assignment at the bottom
+    of native_value and set lastKnown to None. The next good read then
+    found no baseline, took the "establishing baseline" branch, and was
+    discarded as well. So a single gap became two, and the delta filter
+    lost the reference point it needs to reject a garbage jump.
+    """
+    from custom_components.sunspec2.sensor import SunSpecEnergySensor
+
+    config_entry = create_mock_sunspec_config_entry(
+        hass,
+        data=MOCK_CONFIG,
+        options={CONF_MAX_AC_POWER_KW: 10.0},
+    )
+    await setup_mock_sunspec_config_entry(hass, config_entry=config_entry)
+    coordinator = config_entry.runtime_data
+
+    energy_sensor = None
+    for entity in hass.data["entity_components"]["sensor"].entities:
+        if isinstance(entity, SunSpecEnergySensor) and entity.key == "WH":
+            energy_sensor = entity
+            break
+    assert energy_sensor is not None
+
+    baseline = energy_sensor.native_value
+    assert baseline is not None
+
+    # The model is missing from this cycle's data, so native_value on the
+    # base class returns None.
+    with patch.object(coordinator.data[103], "getValue", return_value=None):
+        assert energy_sensor.native_value == baseline
+    assert energy_sensor.lastKnown == baseline
+
+    # The next good read is served straight away, not swallowed by the
+    # baseline branch.
+    with patch.object(coordinator.data[103], "getValue", return_value=baseline + 10):
+        assert energy_sensor.native_value == baseline + 10

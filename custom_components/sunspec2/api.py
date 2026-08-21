@@ -23,7 +23,6 @@ from .const import DEFAULT_BAUDRATE
 from .const import DEFAULT_SCAN_DELAY_SECONDS
 from .const import MAX_SCAN_DELAY_SECONDS
 from .const import MIN_SCAN_DELAY_SECONDS
-from .const import MODEL_STRUCTURE_TTL_SECONDS
 from .const import PARITY_NONE
 from .const import TRANSPORT_RTU
 from .const import TRANSPORT_TCP
@@ -165,10 +164,27 @@ class SunSpecApiClient:
         # per block. Survives close(), which runs at the end of every
         # cycle, and is dropped by reconnect_next(), which only runs
         # after a failure: the one situation where the layout is a
-        # suspect rather than an asset. See MODEL_STRUCTURE_TTL_SECONDS.
+        # suspect rather than an asset.
+        #
+        # Deliberately without an expiry. A SunSpec model tree changes on
+        # a firmware update and never otherwise, so a timer can only ever
+        # rescan a layout that was still correct, and the rescan is the
+        # one operation that can silently corrupt it. pysunspec2 walks
+        # the chain with ``addr += model_len + 2``, so a single misread
+        # length shifts every block behind it and scan() still returns
+        # without raising. What guards against a real change is
+        # :meth:`_validate_model_structure`, which re-reads both ends of
+        # the chain on every reconnect.
         self._base_addr: int | None = None
         self._model_structure: list[tuple[int, int, int]] | None = None
-        self._structure_scanned_at: float | None = None
+        # Bumped on every layout change so the coordinator can tell when
+        # what it persisted is stale without diffing the lists.
+        self.structure_revision: int = 0
+        # True while the model list in the live client is known to be
+        # incomplete. The coordinator reads it through
+        # :attr:`last_scan_was_partial` and refuses to treat a shortened
+        # list as "these models are gone".
+        self._partial_scan = False
         self._log = get_adapter(host, port, unit_id)
         self._capture_enabled = capture_enabled
         self._captured_reads: list[dict] = []
@@ -396,14 +412,70 @@ class SunSpecApiClient:
         self._invalidate_model_structure()
 
     def _invalidate_model_structure(self) -> None:
+        if self._model_structure is None and self._base_addr is None:
+            return
         self._base_addr = None
         self._model_structure = None
-        self._structure_scanned_at = None
+        self.structure_revision += 1
 
-    def _model_structure_is_fresh(self) -> bool:
-        if self._model_structure is None or self._structure_scanned_at is None:
+    @property
+    def last_scan_was_partial(self) -> bool:
+        """True if the model list the client is holding may be incomplete.
+
+        Set when a scan stopped early, cleared by the next scan that
+        walks the whole chain. A restore from cache leaves it alone:
+        the cache is only ever written from a complete scan, so a
+        restored layout carries the completeness of the scan it came
+        from.
+        """
+        return self._partial_scan
+
+    def export_model_structure(self) -> dict | None:
+        """Serialise the cached layout so the coordinator can persist it.
+
+        Returns ``None`` when there is nothing worth storing. The
+        revision travels with the payload: the coordinator writes it
+        back on save and compares it on the next cycle, which is how it
+        knows a rescan produced something new without diffing lists.
+        """
+        if not self._model_structure or self._base_addr is None:
+            return None
+        return {
+            "revision": self.structure_revision,
+            "base_addr": self._base_addr,
+            "models": [list(entry) for entry in self._model_structure],
+        }
+
+    def import_model_structure(self, payload) -> bool:
+        """Adopt a layout persisted by an earlier run. False means "ignored".
+
+        Nothing here trusts the payload. It is validated against the
+        live device by :meth:`_validate_model_structure` on the very
+        next connect, exactly like a layout this process scanned itself,
+        so a stale or hand-edited store file costs three reads and a
+        rescan rather than a wrong reading.
+        """
+        if not isinstance(payload, dict):
             return False
-        return (time.monotonic() - self._structure_scanned_at) < MODEL_STRUCTURE_TTL_SECONDS
+        base_addr = payload.get("base_addr")
+        models = payload.get("models")
+        if not isinstance(base_addr, int) or not isinstance(models, list) or not models:
+            return False
+        structure: list[tuple[int, int, int]] = []
+        for entry in models:
+            if not isinstance(entry, (list, tuple)) or len(entry) != 3:
+                return False
+            if not all(isinstance(value, int) for value in entry):
+                return False
+            structure.append((entry[0], entry[1], entry[2]))
+        structure.sort(key=lambda item: item[1])
+        self._base_addr = base_addr
+        self._model_structure = structure
+        self._log.debug(
+            "Adopted a persisted SunSpec layout with %d model(s), pending validation",
+            len(structure),
+        )
+        return True
 
     def _scan_or_restore(self, client) -> None:
         """Give ``client`` its model objects, rescanning only when needed.
@@ -416,7 +488,7 @@ class SunSpecApiClient:
         same model objects from one read instead of ``1 + 2n``, and
         skips the per-model pacing sleep completely.
         """
-        if self._model_structure_is_fresh() and self._restore_model_structure(client):
+        if self._restore_model_structure(client):
             self._log.debug(
                 "Restored %d cached SunSpec models, skipping scan",
                 len(self._model_structure or []),
@@ -433,17 +505,53 @@ class SunSpecApiClient:
                 # inside the executor thread on every model.
                 delay=self._scan_delay or None,
             )
+        except (SunSpecModbusClientTimeout, ModbusClientTimeout):
+            # Never swallowed, unlike the other Modbus errors below.
+            #
+            # A timeout means a request went out and no answer came
+            # back, and pysunspec2 builds every Modbus TCP frame with
+            # transaction id 0 and never checks it on the way in (see
+            # ModbusClientTCP._read). A late answer arriving after we
+            # gave up is therefore read as the answer to the NEXT
+            # request, and from there the whole conversation is off by
+            # one frame: every register lands in the wrong point and the
+            # values look plausible rather than missing. Failing the
+            # cycle drops the socket and reconnects, which is the only
+            # way back into sync.
+            raise
         except (SunSpecModbusClientError, ModbusClientError) as err:
-            # pysunspec2 walks the model chain by reading a length and
-            # then the next id, and calls add_model() as it goes. A read
-            # that fails partway therefore throws away every model it
-            # had already found, which turns one unreadable block into
-            # "this inverter is not SunSpec". Reported against the
-            # upstream integration for an SMA STP110-60 in
-            # cjne/ha-sunspec#375, with this fix; the bug is the same
-            # here.
+            # Not a timeout, so the device did answer, typically with a
+            # Modbus exception code for a block it will not serve. The
+            # socket is still in sync, so we have a real choice about
+            # how to continue - and a truncated model list is the worst
+            # of the options. It drops entities to "unknown" while the
+            # cycle still counts as a success, so the stale-data
+            # tolerance never gets its chance to hold the last good
+            # value, and the user sees a gap that looks like a
+            # connection drop but is not one (#42).
+            #
+            # Prefer the last layout we know was good, if it still
+            # validates against the device.
+            if self._restore_model_structure(client):
+                self._log.warning(
+                    "SunSpec scan stopped early (%s: %s). Continuing with the last known "
+                    "good layout of %d model(s), which still validates against the device.",
+                    err.__class__.__name__,
+                    err,
+                    len(self._model_structure or []),
+                )
+                return
+            # No usable cache, so this is a first scan. pysunspec2 walks
+            # the model chain by reading a length and then the next id,
+            # and calls add_model() as it goes. A read that fails
+            # partway therefore throws away every model it had already
+            # found, which turns one unreadable block into "this
+            # inverter is not SunSpec". Reported against the upstream
+            # integration for an SMA STP110-60 in cjne/ha-sunspec#375,
+            # with this fix; the bug is the same here.
             if not _discovered_model_count(client):
                 raise
+            self._partial_scan = True
             self._log.warning(
                 "SunSpec scan stopped early (%s: %s). Continuing with the %d model(s) "
                 "found before the failure; the rest of the chain was not read.",
@@ -453,10 +561,13 @@ class SunSpecApiClient:
             )
             # Deliberately no _capture_model_structure() here. Caching a
             # layout we know is truncated would pin the missing models
-            # out of existence for MODEL_STRUCTURE_TTL_SECONDS; leaving
-            # the cache empty means the next cycle scans again and can
-            # pick them up as soon as the device answers.
+            # out of existence indefinitely, and it would validate
+            # cleanly while doing so: a truncated chain still has a
+            # well-formed tail. An empty cache means the next connect
+            # scans again and picks the rest up as soon as the device
+            # answers.
             return
+        self._partial_scan = False
         self._capture_model_structure(client)
 
     def _capture_model_structure(self, client) -> None:
@@ -489,25 +600,49 @@ class SunSpecApiClient:
         # Address order is the order the device lays the blocks out,
         # which is the order scan() would rediscover them in.
         structure.sort(key=lambda entry: entry[1])
+        if structure == self._model_structure and client.base_addr == self._base_addr:
+            # A rescan that found exactly what we already had. Leave the
+            # revision alone so the coordinator does not rewrite its
+            # store file for nothing.
+            return
+        if self._model_structure is not None:
+            self._log.info(
+                "SunSpec model layout changed: %d model(s) before, %d now. Adopting the new one.",
+                len(self._model_structure),
+                len(structure),
+            )
         self._base_addr = client.base_addr
         self._model_structure = structure
-        self._structure_scanned_at = time.monotonic()
+        self.structure_revision += 1
 
-    def _restore_model_structure(self, client) -> bool:
-        """Rebuild ``client.models`` from the cache. False means "scan instead".
+    def _validate_model_structure(self, client, structure) -> bool:
+        """Re-read both ends of the cached chain. False means "rescan".
 
-        Every failure path returns False rather than raising, so a cache
-        that no longer matches the device costs one wasted read and
-        falls back to exactly the behaviour we had before.
+        Three short reads, and none of them is optional:
 
-        The validating read is not optional. Without it a firmware
-        update that reorders the model tree would be read at the old
-        offsets and produce values that are wrong rather than absent,
-        which is far harder to notice than a failed poll.
+        * the base address still answers with the ``SunS`` marker and
+          the first model id,
+        * the last block still carries the id and length we recorded
+          for it,
+        * the register right behind that block is still the end marker.
+
+        Checking only the first model, which is what this did before,
+        checks nothing at all: the first model is 1 (Common) on every
+        SunSpec device ever built, so the test passed for any layout.
+        The chain is a linked list built out of lengths, so anything
+        that changes in the middle moves the tail. Verifying the tail
+        therefore catches both cases that matter: a firmware update
+        that reorders the tree, and a previous scan that misread a
+        length and cached a shifted layout. Reading a shifted layout at
+        the old offsets returns values that are wrong rather than
+        absent, which is far harder to notice than a failed poll.
+
+        The end-marker read is the one that catches a firmware update
+        which only appends models: the tail block is then still where
+        it was, but the chain no longer ends behind it. A device that
+        refuses that read is not held against it, since pysunspec2's
+        own scan tolerates a chain that just stops answering.
         """
-        structure = self._model_structure
-        if not structure or self._base_addr is None:
-            return False
         try:
             header = client.read(self._base_addr, 3)
         except Exception as err:  # noqa: BLE001 - any failure just means "scan"
@@ -518,6 +653,54 @@ class SunSpecApiClient:
             return False
         if mb.data_to_u16(header[4:6]) != structure[0][0]:
             self._log.info("SunSpec model tree changed at the base address, rescanning")
+            return False
+
+        last_id, last_addr, last_len = structure[-1]
+        try:
+            tail = client.read(last_addr, 2)
+        except Exception as err:  # noqa: BLE001 - any failure just means "scan"
+            self._log.debug("Cached model chain tail could not be validated: %s", err)
+            return False
+        if not tail or len(tail) < 4:
+            self._log.debug("Cached model chain tail returned no data")
+            return False
+        found_id = mb.data_to_u16(tail[0:2])
+        found_len = mb.data_to_u16(tail[2:4])
+        if found_id != last_id or found_len != last_len:
+            self._log.info(
+                "SunSpec model tree changed: expected model %s of %s registers at address %s, "
+                "found model %s of %s registers. Rescanning.",
+                last_id,
+                last_len,
+                last_addr,
+                found_id,
+                found_len,
+            )
+            return False
+        try:
+            end = client.read(last_addr + 2 + last_len, 1)
+        except Exception as err:  # noqa: BLE001 - device need not answer past the chain
+            self._log.debug("No readable end marker behind the cached chain (%s), accepting", err)
+            return True
+        if end and len(end) >= 2 and mb.data_to_u16(end[0:2]) != mb.SUNS_END_MODEL_ID:
+            self._log.info(
+                "SunSpec model chain continues past its cached end, rescanning to pick up "
+                "the models behind it"
+            )
+            return False
+        return True
+
+    def _restore_model_structure(self, client) -> bool:
+        """Rebuild ``client.models`` from the cache. False means "scan instead".
+
+        Every failure path returns False rather than raising, so a cache
+        that no longer matches the device costs three wasted reads and
+        falls back to exactly the behaviour we had before.
+        """
+        structure = self._model_structure
+        if not structure or self._base_addr is None:
+            return False
+        if not self._validate_model_structure(client, structure):
             return False
 
         client.base_addr = self._base_addr
