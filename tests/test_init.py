@@ -1,5 +1,6 @@
 """Test SunSpec setup process."""
 
+from unittest.mock import AsyncMock as _AsyncMock
 from unittest.mock import patch
 
 import pytest
@@ -942,3 +943,226 @@ async def test_setup_removes_orphaned_control_model_sensors(hass, sunspec_client
 
     assert registry.async_get(orphan) is None
     assert registry.async_get(kept) is not None
+
+
+# ---------------------------------------------------------------------------
+# #42: a scan that stops early must not look like models disappearing
+# ---------------------------------------------------------------------------
+
+
+def _make_cycle_coordinator(hass, models: set[int], partial: bool):
+    """A coordinator whose API reports ``models`` from a (partial) scan."""
+    from unittest.mock import AsyncMock
+    from unittest.mock import MagicMock
+
+    config_entry = MockConfigEntry(
+        domain=DOMAIN, data=MOCK_CONFIG, options={CONF_ENABLED_MODELS: [103]}
+    )
+    config_entry.add_to_hass(hass)
+
+    api = MagicMock()
+    api.async_get_models = AsyncMock(return_value=sorted(models))
+    api.async_get_data = AsyncMock(return_value=MagicMock())
+    api.last_scan_was_partial = partial
+    return SunSpecDataUpdateCoordinator(hass, client=api, entry=config_entry)
+
+
+async def test_truncated_model_list_fails_the_cycle(hass):
+    """Losing a known model to a partial scan is a failure, not a reading.
+
+    Reported as #42: v0.20.0 started treating a scan that stopped early
+    as a success as long as it had found something. The models behind
+    the failure point vanished from the list, their sensors returned
+    None while the cycle still counted as successful, and the entities
+    stayed "available" throughout - so the stale-data tolerance never
+    engaged and the history shows a gap that looks exactly like a
+    connection drop.
+    """
+    from custom_components.sunspec2.errors import TransientError
+
+    coordinator = _make_cycle_coordinator(hass, {1, 103}, partial=True)
+    coordinator.detected_models = {1, 103, 160}
+
+    with pytest.raises(TransientError):
+        await coordinator._run_one_update_cycle()
+
+
+async def test_truncated_model_list_is_fine_on_a_first_scan(hass):
+    """Nothing known is missing yet, so a short first scan is still usable.
+
+    This is the cjne/ha-sunspec#375 case (SMA STP110-60): one unreadable
+    block must not turn into "this inverter is not SunSpec".
+    """
+    coordinator = _make_cycle_coordinator(hass, {1, 103}, partial=True)
+
+    data = await coordinator._run_one_update_cycle()
+
+    assert 103 in data
+
+
+async def test_models_missing_from_a_complete_scan_are_still_tracked(hass):
+    """The partial-scan guard must not disarm the stale-model tracking.
+
+    A model that is genuinely gone from a scan that ran to the end is
+    the case cjne issue #202 is about, and it still has to reach the
+    Repairs panel.
+    """
+    coordinator = _make_cycle_coordinator(hass, {1, 103}, partial=False)
+    coordinator.detected_models = {1, 103, 714}
+
+    await coordinator._run_one_update_cycle()
+
+    assert coordinator._missing_this_cycle == {714}
+
+
+async def test_nameplate_is_probed_once_per_run(hass):
+    """A device without model 120 or 121 must not be re-probed forever.
+
+    detected_max_ac_power_kw stays None on such a device, and the guard
+    used to be that value alone, so every single cycle went looking
+    again for models the scan had already said were not there.
+    """
+    # The device advertises model 120 but will not serve it, which is the
+    # shape that used to loop: the read fails, nothing gets cached, and
+    # the next cycle tries again.
+    coordinator = _make_coordinator_with_mock_api(hass, {1: "device", 103: 1.0})
+    coordinator.api.async_get_models = _AsyncMock(return_value=[1, 103, 120])
+
+    for _ in range(3):
+        await coordinator._run_one_update_cycle()
+
+    probed = [call.args[0] for call in coordinator.api.async_get_data.call_args_list]
+    assert probed.count(120) == 1
+
+
+async def test_nameplate_read_timeout_is_not_swallowed(hass):
+    """A timed-out read leaves the socket suspect, convenience or not.
+
+    pysunspec2 never checks the Modbus TCP transaction id, so a late
+    answer to the request we abandoned is read as the answer to the next
+    one. Swallowing the timeout here would carry that off-by-one frame
+    into the reads the cycle actually cares about.
+    """
+    from unittest.mock import AsyncMock
+    from unittest.mock import MagicMock
+
+    from custom_components.sunspec2.errors import TransientError
+
+    config_entry = MockConfigEntry(domain=DOMAIN, data=MOCK_CONFIG, options={})
+    config_entry.add_to_hass(hass)
+
+    api = MagicMock()
+    api.async_get_data = AsyncMock(side_effect=TransientError("Modbus read timeout"))
+    coordinator = SunSpecDataUpdateCoordinator(hass, client=api, entry=config_entry)
+
+    with pytest.raises(TransientError):
+        await coordinator._read_nameplate({120, 121})
+
+
+# ---------------------------------------------------------------------------
+# The persisted SunSpec model layout
+# ---------------------------------------------------------------------------
+
+
+async def test_stored_layout_is_handed_to_the_api_client(hass):
+    """What an earlier run discovered has to reach the next one.
+
+    The scan it saves is the one that runs inside Home Assistant's setup
+    timeout, on the slowest hardware, at the worst possible moment.
+    """
+    from unittest.mock import AsyncMock
+    from unittest.mock import MagicMock
+
+    config_entry = MockConfigEntry(domain=DOMAIN, data=MOCK_CONFIG, options={})
+    config_entry.add_to_hass(hass)
+
+    api = MagicMock()
+    api.import_model_structure = MagicMock(return_value=True)
+    api.structure_revision = 7
+    coordinator = SunSpecDataUpdateCoordinator(hass, client=api, entry=config_entry)
+
+    stored = {
+        "structure": {"base_addr": 40000, "models": [[1, 40002, 66]]},
+        "identity": {"SN": "abc"},
+    }
+    coordinator._structure_store.async_load = AsyncMock(return_value=stored)
+
+    await coordinator.async_load_model_structure()
+
+    api.import_model_structure.assert_called_once_with(stored["structure"])
+    assert coordinator._persisted_structure_revision == 7
+    assert coordinator._persisted_identity == {"SN": "abc"}
+
+
+async def test_layout_is_only_written_when_it_changed(hass):
+    """The store must not be rewritten on every successful cycle."""
+    from unittest.mock import AsyncMock
+    from unittest.mock import MagicMock
+
+    config_entry = MockConfigEntry(domain=DOMAIN, data=MOCK_CONFIG, options={})
+    config_entry.add_to_hass(hass)
+
+    api = MagicMock()
+    api.structure_revision = 1
+    api.export_model_structure = MagicMock(
+        return_value={"base_addr": 40000, "models": [[1, 40002, 66]]}
+    )
+    coordinator = SunSpecDataUpdateCoordinator(hass, client=api, entry=config_entry)
+    coordinator._structure_store.async_save = AsyncMock()
+
+    await coordinator._async_save_model_structure()
+    await coordinator._async_save_model_structure()
+    assert coordinator._structure_store.async_save.call_count == 1
+
+    api.structure_revision = 2
+    await coordinator._async_save_model_structure()
+    assert coordinator._structure_store.async_save.call_count == 2
+
+
+async def test_identity_mismatch_discards_the_stored_layout(hass):
+    """Another inverter on a recycled IP must not be read at the old offsets.
+
+    The address checks cannot see this one: a different device of a
+    different make can lay its model tree out the same way and still
+    mean something entirely different by the registers.
+    """
+    from unittest.mock import MagicMock
+
+    from custom_components.sunspec2.errors import TransientError
+
+    config_entry = MockConfigEntry(domain=DOMAIN, data=MOCK_CONFIG, options={})
+    config_entry.add_to_hass(hass)
+
+    api = MagicMock()
+    coordinator = SunSpecDataUpdateCoordinator(hass, client=api, entry=config_entry)
+    coordinator._persisted_identity = {"Mn": "KACO", "SN": "111"}
+
+    device_info = MagicMock()
+    device_info.getValue = lambda point: {"Mn": "SMA", "SN": "222"}.get(point)
+    coordinator.device_info = device_info
+
+    with pytest.raises(TransientError):
+        coordinator._check_device_identity()
+
+    api.reconnect_next.assert_called_once()
+
+
+async def test_matching_identity_passes_quietly(hass):
+    """The common case costs nothing and happens once per run."""
+    from unittest.mock import MagicMock
+
+    config_entry = MockConfigEntry(domain=DOMAIN, data=MOCK_CONFIG, options={})
+    config_entry.add_to_hass(hass)
+
+    api = MagicMock()
+    coordinator = SunSpecDataUpdateCoordinator(hass, client=api, entry=config_entry)
+    coordinator._persisted_identity = {"Mn": "KACO", "SN": "111"}
+
+    device_info = MagicMock()
+    device_info.getValue = lambda point: {"Mn": "KACO", "SN": "111"}.get(point)
+    coordinator.device_info = device_info
+
+    coordinator._check_device_identity()
+    coordinator._check_device_identity()
+
+    api.reconnect_next.assert_not_called()

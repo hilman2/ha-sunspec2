@@ -22,6 +22,7 @@ from homeassistant.exceptions import ConfigEntryNotReady
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers import issue_registry as ir
+from homeassistant.helpers.storage import Store
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from homeassistant.helpers.update_coordinator import UpdateFailed
 from homeassistant.util import dt as dt_util
@@ -51,6 +52,8 @@ from .const import SERVICE_SET_EXPORT_LIMIT
 from .const import STALE_DATA_TOLERANCE_CYCLES
 from .const import STALE_MODEL_TOLERANCE_SECONDS
 from .const import STARTUP_MESSAGE
+from .const import STRUCTURE_STORAGE_KEY
+from .const import STRUCTURE_STORAGE_VERSION
 from .const import TRANSPORT_RTU
 from .const import TRANSPORT_TCP
 from .const import WRITE_CAPABLE_MODEL_IDS
@@ -197,6 +200,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: SunSpec2ConfigEntry) -> 
     # config entry instead of in hass.data so platforms and the
     # diagnostics dump can read it without a second-level lookup.
     entry.runtime_data = coordinator
+
+    # Hand the API client the model layout an earlier run discovered, if
+    # we have one. Nothing trusts it: the next connect re-reads both ends
+    # of the chain and rescans if anything moved. What it buys is the
+    # first cycle, which is the one that runs inside Home Assistant's
+    # setup timeout on the slowest hardware.
+    await coordinator.async_load_model_structure()
 
     await coordinator.async_config_entry_first_refresh()
 
@@ -388,6 +398,25 @@ async def async_remove_config_entry_device(
     return True
 
 
+async def async_remove_entry(hass: HomeAssistant, entry: SunSpec2ConfigEntry) -> None:
+    """Delete what the entry leaves behind on disk.
+
+    Only the persisted SunSpec model layout, which is a cache keyed by
+    entry id. Leaving it would be harmless (it is validated against the
+    device before it is ever used) but it would also be litter that
+    nothing ever collects.
+    """
+    store = Store(
+        hass,
+        STRUCTURE_STORAGE_VERSION,
+        f"{STRUCTURE_STORAGE_KEY}.{entry.entry_id}",
+    )
+    try:
+        await store.async_remove()
+    except Exception as err:  # noqa: BLE001 - best effort cleanup
+        _LOGGER.debug("Could not remove the stored SunSpec layout: %s", err)
+
+
 async def async_unload_entry(hass: HomeAssistant, entry: SunSpec2ConfigEntry) -> bool:
     """Handle removal of an entry."""
 
@@ -503,6 +532,30 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator):
         # connect grabs the slot, the second hits the 60s Home Assistant
         # setup timeout instead of returning.
         self.device_info = None
+        # Persisted SunSpec model layout. The store is per config entry so
+        # removing the entry can drop the file, and so two inverters never
+        # share a cache key.
+        self._structure_store: Store = Store(
+            hass,
+            STRUCTURE_STORAGE_VERSION,
+            f"{STRUCTURE_STORAGE_KEY}.{entry.entry_id}",
+        )
+        # Revision of the layout currently on disk. Compared against
+        # ``api.structure_revision`` after every successful cycle, which
+        # is how a rescan that found something new gets written out
+        # without diffing the lists.
+        self._persisted_structure_revision: int | None = None
+        # Device identity (model 1) recorded alongside the persisted
+        # layout. Checked once per run against the live device, so a
+        # different inverter answering on a recycled IP cannot be read at
+        # the previous one's offsets.
+        self._persisted_identity: dict | None = None
+        self._identity_checked = False
+        # Whether the nameplate auto-detection has run. It is a
+        # convenience read, so it gets exactly one attempt per run rather
+        # than being retried on every cycle for a device that simply does
+        # not expose model 120 or 121.
+        self._nameplate_probed = False
         self._gateway_lock = self._get_gateway_lock(
             entry.data.get(CONF_HOST), entry.data.get(CONF_PORT)
         )
@@ -559,7 +612,7 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator):
         # The decision to actually remove the device stays with the user.
         #
         # Wall-clock rather than a cycle counter: the model tree is only
-        # rescanned every MODEL_STRUCTURE_TTL_SECONDS now, so counting
+        # rescanned when the cached layout stops validating, so counting
         # cycles would mean counting events that mostly cannot observe
         # the thing being counted.
         self._model_missing_since: dict[int, datetime] = {}
@@ -627,6 +680,108 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator):
             config_entry=entry,
         )
 
+    async def async_load_model_structure(self) -> None:
+        """Hand the API client the layout an earlier run discovered.
+
+        Called once, before the first refresh. A missing or unreadable
+        store is not an error: it just means the next connect scans, so
+        every failure here is swallowed at debug level.
+        """
+        try:
+            payload = await self._structure_store.async_load()
+        except Exception as err:  # noqa: BLE001 - a cache read must never break setup
+            self._log.debug("Could not read the stored SunSpec layout: %s", err)
+            return
+        if not isinstance(payload, dict):
+            return
+        structure = payload.get("structure")
+        if not self.api.import_model_structure(structure):
+            return
+        self._persisted_structure_revision = self.api.structure_revision
+        identity = payload.get("identity")
+        self._persisted_identity = identity if isinstance(identity, dict) else None
+        self._log.debug(
+            "Loaded a stored SunSpec layout with %d model(s)",
+            len(structure.get("models", [])) if isinstance(structure, dict) else 0,
+        )
+
+    async def _async_save_model_structure(self) -> None:
+        """Write the layout out when a scan produced something new.
+
+        Runs after a successful cycle, so what gets stored is a layout
+        that has just been read from end to end without an error. Cheap
+        to call on every cycle: it compares one integer and returns.
+        """
+        revision = self.api.structure_revision
+        if revision == self._persisted_structure_revision:
+            return
+        payload = self.api.export_model_structure()
+        if payload is None:
+            return
+        payload = {"structure": payload, "identity": self._device_identity()}
+        try:
+            await self._structure_store.async_save(payload)
+        except Exception as err:  # noqa: BLE001 - a cache write must never break a poll
+            self._log.debug("Could not store the SunSpec layout: %s", err)
+            return
+        self._persisted_structure_revision = revision
+        self._log.debug("Stored the SunSpec layout at revision %d", revision)
+
+    async def async_remove_stored_model_structure(self) -> None:
+        """Drop the store file. Called when the config entry is removed."""
+        try:
+            await self._structure_store.async_remove()
+        except Exception as err:  # noqa: BLE001 - best effort cleanup
+            self._log.debug("Could not remove the stored SunSpec layout: %s", err)
+
+    def _device_identity(self) -> dict | None:
+        """Manufacturer / model / version / serial, out of SunSpec model 1.
+
+        Stored next to the layout so a different device answering on a
+        recycled IP is caught even in the case the address checks cannot
+        see: another inverter of a different make whose model tree
+        happens to start the same way.
+        """
+        if self.device_info is None:
+            return None
+        identity = {}
+        for point in ("Mn", "Md", "Vr", "SN"):
+            try:
+                value = self.device_info.getValue(point)
+            except Exception:  # noqa: BLE001 - identity is a nice-to-have
+                continue
+            if value is not None:
+                identity[point] = str(value)
+        return identity or None
+
+    def _check_device_identity(self) -> None:
+        """Compare the live device against the identity we stored.
+
+        Raises :class:`TransientError` on a mismatch, which fails the
+        cycle and forces a fresh scan on the next one. Runs once per
+        run: a device does not change identity underneath a live
+        connection, and re-reading model 1 every cycle to prove it would
+        cost a Modbus round trip for nothing.
+        """
+        if self._identity_checked:
+            return
+        self._identity_checked = True
+        stored = self._persisted_identity
+        if not stored:
+            return
+        current = self._device_identity()
+        if not current or current == stored:
+            return
+        self._log.warning(
+            "The device at this address is not the one the stored SunSpec layout came from "
+            "(%s vs %s). Discarding the layout and rescanning.",
+            stored,
+            current,
+        )
+        self._persisted_identity = None
+        self.api.reconnect_next()
+        raise TransientError("Stored SunSpec layout belongs to a different device, rescanning")
+
     async def _async_update_data(self):
         """Update data via library, with one in-cycle retry on failure.
 
@@ -649,7 +804,9 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator):
         try:
             async with self._gateway_lock:
                 data = await self._run_one_update_cycle()
-            return self._after_successful_cycle(data)
+            result = self._after_successful_cycle(data)
+            await self._async_save_model_structure()
+            return result
         except Exception as exc:  # noqa: BLE001 - dispatched below
             first_err = exc
 
@@ -675,7 +832,9 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator):
                 data = await self._run_one_update_cycle()
         except Exception as second_err:  # noqa: BLE001 - dispatched below
             return self._after_failed_cycle(second_err)
-        return self._after_successful_cycle(data)
+        result = self._after_successful_cycle(data)
+        await self._async_save_model_structure()
+        return result
 
     async def async_write_points_locked(
         self, model_id: int, points: list[tuple[str, object]]
@@ -760,7 +919,21 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator):
         # _after_successful_cycle once the rest of the cycle is
         # confirmed good, so we don't escalate on a partial scan.
         previously_known = self.detected_models
-        self._missing_this_cycle = previously_known - all_models
+        missing = previously_known - all_models
+        if missing and self.api.last_scan_was_partial:
+            # The scan stopped early and the API layer had no usable
+            # cached layout to fall back on, so this list is short
+            # through no fault of the device. Serving it would drop the
+            # affected entities to "unknown" on a cycle that counts as a
+            # success, which means the stale-data tolerance never gets
+            # to hold the last good value and the user sees a gap that
+            # looks exactly like a connection drop (#42). Failing the
+            # cycle keeps the last good values on screen and gets a
+            # fresh scan on the retry.
+            raise TransientError(
+                f"SunSpec scan was incomplete: model(s) {sorted(missing)} were not read this cycle"
+            )
+        self._missing_this_cycle = missing
         self._new_this_cycle = all_models - previously_known
         # Cache the full set of models the inverter exposes so the
         # options-flow form can render its multi-select even between
@@ -780,6 +953,9 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator):
         # changes for a given physical inverter.
         if self.device_info is None:
             self.device_info = await self.api.async_get_data(1)
+        # Only meaningful once model 1 has been read, and it is read on
+        # the first cycle, so this lands exactly where it can act.
+        self._check_device_identity()
 
         # Auto-detect the inverter's nameplate AC power once, on the
         # first cycle that reaches this point. Prefer model 120
@@ -790,7 +966,8 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator):
         # the installer set, which is usually but not always the
         # nameplate. Both reads are guarded by individual try/excepts
         # so a flaky model read never breaks the whole update cycle.
-        if self.detected_max_ac_power_kw is None:
+        if self.detected_max_ac_power_kw is None and not self._nameplate_probed:
+            self._nameplate_probed = True
             self.detected_max_ac_power_kw = await self._read_nameplate(all_models)
 
         for model_id in model_ids:
@@ -816,6 +993,15 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator):
             try:
                 wrapper = await self.api.async_get_data(model_id)
                 value = wrapper.getValue(point_name)
+            except TransientError:
+                # A read timeout is the one failure this must not
+                # swallow. pysunspec2 never checks the Modbus TCP
+                # transaction id, so a late answer to the request we
+                # gave up on is read as the answer to the next one, and
+                # every register after it lands in the wrong point. The
+                # convenience read is not worth poisoning the cycle it
+                # sits in front of, so let it fail and reconnect.
+                raise
             except Exception as exc:  # noqa: BLE001 - convenience read, never escalate
                 self._log.debug(
                     "Auto-detect nameplate from %s failed (%s), trying next",

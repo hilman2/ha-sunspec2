@@ -40,6 +40,7 @@ from .const import CONF_SCAN_INTERVAL
 from .const import DOMAIN
 from .const import ENERGY_DELTA_REJECT_RECOVERY_COUNT
 from .const import ENERGY_DELTA_SAFETY_FACTOR
+from .const import NAMEPLATE_FILTER_HEADROOM
 from .const import is_excluded_sensor_point
 from .entity import SunSpecEntity
 
@@ -362,12 +363,6 @@ class SunSpecSensor(SunSpecEntity, SensorEntity):
         self.lastKnown = None
         self._assumed_state = False
 
-        # Plausibility filter: if the user configured a peak AC power, drop
-        # power-like readings that exceed it. Stored in the sensor's native
-        # unit so the per-update check is a single comparison.
-        max_power_kw = config_entry.options.get(CONF_MAX_AC_POWER_KW)
-        self._max_native_value = _power_limit_in_native_unit(self.unit, max_power_kw)
-
         self._unique_id = get_sunspec_unique_id(
             config_entry.entry_id, self.key, self.model_id, self.model_index
         )
@@ -544,6 +539,32 @@ class SunSpecSensor(SunSpecEntity, SensorEntity):
         return self._assumed_state
 
     @property
+    def _peak_power_kw(self) -> float | None:
+        """Peak AC power to measure plausibility against, in kW.
+
+        The user's configured value wins. Where there is none, the
+        nameplate the coordinator auto-detected from model 120 / 121
+        stands in, with :data:`NAMEPLATE_FILTER_HEADROOM` on top.
+
+        Resolved per read rather than in ``__init__`` on purpose: the
+        nameplate arrives on the first successful cycle, which can be
+        after the entity was built, and an options change should take
+        effect without a reload.
+        """
+        configured = self.coordinator.entry.options.get(CONF_MAX_AC_POWER_KW)
+        if configured:
+            return configured
+        detected = getattr(self.coordinator, "detected_max_ac_power_kw", None)
+        if detected:
+            return detected * NAMEPLATE_FILTER_HEADROOM
+        return None
+
+    @property
+    def _max_native_value(self) -> float | None:
+        """Upper plausibility bound in this sensor's own unit, or None."""
+        return _power_limit_in_native_unit(self.unit, self._peak_power_kw)
+
+    @property
     def native_value(self) -> Any:
         """Return the state of the sensor."""
         try:
@@ -650,20 +671,35 @@ class SunSpecEnergySensor(SunSpecSensor, RestoreSensor):
         # filter never updates lastKnown while it rejects.
         self._rejected_delta_count = 0
 
-        # Plausibility filter: derive the maximum plausible delta between
-        # two consecutive reads from the configured peak power and the
-        # scan interval. ``None`` disables the check.
-        max_power_kw = config_entry.options.get(CONF_MAX_AC_POWER_KW)
-        scan_interval = config_entry.options.get(
-            CONF_SCAN_INTERVAL, config_entry.data.get(CONF_SCAN_INTERVAL)
-        )
-        self._max_native_delta = _energy_delta_limit_in_native_unit(
-            self.unit, max_power_kw, scan_interval
-        )
+    @property
+    def _max_native_delta(self) -> float | None:
+        """Maximum plausible increase between two reads, in this unit.
+
+        Derived from the peak power and the scan interval. ``None``
+        disables the check, which is what a sensor that is not an energy
+        counter, or an install with no peak to go on, gets.
+        """
+        entry = self.coordinator.entry
+        scan_interval = entry.options.get(CONF_SCAN_INTERVAL, entry.data.get(CONF_SCAN_INTERVAL))
+        return _energy_delta_limit_in_native_unit(self.unit, self._peak_power_kw, scan_interval)
 
     @property
     def native_value(self) -> Any:
         val = super().native_value
+        if val is None:
+            # No reading this cycle: the model was missing from the
+            # coordinator's data, or the point could not be computed.
+            #
+            # Falling through would reach the assignment at the bottom
+            # and set lastKnown to None, which costs more than the one
+            # missing reading: the next good read then finds no baseline,
+            # takes the "establishing baseline" branch, and is discarded
+            # too. One gap becomes two and the delta filter loses its
+            # reference point. Hold the last value instead, the same way
+            # the val == 0 branch below does, so total_increasing keeps
+            # its continuity.
+            self._assumed_state = True
+            return self.lastKnown
         # For an energy sensor a value of 0 woulld mess up long term stats because of how total_increasing works
         if val == 0:
             _LOGGER.debug(
