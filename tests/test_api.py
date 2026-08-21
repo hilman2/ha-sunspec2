@@ -754,3 +754,99 @@ async def test_revision_only_moves_when_the_layout_does(hass):
     same.scan()
     api._capture_model_structure(same)
     assert api.structure_revision == revision
+
+
+async def test_connect_uses_the_short_timeout_and_restores_the_long_one(hass, mocker):
+    """Connect fails fast, reads still get room.
+
+    Every successful connect measured against real hardware landed
+    between 0.08 s and 0.33 s, so a connect still unfinished after two
+    seconds is being refused rather than being slow. But pysunspec2 pins
+    whatever timeout connect() was handed onto the socket with
+    settimeout(), so without restoring it afterwards every register read
+    would inherit the short one, and a read genuinely can take longer
+    than a connect.
+    """
+    from custom_components.sunspec2.api import CONNECT_TIMEOUT
+    from custom_components.sunspec2.api import TIMEOUT
+
+    seen = {}
+
+    def _connect(self, timeout=None):
+        seen["timeout"] = timeout
+        self.client = Mock(socket=seen.setdefault("socket", Mock()))
+
+    mocker.patch(
+        "sunspec2.modbus.client.SunSpecModbusClientDeviceTCP.connect",
+        _connect,
+        create=True,
+    )
+    mocker.patch(
+        "sunspec2.modbus.client.SunSpecModbusClientDeviceTCP.is_connected",
+        return_value=True,
+    )
+    mocker.patch(
+        "sunspec2.modbus.client.SunSpecModbusClientDeviceTCP.scan",
+        lambda self, **kwargs: None,
+        create=True,
+    )
+
+    api = SunSpecApiClient(host="test", port=123, unit_id=1, hass=hass)
+    api.modbus_connect()
+
+    assert seen["timeout"] == CONNECT_TIMEOUT
+    seen["socket"].settimeout.assert_called_once_with(TIMEOUT)
+
+
+async def test_close_is_polite_unless_forced(hass, mocker):
+    """A normal close sends a FIN; the RST is reserved for trouble.
+
+    Every close used to be an RST, on the theory that it frees a
+    single-slot inverter faster. That was built for a design which
+    reconnected on every poll. With the session held open, an abort is
+    only ever sent when something has already gone wrong, and an
+    embedded TCP stack handles a proper teardown better than one.
+    """
+    api = SunSpecApiClient(host="test", port=123, unit_id=1, hass=hass)
+    api._client = Mock()
+
+    graceful = mocker.patch.object(api, "_graceful_disconnect")
+    forced = mocker.patch.object(api, "_force_disconnect")
+
+    api.close()
+    graceful.assert_called_once()
+    forced.assert_not_called()
+
+    api._client = Mock()
+    api.close(force=True)
+    forced.assert_called_once()
+
+
+async def test_reconnect_flag_is_cleared_even_without_a_live_client(hass, mocker):
+    """One cycle must not build two clients.
+
+    The flag used to be cleared only inside "if self._client is not
+    None", and between cycles the client is always None because every
+    cycle ended in close(). So a flag set by a failed cycle survived
+    into the next one: its first get_client() built a client with the
+    flag still standing, and the second get_client() of that same cycle
+    tore that fresh client down and built another. Two connects and two
+    model scans per cycle, on hardware that grants one session at a
+    time, is how one failed cycle became a run of them.
+    """
+    api = SunSpecApiClient(host="test", port=123, unit_id=1, hass=hass)
+    built = []
+    mocker.patch.object(
+        api, "modbus_connect", side_effect=lambda config=None: built.append(Mock()) or built[-1]
+    )
+    forced = mocker.patch.object(api, "_force_disconnect")
+
+    api.reconnect_next()
+    assert api._client is None
+
+    first = api.get_client()
+    second = api.get_client()
+
+    assert first is second
+    assert len(built) == 1
+    forced.assert_not_called()

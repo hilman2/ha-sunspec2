@@ -97,7 +97,11 @@
           "models_enabled": "Enabled models",
           "capture_raw_registers": "Capture raw modbus bytes for diagnostics",
           "max_ac_power_kw": "Peak AC power of the inverter (kW, optional)",
-          "write_beta_enabled": "Enable experimental write controls (BETA - inverter Number / Switch entities and the set_export_limit service action). Off by default. Read the README before enabling - writing to the wrong Modbus register on an inverter can lock you out until a physical reset."
+          "write_beta_enabled": "Enable experimental write controls (BETA - inverter Number / Switch entities and the set_export_limit service action). Off by default. Read the README before enabling - writing to the wrong Modbus register on an inverter can lock you out until a physical reset.",
+          "release_slot": "Release the Modbus connection between polls"
+        },
+        "data_description": {
+          "release_slot": "Off is recommended. The integration keeps one Modbus session open, which is what Modbus TCP is designed for and what inverters handle best. Turn this on only if another program outside Home Assistant has to read the same inverter and cannot go through a Modbus proxy. Taking turns on a single connection is unreliable, and many inverters refuse new connections when asked for one every few seconds."
         }
       }
     },
@@ -108,80 +112,184 @@
   },
   "entity": {
     "number": {
-      "export_limit_pct": {"name": "Export limit"},
-      "export_limit_revert_time": {"name": "Export limit revert time"},
-      "power_factor_set": {"name": "Power factor setpoint"},
-      "active_power_setpoint": {"name": "Active power setpoint"},
-      "export_limit_revert_value": {"name": "Export limit revert value"},
-      "battery_charge_rate": {"name": "Battery charge rate"},
-      "battery_discharge_rate": {"name": "Battery discharge rate"},
-      "battery_max_charge_power": {"name": "Battery max charge power"},
-      "battery_rate_revert_time": {"name": "Battery rate revert time"},
-      "battery_min_reserve": {"name": "Battery minimum reserve"}
+      "export_limit_pct": {
+        "name": "Export limit"
+      },
+      "export_limit_revert_time": {
+        "name": "Export limit revert time"
+      },
+      "power_factor_set": {
+        "name": "Power factor setpoint"
+      },
+      "active_power_setpoint": {
+        "name": "Active power setpoint"
+      },
+      "export_limit_revert_value": {
+        "name": "Export limit revert value"
+      },
+      "battery_charge_rate": {
+        "name": "Battery charge rate"
+      },
+      "battery_discharge_rate": {
+        "name": "Battery discharge rate"
+      },
+      "battery_max_charge_power": {
+        "name": "Battery max charge power"
+      },
+      "battery_rate_revert_time": {
+        "name": "Battery rate revert time"
+      },
+      "battery_min_reserve": {
+        "name": "Battery minimum reserve"
+      }
     },
     "select": {
-        "battery_control_mode": {
-          "name": "Battery control mode",
-          "state": {
-            "off": "Off",
-            "charge": "Charge only",
-            "discharge": "Discharge only",
-            "both": "Charge and discharge"
-          }
-        },
-        "active_power_setpoint_mode": {
-          "name": "Active power setpoint mode",
-          "state": {
-            "w_max_pct": "Percent of maximum",
-            "watts": "Watts"
-          }
+      "battery_control_mode": {
+        "name": "Battery control mode",
+        "state": {
+          "off": "Off",
+          "charge": "Charge only",
+          "discharge": "Discharge only",
+          "both": "Charge and discharge"
         }
       },
-      "switch": {
-      "export_limit_enabled": {"name": "Export limit enabled"},
-      "power_factor_enabled": {"name": "Power factor setpoint enabled"},
-      "inverter_grid_connection": {"name": "Inverter grid connection"},
-      "active_power_setpoint_enabled": {"name": "Active power setpoint enabled"},
-      "export_limit_revert_enabled": {"name": "Export limit stays on after revert"}
+      "active_power_setpoint_mode": {
+        "name": "Active power setpoint mode",
+        "state": {
+          "w_max_pct": "Percent of maximum",
+          "watts": "Watts"
+        }
+      }
+    },
+    "switch": {
+      "export_limit_enabled": {
+        "name": "Export limit enabled"
+      },
+      "power_factor_enabled": {
+        "name": "Power factor setpoint enabled"
+      },
+      "inverter_grid_connection": {
+        "name": "Inverter grid connection"
+      },
+      "active_power_setpoint_enabled": {
+        "name": "Active power setpoint enabled"
+      },
+      "export_limit_revert_enabled": {
+        "name": "Export limit stays on after revert"
+      }
     },
     "sensor": {
-      "amps": {"name": "AC current"},
-      "amps_l1": {"name": "AC current L1"},
-      "amps_l2": {"name": "AC current L2"},
-      "amps_l3": {"name": "AC current L3"},
-      "phase_voltage_l1_l2": {"name": "Phase voltage L1-L2"},
-      "phase_voltage_l2_l3": {"name": "Phase voltage L2-L3"},
-      "phase_voltage_l3_l1": {"name": "Phase voltage L3-L1"},
-      "phase_voltage_l1_n": {"name": "Phase voltage L1-N"},
-      "phase_voltage_l2_n": {"name": "Phase voltage L2-N"},
-      "phase_voltage_l3_n": {"name": "Phase voltage L3-N"},
-      "watts": {"name": "AC power"},
-      "frequency": {"name": "AC frequency"},
-      "apparent_power": {"name": "Apparent power"},
-      "reactive_power": {"name": "Reactive power"},
-      "power_factor": {"name": "Power factor"},
-      "lifetime_energy": {"name": "Lifetime energy produced"},
-      "dc_current": {"name": "DC current"},
-      "dc_voltage": {"name": "DC voltage"},
-      "dc_power": {"name": "DC power"},
-      "cabinet_temperature": {"name": "Cabinet temperature"},
-      "heat_sink_temperature": {"name": "Heat sink temperature"},
-      "transformer_temperature": {"name": "Transformer temperature"},
-      "other_temperature": {"name": "Other temperature"},
-      "operating_state": {"name": "Operating state"},
-      "vendor_operating_state": {"name": "Vendor operating state"},
-      "events_1": {"name": "Events"},
-      "events_2": {"name": "Events 2"},
-      "vendor_events_1": {"name": "Vendor events 1"},
-      "vendor_events_2": {"name": "Vendor events 2"},
-      "vendor_events_3": {"name": "Vendor events 3"},
-      "vendor_events_4": {"name": "Vendor events 4"},
-      "rated_power": {"name": "Rated AC power"},
-      "rated_apparent_power": {"name": "Rated apparent power"},
-      "rated_current": {"name": "Rated AC current"},
-      "rated_lifetime_energy": {"name": "Rated lifetime energy"},
-      "max_power_setting": {"name": "Configured max power"},
-      "voltage_reference": {"name": "Voltage reference"}
+      "amps": {
+        "name": "AC current"
+      },
+      "amps_l1": {
+        "name": "AC current L1"
+      },
+      "amps_l2": {
+        "name": "AC current L2"
+      },
+      "amps_l3": {
+        "name": "AC current L3"
+      },
+      "phase_voltage_l1_l2": {
+        "name": "Phase voltage L1-L2"
+      },
+      "phase_voltage_l2_l3": {
+        "name": "Phase voltage L2-L3"
+      },
+      "phase_voltage_l3_l1": {
+        "name": "Phase voltage L3-L1"
+      },
+      "phase_voltage_l1_n": {
+        "name": "Phase voltage L1-N"
+      },
+      "phase_voltage_l2_n": {
+        "name": "Phase voltage L2-N"
+      },
+      "phase_voltage_l3_n": {
+        "name": "Phase voltage L3-N"
+      },
+      "watts": {
+        "name": "AC power"
+      },
+      "frequency": {
+        "name": "AC frequency"
+      },
+      "apparent_power": {
+        "name": "Apparent power"
+      },
+      "reactive_power": {
+        "name": "Reactive power"
+      },
+      "power_factor": {
+        "name": "Power factor"
+      },
+      "lifetime_energy": {
+        "name": "Lifetime energy produced"
+      },
+      "dc_current": {
+        "name": "DC current"
+      },
+      "dc_voltage": {
+        "name": "DC voltage"
+      },
+      "dc_power": {
+        "name": "DC power"
+      },
+      "cabinet_temperature": {
+        "name": "Cabinet temperature"
+      },
+      "heat_sink_temperature": {
+        "name": "Heat sink temperature"
+      },
+      "transformer_temperature": {
+        "name": "Transformer temperature"
+      },
+      "other_temperature": {
+        "name": "Other temperature"
+      },
+      "operating_state": {
+        "name": "Operating state"
+      },
+      "vendor_operating_state": {
+        "name": "Vendor operating state"
+      },
+      "events_1": {
+        "name": "Events"
+      },
+      "events_2": {
+        "name": "Events 2"
+      },
+      "vendor_events_1": {
+        "name": "Vendor events 1"
+      },
+      "vendor_events_2": {
+        "name": "Vendor events 2"
+      },
+      "vendor_events_3": {
+        "name": "Vendor events 3"
+      },
+      "vendor_events_4": {
+        "name": "Vendor events 4"
+      },
+      "rated_power": {
+        "name": "Rated AC power"
+      },
+      "rated_apparent_power": {
+        "name": "Rated apparent power"
+      },
+      "rated_current": {
+        "name": "Rated AC current"
+      },
+      "rated_lifetime_energy": {
+        "name": "Rated lifetime energy"
+      },
+      "max_power_setting": {
+        "name": "Configured max power"
+      },
+      "voltage_reference": {
+        "name": "Voltage reference"
+      }
     }
   },
   "exceptions": {

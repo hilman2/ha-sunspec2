@@ -97,7 +97,11 @@
           "models_enabled": "Aktive Modelle",
           "capture_raw_registers": "Rohe Modbus-Bytes für Diagnose mitschneiden",
           "max_ac_power_kw": "Spitzen-AC-Leistung des Wechselrichters (kW, optional)",
-          "write_beta_enabled": "Experimentelle Schreibsteuerung aktivieren (BETA - Number- / Switch-Entities und die set_export_limit Service Action). Standardmäßig aus. Lies die README bevor du das aktivierst - das Schreiben in das falsche Modbus-Register kann den Wechselrichter so verkonfigurieren dass nur noch ein physischer Reset hilft."
+          "write_beta_enabled": "Experimentelle Schreibsteuerung aktivieren (BETA - Number- / Switch-Entities und die set_export_limit Service Action). Standardmäßig aus. Lies die README bevor du das aktivierst - das Schreiben in das falsche Modbus-Register kann den Wechselrichter so verkonfigurieren dass nur noch ein physischer Reset hilft.",
+          "release_slot": "Modbus-Verbindung zwischen Abfragen freigeben"
+        },
+        "data_description": {
+          "release_slot": "Empfohlen ist aus. Die Integration hält eine Modbus-Sitzung offen, wofür Modbus TCP gebaut ist und womit Wechselrichter am besten zurechtkommen. Nur einschalten, wenn ein weiteres Programm außerhalb von Home Assistant denselben Wechselrichter lesen muss und nicht über einen Modbus-Proxy laufen kann. Sich eine einzelne Verbindung abwechselnd zu teilen ist unzuverlässig, und viele Wechselrichter verweigern neue Verbindungen, wenn sie alle paar Sekunden eine aufbauen sollen."
         }
       }
     },
@@ -108,80 +112,184 @@
   },
   "entity": {
     "number": {
-      "export_limit_pct": {"name": "Einspeise-Limit"},
-      "export_limit_revert_time": {"name": "Ablaufzeit Einspeiselimit"},
-      "power_factor_set": {"name": "Leistungsfaktor-Sollwert"},
-      "active_power_setpoint": {"name": "Wirkleistungs-Sollwert"},
-      "export_limit_revert_value": {"name": "Ruecksprungwert Einspeiselimit"},
-      "battery_charge_rate": {"name": "Batterie-Laderate"},
-      "battery_discharge_rate": {"name": "Batterie-Entladerate"},
-      "battery_max_charge_power": {"name": "Batterie-Ladeleistung (max)"},
-      "battery_rate_revert_time": {"name": "Ablaufzeit Batterie-Rate"},
-      "battery_min_reserve": {"name": "Batterie-Mindestreserve"}
+      "export_limit_pct": {
+        "name": "Einspeise-Limit"
+      },
+      "export_limit_revert_time": {
+        "name": "Ablaufzeit Einspeiselimit"
+      },
+      "power_factor_set": {
+        "name": "Leistungsfaktor-Sollwert"
+      },
+      "active_power_setpoint": {
+        "name": "Wirkleistungs-Sollwert"
+      },
+      "export_limit_revert_value": {
+        "name": "Ruecksprungwert Einspeiselimit"
+      },
+      "battery_charge_rate": {
+        "name": "Batterie-Laderate"
+      },
+      "battery_discharge_rate": {
+        "name": "Batterie-Entladerate"
+      },
+      "battery_max_charge_power": {
+        "name": "Batterie-Ladeleistung (max)"
+      },
+      "battery_rate_revert_time": {
+        "name": "Ablaufzeit Batterie-Rate"
+      },
+      "battery_min_reserve": {
+        "name": "Batterie-Mindestreserve"
+      }
     },
     "select": {
-        "battery_control_mode": {
-          "name": "Batterie-Steuermodus",
-          "state": {
-            "off": "Aus",
-            "charge": "Nur laden",
-            "discharge": "Nur entladen",
-            "both": "Laden und entladen"
-          }
-        },
-        "active_power_setpoint_mode": {
-          "name": "Modus Wirkleistungs-Sollwert",
-          "state": {
-            "w_max_pct": "Prozent vom Maximum",
-            "watts": "Watt"
-          }
+      "battery_control_mode": {
+        "name": "Batterie-Steuermodus",
+        "state": {
+          "off": "Aus",
+          "charge": "Nur laden",
+          "discharge": "Nur entladen",
+          "both": "Laden und entladen"
         }
       },
-      "switch": {
-      "export_limit_enabled": {"name": "Einspeise-Limit aktiv"},
-      "power_factor_enabled": {"name": "Leistungsfaktor-Sollwert aktiv"},
-      "inverter_grid_connection": {"name": "Wechselrichter mit Netz verbunden"},
-      "active_power_setpoint_enabled": {"name": "Wirkleistungs-Sollwert aktiv"},
-      "export_limit_revert_enabled": {"name": "Einspeiselimit bleibt nach Ruecksprung aktiv"}
+      "active_power_setpoint_mode": {
+        "name": "Modus Wirkleistungs-Sollwert",
+        "state": {
+          "w_max_pct": "Prozent vom Maximum",
+          "watts": "Watt"
+        }
+      }
+    },
+    "switch": {
+      "export_limit_enabled": {
+        "name": "Einspeise-Limit aktiv"
+      },
+      "power_factor_enabled": {
+        "name": "Leistungsfaktor-Sollwert aktiv"
+      },
+      "inverter_grid_connection": {
+        "name": "Wechselrichter mit Netz verbunden"
+      },
+      "active_power_setpoint_enabled": {
+        "name": "Wirkleistungs-Sollwert aktiv"
+      },
+      "export_limit_revert_enabled": {
+        "name": "Einspeiselimit bleibt nach Ruecksprung aktiv"
+      }
     },
     "sensor": {
-      "amps": {"name": "AC-Strom"},
-      "amps_l1": {"name": "AC-Strom L1"},
-      "amps_l2": {"name": "AC-Strom L2"},
-      "amps_l3": {"name": "AC-Strom L3"},
-      "phase_voltage_l1_l2": {"name": "Phasenspannung L1-L2"},
-      "phase_voltage_l2_l3": {"name": "Phasenspannung L2-L3"},
-      "phase_voltage_l3_l1": {"name": "Phasenspannung L3-L1"},
-      "phase_voltage_l1_n": {"name": "Phasenspannung L1-N"},
-      "phase_voltage_l2_n": {"name": "Phasenspannung L2-N"},
-      "phase_voltage_l3_n": {"name": "Phasenspannung L3-N"},
-      "watts": {"name": "AC-Leistung"},
-      "frequency": {"name": "AC-Frequenz"},
-      "apparent_power": {"name": "Scheinleistung"},
-      "reactive_power": {"name": "Blindleistung"},
-      "power_factor": {"name": "Leistungsfaktor"},
-      "lifetime_energy": {"name": "Gesamtertrag"},
-      "dc_current": {"name": "DC-Strom"},
-      "dc_voltage": {"name": "DC-Spannung"},
-      "dc_power": {"name": "DC-Leistung"},
-      "cabinet_temperature": {"name": "Gehäusetemperatur"},
-      "heat_sink_temperature": {"name": "Kühlkörpertemperatur"},
-      "transformer_temperature": {"name": "Trafotemperatur"},
-      "other_temperature": {"name": "Sonstige Temperatur"},
-      "operating_state": {"name": "Betriebszustand"},
-      "vendor_operating_state": {"name": "Herstellerspezifischer Betriebszustand"},
-      "events_1": {"name": "Ereignisse"},
-      "events_2": {"name": "Ereignisse 2"},
-      "vendor_events_1": {"name": "Herstellerereignisse 1"},
-      "vendor_events_2": {"name": "Herstellerereignisse 2"},
-      "vendor_events_3": {"name": "Herstellerereignisse 3"},
-      "vendor_events_4": {"name": "Herstellerereignisse 4"},
-      "rated_power": {"name": "Nenn-AC-Leistung"},
-      "rated_apparent_power": {"name": "Nenn-Scheinleistung"},
-      "rated_current": {"name": "Nenn-AC-Strom"},
-      "rated_lifetime_energy": {"name": "Nenn-Gesamtertrag"},
-      "max_power_setting": {"name": "Konfigurierte Maximalleistung"},
-      "voltage_reference": {"name": "Referenzspannung"}
+      "amps": {
+        "name": "AC-Strom"
+      },
+      "amps_l1": {
+        "name": "AC-Strom L1"
+      },
+      "amps_l2": {
+        "name": "AC-Strom L2"
+      },
+      "amps_l3": {
+        "name": "AC-Strom L3"
+      },
+      "phase_voltage_l1_l2": {
+        "name": "Phasenspannung L1-L2"
+      },
+      "phase_voltage_l2_l3": {
+        "name": "Phasenspannung L2-L3"
+      },
+      "phase_voltage_l3_l1": {
+        "name": "Phasenspannung L3-L1"
+      },
+      "phase_voltage_l1_n": {
+        "name": "Phasenspannung L1-N"
+      },
+      "phase_voltage_l2_n": {
+        "name": "Phasenspannung L2-N"
+      },
+      "phase_voltage_l3_n": {
+        "name": "Phasenspannung L3-N"
+      },
+      "watts": {
+        "name": "AC-Leistung"
+      },
+      "frequency": {
+        "name": "AC-Frequenz"
+      },
+      "apparent_power": {
+        "name": "Scheinleistung"
+      },
+      "reactive_power": {
+        "name": "Blindleistung"
+      },
+      "power_factor": {
+        "name": "Leistungsfaktor"
+      },
+      "lifetime_energy": {
+        "name": "Gesamtertrag"
+      },
+      "dc_current": {
+        "name": "DC-Strom"
+      },
+      "dc_voltage": {
+        "name": "DC-Spannung"
+      },
+      "dc_power": {
+        "name": "DC-Leistung"
+      },
+      "cabinet_temperature": {
+        "name": "Gehäusetemperatur"
+      },
+      "heat_sink_temperature": {
+        "name": "Kühlkörpertemperatur"
+      },
+      "transformer_temperature": {
+        "name": "Trafotemperatur"
+      },
+      "other_temperature": {
+        "name": "Sonstige Temperatur"
+      },
+      "operating_state": {
+        "name": "Betriebszustand"
+      },
+      "vendor_operating_state": {
+        "name": "Herstellerspezifischer Betriebszustand"
+      },
+      "events_1": {
+        "name": "Ereignisse"
+      },
+      "events_2": {
+        "name": "Ereignisse 2"
+      },
+      "vendor_events_1": {
+        "name": "Herstellerereignisse 1"
+      },
+      "vendor_events_2": {
+        "name": "Herstellerereignisse 2"
+      },
+      "vendor_events_3": {
+        "name": "Herstellerereignisse 3"
+      },
+      "vendor_events_4": {
+        "name": "Herstellerereignisse 4"
+      },
+      "rated_power": {
+        "name": "Nenn-AC-Leistung"
+      },
+      "rated_apparent_power": {
+        "name": "Nenn-Scheinleistung"
+      },
+      "rated_current": {
+        "name": "Nenn-AC-Strom"
+      },
+      "rated_lifetime_energy": {
+        "name": "Nenn-Gesamtertrag"
+      },
+      "max_power_setting": {
+        "name": "Konfigurierte Maximalleistung"
+      },
+      "voltage_reference": {
+        "name": "Referenzspannung"
+      }
     }
   },
   "exceptions": {

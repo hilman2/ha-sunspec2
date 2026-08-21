@@ -20,6 +20,7 @@ from .const import CONF_MAX_AC_POWER_KW
 from .const import CONF_PARITY
 from .const import CONF_PORT
 from .const import CONF_PREFIX
+from .const import CONF_RELEASE_SLOT
 from .const import CONF_SCAN_DELAY
 from .const import CONF_SCAN_INTERVAL
 from .const import CONF_SERIAL_PORT
@@ -761,6 +762,7 @@ class SunSpecOptionsFlowHandler(config_entries.OptionsFlow):
             CONF_SCAN_INTERVAL, self.config_entry.data.get(CONF_SCAN_INTERVAL)
         )
         capture_raw = self.config_entry.options.get(CONF_CAPTURE_RAW, False)
+        release_slot = self.config_entry.options.get(CONF_RELEASE_SLOT, False)
         scan_delay = self.config_entry.options.get(CONF_SCAN_DELAY, DEFAULT_SCAN_DELAY_SECONDS)
         # User-set value wins. If the user has not configured a peak
         # power yet, fall back to the value the coordinator auto-
@@ -821,6 +823,11 @@ class SunSpecOptionsFlowHandler(config_entries.OptionsFlow):
                     default=default_models,
                 ): cv.multi_select(model_filter),
                 vol.Optional(CONF_CAPTURE_RAW, default=capture_raw): bool,
+                # v0.22.0: the session is held open by default. This
+                # hands it back between polls for the rare install
+                # that has to share the inverter with a reader
+                # outside Home Assistant.
+                vol.Optional(CONF_RELEASE_SLOT, default=release_slot): bool,
                 # v0.12.0 EXPERIMENTAL: opt-in for the write
                 # platforms (Number / Switch / service action) and
                 # the matching SunSpec model 123 entities.

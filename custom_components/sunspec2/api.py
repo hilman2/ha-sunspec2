@@ -51,6 +51,21 @@ from .models import SunSpecModelWrapper
 # flaky-network case much better than a long socket timeout ever did.
 TIMEOUT = 10
 
+# Connect timeout (seconds), separate from the read timeout above.
+#
+# Every successful connect measured against real hardware landed between
+# 0.08 s and 0.33 s. A connect that has not completed inside two seconds
+# is not slow, it is refused: the inverter has no free Modbus session and
+# is dropping the SYN rather than answering it. Waiting the full read
+# timeout for that verdict used to push a failing cycle past 25 seconds,
+# which at a 30 second poll interval leaves almost no room before the
+# next cycle starts on top of it.
+#
+# Note this has to be reset on the socket afterwards. pysunspec2 pins
+# whatever timeout connect() was given onto the socket with settimeout(),
+# so without the reset every register read would inherit the short one.
+CONNECT_TIMEOUT = 2
+
 # Initial-setup socket timeout (seconds). The very first
 # ``client.scan()`` after a fresh connect walks every SunSpec model
 # block on the device, which can be 16+ models deep on a fully featured
@@ -214,9 +229,23 @@ class SunSpecApiClient:
         connect. The argument is kept only because async_get_models still
         passes it through; it can be removed in a later phase.
         """
-        if self._client is not None and self._reconnect:
-            self._force_disconnect()
-            self._client = None
+        # Clear the flag whether or not there was a client to drop.
+        # Between cycles there never is: every cycle ends in close(),
+        # which sets _client to None. So when the flag was set by a
+        # failed cycle it used to survive into the next one, the first
+        # get_client() built a client with the flag still standing, and
+        # the SECOND get_client() of that same cycle tore that fresh
+        # client down and built another one. Every cycle following a
+        # failure therefore cost two full connects and two full model
+        # scans, on hardware that grants exactly one Modbus session at a
+        # time - which is how a single failed cycle turned into a run of
+        # them (#42, and the same signature in the maintainer's own log:
+        # "SO_LINGER=0 set" immediately followed by "TCP client connect"
+        # in the middle of a cycle).
+        if self._reconnect:
+            if self._client is not None:
+                self._force_disconnect()
+                self._client = None
             self._reconnect = False
         if self._client is None:
             self._client = self.modbus_connect()
@@ -726,24 +755,44 @@ class SunSpecApiClient:
             return False
         return True
 
-    def close(self) -> None:
-        """Tear down the active client's TCP socket and drop the reference.
+    def close(self, force: bool = False) -> None:
+        """Tear down the active client's socket and drop the reference.
 
-        After ``close()`` the next ``get_client()`` will build a brand new
-        client. This is the lifecycle hook ``async_unload_entry`` calls so
-        the inverter's single Modbus TCP slot is freed before the new
-        coordinator (built in the subsequent ``async_setup_entry``) tries
-        to connect.
+        After ``close()`` the next ``get_client()`` builds a brand new
+        client.
 
-        Uses :meth:`_force_disconnect` so the underlying socket goes out
-        with an RST instead of a polite FIN, which makes the inverter
-        free its single Modbus TCP slot immediately instead of waiting
-        on its own TCP keepalive / connection timeout.
+        ``force`` picks how the socket goes out. A normal close sends a
+        FIN and lets the inverter finish the conversation, which is what
+        an embedded TCP stack expects and handles best. ``force=True``
+        sets SO_LINGER 0 so the close is an RST, and that is reserved
+        for the paths where the session is already suspect: a failed
+        cycle, or a reload that has to get the slot back before the new
+        coordinator connects.
+
+        Until v0.22.0 every close was an RST, on the theory that it makes
+        a single-slot inverter release its slot faster. That theory was
+        built for a design that reconnected on every poll. Now that the
+        session is held open, an abort is only ever sent when something
+        has actually gone wrong.
         """
         if self._client is None:
             return
-        self._force_disconnect()
+        if force:
+            self._force_disconnect()
+        else:
+            self._graceful_disconnect()
         self._client = None
+
+    def _graceful_disconnect(self, client=None) -> None:
+        """Close with a FIN and let the peer tear the session down properly."""
+        if client is None:
+            client = self._client
+        if client is None:
+            return
+        try:
+            client.disconnect() if self._transport == TRANSPORT_TCP else client.close()
+        except Exception as exc:  # noqa: BLE001 - cleanup must not raise
+            self._log.debug("graceful disconnect raised %s, ignoring", exc)
 
     def _force_disconnect(self, client=None) -> None:
         """Tear down a client as aggressively as possible.
@@ -867,11 +916,31 @@ class SunSpecApiClient:
             timeout=self._timeout,
         )
         self._wrap_capturing_read(client)
-        if not self.check_port():
-            self._log.debug("Inverter not ready for Modbus TCP connection")
-            raise TransportError(f"Inverter not active on {self._host}:{self._port}")
-
-        self._log.debug("Inverter ready for Modbus TCP connection")
+        # No check_port() here any more.
+        #
+        # It opened a full TCP session of its own, closed it with a FIN,
+        # slept 100 ms and let the real client connect straight after.
+        # On an inverter that grants exactly one Modbus session that is
+        # two connects competing for one slot, and the second one loses:
+        # measured against a KACO Powador 7.8 TL3, replaying this cycle
+        # every 30 s, the pattern is unmistakable -
+        #
+        #   check_port=0.20s open   connect=10.01s FAIL: timed out
+        #
+        # 8 of 12 cycles failed with check_port in front, 0 of 12 with
+        # it gone and nothing else changed. The device is not slow and
+        # not flaky: on its own each connect takes 0.1 s and the FIN
+        # close is harmless. It simply cannot serve the probe and the
+        # client at once, and a probe that costs the connection it was
+        # meant to protect is worse than no probe.
+        #
+        # What it bought was a faster, friendlier error when the device
+        # is off: "Inverter not active" after 3 s instead of "Connection
+        # error: timed out" after 10 s. The connect below raises the
+        # same TransportError either way, so nothing downstream changes.
+        # The method itself stays for the config flow, where there is no
+        # coordinator competing for the slot.
+        self._log.debug("Connecting to the inverter over Modbus TCP")
         # Tear the client down on every failure path. Without this a
         # connect that SUCCEEDS and a scan that then fails - which is
         # exactly the shape reported in #25, where the socket survives
@@ -886,7 +955,13 @@ class SunSpecApiClient:
         handed_off = False
         try:
             with self._lock:
-                client.connect()
+                client.connect(CONNECT_TIMEOUT)
+                # pysunspec2 pins the connect timeout onto the socket, so
+                # without this every register read would run on
+                # CONNECT_TIMEOUT too. Reads need the generous one.
+                raw = getattr(getattr(client, "client", None), "socket", None)
+                if raw is not None:
+                    raw.settimeout(self._timeout)
             if not client.is_connected():
                 raise TransportError(
                     f"Failed to connect to {self._host}:{self._port} unit id {self._unit_id}"
