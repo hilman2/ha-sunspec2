@@ -1166,3 +1166,95 @@ async def test_matching_identity_passes_quietly(hass):
     coordinator._check_device_identity()
 
     api.reconnect_next.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# v0.22.0: the Modbus session is held open
+# ---------------------------------------------------------------------------
+
+
+def _keepalive_coordinator(hass, options=None):
+    from unittest.mock import AsyncMock
+    from unittest.mock import MagicMock
+
+    config_entry = MockConfigEntry(
+        domain=DOMAIN, data=MOCK_CONFIG, options=options or {CONF_ENABLED_MODELS: [103]}
+    )
+    config_entry.add_to_hass(hass)
+
+    api = MagicMock()
+    api.async_get_models = AsyncMock(return_value=[1, 103])
+    api.async_get_data = AsyncMock(return_value=MagicMock())
+    api.last_scan_was_partial = False
+    return config_entry, SunSpecDataUpdateCoordinator(hass, client=api, entry=config_entry)
+
+
+async def test_cycle_keeps_the_session_open(hass):
+    """The default is one session, not one session per poll.
+
+    Measured on a KACO Powador 7.8 TL3 at a 30 s interval: a fresh
+    session per poll failed 5 of 6 cycles, while a single session held
+    open served 20 of 20 at a steady 1.6 s. Modbus TCP is built around
+    a session that stays up, and an embedded stack asked to rebuild one
+    every 30 seconds is the case it handles worst.
+    """
+    _, coordinator = _keepalive_coordinator(hass)
+
+    await coordinator._run_one_update_cycle()
+
+    coordinator.api.close.assert_not_called()
+
+
+async def test_cycle_releases_the_slot_when_asked_to(hass):
+    """The option exists for a reader outside HA that cannot use a proxy."""
+    from custom_components.sunspec2.const import CONF_RELEASE_SLOT
+
+    _, coordinator = _keepalive_coordinator(
+        hass, options={CONF_ENABLED_MODELS: [103], CONF_RELEASE_SLOT: True}
+    )
+
+    await coordinator._run_one_update_cycle()
+
+    coordinator.api.close.assert_called_once()
+
+
+async def test_a_shared_gateway_releases_the_slot_without_being_told(hass):
+    """Two entries on one endpoint must not need a checkbox.
+
+    This is the SolarEdge-style gateway the per-gateway lock already
+    serialises. Holding the session open there would starve the second
+    entry permanently, and the user has no reason to know that an
+    option governs it.
+    """
+    _, coordinator = _keepalive_coordinator(hass)
+    assert coordinator.release_slot_between_polls is False
+
+    neighbour = MockConfigEntry(domain=DOMAIN, data=MOCK_CONFIG, options={})
+    neighbour.add_to_hass(hass)
+
+    assert coordinator.release_slot_between_polls is True
+
+    await coordinator._run_one_update_cycle()
+    coordinator.api.close.assert_called_once()
+
+
+async def test_a_failed_cycle_drops_the_session_hard(hass):
+    """A session that already misbehaved does not get to stay.
+
+    pysunspec2 never checks the Modbus TCP transaction id, so a late
+    answer on a socket we gave up on is read as the answer to the next
+    request, and every register after it lands in the wrong field.
+    """
+    from homeassistant.helpers.update_coordinator import UpdateFailed
+
+    from custom_components.sunspec2.errors import TransportError
+
+    _, coordinator = _keepalive_coordinator(hass)
+    # The bookkeeping ends by re-raising as UpdateFailed, which is how
+    # HA learns the cycle failed. What matters here is what it did on
+    # the way out.
+    with pytest.raises(UpdateFailed):
+        coordinator._after_failed_cycle(TransportError("boom"))
+
+    coordinator.api.close.assert_called_once_with(force=True)
+    coordinator.api.reconnect_next.assert_called_once()

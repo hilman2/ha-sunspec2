@@ -4,7 +4,7 @@
 NAME = "SunSpec 2"
 DOMAIN = "sunspec2"
 DOMAIN_DATA = f"{DOMAIN}_data"
-VERSION = "0.21.0"
+VERSION = "0.22.0"
 
 ATTRIBUTION = "Data provided by SunSpec alliance - https://sunspec.org"
 ISSUE_URL = "https://github.com/hilman2/ha-sunspec2/issues"
@@ -134,6 +134,24 @@ EXPORT_LIMIT_MIN_STEP_PCT = 0.01
 # change, not twice a minute, so there is no longer a trade to make
 # between "fast polling" and "gentle on slow hardware". Lowering it
 # only affects that rare rescan.
+# Give the inverter's Modbus slot back between polls instead of
+# holding one session open.
+#
+# Off by default, which is the opposite of what this integration did
+# until v0.22.0. Measured against a KACO Powador 7.8 TL3, polling every
+# 30 s: reconnecting per poll failed 5 of 6 cycles, while a single
+# session held open served 20 of 20 polls in a steady 1.6 s each. The
+# device is not flaky, it simply cannot build a fresh Modbus session
+# every 30 seconds, and Modbus TCP was never meant to be used that way.
+#
+# Turning this on is for one situation only: something else on the
+# network has to read the same inverter, and it cannot go through a
+# Modbus proxy. Sharing a single slot by taking turns is unreliable by
+# construction, so a proxy is the better answer wherever it is possible.
+# Multiple config entries behind one gateway do not need this option;
+# that case is detected and handled on its own.
+CONF_RELEASE_SLOT = "release_slot"
+
 CONF_SCAN_DELAY = "scan_delay"
 DEFAULT_SCAN_DELAY_SECONDS = 0.5
 MIN_SCAN_DELAY_SECONDS = 0.0

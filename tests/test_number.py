@@ -250,17 +250,17 @@ async def test_set_value_refreshes_outside_the_lock(hass, sunspec_write_client_m
     assert locked_during_refresh == [False]
 
 
-async def test_set_value_closes_the_session(hass, sunspec_write_client_mock):
-    """The write closes its Modbus session before releasing the lock.
+async def test_set_value_keeps_the_session_by_default(hass, sunspec_write_client_mock):
+    """A write no longer throws the Modbus session away when it is done.
 
-    Whoever opens a session under the lock closes it under the lock.
-    Handing the lock to a queued waiter with our socket still open
-    makes that waiter fail to connect, which surfaces as a bogus
-    TransportError in an unrelated config entry.
+    Until v0.22.0 every write closed the session on the way out, for the
+    same reason every poll did: give a single-slot inverter its slot
+    back. Measured on the hardware that motivated it, that is what
+    breaks it. Reconnecting per poll failed 5 of 6 cycles on a KACO
+    Powador 7.8 TL3, one session held open served 20 of 20.
 
-    ``async_request_refresh`` is patched out so the count isolates the
-    write path: the refresh runs a full update cycle, which closes the
-    client again at the end and would make this assert 2.
+    ``async_request_refresh`` is patched out so this isolates the write
+    path from the refresh that follows it.
     """
     entry = await _setup_write_entry(hass)
     coordinator = entry.runtime_data
@@ -274,7 +274,40 @@ async def test_set_value_closes_the_session(hass, sunspec_write_client_mock):
         patch.object(
             coordinator.api,
             "close",
-            side_effect=lambda: closes.append(coordinator._gateway_lock.locked()),
+            side_effect=lambda *a, **kw: closes.append(coordinator._gateway_lock.locked()),
+        ),
+    ):
+        await limit.async_set_native_value(80)
+
+    assert closes == []
+
+
+async def test_set_value_closes_the_session_when_sharing_the_slot(hass, sunspec_write_client_mock):
+    """With the slot shared, the old contract still has to hold.
+
+    Whoever opens a session under the lock closes it under the lock.
+    Handing the lock to a queued waiter with our socket still open makes
+    that waiter fail to connect, which surfaces as a bogus
+    TransportError in an unrelated config entry.
+    """
+    entry = await _setup_write_entry(hass)
+    coordinator = entry.runtime_data
+    limit = next(e for e in _live_entities(hass, "number") if e._point_name == "WMaxLimPct")
+
+    closes = []
+
+    with (
+        patch.object(
+            type(coordinator),
+            "release_slot_between_polls",
+            property(lambda self: True),
+        ),
+        patch.object(coordinator.api, "async_write_points"),
+        patch.object(coordinator, "async_request_refresh"),
+        patch.object(
+            coordinator.api,
+            "close",
+            side_effect=lambda *a, **kw: closes.append(coordinator._gateway_lock.locked()),
         ),
     ):
         await limit.async_set_native_value(80)

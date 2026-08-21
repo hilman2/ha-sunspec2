@@ -34,6 +34,7 @@ from .const import CONF_ENABLED_MODELS
 from .const import CONF_HOST
 from .const import CONF_PARITY
 from .const import CONF_PORT
+from .const import CONF_RELEASE_SLOT
 from .const import CONF_SCAN_DELAY
 from .const import CONF_SCAN_INTERVAL
 from .const import CONF_SERIAL_PORT
@@ -447,7 +448,10 @@ async def async_unload_entry(hass: HomeAssistant, entry: SunSpec2ConfigEntry) ->
         # at a time; without an explicit disconnect here a config entry
         # reload would race the leftover socket against the freshly built
         # one in async_setup_entry, and the new connect would time out.
-        coordinator.api.close()
+        # force=True: an unload is usually followed by a setup, and the
+        # new coordinator must not race a socket the old one left behind.
+        # This is one of the few places an RST is the right answer.
+        coordinator.api.close(force=True)
         coordinator.unsub()
     else:
         # Do not claim success. Returning True here (which is what this
@@ -680,6 +684,46 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator):
             config_entry=entry,
         )
 
+    @property
+    def release_slot_between_polls(self) -> bool:
+        """Whether to hand the inverter's Modbus session back after each poll.
+
+        False is the normal case, and it is a change of position. The
+        integration used to disconnect after every cycle so a
+        single-slot inverter would be free for other readers between
+        polls. Measured against the hardware that motivated that design,
+        a KACO Powador 7.8 TL3 at a 30 s interval, it is what breaks it:
+        reconnecting per poll failed 5 of 6 cycles, holding one session
+        served 20 of 20 at a steady 1.6 s. Modbus TCP is built around a
+        session that stays up, and an embedded stack rebuilding one
+        every 30 seconds is the thing it handles worst.
+
+        It stays True for the two cases where somebody else genuinely
+        needs the slot:
+
+        * more than one config entry behind the same endpoint, which is
+          the SolarEdge-style gateway the per-gateway lock already
+          serialises. Detected here rather than configured, because the
+          user has no reason to know it matters.
+        * the CONF_RELEASE_SLOT option, for a reader outside Home
+          Assistant that cannot be put behind a Modbus proxy.
+        """
+        if self.entry.options.get(CONF_RELEASE_SLOT, False):
+            return True
+        return self._gateway_is_shared()
+
+    def _gateway_is_shared(self) -> bool:
+        """True if another config entry talks to the same endpoint."""
+        host = self.entry.data.get(CONF_HOST)
+        port = self.entry.data.get(CONF_PORT)
+        seen = 0
+        for entry in self.hass.config_entries.async_entries(DOMAIN):
+            if entry.data.get(CONF_HOST) == host and entry.data.get(CONF_PORT) == port:
+                seen += 1
+                if seen > 1:
+                    return True
+        return False
+
     async def async_load_model_structure(self) -> None:
         """Hand the API client the layout an earlier run discovered.
 
@@ -900,7 +944,8 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator):
             # lock on release) and then fail to connect, which surfaces
             # as a bogus TransportError in an unrelated config entry -
             # the hardest possible shape to diagnose.
-            self.api.close()
+            if self.release_slot_between_polls:
+                self.api.close()
             self._gateway_lock.release()
 
     async def _run_one_update_cycle(self):
@@ -972,7 +1017,8 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator):
 
         for model_id in model_ids:
             data[model_id] = await self.api.async_get_data(model_id)
-        self.api.close()
+        if self.release_slot_between_polls:
+            self.api.close()
         return data
 
     async def _read_nameplate(self, all_models: set[int]) -> float | None:
@@ -1122,6 +1168,14 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator):
             wrapped = TransportError(f"Unclassified: {exc.__class__.__name__}: {exc}")
             wrapped.__cause__ = exc
         self._record_error(wrapped)
+        # Drop the session now rather than flagging it for the next
+        # get_client(). Whatever went wrong, this socket is a suspect:
+        # pysunspec2 never checks the Modbus TCP transaction id, so a
+        # late answer on a socket we gave up on is read as the answer to
+        # the next request. force=True, because a session that already
+        # misbehaved has not earned a polite goodbye, and the inverter
+        # should get its slot back at once.
+        self.api.close(force=True)
         self.api.reconnect_next()
         self.consecutive_failed_cycles += 1
         # HA's DataUpdateCoordinator._async_refresh stops dispatching
