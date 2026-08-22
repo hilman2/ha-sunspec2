@@ -50,6 +50,9 @@
           "scan_interval": "Scan-Intervall (Sekunden)",
           "models_enabled": "Aktive Modelle",
           "max_ac_power_kw": "Spitzen-AC-Leistung des Wechselrichters (kW, optional)"
+        },
+        "data_description": {
+          "max_ac_power_kw": "Werte oberhalb dieser Grenze werden als unplausibel verworfen. Vorbelegt aus dem Typenschild des Wechselrichters plus 20% Reserve, denn Wechselrichter überschreiten ihre Dauerleistung kurzzeitig und die DC-Leistung liegt immer über der AC-Leistung. Nicht auf das nackte Typenschild absenken: die Sensoren für DC-Leistung und Scheinleistung stehen sonst an einem sonnigen Tag die meiste Zeit auf \"unbekannt\". Feld leeren schaltet den Filter ab."
         }
       },
       "reconfigure": {
@@ -101,7 +104,8 @@
           "release_slot": "Modbus-Verbindung zwischen Abfragen freigeben"
         },
         "data_description": {
-          "release_slot": "Empfohlen ist aus. Die Integration hält eine Modbus-Sitzung offen, wofür Modbus TCP gebaut ist und womit Wechselrichter am besten zurechtkommen. Nur einschalten, wenn ein weiteres Programm außerhalb von Home Assistant denselben Wechselrichter lesen muss und nicht über einen Modbus-Proxy laufen kann. Sich eine einzelne Verbindung abwechselnd zu teilen ist unzuverlässig, und viele Wechselrichter verweigern neue Verbindungen, wenn sie alle paar Sekunden eine aufbauen sollen."
+          "release_slot": "Empfohlen ist aus. Die Integration hält eine Modbus-Sitzung offen, wofür Modbus TCP gebaut ist und womit Wechselrichter am besten zurechtkommen. Nur einschalten, wenn ein weiteres Programm außerhalb von Home Assistant denselben Wechselrichter lesen muss und nicht über einen Modbus-Proxy laufen kann. Sich eine einzelne Verbindung abwechselnd zu teilen ist unzuverlässig, und viele Wechselrichter verweigern neue Verbindungen, wenn sie alle paar Sekunden eine aufbauen sollen.",
+          "max_ac_power_kw": "Werte oberhalb dieser Grenze werden als unplausibel verworfen. Vorbelegt aus dem Typenschild des Wechselrichters plus 20% Reserve, denn Wechselrichter überschreiten ihre Dauerleistung kurzzeitig und die DC-Leistung liegt immer über der AC-Leistung. Nicht auf das nackte Typenschild absenken: die Sensoren für DC-Leistung und Scheinleistung stehen sonst an einem sonnigen Tag die meiste Zeit auf \"unbekannt\". Feld leeren schaltet den Filter ab."
         }
       }
     },

@@ -50,6 +50,9 @@
           "scan_interval": "Scan interval (seconds)",
           "models_enabled": "Enabled models",
           "max_ac_power_kw": "Peak AC power of the inverter (kW, optional)"
+        },
+        "data_description": {
+          "max_ac_power_kw": "Readings above this are discarded as implausible. Pre-filled from the inverter's own nameplate with 20% headroom, because inverters overshoot their continuous rating and DC power always reads above AC output. Do not lower it to the bare nameplate: the DC power and apparent power sensors would then read \"unknown\" for most of a sunny day. Clear the field to switch the filter off."
         }
       },
       "reconfigure": {
@@ -101,7 +104,8 @@
           "release_slot": "Release the Modbus connection between polls"
         },
         "data_description": {
-          "release_slot": "Off is recommended. The integration keeps one Modbus session open, which is what Modbus TCP is designed for and what inverters handle best. Turn this on only if another program outside Home Assistant has to read the same inverter and cannot go through a Modbus proxy. Taking turns on a single connection is unreliable, and many inverters refuse new connections when asked for one every few seconds."
+          "release_slot": "Off is recommended. The integration keeps one Modbus session open, which is what Modbus TCP is designed for and what inverters handle best. Turn this on only if another program outside Home Assistant has to read the same inverter and cannot go through a Modbus proxy. Taking turns on a single connection is unreliable, and many inverters refuse new connections when asked for one every few seconds.",
+          "max_ac_power_kw": "Readings above this are discarded as implausible. Pre-filled from the inverter's own nameplate with 20% headroom, because inverters overshoot their continuous rating and DC power always reads above AC output. Do not lower it to the bare nameplate: the DC power and apparent power sensors would then read \"unknown\" for most of a sunny day. Clear the field to switch the filter off."
         }
       }
     },

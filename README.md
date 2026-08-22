@@ -281,10 +281,21 @@ Common situations and what to check:
   this on v0.8.x or later, it usually means the underlying network
   link is dropping for longer than three minutes - check the WiFi /
   ethernet to the inverter.
-- **Dawn / dusk spikes in your statistics**: set the **Peak AC
-  power** option to your inverter's nameplate. The plausibility
-  filter drops every reading above that value, including the MW /
-  TWh garbage some inverters generate at startup.
+- **Dawn / dusk spikes in your statistics**: the **Peak AC power**
+  option drives a plausibility filter that drops every reading above
+  that value, including the MW / TWh garbage some inverters generate
+  at startup. The integration reads your inverter's nameplate from
+  SunSpec model 120 / 121 and pre-fills the field with 20 % on top,
+  so in most cases you can leave it alone.
+- **`Watts`, `VA` or `DC Watts` read `unknown` on a bright day**: the
+  peak AC power above is set too low. Do not set it to the bare
+  nameplate: `DC Watts` is measured before conversion losses and
+  therefore always sits a few percent above AC output, and `VA` is by
+  definition at least as large as `W`, so a ceiling at exactly the
+  nameplate takes both sensors out for most of a sunny day. Raise it
+  to roughly 1.5x the nameplate, or clear the field to switch the
+  filter off. The log names the culprit: look for `Dropping
+  implausible value`.
 - **Repairs panel says "Cannot reach SunSpec inverter"**: open the
   diagnostics dump, look at `recent_errors`. If the same error
   appears three times in a row, the inverter is genuinely

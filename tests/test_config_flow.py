@@ -670,3 +670,148 @@ async def test_serial_setup_creates_rtu_entry(hass, sunspec_client_mock):
     assert result["data"][CONF_BAUDRATE] == DEFAULT_BAUDRATE
     assert result["data"][CONF_PARITY] == PARITY_NONE
     assert result["data"][CONF_UNIT_ID] == 1
+
+
+def _suggested_value(data_schema, field_name):
+    """Read the suggested_value the form will pre-fill a field with.
+
+    HA carries it in the voluptuous marker's ``description`` dict, which
+    survives voluptuous_serialize but is easier to read straight off the
+    schema.
+    """
+    for key in data_schema.schema:
+        if str(key) == field_name:
+            return (key.description or {}).get("suggested_value")
+    raise AssertionError(f"{field_name} is not in the form schema")
+
+
+async def _open_model_options(hass, entry):
+    """Helper: walk an options flow up to the model_options form."""
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    assert result["step_id"] == "host_options"
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], user_input=MOCK_CONFIG_STEP_1
+    )
+    assert result["step_id"] == "model_options"
+    return result
+
+
+async def test_options_flow_suggests_nameplate_with_headroom(hass, sunspec_client_mock):
+    """The pre-filled peak power must carry NAMEPLATE_FILTER_HEADROOM.
+
+    Regression for #45. The filter grants 1.2x to an auto-detected
+    nameplate and nothing to a configured value, on purpose. Pre-filling
+    the field with the RAW nameplate therefore downgraded the ceiling to
+    1.0x the moment anyone opened the form and pressed Submit, because
+    the frontend echoes a suggested_value back on submit. At exactly the
+    nameplate the DCW and VA sensors read "unknown" for most of a sunny
+    day: DCW is measured before conversion losses and VA is by
+    definition >= W.
+    """
+    entry = MockConfigEntry(domain=DOMAIN, data=MOCK_CONFIG, entry_id="test")
+    entry.add_to_hass(hass)
+    coordinator = MockSunSpecDataUpdateCoordinator(hass, [1, 2])
+    coordinator.detected_max_ac_power_kw = 5.0
+    entry.runtime_data = coordinator
+
+    result = await _open_model_options(hass, entry)
+
+    assert _suggested_value(result["data_schema"], CONF_MAX_AC_POWER_KW) == 6.0
+
+
+async def test_options_flow_shows_configured_peak_unchanged(hass, sunspec_client_mock):
+    """A value the user typed is shown back as-is, with no headroom.
+
+    The headroom belongs to the auto-detected nameplate only. Inflating
+    a number the user deliberately entered would make the field lie
+    about what the filter actually uses, and re-saving the form would
+    ratchet the ceiling up by 20 % every time.
+    """
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data=MOCK_CONFIG,
+        options={CONF_MAX_AC_POWER_KW: 4.2},
+        entry_id="test",
+    )
+    entry.add_to_hass(hass)
+    coordinator = MockSunSpecDataUpdateCoordinator(hass, [1, 2])
+    coordinator.detected_max_ac_power_kw = 5.0
+    entry.runtime_data = coordinator
+
+    result = await _open_model_options(hass, entry)
+
+    assert _suggested_value(result["data_schema"], CONF_MAX_AC_POWER_KW) == 4.2
+
+
+async def test_options_flow_clearing_peak_power_disables_filter(hass, sunspec_client_mock):
+    """Clearing the peak-power box must actually delete the option.
+
+    Regression for #45. ``self.options`` is seeded from the stored
+    options and then merged with ``dict.update``, which cannot express a
+    deletion, and an emptied vol.Optional field arrives as a MISSING key
+    rather than None. So the UI's "leave it empty to disable filtering"
+    was a no-op and the old ceiling survived every save - the one escape
+    hatch from a filter eating real readings did not work.
+    """
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data=MOCK_CONFIG,
+        options={CONF_MAX_AC_POWER_KW: 5.0},
+        entry_id="test",
+    )
+    entry.add_to_hass(hass)
+    entry.runtime_data = MockSunSpecDataUpdateCoordinator(hass, [1, 2])
+
+    result = await _open_model_options(hass, entry)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        user_input={CONF_ENABLED_MODELS: ["1"], CONF_SCAN_INTERVAL: 10},
+    )
+
+    assert result["type"] == FlowResultType.CREATE_ENTRY
+    assert CONF_MAX_AC_POWER_KW not in result["data"]
+
+
+async def test_options_flow_keeps_peak_power_when_submitted(hass, sunspec_client_mock):
+    """The other half of the contract: a submitted value is persisted."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data=MOCK_CONFIG,
+        options={CONF_MAX_AC_POWER_KW: 5.0},
+        entry_id="test",
+    )
+    entry.add_to_hass(hass)
+    entry.runtime_data = MockSunSpecDataUpdateCoordinator(hass, [1, 2])
+
+    result = await _open_model_options(hass, entry)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        user_input={
+            CONF_ENABLED_MODELS: ["1"],
+            CONF_SCAN_INTERVAL: 10,
+            CONF_MAX_AC_POWER_KW: 7.5,
+        },
+    )
+
+    assert result["type"] == FlowResultType.CREATE_ENTRY
+    assert result["data"][CONF_MAX_AC_POWER_KW] == 7.5
+
+
+async def test_setup_flow_suggests_nameplate_with_headroom(hass, sunspec_client_mock):
+    """Same headroom contract on the initial setup form.
+
+    The setup form has carried the raw-nameplate pre-fill since v0.8.1,
+    which is why the too-tight ceiling was the normal state of an
+    install rather than an edge case.
+    """
+    with patch(
+        "custom_components.sunspec2.config_flow.SunSpecFlowHandler._probe_nameplate",
+        return_value=5.0,
+    ):
+        result = await _open_manual_step(hass)
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], user_input=MOCK_CONFIG_STEP_1
+        )
+
+    assert result["step_id"] == "settings"
+    assert _suggested_value(result["data_schema"], CONF_MAX_AC_POWER_KW) == 6.0
