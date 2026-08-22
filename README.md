@@ -287,15 +287,32 @@ Common situations and what to check:
   at startup. The integration reads your inverter's nameplate from
   SunSpec model 120 / 121 and pre-fills the field with 20 % on top,
   so in most cases you can leave it alone.
+
+  The number is an **AC active power** ceiling, and the filter knows
+  that the other quantities are bounded by something else, so it gives
+  each of them room: apparent and reactive power get 25 % on top
+  (grid codes require operation down to cos phi 0.80) and DC power
+  gets 50 %, because `DC Watts` is measured before conversion losses
+  and, on a hybrid, carries battery charging at the same time. Only
+  live measurements are filtered - nameplate ratings, setpoints and
+  limit registers are never touched.
+
 - **`Watts`, `VA` or `DC Watts` read `unknown` on a bright day**: the
-  peak AC power above is set too low. Do not set it to the bare
-  nameplate: `DC Watts` is measured before conversion losses and
-  therefore always sits a few percent above AC output, and `VA` is by
-  definition at least as large as `W`, so a ceiling at exactly the
-  nameplate takes both sensors out for most of a sunny day. Raise it
-  to roughly 1.5x the nameplate, or clear the field to switch the
-  filter off. The log names the culprit: look for `Dropping
-  implausible value`.
+  peak AC power is set too low. Raise it, or clear the field to switch
+  the filter off entirely. The log names the culprit and says which
+  ceiling it used and where that came from:
+
+  ```
+  Dropping implausible value for DCW: 9800.0 W is beyond the 7500.0 W
+  ceiling from configured peak AC power (rejection 1). If this is a
+  real reading, raise or clear 'Peak AC power' in the integration
+  options.
+  ```
+
+  The line repeats only once every 20 rejections, and one more line
+  is logged when the sensor comes back. A diagnostics download has the
+  whole picture under `plausibility_filter`, including the ceiling in
+  force for each quantity.
 - **Repairs panel says "Cannot reach SunSpec inverter"**: open the
   diagnostics dump, look at `recent_errors`. If the same error
   appears three times in a row, the inverter is genuinely

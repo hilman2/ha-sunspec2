@@ -4,7 +4,7 @@
 NAME = "SunSpec 2"
 DOMAIN = "sunspec2"
 DOMAIN_DATA = f"{DOMAIN}_data"
-VERSION = "0.23.0"
+VERSION = "0.24.0"
 
 ATTRIBUTION = "Data provided by SunSpec alliance - https://sunspec.org"
 ISSUE_URL = "https://github.com/hilman2/ha-sunspec2/issues"
@@ -256,6 +256,105 @@ ENERGY_DELTA_SAFETY_FACTOR = 2.0
 # filter exists for. A user-configured value is used as-is, without this
 # factor, because that number is a deliberate statement about the site.
 NAMEPLATE_FILTER_HEADROOM = 1.2
+
+
+def effective_peak_power_kw(configured_kw: float | None, detected_kw: float | None) -> float | None:
+    """Peak AC power the plausibility filters work from, in kW.
+
+    Shared by the sensor platform (which applies it) and diagnostics
+    (which reports it), so a bug report can never disagree with what the
+    filter actually did. ``None`` means no ceiling and no filtering.
+    """
+    if configured_kw:
+        return float(configured_kw)
+    if detected_kw:
+        return float(detected_kw) * NAMEPLATE_FILTER_HEADROOM
+    return None
+
+
+# Which SunSpec points the power plausibility filter is allowed to touch,
+# and how far above the peak AC power each of them may legitimately go.
+#
+# Until #45 the filter keyed on the UNIT alone, which is wrong twice over.
+#
+# Wrong once, because the ceiling is an ACTIVE power number and three of
+# the four quantities carrying a power unit are bounded by something else:
+#
+#   apparent  VA = W / cos phi, and grid codes require operation down to
+#             cos phi 0.80 (VDE-AR-N 4105, IEEE 1547 category B), so
+#             apparent power legitimately runs above active power. It is
+#             also >= W by definition, so a ceiling at the AC rating
+#             takes the VA sensor out before it takes the W sensor out.
+#   reactive  bounded by apparent power, so it gets the same allowance.
+#             A watt number carries no information about a var limit.
+#   dc        DCW is measured BEFORE conversion losses, so DCW = W / eta
+#             and it always reads above AC output. On a hybrid with a
+#             DC-coupled battery the DC side carries AC output and charge
+#             power at the same time, which is why this one is widest.
+#
+# Wrong twice, because a unit-only rule also swept up every static rating
+# and setpoint that happens to be measured in watts - WRtg, WMax, VARtg,
+# VAMax, VarSet, PMaxLim, LifeTimeMaxOut, the model 706 / 712 curve
+# points. Gating a nameplate against a limit derived from that same
+# nameplate is circular, and on a device where VARtg exceeds the watt
+# rating the rated-apparent-power sensor simply read "unknown".
+#
+# So this is an allowlist of LIVE MEASUREMENTS, built from the point
+# names pysunspec2 actually ships. Anything not named here is never
+# filtered, which is the right failure mode: the filter exists to catch
+# order-of-magnitude garbage (MW spikes at dawn), not to enforce tight
+# physical bounds, so leaving an unknown vendor point alone costs
+# nothing while wrongly clipping it costs the user a sensor.
+MEASURED_POWER_POINT_HEADROOM: dict[str, float] = {
+    # AC active power. The ceiling is expressed in exactly this quantity.
+    "W": 1.0,
+    "WphA": 1.0,
+    "WphB": 1.0,
+    "WphC": 1.0,
+    "WL1": 1.0,
+    "WL2": 1.0,
+    "WL3": 1.0,
+    # Apparent power (inverter models 10x / 11x, meter models 20x, 701).
+    "VA": 1.25,
+    "VAphA": 1.25,
+    "VAphB": 1.25,
+    "VAphC": 1.25,
+    "VAL1": 1.25,
+    "VAL2": 1.25,
+    "VAL3": 1.25,
+    # Reactive power. SunSpec spells this four ways across its models.
+    "VAr": 1.25,
+    "VAR": 1.25,
+    "VARphA": 1.25,
+    "VARphB": 1.25,
+    "VARphC": 1.25,
+    "Var": 1.25,
+    "VarL1": 1.25,
+    "VarL2": 1.25,
+    "VarL3": 1.25,
+    # DC power: inverter DC input (10x / 11x), per-MPPT module:N:DCW
+    # (160), DER port DCW (714), string combiner (402 / 404).
+    "DCW": 1.5,
+    "InDCW": 1.5,
+}
+
+
+def measured_power_headroom(key: str) -> float | None:
+    """Headroom factor for a point key, or ``None`` if it must not be gated.
+
+    ``key`` is the flattened models.py key, so a repeating-group point
+    arrives as ``group:idx:point`` and only the trailing name decides -
+    ``module:0:DCW`` is the same physical quantity as ``DCW``.
+    """
+    return MEASURED_POWER_POINT_HEADROOM.get(key.rsplit(":", 1)[-1])
+
+
+# The power plausibility filter emits one WARNING per rejected read. When
+# the ceiling is set too low that is one line per affected sensor per
+# poll, for as long as the sun shines, which is how #45 buried its own
+# evidence in the reporter's log. Log the first rejection of a run, then
+# every Nth, then a single line when the sensor comes back.
+IMPLAUSIBLE_LOG_EVERY = 20
 # After this many consecutive rejected reads the energy plausibility filter
 # accepts the new value as the new baseline. Without this escape hatch a
 # legitimate large jump (e.g. an inverter that bumps its lifetime counter

@@ -40,8 +40,11 @@ from .const import CONF_SCAN_INTERVAL
 from .const import DOMAIN
 from .const import ENERGY_DELTA_REJECT_RECOVERY_COUNT
 from .const import ENERGY_DELTA_SAFETY_FACTOR
+from .const import IMPLAUSIBLE_LOG_EVERY
 from .const import NAMEPLATE_FILTER_HEADROOM
+from .const import effective_peak_power_kw
 from .const import is_excluded_sensor_point
+from .const import measured_power_headroom
 from .entity import SunSpecEntity
 
 # Bronze rule parallel-updates: the coordinator already serialises all
@@ -125,16 +128,23 @@ _POWER_UNITS = (
 )
 
 
-def _power_limit_in_native_unit(unit, max_power_kw: float | None) -> float | None:
-    """Convert the configured peak power (kW) to the sensor's native unit.
+def _power_limit_in_native_unit(unit, key: str, max_power_kw: float | None) -> float | None:
+    """Upper bound for one sensor, in its own unit, or ``None`` for no bound.
 
     All SunSpec power-like units (W, VA, VAr) are 1:1 with watts in HA, so
-    the same kW-to-W conversion applies. Returns ``None`` if the sensor is
-    not power-like, which disables the filter for that sensor instance.
+    the same kW-to-W conversion applies to each; what differs is how far
+    above the peak AC power the quantity may legitimately sit.
+
+    The unit check stays in front of the name lookup and is not redundant:
+    model 64411 names a *voltage* point ``VA``, and only the unit tells
+    the two apart.
     """
     if max_power_kw is None or unit not in _POWER_UNITS:
         return None
-    return max_power_kw * 1000.0
+    headroom = measured_power_headroom(key)
+    if headroom is None:
+        return None
+    return max_power_kw * 1000.0 * headroom
 
 
 def _energy_delta_limit_in_native_unit(
@@ -408,6 +418,10 @@ class SunSpecSensor(SunSpecEntity, SensorEntity):
         # the module logger for tests that supply a stub coordinator without
         # an _log attribute (see tests/__init__.py:MockSunSpecDataUpdateCoordinator).
         self._log = getattr(coordinator, "_log", _LOGGER)
+        # Consecutive reads rejected by the power plausibility filter.
+        # Drives the log throttle and the "back inside the ceiling"
+        # recovery line; see the filter branch in native_value.
+        self._implausible_rejections = 0
         # has_entity_name = True (set on the SunSpecEntity base class)
         # means HA composes the device name in front of the entity
         # name automatically, so the name property here only carries
@@ -551,18 +565,30 @@ class SunSpecSensor(SunSpecEntity, SensorEntity):
         after the entity was built, and an options change should take
         effect without a reload.
         """
-        configured = self.coordinator.entry.options.get(CONF_MAX_AC_POWER_KW)
-        if configured:
-            return configured
-        detected = getattr(self.coordinator, "detected_max_ac_power_kw", None)
-        if detected:
-            return detected * NAMEPLATE_FILTER_HEADROOM
-        return None
+        return effective_peak_power_kw(
+            self.coordinator.entry.options.get(CONF_MAX_AC_POWER_KW),
+            getattr(self.coordinator, "detected_max_ac_power_kw", None),
+        )
+
+    @property
+    def _peak_power_source(self) -> str:
+        """Where the ceiling came from, for the rejection log line.
+
+        The old message said "configured peak" unconditionally. A user
+        who read it, opened the options form and found the field empty
+        concluded the log was lying, and the real provenance was only in
+        a one-shot INFO line emitted on the first cycle after startup,
+        long scrolled away by the time anything gets dropped (#45).
+        """
+        if self.coordinator.entry.options.get(CONF_MAX_AC_POWER_KW):
+            return "configured peak AC power"
+        source = getattr(self.coordinator, "detected_max_ac_power_source", None) or "model 120/121"
+        return f"auto-detected nameplate from {source} x {NAMEPLATE_FILTER_HEADROOM}"
 
     @property
     def _max_native_value(self) -> float | None:
         """Upper plausibility bound in this sensor's own unit, or None."""
-        return _power_limit_in_native_unit(self.unit, self._peak_power_kw)
+        return _power_limit_in_native_unit(self.unit, self.key, self._peak_power_kw)
 
     @property
     def native_value(self) -> Any:
@@ -577,23 +603,43 @@ class SunSpecSensor(SunSpecEntity, SensorEntity):
                 "Math overflow error when retrieving calculated value for %s", self.key
             )
             return None
-        # Plausibility filter for power-like sensors: drop readings above
-        # the configured peak. Inverters at dawn / dusk sometimes report
+        # Plausibility filter for measured power points: drop readings
+        # beyond the ceiling. Inverters at dawn / dusk sometimes report
         # MW-range garbage that poisons long-term statistics.
-        if (
-            self._max_native_value is not None
-            and isinstance(val, (int, float))
-            and val > self._max_native_value
-        ):
-            self._log.warning(
-                "Dropping implausible value for %s: %s %s exceeds configured peak %s %s",
-                self.key,
-                val,
-                self.unit,
-                self._max_native_value,
-                self.unit,
-            )
+        #
+        # Compared on abs() since #45. The garbage this catches is not
+        # signed: pysunspec2 packs the Modbus TCP transaction id as a
+        # literal 0 and never validates it on read (see the comment on
+        # _read_nameplate in __init__.py), so a late reply shifts every
+        # register after it and the damage lands wherever it lands. The
+        # one-sided test left half of that unguarded while still clipping
+        # the legitimately bipolar points - meter W, battery 802 W, DER
+        # 714 DCW - in the other direction.
+        limit = self._max_native_value
+        if limit is not None and isinstance(val, (int, float)) and abs(val) > limit:
+            self._implausible_rejections += 1
+            count = self._implausible_rejections
+            if count == 1 or count % IMPLAUSIBLE_LOG_EVERY == 0:
+                self._log.warning(
+                    "Dropping implausible value for %s: %s %s is beyond the %s %s ceiling "
+                    "from %s (rejection %d). If this is a real reading, raise or clear "
+                    "'Peak AC power' in the integration options.",
+                    self.key,
+                    val,
+                    self.unit,
+                    limit,
+                    self.unit,
+                    self._peak_power_source,
+                    count,
+                )
             return None
+        if self._implausible_rejections:
+            self._log.warning(
+                "%s is back inside the plausibility ceiling after %d dropped read(s)",
+                self.key,
+                self._implausible_rejections,
+            )
+            self._implausible_rejections = 0
         vtype = self._meta["type"]
         if vtype in ("enum16", "bitfield32"):
             symbols = self._point_meta.get("symbols", None)

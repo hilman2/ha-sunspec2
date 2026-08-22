@@ -5,6 +5,9 @@ from unittest.mock import patch
 import pytest
 from homeassistant.components.sensor import SensorDeviceClass
 from homeassistant.const import PERCENTAGE
+from homeassistant.const import UnitOfApparentPower
+from homeassistant.const import UnitOfElectricPotential
+from homeassistant.const import UnitOfPower
 from homeassistant.const import UnitOfReactiveEnergy
 from homeassistant.const import UnitOfReactivePower
 from homeassistant.core import HomeAssistant
@@ -12,18 +15,23 @@ from homeassistant.helpers import device_registry as dr
 
 from custom_components.sunspec2.const import CONF_MAX_AC_POWER_KW
 from custom_components.sunspec2.const import DOMAIN
+from custom_components.sunspec2.const import IMPLAUSIBLE_LOG_EVERY
+from custom_components.sunspec2.const import measured_power_headroom
 from custom_components.sunspec2.sensor import HA_META
 from custom_components.sunspec2.sensor import ICON_DC_AMPS
+from custom_components.sunspec2.sensor import _power_limit_in_native_unit
 
 from . import TEST_CONFIG_ENTRY_ID
 from . import TEST_INVERTER_MM_SENSOR_POWER_ENTITY_ID
 from . import TEST_INVERTER_MM_SENSOR_STATE_ENTITY_ID
 from . import TEST_INVERTER_PREFIX_SENSOR_DC_ENTITY_ID
 from . import TEST_INVERTER_SENSOR_DC_ENTITY_ID
+from . import TEST_INVERTER_SENSOR_DC_POWER_ENTITY_ID
 from . import TEST_INVERTER_SENSOR_ENERGY_ENTITY_ID
 from . import TEST_INVERTER_SENSOR_EVENT_ENTITY_ID
 from . import TEST_INVERTER_SENSOR_POWER_ENTITY_ID
 from . import TEST_INVERTER_SENSOR_STATE_ENTITY_ID
+from . import TEST_INVERTER_SENSOR_VA_ENTITY_ID
 from . import TEST_INVERTER_SENSOR_VAR_ID
 from . import create_mock_sunspec_config_entry
 from . import setup_mock_sunspec_config_entry
@@ -601,3 +609,196 @@ async def test_energy_sensor_keeps_its_baseline_across_a_gap(
     # baseline branch.
     with patch.object(coordinator.data[103], "getValue", return_value=baseline + 10):
         assert energy_sensor.native_value == baseline + 10
+
+
+def _find_sensor(hass, entity_id):
+    for entity in hass.data["entity_components"]["sensor"].entities:
+        if entity.entity_id == entity_id:
+            return entity
+    raise AssertionError(f"{entity_id} was not built")
+
+
+def test_only_measured_power_points_are_gated() -> None:
+    """The filter must never touch a rating, a setpoint or a curve point.
+
+    Before #45 it keyed on the UNIT alone, so every static register that
+    happens to be measured in watts was gated by a ceiling derived from
+    that same register. On a device whose VARtg exceeds its watt rating,
+    the rated-apparent-power sensor simply read "unknown".
+    """
+    for measured in ("W", "WphA", "VA", "VAr", "VAR", "DCW", "InDCW", "module:0:DCW"):
+        assert measured_power_headroom(measured) is not None, measured
+
+    for static in (
+        "WRtg",
+        "VARtg",
+        "WMax",
+        "VAMax",
+        "VArMaxQ1",
+        "VarSet",
+        "VarSetRvrt",
+        "WSetRvrt",
+        "PMaxLim",
+        "LifeTimeMaxOut",
+        "MaxChaRte",
+        "WChaMax",
+    ):
+        assert measured_power_headroom(static) is None, static
+
+
+def test_headroom_ranks_dc_above_apparent_above_active() -> None:
+    """The ceiling is an ACTIVE power number; the rest are bounded elsewhere.
+
+    VA >= W by definition and DCW = W / efficiency, so a single watt
+    ceiling applied flat to all three takes out VA and DCW before it ever
+    takes out W. That ordering is the whole of #45.
+    """
+    active = measured_power_headroom("W")
+    apparent = measured_power_headroom("VA")
+    reactive = measured_power_headroom("VAr")
+    dc = measured_power_headroom("DCW")
+    assert active == 1.0
+    assert apparent == reactive > active
+    assert dc > apparent
+
+
+def test_power_limit_still_needs_a_power_unit() -> None:
+    """Model 64411 names a VOLTAGE point ``VA``. Only the unit separates them."""
+    assert _power_limit_in_native_unit(UnitOfElectricPotential.VOLT, "VA", 5.0) is None
+    assert _power_limit_in_native_unit(UnitOfApparentPower.VOLT_AMPERE, "VA", 5.0) == 6250.0
+    assert _power_limit_in_native_unit(UnitOfPower.WATT, "W", 5.0) == 5000.0
+    assert _power_limit_in_native_unit(UnitOfPower.WATT, "DCW", 5.0) == 7500.0
+    # No ceiling configured and none detected: no filtering at all.
+    assert _power_limit_in_native_unit(UnitOfPower.WATT, "W", None) is None
+
+
+async def test_dc_power_is_not_gated_by_the_ac_ceiling(
+    hass: HomeAssistant, sunspec_client_mock
+) -> None:
+    """#45: DC Watts read "unknown" all day on a ceiling sized for AC.
+
+    DCW is measured before conversion losses, so it always sits above AC
+    output, and on a hybrid the DC side carries AC output plus battery
+    charge power at once. A reading 30 percent above the AC ceiling is
+    normal for DC and garbage for AC, and the filter now tells them apart.
+    """
+    config_entry = create_mock_sunspec_config_entry(
+        hass, data=MOCK_CONFIG, options={CONF_MAX_AC_POWER_KW: 1.0}
+    )
+    await setup_mock_sunspec_config_entry(hass, config_entry=config_entry)
+    coordinator = config_entry.runtime_data
+
+    ac = _find_sensor(hass, TEST_INVERTER_SENSOR_POWER_ENTITY_ID)
+    dc = _find_sensor(hass, TEST_INVERTER_SENSOR_DC_POWER_ENTITY_ID)
+
+    with patch.object(coordinator.data[103], "getValue", return_value=1300.0):
+        assert ac.native_value is None
+        assert dc.native_value == 1300.0
+
+    # Order-of-magnitude garbage is still caught on the DC side.
+    with patch.object(coordinator.data[103], "getValue", return_value=100000.0):
+        assert dc.native_value is None
+
+
+async def test_apparent_power_gets_its_own_headroom(
+    hass: HomeAssistant, sunspec_client_mock
+) -> None:
+    """VA >= W by definition, so it cannot share the active-power ceiling.
+
+    Grid codes require operation down to cos phi 0.80, which puts
+    apparent power legitimately above active power.
+    """
+    config_entry = create_mock_sunspec_config_entry(
+        hass, data=MOCK_CONFIG, options={CONF_MAX_AC_POWER_KW: 1.0}
+    )
+    await setup_mock_sunspec_config_entry(hass, config_entry=config_entry)
+    coordinator = config_entry.runtime_data
+
+    va = _find_sensor(hass, TEST_INVERTER_SENSOR_VA_ENTITY_ID)
+
+    with patch.object(coordinator.data[103], "getValue", return_value=1200.0):
+        assert va.native_value == 1200.0
+    with patch.object(coordinator.data[103], "getValue", return_value=1300.0):
+        assert va.native_value is None
+
+
+async def test_power_filter_catches_negative_garbage(
+    hass: HomeAssistant, sunspec_client_mock
+) -> None:
+    """The filter compares abs(), because the garbage it catches is unsigned.
+
+    pysunspec2 packs the Modbus TCP transaction id as a literal 0 and
+    never validates it on read, so a late reply shifts every register
+    after it and the damage lands wherever it lands. The old one-sided
+    ``val > limit`` left half of that unguarded, while still clipping the
+    legitimately bipolar points (meter W, battery 802 W) in the other
+    direction.
+    """
+    config_entry = create_mock_sunspec_config_entry(
+        hass, data=MOCK_CONFIG, options={CONF_MAX_AC_POWER_KW: 1.0}
+    )
+    await setup_mock_sunspec_config_entry(hass, config_entry=config_entry)
+    coordinator = config_entry.runtime_data
+
+    power = _find_sensor(hass, TEST_INVERTER_SENSOR_POWER_ENTITY_ID)
+
+    with patch.object(coordinator.data[103], "getValue", return_value=-50000.0):
+        assert power.native_value is None
+    # A legitimate negative reading inside the ceiling still passes: a
+    # meter importing, or a battery charging.
+    with patch.object(coordinator.data[103], "getValue", return_value=-800.0):
+        assert power.native_value == -800.0
+
+
+async def test_rejection_logging_is_throttled_and_reports_recovery(
+    hass: HomeAssistant, sunspec_client_mock, caplog
+) -> None:
+    """One WARNING per sensor per poll, forever, buried #45's own evidence.
+
+    The reporter had the answer in his log all along. Log the first
+    rejection of a run, then every IMPLAUSIBLE_LOG_EVERY-th, then one
+    line when the sensor comes back.
+    """
+    config_entry = create_mock_sunspec_config_entry(
+        hass, data=MOCK_CONFIG, options={CONF_MAX_AC_POWER_KW: 1.0}
+    )
+    await setup_mock_sunspec_config_entry(hass, config_entry=config_entry)
+    coordinator = config_entry.runtime_data
+    power = _find_sensor(hass, TEST_INVERTER_SENSOR_POWER_ENTITY_ID)
+
+    caplog.clear()
+    with patch.object(coordinator.data[103], "getValue", return_value=99000.0):
+        for _ in range(IMPLAUSIBLE_LOG_EVERY + 1):
+            assert power.native_value is None
+    dropped = [r for r in caplog.records if "Dropping implausible value" in r.getMessage()]
+    # First rejection plus the one at IMPLAUSIBLE_LOG_EVERY, not one per read.
+    assert len(dropped) == 2
+    # The message must say where the ceiling came from. "configured peak"
+    # on a value nobody configured sent the reporter looking in the UI
+    # for a field that was empty.
+    assert "configured peak AC power" in dropped[0].getMessage()
+
+    caplog.clear()
+    with patch.object(coordinator.data[103], "getValue", return_value=800.0):
+        assert power.native_value == 800.0
+    assert any("back inside the plausibility ceiling" in r.getMessage() for r in caplog.records)
+
+
+async def test_rejection_log_names_the_autodetected_nameplate(
+    hass: HomeAssistant, sunspec_client_mock, caplog
+) -> None:
+    """A ceiling nobody typed must not be reported as "configured"."""
+    config_entry = create_mock_sunspec_config_entry(hass, data=MOCK_CONFIG, options={})
+    await setup_mock_sunspec_config_entry(hass, config_entry=config_entry)
+    coordinator = config_entry.runtime_data
+    coordinator.detected_max_ac_power_kw = 1.0
+    coordinator.detected_max_ac_power_source = "model 120 WRtg"
+    power = _find_sensor(hass, TEST_INVERTER_SENSOR_POWER_ENTITY_ID)
+
+    caplog.clear()
+    with patch.object(coordinator.data[103], "getValue", return_value=99000.0):
+        assert power.native_value is None
+
+    dropped = [r for r in caplog.records if "Dropping implausible value" in r.getMessage()]
+    assert dropped
+    assert "auto-detected nameplate from model 120 WRtg" in dropped[0].getMessage()

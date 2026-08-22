@@ -46,6 +46,7 @@ from .const import DEFAULT_MODELS
 from .const import DEFAULT_SCAN_DELAY_SECONDS
 from .const import DOMAIN
 from .const import INTERVAL_RETRY_DELAY_SECONDS
+from .const import NAMEPLATE_FILTER_HEADROOM
 from .const import PARITY_NONE
 from .const import PLATFORMS
 from .const import PLATFORMS_READ_ONLY
@@ -605,6 +606,11 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator):
         # hand. ``None`` means the inverter does not expose either
         # model and we have nothing to suggest.
         self.detected_max_ac_power_kw: float | None = None
+        # Which register the nameplate above came from, e.g. "model 120
+        # WRtg". Reported in diagnostics and named in the rejection log
+        # line, because "configured peak" on a value nobody configured
+        # sent the #45 reporter looking in the wrong place.
+        self.detected_max_ac_power_source: str | None = None
         # Per-model "first cycle that stopped seeing it" timestamp (cjne
         # issue #202). Once a model has been seen, the first cycle that
         # does NOT see it records the time; a successful re-detection
@@ -1057,10 +1063,14 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator):
                 continue
             if isinstance(value, (int, float)) and value > 0:
                 kw = float(value) / 1000.0
+                self.detected_max_ac_power_source = label
                 self._log.info(
-                    "Auto-detected inverter nameplate AC power: %.2f kW (from %s)",
+                    "Auto-detected inverter nameplate AC power: %.2f kW (from %s). "
+                    "Plausibility ceiling for active power: %.2f kW (x%s headroom)",
                     kw,
                     label,
+                    kw * NAMEPLATE_FILTER_HEADROOM,
+                    NAMEPLATE_FILTER_HEADROOM,
                 )
                 return kw
         return None
