@@ -19,7 +19,11 @@ from homeassistant.core import HomeAssistant
 
 from . import SunSpec2ConfigEntry
 from .const import CONF_HOST
+from .const import CONF_MAX_AC_POWER_KW
+from .const import MEASURED_POWER_POINT_HEADROOM
+from .const import NAMEPLATE_FILTER_HEADROOM
 from .const import VERSION
+from .const import effective_peak_power_kw
 
 TO_REDACT = {CONF_HOST}
 
@@ -73,6 +77,12 @@ async def async_get_config_entry_diagnostics(
         },
         "scanned_models": scanned_models,
         "latest_values": latest_values,
+        # #45: without this block a diagnostics download could not
+        # diagnose the plausibility filter at all. Models 120 / 121 are
+        # not in DEFAULT_MODELS, so WRtg / WMax normally never reach
+        # latest_values either, and when the peak power option is unset
+        # the ceiling that actually dropped the reading was invisible.
+        "plausibility_filter": _plausibility_filter_dump(coordinator, entry),
         "recent_errors": _recent_errors_dump(coordinator),
         "consecutive_failures": dict(getattr(coordinator, "_consecutive_failures", {})),
         "raw_captures": list(getattr(coordinator.api, "_captured_reads", [])),
@@ -81,6 +91,33 @@ async def async_get_config_entry_diagnostics(
             "pysunspec2": sunspec2_version,
             "sunspec2_integration": VERSION,
         },
+    }
+
+
+def _plausibility_filter_dump(coordinator, entry) -> dict[str, Any]:
+    """State of the power plausibility filter, in the units it works in.
+
+    ``effective_peak_power_kw`` is the same function the sensor platform
+    calls, so this can never disagree with what actually happened to a
+    reading. ``per_quantity_ceiling_w`` is spelled out because the
+    headroom differs by physical quantity and "why is DC Watts unknown
+    but Watts fine" is exactly the question a bug report opens with.
+    """
+    configured = entry.options.get(CONF_MAX_AC_POWER_KW)
+    detected = getattr(coordinator, "detected_max_ac_power_kw", None)
+    peak_kw = effective_peak_power_kw(configured, detected)
+    ceilings: dict[str, float | None] = {}
+    for point in ("W", "VA", "VAr", "DCW"):
+        headroom = MEASURED_POWER_POINT_HEADROOM[point]
+        ceilings[point] = None if peak_kw is None else round(peak_kw * 1000.0 * headroom, 1)
+    return {
+        "configured_max_ac_power_kw": configured,
+        "detected_max_ac_power_kw": detected,
+        "detected_max_ac_power_source": getattr(coordinator, "detected_max_ac_power_source", None),
+        "nameplate_filter_headroom": NAMEPLATE_FILTER_HEADROOM,
+        "effective_peak_power_kw": peak_kw,
+        "per_quantity_ceiling_w": ceilings,
+        "enabled": peak_kw is not None,
     }
 
 

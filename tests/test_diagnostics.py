@@ -24,6 +24,7 @@ async def test_diagnostics_basic_shape(hass, sunspec_client_mock):
         "model_filters",
         "scanned_models",
         "latest_values",
+        "plausibility_filter",
         "recent_errors",
         "consecutive_failures",
         "raw_captures",
