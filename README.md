@@ -145,10 +145,11 @@ automatically and offer it as a discovered integration on the
 | `unit_id` | Setup, Reconfigure | `1` | Modbus unit / slave ID |
 | `prefix` | Setup, Options | empty | Optional prefix for the device name (e.g. `Garage`, `Cellar`) for multi-inverter setups |
 | `scan_interval` | Setup, Options | `30 s` | How often the coordinator polls the inverter |
-| `scan_delay` | Options | `0.5 s` | Pause between models while scanning the SunSpec model tree. The tree is scanned about once every 10 minutes, not on every poll, so this costs almost nothing in normal operation. Raise it if scans fail on slow hardware |
+| `scan_delay` | Options | `0.5 s` | Pause between models while scanning the SunSpec model tree. The tree is only scanned when a new connection has to be built and there is no stored layout that still matches the device, never on a normal poll, so this costs nothing in steady state. Raise it if scans fail on slow hardware |
 | `models_enabled` | Setup, Options | sensible defaults | Which SunSpec model blocks become sensors |
 | `max_ac_power_kw` | Setup, Options | auto-detect from model 120/121 | Plausibility filter ceiling. Drops readings above this value |
 | `capture_raw_registers` | Options | off | Wraps every Modbus read so the bytes appear in the diagnostics dump |
+| `release_slot` | Options | off | Hand the inverter's Modbus slot back after each poll instead of holding one session open. Off is right for almost everyone; turn it on only if another program outside Home Assistant has to read the same inverter and cannot go through a Modbus proxy. Set automatically when several config entries share one gateway |
 
 ## How the integration polls
 
@@ -160,15 +161,26 @@ loop, by default every 30 seconds:
    gateway: KACO Powador and many other devices only allow one
    Modbus TCP slot at a time, so two coordinators behind one
    gateway would race each other without this lock.
-2. Rebuild the model layout. pysunspec2 only fills `client.models`
-   during a scan, and step 5 throws the client away every cycle, so
-   this used to mean walking the whole model tree on every poll:
-   `1 + 2n` Modbus round trips plus a `scan_delay` pause per model,
-   twice a minute, to rediscover a layout that only changes on a
-   firmware update. The layout is now cached and restored with a
-   single validating read, and genuinely re-scanned about every 10
-   minutes (or immediately after any failed cycle, since a layout
-   read at addresses that just stopped answering is a suspect).
+2. Make sure the client has its model layout. pysunspec2 only fills
+   `client.models` during a scan, and until v0.22.0 step 6 threw the
+   client away at the end of every cycle, so this meant walking the
+   whole model tree on every poll: `1 + 2n` Modbus round trips plus a
+   `scan_delay` pause per model, twice a minute, to rediscover a
+   layout that only changes on a firmware update. The session now
+   stays open, so on a normal cycle there is nothing to rebuild. A
+   client is only built when there is none - first setup, after a
+   failed cycle, or with *Release the Modbus connection between
+   polls* on - and then the cached layout (held in memory, and
+   persisted to disk so a restart does not have to scan either) is
+   checked against the device with three short reads: the base
+   address, the tail block, and the end marker behind it. A real
+   re-scan happens only when that check fails, which is what a
+   firmware update looks like, or after a failed cycle, since a
+   layout read at addresses that just stopped answering is a suspect.
+   There is deliberately no periodic re-scan: a scan cannot confirm a
+   layout, it can only replace it, and pysunspec2 walks the chain
+   with `addr += model_len + 2`, so one misread block length shifts
+   every block behind it and the scan still returns without raising.
 3. Walk every enabled SunSpec model and read its valid points.
 4. On the first successful cycle: cache the inverter's full model
    list, the common-block device info, and the auto-detected
@@ -177,10 +189,19 @@ loop, by default every 30 seconds:
    and clear any active Repairs issues. If the previous run had
    failed, log a single recovery WARNING so the user can correlate
    the recovery moment in the log.
-6. Close the TCP socket with `SO_LINGER=0` so the kernel sends a
-   TCP RST instead of a polite FIN. Single-slot inverters free
-   their slot immediately on RST instead of waiting on their own
-   keep-alive.
+6. Keep the Modbus session open for the next cycle. Every cycle used
+   to end in a `SO_LINGER=0` close, sending a TCP RST instead of a
+   polite FIN so single-slot inverters freed their slot at once
+   rather than waiting on their own keep-alive. Measured against the
+   hardware that motivated that design, a KACO Powador 7.8 TL3 at a
+   30 s interval, it is what broke it: reconnecting per poll failed
+   5 of 6 cycles, while one held session served 20 of 20 at a steady
+   1.6 s. The socket is now closed after a cycle only when another
+   config entry shares the same endpoint, or when *Release the Modbus
+   connection between polls* is on, and that close is a normal FIN.
+   The `SO_LINGER=0` abort is reserved for the paths where the
+   session is already a suspect: a failed cycle, or an unload that
+   has to free the slot before the next coordinator connects.
 
 **On failure**, the coordinator does NOT immediately mark the entity
 unavailable. Instead:
@@ -277,10 +298,17 @@ Common situations and what to check:
   Assistant, and the migration runs automatically.
 - **Sensors flip to `unavailable` for a few minutes every few hours**:
   this is exactly what the resilience features (in-cycle retry +
-  stale tolerance) are designed to absorb. If you are still seeing
-  this on v0.8.x or later, it usually means the underlying network
-  link is dropping for longer than three minutes - check the WiFi /
-  ethernet to the inverter.
+  stale tolerance) are designed to absorb. Before v0.22.0 the
+  integration rebuilt its Modbus session on every poll, which is the
+  thing an embedded Modbus TCP stack handles worst: on a KACO Powador
+  7.8 TL3 at a 30 s interval, 5 of 6 cycles failed on the reconnect
+  while one held session served 20 of 20. If you are on an older
+  version, update first. On v0.22.0 or later, check whether *Release
+  the Modbus connection between polls* is switched on in the options,
+  because that deliberately brings the old reconnect-per-poll
+  behaviour back. Otherwise the underlying network link is dropping
+  for longer than three minutes - check the WiFi / ethernet to the
+  inverter.
 - **Dawn / dusk spikes in your statistics**: the **Peak AC power**
   option drives a plausibility filter that drops every reading above
   that value, including the MW / TWh garbage some inverters generate
@@ -485,8 +513,10 @@ serialised across all matching config entries, so:
   for the slot
 - on **RS-485 buses** the same lock covers `/dev/ttyUSB0` so two
   coordinators never open the serial port concurrently (each
-  coordinator runs an `open() -> scan -> read -> close()` cycle
-  fully within the lock)
+  coordinator runs an `open() -> restore layout -> read -> close()`
+  cycle fully within the lock, and once a layout has been cached the
+  restore is three short reads against it rather than a full model
+  scan)
 
 Each unit ID lands as its own HA device, with its own friendly
 name from the inverter's `Md` field, its own sensors, its own
@@ -495,7 +525,12 @@ options. The only thing they share is the bus.
 You don't have to enable any setting for this. The behaviour
 is automatic the moment you add a second config entry whose
 host/port (TCP) or serial port/baud rate (RTU) matches an
-existing one.
+existing one. That includes handing the connection back after
+each poll: since v0.22.0 a lone config entry keeps its Modbus
+session open, but as soon as a second entry shares the same
+connection the integration releases the slot between cycles on
+its own, without you touching the *Release the Modbus connection
+between polls* option.
 
 ## Known limitations
 
@@ -506,7 +541,13 @@ existing one.
   cannot run ha-sunspec2 in parallel with cjne, openHAB, or any
   other Modbus client against the same device. The integration
   detects an active cjne entry on the same host and refuses to
-  start with a clear Repairs panel message.
+  start with a clear Repairs panel message. Since v0.22.0 the one
+  session is held open between polls, so there is no gap another
+  client could slip into either. If something outside Home Assistant
+  genuinely has to read the same inverter, put a Modbus proxy in
+  front of it. *Release the Modbus connection between polls* is the
+  fallback for when you cannot, and taking turns on a single slot is
+  unreliable by construction.
 - **DHCP discovery requires a fresh lease**, which means it does
   not fire for inverters with a static IP (most home installs)
   and only fires every few hours for DHCP leases. The active

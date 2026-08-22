@@ -33,6 +33,7 @@ from .const import DEFAULT_SCAN_DELAY_SECONDS
 from .const import DOMAIN
 from .const import MAX_SCAN_DELAY_SECONDS
 from .const import MIN_SCAN_DELAY_SECONDS
+from .const import MIN_SCAN_INTERVAL_SECONDS
 from .const import NAMEPLATE_FILTER_HEADROOM
 from .const import PARITY_EVEN
 from .const import PARITY_NONE
@@ -62,6 +63,13 @@ _MAX_AC_POWER_SELECTOR = selector.NumberSelector(
         unit_of_measurement="kW",
     )
 )
+
+
+# Shared by the setup form and the options form so the two can never
+# drift apart. Both used to take a bare ``int``: a saved 0 stops polling
+# silently and forever, a negative value hot-loops it. See
+# MIN_SCAN_INTERVAL_SECONDS for what Home Assistant does with each.
+_SCAN_INTERVAL_VALIDATOR = vol.All(vol.Coerce(int), vol.Range(min=MIN_SCAN_INTERVAL_SECONDS))
 
 
 def _suggested_peak_power_kw(detected_kw: float | None) -> float | None:
@@ -97,7 +105,11 @@ def _suggested_peak_power_kw(detected_kw: float | None) -> float | None:
 # something we can pick for everyone: a KACO Powador on 100 Mbit wants
 # the pacing, a modern inverter on gigabit does not. BOX rather than a
 # slider so the value is typed exactly, and capped at MAX_SCAN_DELAY
-# because every 0.1 here costs 0.1 per model on every single poll.
+# because every 0.1 here costs 0.1 per model on each scan of the tree.
+# The scan is not part of a poll any more: the layout has been cached
+# since v0.17.0 and persisted since v0.21.0, so a scan runs on the
+# first connect, after a failed cycle, and when the cached layout stops
+# validating against the device. See CONF_SCAN_DELAY in const.py.
 _SCAN_DELAY_SELECTOR = selector.NumberSelector(
     selector.NumberSelectorConfig(
         min=MIN_SCAN_DELAY_SECONDS,
@@ -586,7 +598,9 @@ class SunSpecFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
 
         schema: dict[Any, Any] = {
             vol.Optional(CONF_PREFIX, default=""): str,
-            vol.Optional(CONF_SCAN_INTERVAL, default=SCAN_INTERVAL.total_seconds()): int,
+            vol.Optional(
+                CONF_SCAN_INTERVAL, default=SCAN_INTERVAL.total_seconds()
+            ): _SCAN_INTERVAL_VALIDATOR,
             vol.Optional(
                 CONF_ENABLED_MODELS,
                 default=default_enabled,
@@ -832,9 +846,12 @@ class SunSpecOptionsFlowHandler(config_entries.OptionsFlow):
             # the test stub coordinator that doesn't carry the cache, and
             # for the very first options-form open before any update has
             # happened. NEVER call api.known_models() unconditionally:
-            # ``api._client`` is closed at the end of every cycle, so the
-            # call returns ``[]`` between cycles and the form would render
-            # an empty multi-select.
+            # ``known_models()`` reads the live client, and there is not
+            # always one: before the first connect, after a failed cycle
+            # tore the session down with ``close(force=True)``, and on
+            # the CONF_RELEASE_SLOT / shared-gateway paths that do still
+            # close between polls. In those cases it returns ``[]`` and
+            # the form would render an empty multi-select.
             models = set(getattr(self.coordinator, "detected_models", set()))
             if not models:
                 models = set(self.coordinator.api.known_models())
@@ -858,7 +875,7 @@ class SunSpecOptionsFlowHandler(config_entries.OptionsFlow):
             write_beta_enabled = self.config_entry.options.get(CONF_WRITE_BETA_ENABLED, False)
             schema: dict[Any, Any] = {
                 vol.Optional(CONF_PREFIX, default=prefix): str,
-                vol.Optional(CONF_SCAN_INTERVAL, default=scan_interval): int,
+                vol.Optional(CONF_SCAN_INTERVAL, default=scan_interval): _SCAN_INTERVAL_VALIDATOR,
                 vol.Optional(CONF_SCAN_DELAY, default=scan_delay): _SCAN_DELAY_SELECTOR,
                 vol.Optional(
                     CONF_ENABLED_MODELS,

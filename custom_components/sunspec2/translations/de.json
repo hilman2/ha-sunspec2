@@ -96,7 +96,7 @@
         "data": {
           "prefix": "Sensor-Namens-Präfix",
           "scan_interval": "Scan-Intervall (Sekunden)",
-          "scan_delay": "Pause zwischen den Modellen beim Scan des SunSpec-Modellbaums (Sekunden). Der Baum wird nur etwa alle 10 Minuten gescannt, nicht bei jedem Poll, im Normalbetrieb kostet die Pause also fast nichts. Erhöhen, wenn Scans auf langsamer Hardware fehlschlagen; verringern nur, wenn der Rescan selbst stört.",
+          "scan_delay": "Pause zwischen den Modellen beim Scan des SunSpec-Modellbaums (Sekunden). Der Baum wird nur gescannt, wenn die Integration eine neue Verbindung aufbauen muss und kein gespeichertes Layout mehr zum Gerät passt, nie bei einem normalen Poll; im Normalbetrieb kostet die Pause also nichts. Erhöhen, wenn Scans auf langsamer Hardware fehlschlagen; verringern nur, wenn der Rescan selbst stört.",
           "models_enabled": "Aktive Modelle",
           "capture_raw_registers": "Rohe Modbus-Bytes für Diagnose mitschneiden",
           "max_ac_power_kw": "Spitzen-AC-Leistung des Wechselrichters (kW, optional)",

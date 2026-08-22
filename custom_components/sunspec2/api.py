@@ -158,10 +158,15 @@ class SunSpecApiClient:
         # passes ``timeout=SETUP_TIMEOUT`` so the initial scan has time
         # to finish on slower devices.
         self._timeout = timeout
-        # Seconds pysunspec2 sleeps between models during scan(). The
-        # coordinator rescans on every cycle (it closes the client to
-        # free the inverter's Modbus slot), so this is paid once per
-        # model per poll, not once per setup. See CONF_SCAN_DELAY.
+        # Seconds pysunspec2 sleeps between models during scan(). Until
+        # v0.22.0 the coordinator closed the client after every cycle,
+        # so every poll rescanned and paid this once per model. The
+        # session is held open now, and the layout is cached (v0.17.0)
+        # and persisted across restarts (v0.21.0), so scan() only runs
+        # when there is no usable cached layout: a first setup with
+        # nothing stored, or a reconnect after a failure, which drops
+        # the cache on purpose. Paid per model on that rare walk.
+        # See CONF_SCAN_DELAY.
         # Clamped here rather than trusting the caller because a
         # corrupted options save reaching pysunspec2 as a negative
         # sleep would raise ValueError deep inside the scan walk.
@@ -176,10 +181,12 @@ class SunSpecApiClient:
         self._reconnect = False
         self._client = None
         # Cached SunSpec layout: base address plus (model_id, addr, len)
-        # per block. Survives close(), which runs at the end of every
-        # cycle, and is dropped by reconnect_next(), which only runs
-        # after a failure: the one situation where the layout is a
-        # suspect rather than an asset.
+        # per block. Survives close(), which since v0.22.0 only runs on
+        # unload, on the failure path, and after a poll or a write when
+        # the slot has to be handed back (CONF_RELEASE_SLOT, or two
+        # config entries behind one gateway), and is dropped by
+        # reconnect_next(), which only runs after a failure: the one
+        # situation where the layout is a suspect rather than an asset.
         #
         # Deliberately without an expiry. A SunSpec model tree changes on
         # a firmware update and never otherwise, so a timer can only ever
@@ -219,9 +226,13 @@ class SunSpecApiClient:
         force-disconnect the old client via :meth:`_force_disconnect`,
         which sends a TCP RST so single-slot inverters free their slot
         immediately instead of waiting on their own keep-alive timeout.
-        Within a single update cycle the client is reused across the
-        16+ ``read_model`` calls - hence the conditional, not an
-        unconditional rebuild on every entry.
+        Otherwise the client that is already open is handed straight
+        back. Since v0.22.0 that is the steady state: one session
+        serves the 16+ ``read_model`` calls of a cycle and every cycle
+        after it, until a failure, an unload, or a close between polls
+        (CONF_RELEASE_SLOT, or two config entries behind one gateway)
+        drops it - hence the conditional, not an unconditional rebuild
+        on every entry.
 
         The legacy ``config`` parameter is ignored - it predates Phase 4
         and was used by the options flow to probe a different host. The
@@ -229,10 +240,15 @@ class SunSpecApiClient:
         connect. The argument is kept only because async_get_models still
         passes it through; it can be removed in a later phase.
         """
-        # Clear the flag whether or not there was a client to drop.
-        # Between cycles there never is: every cycle ends in close(),
-        # which sets _client to None. So when the flag was set by a
-        # failed cycle it used to survive into the next one, the first
+        # Clear the flag whether or not there was a client to drop. It
+        # arrives both ways: _after_failed_cycle closes with force=True
+        # before setting it, so _client is already None there, while the
+        # in-cycle retry sets it on a session that is still up.
+        #
+        # Until v0.22.0 there was never a client here, because every
+        # cycle ended in close() and that set _client to None. So when
+        # the flag was set by a failed cycle it used to survive into
+        # the next one, the first
         # get_client() built a client with the flag still standing, and
         # the SECOND get_client() of that same cycle tore that fresh
         # client down and built another one. Every cycle following a
@@ -382,23 +398,31 @@ class SunSpecApiClient:
         # (reported for a KACO bp 20.0 NX3 M2 in #17, but it is not
         # vendor specific - it hits every device and every scaled point).
         #
-        # Why the point is empty: the coordinator calls api.close() at the
-        # end of each update cycle, so get_client() above builds a brand
-        # new client and rescans with full_model_read=False. pysunspec2
-        # only calls model.read() during scan when that flag is set, so
-        # every point except ID and L is still None here - including the
-        # scale factor that Point.set_value(computed=True) needs to encode
-        # the value. The model objects the coordinator read into are a
-        # different, already discarded client.
+        # Why the point can be empty: neither path that fills
+        # ``client.models`` populates it. scan() runs with
+        # full_model_read=False and pysunspec2 only calls model.read()
+        # during scan when that flag is set; rebuilding from the cached
+        # layout writes only the id and length registers. So on a
+        # session that has not polled this model yet - one rebuilt after
+        # a failure-driven reconnect, or after the close that a
+        # slot-releasing setup does between polls - every point except
+        # ID and L is still None here, including the scale factor that
+        # Point.set_value(computed=True) needs to encode the value.
+        # Since v0.22.0 the write usually lands on the very session the
+        # coordinator polls on, where the points are stale rather than
+        # absent. The read covers both.
         #
         # The switches never hit this because Conn, WMaxLim_Ena and
         # OutPFSet_Ena are enum16 with sf: null, so sf_required is False.
         # That is why #17 reported working switches and broken numbers.
         #
-        # Cost is one block read of len + 2 registers, which is noise next
-        # to the reconnect and full scan this call already paid for. Read
-        # before setting cvalue, never after: Group.read() ends in
-        # set_mb(dirty=False) and would discard a pending value.
+        # Cost is one block read of len + 2 registers, which is noise
+        # next to the round trips of the write itself. It no longer
+        # rides along on a reconnect and a full scan: since v0.22.0 the
+        # write normally lands on the session the coordinator already
+        # has open. Read before setting cvalue, never after:
+        # Group.read() ends in set_mb(dirty=False) and would discard a
+        # pending value.
         model.read()
         for point, value in resolved:
             point.cvalue = value
@@ -510,11 +534,20 @@ class SunSpecApiClient:
         """Give ``client`` its model objects, rescanning only when needed.
 
         pysunspec2 populates ``client.models`` exclusively inside
-        ``scan()``, so a reconnect used to mean walking the entire model
-        tree again even though nothing about the device had changed, and
-        the coordinator reconnects on every single cycle to free the
-        inverter's Modbus slot. Restoring the cached layout produces the
-        same model objects from one read instead of ``1 + 2n``, and
+        ``scan()``, so building a client used to mean walking the
+        entire model tree again even though nothing about the device
+        had changed, and until v0.22.0 the coordinator rebuilt its
+        client on every single cycle to free the inverter's Modbus
+        slot. The session is held open now, so what is left to save is
+        the client rebuilt after the close that CONF_RELEASE_SLOT (or a
+        second config entry behind the same gateway) still does between
+        polls, and the first connect after a restart or a reload, where
+        the layout comes back from the store. Not the failure path:
+        reconnect_next() drops the cache on purpose, because a layout
+        read at addresses that just stopped answering is the one thing
+        not to reuse. Restoring the cached layout produces the same
+        model objects from the three validating reads in
+        :meth:`_validate_model_structure` instead of ``1 + 2n``, and
         skips the per-model pacing sleep completely.
         """
         if self._restore_model_structure(client):
@@ -864,13 +897,17 @@ class SunSpecApiClient:
     def check_port(self) -> bool:
         """Check if port is available.
 
-        Note this opens and closes a full TCP session of its own,
-        roughly 100 ms before the real client connects. On inverters
-        that allow exactly one Modbus TCP slot that is a second
-        connection to the same endpoint in quick succession, which is
-        an open suspect in #25. Removing it needs a reporter to confirm
-        the double-connect hypothesis first, so for now it stays and
-        only its process-global side effect is gone.
+        No longer on the connect path. It opened a full TCP session of
+        its own and let the real client connect 100 ms behind it, and
+        on an inverter that grants exactly one Modbus slot that probe
+        cost the very connection it was meant to protect: the
+        double-connect suspicion from #25, confirmed in v0.22.0 at 8 of
+        12 cycles failing with it in front and 0 of 12 without (the
+        numbers and the log signature are in
+        :meth:`_modbus_connect_tcp`). The method itself stays for the
+        config flow, where no coordinator competes for the slot, but
+        nothing there calls it today, so in practice only the tests
+        reach it.
         """
         with self._lock:
             sock_timeout = float(3)
