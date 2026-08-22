@@ -19,6 +19,7 @@ from custom_components.sunspec2.const import CONF_SCAN_INTERVAL
 from custom_components.sunspec2.const import DEFAULT_MODELS
 from custom_components.sunspec2.const import DEFAULT_SCAN_DELAY_SECONDS
 from custom_components.sunspec2.const import DOMAIN
+from custom_components.sunspec2.const import MIN_SCAN_INTERVAL_SECONDS
 from custom_components.sunspec2.const import STALE_DATA_TOLERANCE_CYCLES
 from custom_components.sunspec2.errors import TransportError
 from custom_components.sunspec2.migration import CJNE_DOMAIN
@@ -1258,3 +1259,36 @@ async def test_a_failed_cycle_drops_the_session_hard(hass):
 
     coordinator.api.close.assert_called_once_with(force=True)
     coordinator.api.reconnect_next.assert_called_once()
+
+
+@pytest.mark.parametrize("stored_interval", [0, -5, "not a number"])
+async def test_coordinator_clamps_an_unusable_stored_scan_interval(
+    hass, sunspec_client_mock, stored_interval, caplog
+):
+    """An entry saved before the range check must repair itself on reload.
+
+    The config flow now refuses 0 and negatives, but that does nothing
+    for an entry already on disk, and neither value survives contact
+    with HA's coordinator: ``timedelta(seconds=0)`` is falsy, so
+    ``update_interval`` becomes None and ``_schedule_refresh`` returns
+    early - polling stops silently and forever, with no failed cycle to
+    make it visible. A negative value is truthy and puts the next
+    refresh in the past, hot-looping the coordinator.
+    """
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={**MOCK_CONFIG, CONF_SCAN_INTERVAL: stored_interval},
+        entry_id="test_bad_interval",
+    )
+    entry.add_to_hass(hass)
+
+    caplog.clear()
+    await setup_mock_sunspec_config_entry(hass, config_entry=entry)
+    coordinator = entry.runtime_data
+
+    assert coordinator.update_interval is not None
+    assert coordinator.update_interval.total_seconds() >= MIN_SCAN_INTERVAL_SECONDS
+    if stored_interval != "not a number":
+        assert any(
+            "below the" in r.getMessage() and "minimum" in r.getMessage() for r in caplog.records
+        )

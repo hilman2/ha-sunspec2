@@ -4,7 +4,7 @@
 NAME = "SunSpec 2"
 DOMAIN = "sunspec2"
 DOMAIN_DATA = f"{DOMAIN}_data"
-VERSION = "0.24.0"
+VERSION = "0.25.0"
 
 ATTRIBUTION = "Data provided by SunSpec alliance - https://sunspec.org"
 ISSUE_URL = "https://github.com/hilman2/ha-sunspec2/issues"
@@ -114,14 +114,15 @@ EXPORT_LIMIT_MIN_STEP_PCT = 0.01
 
 # Seconds pysunspec2 sleeps after every model it walks during
 # ``client.scan()``. Inherited verbatim at 0.5 from cjne/ha-sunspec in
-# the phase 0 baseline, never chosen deliberately, and it is the single
-# largest cost of a poll cycle: the coordinator closes its client at the
-# end of every cycle (single-slot inverters need their Modbus slot back),
-# so every cycle rescans the whole model tree from scratch. On an
-# inverter exposing 20+ models that is 10+ seconds of pure sleep per
-# cycle, independent of the network. Reported by @haraldg in #17 as
-# "HA often needs quite a bit longer to update the values than expected"
-# at a 30 s interval.
+# the phase 0 baseline, never chosen deliberately. Until v0.22.0 it was
+# the single largest cost of a poll cycle: the coordinator closed its
+# client at the end of every cycle (single-slot inverters were assumed
+# to need their Modbus slot back), so every cycle rescanned the whole
+# model tree from scratch. On an inverter exposing 20+ models that was
+# 10+ seconds of pure sleep per cycle, independent of the network.
+# Reported by @haraldg in #17 as "HA often needs quite a bit longer to
+# update the values than expected" at a 30 s interval. The session is
+# held open now, so a steady-state poll pays none of it.
 #
 # The delay is not pointless: it paces the request stream for slow
 # devices (KACO Powador on 100 Mbit was the original reason the setup
@@ -130,10 +131,15 @@ EXPORT_LIMIT_MIN_STEP_PCT = 0.01
 #
 # The default stays at the inherited 0.5 rather than being tuned down,
 # because the persisted model layout took the scan out of the steady
-# state entirely: it now runs on the first setup and after a firmware
-# change, not twice a minute, so there is no longer a trade to make
-# between "fast polling" and "gentle on slow hardware". Lowering it
-# only affects that rare rescan.
+# state entirely: it now runs on the first connect with nothing usable
+# stored, after a failed cycle (reconnect_next() drops the cache on
+# purpose, because a layout read at addresses that just stopped
+# answering is the one thing not to reuse), and when a firmware change
+# moves the model chain. Not twice a minute, so there is no longer a
+# trade to make between "fast polling" and "gentle on slow hardware".
+# Lowering it only affects that rare walk.
+
+
 # Give the inverter's Modbus slot back between polls instead of
 # holding one session open.
 #
@@ -152,6 +158,31 @@ EXPORT_LIMIT_MIN_STEP_PCT = 0.01
 # that case is detected and handled on its own.
 CONF_RELEASE_SLOT = "release_slot"
 
+# Lower bound for the poll interval, enforced in the config flow and
+# again in the coordinator.
+#
+# Not a taste call, and not about being gentle on the device. Both
+# schemas took a bare ``int`` with no range, and both ends of that are
+# broken in Home Assistant's own coordinator:
+#
+#   0   ``DataUpdateCoordinator.update_interval`` stores
+#       ``value.total_seconds() if value else None``, and
+#       ``timedelta(seconds=0)`` is falsy. ``_schedule_refresh()`` then
+#       returns early on ``None`` and polling stops silently and
+#       permanently. Nothing looks broken: no cycle runs, so no cycle
+#       fails, so ``consecutive_failed_cycles`` never moves and the
+#       entities do not even go unavailable. They just quietly hold
+#       their last value forever.
+#   <0  truthy, so the interval survives and ``next_refresh`` lands in
+#       the past. ``loop.call_at`` fires immediately, every time, for
+#       as long as Home Assistant is up.
+#
+# 5 s rather than 1 s because a single model read already costs a
+# hardcoded 0.6 s sleep inside pysunspec2 plus a round trip, and
+# INTERVAL_RETRY_DELAY_SECONDS is itself 5: below that the in-cycle
+# retry, not the configured interval, sets the real pace.
+MIN_SCAN_INTERVAL_SECONDS = 5
+
 CONF_SCAN_DELAY = "scan_delay"
 DEFAULT_SCAN_DELAY_SECONDS = 0.5
 MIN_SCAN_DELAY_SECONDS = 0.0
@@ -159,14 +190,21 @@ MAX_SCAN_DELAY_SECONDS = 2.0
 
 # Storage key and version for the persisted SunSpec model layout.
 #
-# The coordinator closes its client at the end of every cycle so
-# single-slot inverters get their Modbus slot back, and a fresh
+# The coordinator used to close its client at the end of every cycle so
+# single-slot inverters got their Modbus slot back, and a fresh
 # pysunspec2 client has an empty ``client.models``. That is the only
 # reason the scan ever ran on every poll: it was never about detecting
 # change, it was about rebuilding state we had just thrown away. On an
-# inverter exposing 20 models, at 30 s intervals, that is 41 modbus
+# inverter exposing 20 models, at 30 s intervals, that was 41 modbus
 # round trips and 20 pacing sleeps every 30 seconds to rediscover a
-# layout that changes on firmware updates and never otherwise.
+# layout that changes on firmware updates and never otherwise. v0.22.0
+# holds the session open, so a poll no longer pays any of it. The cache
+# still earns its keep on the paths that do build a client again:
+# CONF_RELEASE_SLOT and the shared-gateway case, where ``close()``
+# leaves the layout intact and the next connect rebuilds from it. A
+# failed cycle is the one path that drops the layout on purpose; the
+# only other way back to a full scan is a connect whose cached layout
+# no longer validates.
 #
 # Caching the layout (base address plus model id / address / length per
 # block) lets a reconnect rebuild the same model objects from three
@@ -224,9 +262,13 @@ def is_excluded_sensor_point(model_id: int, key: str) -> bool:
 # entry_id from the service-call data so multi-inverter installs
 # pick the right device.
 SERVICE_SET_EXPORT_LIMIT = "set_export_limit"
-# Phase 2 debugging-first: when True, the next scan also stores raw modbus
-# bytes in api._captured_reads so users can attach a reproducible fixture
-# to bug reports via the diagnostics dump.
+# Phase 2 debugging-first: when True, every read on the Modbus session
+# also stores its raw bytes in api._captured_reads so users can attach
+# a reproducible fixture to bug reports via the diagnostics dump. The
+# wrap goes on when the client is built, so it covers a scan, the
+# cached-layout validation reads and every model read alike. Saving the
+# option reloads the entry, and the connect that follows is where it
+# takes effect.
 CONF_CAPTURE_RAW = "capture_raw_registers"
 # Plausibility limit used to drop unrealistic values reported by inverters
 # at dawn / dusk (e.g. MW or TWh spikes that poison long-term statistics).
@@ -376,14 +418,17 @@ INTERVAL_RETRY_DELAY_SECONDS = 5
 #
 # Sizing this off the scan interval is tempting and wrong: the wait is
 # bounded by lock HOLD time times queued waiters, not by how often we
-# poll. One hold is dominated by pysunspec2's own sleeps - scan()
-# sleeps `delay` (0.5s) per discovered model and read_model sleeps
-# 0.6s per model instance - so an 18-model inverter spends roughly 9s
-# in the rescan before a single sensor register is read, and a full
-# hold lands at 15-20s. Two config entries behind one Modbus gateway
-# can therefore legitimately queue past 30s without anything being
-# wrong, and a timeout that fires on healthy hardware is worse than
-# no timeout at all.
+# poll. One hold is dominated by pysunspec2's own sleeps - read_model
+# sleeps 0.6s per model instance, so a hold that polls 18 model
+# instances spends nearly 11s in pacing alone before the last register
+# is read. A hold that has to build a client first pays scan() on top,
+# which sleeps `delay` (0.5s) per discovered model: that was every hold
+# until v0.22.0, and it is now a first connect with no cached layout,
+# a reconnect after a failure, and any connect whose cached layout no
+# longer validates. Two config entries behind one Modbus gateway can
+# therefore legitimately queue past 30s without anything being wrong,
+# and a timeout that fires on healthy hardware is worse than no timeout
+# at all.
 #
 # 120s is "something is genuinely stuck" territory rather than "the
 # gateway is busy". A write that fails with a readable message still

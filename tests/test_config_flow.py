@@ -6,6 +6,7 @@ import pytest
 import voluptuous_serialize
 from homeassistant import config_entries
 from homeassistant.data_entry_flow import FlowResultType
+from homeassistant.data_entry_flow import InvalidData
 from homeassistant.helpers import config_validation as cv
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
@@ -15,6 +16,7 @@ from custom_components.sunspec2.const import CONF_PREFIX
 from custom_components.sunspec2.const import CONF_SCAN_INTERVAL
 from custom_components.sunspec2.const import CONF_UNIT_ID
 from custom_components.sunspec2.const import DOMAIN
+from custom_components.sunspec2.const import MIN_SCAN_INTERVAL_SECONDS
 
 from . import MockSunSpecDataUpdateCoordinator
 from .const import MOCK_CONFIG
@@ -815,3 +817,70 @@ async def test_setup_flow_suggests_nameplate_with_headroom(hass, sunspec_client_
 
     assert result["step_id"] == "settings"
     assert _suggested_value(result["data_schema"], CONF_MAX_AC_POWER_KW) == 6.0
+
+
+@pytest.mark.parametrize("bad_interval", [0, -5])
+async def test_options_flow_rejects_an_unusable_scan_interval(
+    hass, sunspec_client_mock, bad_interval
+):
+    """0 and negative intervals are not slow or fast, they are broken.
+
+    Both schemas took a bare ``int``. Home Assistant stores the interval
+    as ``value.total_seconds() if value else None``, so a saved 0 is
+    falsy, ``_schedule_refresh`` returns early on None, and polling stops
+    silently and permanently - nothing ever fails, so the entities do not
+    even go unavailable. A negative value is truthy and puts the next
+    refresh in the past, which hot-loops the coordinator.
+    """
+    entry = MockConfigEntry(domain=DOMAIN, data=MOCK_CONFIG, entry_id="test")
+    entry.add_to_hass(hass)
+    entry.runtime_data = MockSunSpecDataUpdateCoordinator(hass, [1, 2])
+
+    result = await _open_model_options(hass, entry)
+    with pytest.raises(InvalidData):
+        await hass.config_entries.options.async_configure(
+            result["flow_id"],
+            user_input={CONF_ENABLED_MODELS: ["1"], CONF_SCAN_INTERVAL: bad_interval},
+        )
+
+
+async def test_options_flow_accepts_the_minimum_scan_interval(hass, sunspec_client_mock):
+    """The floor itself must still be reachable.
+
+    Polling model 103 alone at 5 s is a legitimate setup: since v0.22.0
+    the Modbus session is held open, so a single-model cycle is one
+    register read plus pysunspec2's 0.6 s pause.
+    """
+    entry = MockConfigEntry(domain=DOMAIN, data=MOCK_CONFIG, entry_id="test")
+    entry.add_to_hass(hass)
+    entry.runtime_data = MockSunSpecDataUpdateCoordinator(hass, [1, 2])
+
+    result = await _open_model_options(hass, entry)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        user_input={
+            CONF_ENABLED_MODELS: ["1"],
+            CONF_SCAN_INTERVAL: MIN_SCAN_INTERVAL_SECONDS,
+        },
+    )
+
+    assert result["type"] == FlowResultType.CREATE_ENTRY
+    assert result["data"][CONF_SCAN_INTERVAL] == MIN_SCAN_INTERVAL_SECONDS
+
+
+async def test_setup_flow_rejects_an_unusable_scan_interval(hass, sunspec_client_mock):
+    """The setup form carries the same floor as the options form."""
+    result = await _open_manual_step(hass)
+    flow_id = result["flow_id"]
+    result = await hass.config_entries.flow.async_configure(flow_id, user_input=MOCK_CONFIG_STEP_1)
+    assert result["step_id"] == "settings"
+
+    with pytest.raises(InvalidData):
+        await hass.config_entries.flow.async_configure(
+            flow_id,
+            user_input={
+                CONF_PREFIX: "",
+                CONF_SCAN_INTERVAL: 0,
+                CONF_ENABLED_MODELS: ["103"],
+            },
+        )

@@ -96,7 +96,7 @@
         "data": {
           "prefix": "Sensor name prefix",
           "scan_interval": "Scan interval (seconds)",
-          "scan_delay": "Pause between models while scanning the SunSpec model tree (seconds). The tree is scanned about once every 10 minutes, not on every poll, so this pacing costs almost nothing in normal operation. Raise it if scans fail on slow hardware, lower it only if the rescan itself is disruptive.",
+          "scan_delay": "Pause between models while scanning the SunSpec model tree (seconds). The tree is only scanned when the integration has to build a new connection and no stored layout still matches the device, never on a normal poll, so this pacing costs nothing in normal operation. Raise it if scans fail on slow hardware, lower it only if the rescan itself is disruptive.",
           "models_enabled": "Enabled models",
           "capture_raw_registers": "Capture raw modbus bytes for diagnostics",
           "max_ac_power_kw": "Peak AC power of the inverter (kW, optional)",

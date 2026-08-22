@@ -46,6 +46,7 @@ from .const import DEFAULT_MODELS
 from .const import DEFAULT_SCAN_DELAY_SECONDS
 from .const import DOMAIN
 from .const import INTERVAL_RETRY_DELAY_SECONDS
+from .const import MIN_SCAN_INTERVAL_SECONDS
 from .const import NAMEPLATE_FILTER_HEADROOM
 from .const import PARITY_NONE
 from .const import PLATFORMS
@@ -509,9 +510,12 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator):
     # single TCP connection at a time. Without this lock two coordinators
     # polling different unit IDs behind the same gateway would race each
     # other and produce "connection reset by peer" errors. The lock is
-    # held for the entire connect/read/close cycle so exactly one TCP
-    # session is open per (host, port) at any moment. Single-gateway
-    # users see no behavioural change because the lock is always free.
+    # held for the entire update cycle, and a shared endpoint is exactly
+    # the case that still hands the slot back at the end of every cycle
+    # (see ``release_slot_between_polls``), so only one of them holds a
+    # TCP session at a time. Single-gateway users see no behavioural
+    # change because the lock is always free, and their one session
+    # stays open between cycles.
     _GATEWAY_LOCKS: dict[tuple[str, int], asyncio.Lock] = {}
 
     @classmethod
@@ -591,8 +595,11 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator):
         # the first successful update cycle. The options-flow form reads
         # this to render its model multi-select - it must NOT call
         # ``api.known_models()`` directly because that returns ``[]``
-        # whenever ``api._client`` is ``None``, which is the steady
-        # state between cycles after ``api.close()``. A v0.7.3 -> v0.7.5
+        # whenever ``api._client`` is ``None``. That used to be the
+        # steady state between cycles; since v0.22.0 the session is held
+        # open, so ``None`` is only left before the first cycle, after a
+        # failed one, and between cycles on an entry that hands the slot
+        # back. A v0.7.3 -> v0.7.5
         # regression where the form rendered an empty multi-select and
         # silently saved ``models_enabled: []`` (killing every sensor)
         # was the motivating bug.
@@ -651,12 +658,34 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator):
                 "Re-open the options form and pick the models you want."
             )
             models = DEFAULT_MODELS
-        scan_interval = timedelta(
-            seconds=entry.options.get(
-                CONF_SCAN_INTERVAL,
-                entry.data.get(CONF_SCAN_INTERVAL, SCAN_INTERVAL.total_seconds()),
-            )
+        # Second line of defence behind the config flow's range check.
+        # An entry saved before that check existed, or hand-edited in
+        # core.config_entries, can still carry a 0 or a negative value,
+        # and neither survives contact with HA's coordinator: 0 is falsy
+        # so update_interval becomes None and polling stops silently and
+        # forever, while a negative value puts the next refresh in the
+        # past and hot-loops it. See MIN_SCAN_INTERVAL_SECONDS. Clamping
+        # here means an affected install repairs itself on the next
+        # reload instead of needing the user to notice and re-save.
+        configured_interval = entry.options.get(
+            CONF_SCAN_INTERVAL,
+            entry.data.get(CONF_SCAN_INTERVAL, SCAN_INTERVAL.total_seconds()),
         )
+        try:
+            interval_seconds = float(configured_interval)
+        except (TypeError, ValueError):
+            interval_seconds = SCAN_INTERVAL.total_seconds()
+        if interval_seconds < MIN_SCAN_INTERVAL_SECONDS:
+            self._log.warning(
+                "Configured scan interval %s is below the %s second minimum and would "
+                "stop polling instead of speeding it up. Using %s seconds; set a valid "
+                "interval in the integration options.",
+                configured_interval,
+                MIN_SCAN_INTERVAL_SECONDS,
+                MIN_SCAN_INTERVAL_SECONDS,
+            )
+            interval_seconds = MIN_SCAN_INTERVAL_SECONDS
+        scan_interval = timedelta(seconds=interval_seconds)
         self.option_model_filter = set(map(lambda m: int(m), models))
         # #17: model 123 has to be polled whenever the experimental
         # write controls are on, even if the user never ticked 123 in
@@ -844,10 +873,11 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator):
         backoff can take over instead of having every setup attempt
         block for an extra ``INTERVAL_RETRY_DELAY_SECONDS``.
 
-        The connect/read/close cycle is held under the per-gateway lock
-        (see ``_GATEWAY_LOCKS``). The lock is released across the
-        retry sleep so other coordinators sharing the same TCP endpoint
-        can poll in the meantime.
+        The whole update cycle is held under the per-gateway lock (see
+        ``_GATEWAY_LOCKS``), including the connect and the close on the
+        cycles that still do one. The lock is released across the retry
+        sleep so other coordinators sharing the same TCP endpoint can
+        poll in the meantime.
         """
         self._log.debug("Update data coordinator update")
         first_err: BaseException | None = None
@@ -905,12 +935,17 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator):
           response it just pulled off the socket. This is not a
           single-slot-inverter problem; frames can interleave on any
           gateway.
-        * **Between cycles**: ``api._client`` is None because
-          ``_run_one_update_cycle`` closes at the end, so the write
-          opened a *second* TCP session (connect plus a full scan) that
-          nothing ever closed, holding a single-slot inverter's only
-          Modbus slot until the next cycle. v0.13.4's ``model.read()``
-          widened that window by one more block read.
+        * **Between cycles**: ``api._client`` was None, because back
+          then ``_run_one_update_cycle`` closed at the end of every
+          cycle, so the write opened a *second* TCP session (connect
+          plus a full scan) that nothing ever closed, holding a
+          single-slot inverter's only Modbus slot until the next cycle.
+          v0.13.4's ``model.read()`` widened that window by one more
+          block read. Since v0.22.0 the session is normally held open
+          and a write finds the live client, but an entry that hands
+          the slot back still opens one of its own here, which is why
+          this method closes it under the lock (see the ``finally``
+          below).
 
         The method is named ``_locked`` rather than mirroring
         ``SunSpecApiClient.async_write_point`` on purpose. An identical
@@ -955,7 +990,12 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator):
             self._gateway_lock.release()
 
     async def _run_one_update_cycle(self):
-        """Single connect/read/close attempt. Caller holds the gateway lock.
+        """Single read attempt over the live session. Caller holds the gateway lock.
+
+        Connects only when there is no live session: the first cycle,
+        the cycle after a failure, and every cycle on an entry that
+        hands the slot back (see ``release_slot_between_polls``), which
+        is also the only case that closes at the end.
 
         Returns the freshly-read data dict on success and re-raises any
         exception untouched on failure - bookkeeping (error categorisation,
@@ -987,9 +1027,10 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator):
         self._missing_this_cycle = missing
         self._new_this_cycle = all_models - previously_known
         # Cache the full set of models the inverter exposes so the
-        # options-flow form can render its multi-select even between
-        # cycles, when ``api._client`` has already been closed and
-        # ``api.known_models()`` would return an empty list.
+        # options-flow form can render its multi-select even when
+        # ``api._client`` is gone and ``api.known_models()`` would
+        # return an empty list: before the first cycle, after a failed
+        # one, or between cycles on an entry that hands the slot back.
         self.detected_models = all_models
         # Union first, intersect second: a model the device does not
         # expose is still never read, but the write-beta model gets in
