@@ -33,6 +33,7 @@ from .const import DEFAULT_SCAN_DELAY_SECONDS
 from .const import DOMAIN
 from .const import MAX_SCAN_DELAY_SECONDS
 from .const import MIN_SCAN_DELAY_SECONDS
+from .const import NAMEPLATE_FILTER_HEADROOM
 from .const import PARITY_EVEN
 from .const import PARITY_NONE
 from .const import TRANSPORT_RTU
@@ -61,6 +62,34 @@ _MAX_AC_POWER_SELECTOR = selector.NumberSelector(
         unit_of_measurement="kW",
     )
 )
+
+
+def _suggested_peak_power_kw(detected_kw: float | None) -> float | None:
+    """Value to pre-fill the peak-power field with, headroom included.
+
+    The plausibility filter grants NAMEPLATE_FILTER_HEADROOM on top of a
+    nameplate it auto-detected, and nothing on top of a number the user
+    typed, because that number is a deliberate statement about the site
+    (see sensor.py ``_peak_power_kw``). Both forms pre-fill this field
+    from the auto-detected nameplate, and the frontend echoes a
+    ``suggested_value`` back on submit, so pre-filling with the raw
+    nameplate silently converted the intended 1.2x ceiling into a 1.0x
+    one the moment anyone opened the form and pressed Submit.
+
+    That is not an edge case: the pre-fill has been there since v0.8.1
+    and the headroom only arrived in v0.21.0, so on any device exposing
+    model 120 / 121 the too-tight ceiling was the normal state. A
+    ceiling at exactly the nameplate cannot work: ``DCW`` is measured
+    before conversion losses and therefore always sits a few percent
+    above AC output, and ``VA`` is by definition >= ``W``. Both read
+    "unknown" for most of a sunny day (#45).
+
+    Rounded to the selector's own 0.1 kW step so the form does not open
+    with a value it would refuse to take back.
+    """
+    if not detected_kw:
+        return None
+    return round(detected_kw * NAMEPLATE_FILTER_HEADROOM, 1)
 
 
 # #17: pacing between models during the SunSpec scan. Exposed because
@@ -553,7 +582,7 @@ class SunSpecFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
             )
             default_enabled = current_selection or default_enabled
 
-        suggested_peak = await self._probe_nameplate(models)
+        suggested_peak = _suggested_peak_power_kw(await self._probe_nameplate(models))
 
         schema: dict[Any, Any] = {
             vol.Optional(CONF_PREFIX, default=""): str,
@@ -755,6 +784,17 @@ class SunSpecOptionsFlowHandler(config_entries.OptionsFlow):
                 errors["base"] = "no_models_selected"
             else:
                 self.options.update(user_input)
+                # The UI promises "leave it empty to disable filtering",
+                # and until #45 that promise was a no-op. An emptied
+                # ``vol.Optional`` field arrives as a MISSING key rather
+                # than None, and ``dict.update`` cannot express a
+                # deletion, so the previously stored ceiling survived
+                # every save. Clearing the box was therefore impossible
+                # short of hand-editing core.config_entries - which is
+                # exactly what a user does once the filter starts eating
+                # their legitimate readings. Delete explicitly.
+                if CONF_MAX_AC_POWER_KW not in user_input:
+                    self.options.pop(CONF_MAX_AC_POWER_KW, None)
                 return await self._update_options()
 
         prefix = self.config_entry.options.get(CONF_PREFIX, self.config_entry.data.get(CONF_PREFIX))
@@ -764,15 +804,17 @@ class SunSpecOptionsFlowHandler(config_entries.OptionsFlow):
         capture_raw = self.config_entry.options.get(CONF_CAPTURE_RAW, False)
         release_slot = self.config_entry.options.get(CONF_RELEASE_SLOT, False)
         scan_delay = self.config_entry.options.get(CONF_SCAN_DELAY, DEFAULT_SCAN_DELAY_SECONDS)
-        # User-set value wins. If the user has not configured a peak
-        # power yet, fall back to the value the coordinator auto-
-        # detected from SunSpec model 120 / 121 on the first cycle.
-        # That way the form opens with a sensible default for the
-        # plausibility filter without the user having to type the
-        # inverter's nameplate by hand.
+        # User-set value wins, and is shown back exactly as stored - the
+        # filter uses it as-is, so the form must not quietly inflate it.
+        # If the user has not configured a peak power yet, fall back to
+        # the value the coordinator auto-detected from SunSpec model
+        # 120 / 121 on the first cycle, carrying the same headroom the
+        # filter would have applied to it (see _suggested_peak_power_kw).
         max_ac_power_kw = self.config_entry.options.get(CONF_MAX_AC_POWER_KW)
         if max_ac_power_kw is None:
-            max_ac_power_kw = getattr(self.coordinator, "detected_max_ac_power_kw", None)
+            max_ac_power_kw = _suggested_peak_power_kw(
+                getattr(self.coordinator, "detected_max_ac_power_kw", None)
+            )
         # Phase 4 hot-reload fix: instead of forcing a fresh probe (which
         # raced with the coordinator's active socket on single-slot
         # inverters like KACO), surface the coordinator's current state.
@@ -836,7 +878,8 @@ class SunSpecOptionsFlowHandler(config_entries.OptionsFlow):
             # Use suggested_value (not default) for the optional float so
             # the form field can stay genuinely empty - an empty value
             # disables the plausibility filter rather than coercing to 0.
-            # The value is stored as None when the user clears the field.
+            # A cleared field comes back as a missing key, which
+            # async_step_model_options turns into a deletion above.
             schema[
                 vol.Optional(
                     CONF_MAX_AC_POWER_KW,
