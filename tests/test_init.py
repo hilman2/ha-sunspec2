@@ -21,10 +21,15 @@ from custom_components.sunspec2.const import DEFAULT_SCAN_DELAY_SECONDS
 from custom_components.sunspec2.const import DOMAIN
 from custom_components.sunspec2.const import MIN_SCAN_INTERVAL_SECONDS
 from custom_components.sunspec2.const import STALE_DATA_TOLERANCE_CYCLES
+from custom_components.sunspec2.const import STRUCTURE_STORAGE_KEY
+from custom_components.sunspec2.const import STRUCTURE_STORAGE_VERSION
 from custom_components.sunspec2.errors import TransportError
 from custom_components.sunspec2.migration import CJNE_DOMAIN
 
+from . import TEST_CONFIG_ENTRY_ID
 from . import TEST_INVERTER_PREFIX_SENSOR_DC_ENTITY_ID
+from . import create_mock_sunspec_client
+from . import create_mock_sunspec_config_entry
 from . import setup_mock_sunspec_config_entry
 from .const import MOCK_CONFIG
 from .const import MOCK_CONFIG_PREFIX
@@ -1126,7 +1131,14 @@ async def test_identity_mismatch_discards_the_stored_layout(hass):
     The address checks cannot see this one: a different device of a
     different make can lay its model tree out the same way and still
     mean something entirely different by the registers.
+
+    The store file has to go at the same time. This check only ever
+    runs on the first cycle of a run, and a failed first cycle is
+    retried by Home Assistant with a NEW coordinator that loads the
+    store again, so clearing the in-memory copy alone loops forever
+    (#49).
     """
+    from unittest.mock import AsyncMock
     from unittest.mock import MagicMock
 
     from custom_components.sunspec2.errors import TransientError
@@ -1137,19 +1149,23 @@ async def test_identity_mismatch_discards_the_stored_layout(hass):
     api = MagicMock()
     coordinator = SunSpecDataUpdateCoordinator(hass, client=api, entry=config_entry)
     coordinator._persisted_identity = {"Mn": "KACO", "SN": "111"}
+    coordinator._structure_store.async_remove = AsyncMock()
 
     device_info = MagicMock()
     device_info.getValue = lambda point: {"Mn": "SMA", "SN": "222"}.get(point)
     coordinator.device_info = device_info
 
     with pytest.raises(TransientError):
-        coordinator._check_device_identity()
+        await coordinator._check_device_identity()
 
     api.reconnect_next.assert_called_once()
+    coordinator._structure_store.async_remove.assert_awaited_once()
+    assert coordinator._persisted_identity is None
 
 
 async def test_matching_identity_passes_quietly(hass):
     """The common case costs nothing and happens once per run."""
+    from unittest.mock import AsyncMock
     from unittest.mock import MagicMock
 
     config_entry = MockConfigEntry(domain=DOMAIN, data=MOCK_CONFIG, options={})
@@ -1158,15 +1174,176 @@ async def test_matching_identity_passes_quietly(hass):
     api = MagicMock()
     coordinator = SunSpecDataUpdateCoordinator(hass, client=api, entry=config_entry)
     coordinator._persisted_identity = {"Mn": "KACO", "SN": "111"}
+    coordinator._structure_store.async_remove = AsyncMock()
 
     device_info = MagicMock()
     device_info.getValue = lambda point: {"Mn": "KACO", "SN": "111"}.get(point)
     coordinator.device_info = device_info
 
-    coordinator._check_device_identity()
-    coordinator._check_device_identity()
+    assert await coordinator._check_device_identity() is False
+    assert await coordinator._check_device_identity() is False
 
     api.reconnect_next.assert_not_called()
+    coordinator._structure_store.async_remove.assert_not_awaited()
+
+
+async def test_firmware_update_is_the_same_device(hass, caplog):
+    """#49: a new version string is not a new inverter.
+
+    Same manufacturer, model and serial, different Vr. The cycle must
+    run through with the data it read; what changes is that the next
+    connect rescans the model tree, because a firmware update is the
+    one event that can legitimately change it.
+    """
+    from unittest.mock import AsyncMock
+    from unittest.mock import MagicMock
+
+    config_entry = MockConfigEntry(domain=DOMAIN, data=MOCK_CONFIG, options={})
+    config_entry.add_to_hass(hass)
+
+    api = MagicMock()
+    coordinator = SunSpecDataUpdateCoordinator(hass, client=api, entry=config_entry)
+    coordinator._persisted_identity = {
+        "Mn": "Fronius",
+        "Md": "Symo GEN24 4.0",
+        "Vr": "1.41.10-1",
+        "SN": "34778633",
+    }
+    coordinator._structure_store.async_remove = AsyncMock()
+
+    device_info = MagicMock()
+    device_info.getValue = lambda point: {
+        "Mn": "Fronius",
+        "Md": "Symo GEN24 4.0",
+        "Vr": "1.41.11-1",
+        "SN": "34778633",
+    }.get(point)
+    coordinator.device_info = device_info
+
+    assert await coordinator._check_device_identity() is True
+
+    # Not a failure: no reconnect from inside the check, no store wipe,
+    # no warning. The rescan is the caller's job, after the reads.
+    api.reconnect_next.assert_not_called()
+    coordinator._structure_store.async_remove.assert_not_awaited()
+    assert "not the one the stored SunSpec layout came from" not in caplog.text
+    assert "Firmware version changed (1.41.10-1 -> 1.41.11-1)" in caplog.text
+    # Forgotten, so the new version string gets written out with the
+    # next save instead of being re-reported on every restart.
+    assert coordinator._persisted_identity is None
+
+
+async def test_layout_is_rewritten_when_only_the_identity_moved(hass):
+    """After a firmware update the rescan may find the very same layout.
+
+    The revision then does not move, and without the identity in the
+    comparison the old version string would stay on disk and the
+    "firmware changed" rescan would repeat on every restart.
+    """
+    from unittest.mock import AsyncMock
+    from unittest.mock import MagicMock
+
+    config_entry = MockConfigEntry(domain=DOMAIN, data=MOCK_CONFIG, options={})
+    config_entry.add_to_hass(hass)
+
+    api = MagicMock()
+    api.structure_revision = 3
+    api.export_model_structure = MagicMock(
+        return_value={"base_addr": 40000, "models": [[1, 40002, 66]]}
+    )
+    coordinator = SunSpecDataUpdateCoordinator(hass, client=api, entry=config_entry)
+    coordinator._structure_store.async_save = AsyncMock()
+    coordinator._persisted_structure_revision = 3
+    coordinator._persisted_identity = {"Mn": "KACO", "SN": "111", "Vr": "1.0"}
+
+    device_info = MagicMock()
+    device_info.getValue = lambda point: {"Mn": "KACO", "SN": "111", "Vr": "2.0"}.get(point)
+    coordinator.device_info = device_info
+
+    await coordinator._async_save_model_structure()
+    coordinator._structure_store.async_save.assert_awaited_once()
+    saved = coordinator._structure_store.async_save.await_args.args[0]
+    assert saved["identity"] == {"Mn": "KACO", "SN": "111", "Vr": "2.0"}
+
+    # And now it is settled: same revision, same identity, no rewrite.
+    await coordinator._async_save_model_structure()
+    coordinator._structure_store.async_save.assert_awaited_once()
+
+
+def _stored_layout(identity: dict) -> dict:
+    """A store payload as ``_async_save_model_structure`` writes it."""
+    return {
+        "version": STRUCTURE_STORAGE_VERSION,
+        "minor_version": 1,
+        "key": f"{STRUCTURE_STORAGE_KEY}.{TEST_CONFIG_ENTRY_ID}",
+        "data": {
+            "structure": {"revision": 1, "base_addr": 40000, "models": [[1, 40002, 66]]},
+            "identity": identity,
+        },
+    }
+
+
+async def test_setup_recovers_from_a_stored_layout_of_another_device(
+    hass, hass_storage, sunspec_client_mock
+):
+    """#49 end to end: the retry must not load the layout it just rejected.
+
+    The first setup attempt fails, as designed, because the store says
+    this address used to belong to a different serial. Home Assistant
+    retries with a fresh coordinator. Until v0.26.0 that coordinator
+    loaded the same store file and failed the same way, forever.
+    """
+    from homeassistant.config_entries import ConfigEntryState
+
+    key = f"{STRUCTURE_STORAGE_KEY}.{TEST_CONFIG_ENTRY_ID}"
+    hass_storage[key] = _stored_layout(
+        {"Mn": "SunSpecTest", "Md": "Test-1547-1", "Vr": "1.2.3", "SN": "a-different-one"}
+    )
+
+    config_entry = create_mock_sunspec_config_entry(hass, data=MOCK_CONFIG)
+    with patch(
+        "custom_components.sunspec2.SunSpecApiClient",
+        return_value=create_mock_sunspec_client(hass),
+    ):
+        await hass.config_entries.async_setup(config_entry.entry_id)
+        await hass.async_block_till_done()
+    assert config_entry.state is ConfigEntryState.SETUP_RETRY
+    # The offending store file is gone before the retry runs.
+    assert key not in hass_storage
+
+    with patch(
+        "custom_components.sunspec2.SunSpecApiClient",
+        return_value=create_mock_sunspec_client(hass),
+    ):
+        await hass.config_entries.async_reload(config_entry.entry_id)
+        await hass.async_block_till_done()
+    assert config_entry.state is ConfigEntryState.LOADED
+
+
+async def test_setup_survives_a_firmware_update(hass, hass_storage, sunspec_client_mock, caplog):
+    """#49 as reported: Vr moved from one restart to the next, nothing else.
+
+    Setup has to go straight to LOADED. The only trace is one info line
+    and a rescan flagged for the next connect.
+    """
+    from homeassistant.config_entries import ConfigEntryState
+
+    key = f"{STRUCTURE_STORAGE_KEY}.{TEST_CONFIG_ENTRY_ID}"
+    hass_storage[key] = _stored_layout(
+        {"Mn": "SunSpecTest", "Md": "Test-1547-1", "Vr": "1.2.2", "SN": "sn-123456789"}
+    )
+
+    config_entry = create_mock_sunspec_config_entry(hass, data=MOCK_CONFIG)
+    api = create_mock_sunspec_client(hass)
+    with patch("custom_components.sunspec2.SunSpecApiClient", return_value=api):
+        await hass.config_entries.async_setup(config_entry.entry_id)
+        await hass.async_block_till_done()
+
+    assert config_entry.state is ConfigEntryState.LOADED
+    assert "belongs to a different device" not in caplog.text
+    assert "Firmware version changed (1.2.2 -> 1.2.3)" in caplog.text
+    # The rescan is queued for the next connect, not forced mid-cycle.
+    assert api._reconnect is True
 
 
 # ---------------------------------------------------------------------------

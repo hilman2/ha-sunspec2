@@ -4,7 +4,7 @@
 NAME = "SunSpec 2"
 DOMAIN = "sunspec2"
 DOMAIN_DATA = f"{DOMAIN}_data"
-VERSION = "0.25.0"
+VERSION = "0.26.0"
 
 ATTRIBUTION = "Data provided by SunSpec alliance - https://sunspec.org"
 ISSUE_URL = "https://github.com/hilman2/ha-sunspec2/issues"
@@ -220,6 +220,13 @@ MAX_SCAN_DELAY_SECONDS = 2.0
 # not by a clock.
 STRUCTURE_STORAGE_VERSION = 1
 STRUCTURE_STORAGE_KEY = f"{DOMAIN}.model_structure"
+# The model 1 points that say WHICH device the stored layout belongs to.
+# Deliberately without "Vr": a firmware update changes the version
+# string and nothing else about the identity, and treating it as a
+# device swap failed setup in a loop after every update (#49). The
+# version is still stored next to these, so the change can be noticed
+# and answered with a one-off rescan of the model tree.
+DEVICE_IDENTITY_POINTS = ("Mn", "Md", "SN")
 
 # Points the sensor platform must not build an entity for.
 #
@@ -376,8 +383,21 @@ MEASURED_POWER_POINT_HEADROOM: dict[str, float] = {
     "VarL3": 1.25,
     # DC power: inverter DC input (10x / 11x), per-MPPT module:N:DCW
     # (160), DER port DCW (714), string combiner (402 / 404).
-    "DCW": 1.5,
-    "InDCW": 1.5,
+    #
+    # The physical bound on the DC side is the sum of the MPPT input
+    # limits, plus the battery charge power on a DC-coupled hybrid, and
+    # neither number is in any register this integration reads (model
+    # 160 carries no ratings). So a factor on the AC rating can only be
+    # a garbage ceiling here, never a physical one, and it has to sit
+    # above every real layout: two MPPTs each rated at the full AC power
+    # is 2.0x on its own and is sold today, a DC-coupled battery charges
+    # on top of that, and a small AC stage in front of a large DC side
+    # (AC rating near the export limit) pushes it further still (#45).
+    # 1.5 was inside that range. 3.0 is above it and still catches what
+    # the filter exists for, a misread scale factor (10x and up) or a
+    # shifted register.
+    "DCW": 3.0,
+    "InDCW": 3.0,
 }
 
 
