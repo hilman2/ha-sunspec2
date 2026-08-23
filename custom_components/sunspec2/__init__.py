@@ -44,6 +44,7 @@ from .const import CONF_WRITE_BETA_ENABLED
 from .const import DEFAULT_BAUDRATE
 from .const import DEFAULT_MODELS
 from .const import DEFAULT_SCAN_DELAY_SECONDS
+from .const import DEVICE_IDENTITY_POINTS
 from .const import DOMAIN
 from .const import INTERVAL_RETRY_DELAY_SECONDS
 from .const import MIN_SCAN_INTERVAL_SECONDS
@@ -789,21 +790,27 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator):
 
         Runs after a successful cycle, so what gets stored is a layout
         that has just been read from end to end without an error. Cheap
-        to call on every cycle: it compares one integer and returns.
+        to call on every cycle: it compares one integer and one small
+        dict and returns. The identity is part of the comparison so a
+        firmware update whose rescan found the same layout still gets
+        its new version string written out, instead of being re-reported
+        on every restart.
         """
         revision = self.api.structure_revision
-        if revision == self._persisted_structure_revision:
+        identity = self._device_identity()
+        if revision == self._persisted_structure_revision and identity == self._persisted_identity:
             return
         payload = self.api.export_model_structure()
         if payload is None:
             return
-        payload = {"structure": payload, "identity": self._device_identity()}
+        payload = {"structure": payload, "identity": identity}
         try:
             await self._structure_store.async_save(payload)
         except Exception as err:  # noqa: BLE001 - a cache write must never break a poll
             self._log.debug("Could not store the SunSpec layout: %s", err)
             return
         self._persisted_structure_revision = revision
+        self._persisted_identity = identity
         self._log.debug("Stored the SunSpec layout at revision %d", revision)
 
     async def async_remove_stored_model_structure(self) -> None:
@@ -833,24 +840,56 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator):
                 identity[point] = str(value)
         return identity or None
 
-    def _check_device_identity(self) -> None:
+    async def _check_device_identity(self) -> bool:
         """Compare the live device against the identity we stored.
 
-        Raises :class:`TransientError` on a mismatch, which fails the
-        cycle and forces a fresh scan on the next one. Runs once per
-        run: a device does not change identity underneath a live
-        connection, and re-reading model 1 every cycle to prove it would
-        cost a Modbus round trip for nothing.
+        Returns True when the model layout should be rescanned after
+        this cycle, which is the firmware-update case: same
+        manufacturer, model and serial, different version string. A
+        firmware update is the one event that can legitimately change a
+        SunSpec model tree, so the cached layout is rescanned once, but
+        the device is still the device and the cycle runs through. Until
+        v0.26.0 the version was part of the identity, so a routine
+        firmware update was treated as a device swap (#49).
+
+        Raises :class:`TransientError` when manufacturer, model or
+        serial differ, which fails the cycle and forces a fresh scan on
+        the next one. Before raising it deletes the store file. That is
+        not optional: this check runs on the first cycle of a run, and
+        the first cycle is the one ``async_config_entry_first_refresh``
+        drives, which has no in-cycle retry. Its failure is
+        ``ConfigEntryNotReady``, and Home Assistant retries that by
+        building a NEW coordinator, which loads the store again and hits
+        the same mismatch. Clearing ``_persisted_identity`` on this
+        object did nothing for that next coordinator, so the integration
+        looped on "belongs to a different device, rescanning" forever
+        (#49), and the same loop would have blocked a genuinely replaced
+        inverter for good.
+
+        Runs once per run: a device does not change identity underneath
+        a live connection, and re-reading model 1 every cycle to prove it
+        would cost a Modbus round trip for nothing.
         """
         if self._identity_checked:
-            return
+            return False
         self._identity_checked = True
         stored = self._persisted_identity
         if not stored:
-            return
+            return False
         current = self._device_identity()
         if not current or current == stored:
-            return
+            return False
+        stored_device = {k: v for k, v in stored.items() if k in DEVICE_IDENTITY_POINTS}
+        current_device = {k: v for k, v in current.items() if k in DEVICE_IDENTITY_POINTS}
+        if stored_device == current_device:
+            self._log.info(
+                "Firmware version changed (%s -> %s) since the SunSpec layout was stored. "
+                "Rescanning the model tree once, in case the update changed it.",
+                stored.get("Vr"),
+                current.get("Vr"),
+            )
+            self._persisted_identity = None
+            return True
         self._log.warning(
             "The device at this address is not the one the stored SunSpec layout came from "
             "(%s vs %s). Discarding the layout and rescanning.",
@@ -858,6 +897,8 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator):
             current,
         )
         self._persisted_identity = None
+        self._persisted_structure_revision = None
+        await self.async_remove_stored_model_structure()
         self.api.reconnect_next()
         raise TransientError("Stored SunSpec layout belongs to a different device, rescanning")
 
@@ -1047,7 +1088,7 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator):
             self.device_info = await self.api.async_get_data(1)
         # Only meaningful once model 1 has been read, and it is read on
         # the first cycle, so this lands exactly where it can act.
-        self._check_device_identity()
+        rescan_after_cycle = await self._check_device_identity()
 
         # Auto-detect the inverter's nameplate AC power once, on the
         # first cycle that reaches this point. Prefer model 120
@@ -1064,6 +1105,13 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator):
 
         for model_id in model_ids:
             data[model_id] = await self.api.async_get_data(model_id)
+        if rescan_after_cycle:
+            # Firmware changed: hand this cycle's data back as read, and
+            # let the NEXT connect walk the model tree again. Flagging it
+            # here, after the reads, rather than inside the identity
+            # check keeps the rebuild out of the middle of a cycle whose
+            # model list was computed against the old client.
+            self.api.reconnect_next()
         if self.release_slot_between_polls:
             self.api.close()
         return data

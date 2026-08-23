@@ -319,11 +319,13 @@ Common situations and what to check:
   The number is an **AC active power** ceiling, and the filter knows
   that the other quantities are bounded by something else, so it gives
   each of them room: apparent and reactive power get 25 % on top
-  (grid codes require operation down to cos phi 0.80) and DC power
-  gets 50 %, because `DC Watts` is measured before conversion losses
-  and, on a hybrid, carries battery charging at the same time. Only
-  live measurements are filtered - nameplate ratings, setpoints and
-  limit registers are never touched.
+  (grid codes require operation down to cos phi 0.80), and DC power
+  may go up to three times the AC ceiling, because the DC side is
+  bounded by the MPPT inputs and the battery rather than by the AC
+  stage: two MPPTs each rated at the full AC power is already 2x, and
+  a DC-coupled hybrid charges its battery on top of that. Only live
+  measurements are filtered - nameplate ratings, setpoints and limit
+  registers are never touched.
 
 - **`Watts`, `VA` or `DC Watts` read `unknown` on a bright day**: the
   peak AC power is set too low. Raise it, or clear the field to switch

@@ -667,7 +667,7 @@ def test_power_limit_still_needs_a_power_unit() -> None:
     assert _power_limit_in_native_unit(UnitOfElectricPotential.VOLT, "VA", 5.0) is None
     assert _power_limit_in_native_unit(UnitOfApparentPower.VOLT_AMPERE, "VA", 5.0) == 6250.0
     assert _power_limit_in_native_unit(UnitOfPower.WATT, "W", 5.0) == 5000.0
-    assert _power_limit_in_native_unit(UnitOfPower.WATT, "DCW", 5.0) == 7500.0
+    assert _power_limit_in_native_unit(UnitOfPower.WATT, "DCW", 5.0) == 15000.0
     # No ceiling configured and none detected: no filtering at all.
     assert _power_limit_in_native_unit(UnitOfPower.WATT, "W", None) is None
 
