@@ -372,6 +372,133 @@ async def test_energy_sensor_recovers_after_repeated_rejected_deltas(
     assert readings[-1] != 100000, f"sensor still glued to baseline on last read: {readings}"
 
 
+async def test_energy_counter_that_moves_in_steps_is_not_rejected(
+    hass: HomeAssistant, sunspec_client_mock, freezer, caplog
+) -> None:
+    """#45 follow-up: a counter that stands still and then catches up is right.
+
+    A Fronius GEN24 updates WH every few minutes. At a 30 s poll that is
+    the same value for several reads and then one jump by the whole
+    amount, which the filter used to measure against one scan interval
+    and reject, three polls in a row, on every single step. The window
+    is the time since the counter last moved.
+    """
+    from custom_components.sunspec2.sensor import SunSpecEnergySensor
+
+    config_entry = create_mock_sunspec_config_entry(
+        hass, data=MOCK_CONFIG, options={CONF_MAX_AC_POWER_KW: 0.5}
+    )
+    await setup_mock_sunspec_config_entry(hass, config_entry=config_entry)
+    coordinator = config_entry.runtime_data
+
+    energy_sensor = None
+    for entity in hass.data["entity_components"]["sensor"].entities:
+        if isinstance(entity, SunSpecEnergySensor) and entity.key == "WH":
+            energy_sensor = entity
+            break
+    assert energy_sensor is not None
+    assert energy_sensor.native_value == 100000
+
+    fake_value = {"v": 100000}
+    real_get_value = coordinator.data[103].getValue
+
+    def fake_get_value(point_name, model_index=0):
+        if point_name == "WH":
+            return fake_value["v"]
+        return real_get_value(point_name, model_index)
+
+    # 0.5 kW peak x 2 = 1 kW: 50 Wh is three minutes' worth. One scan
+    # interval (10 s) allows 2.78 Wh, so this is the jump the old filter
+    # rejected.
+    with patch.object(coordinator.data[103], "getValue", side_effect=fake_get_value):
+        # The counter stands still for three minutes of polls.
+        for _ in range(18):
+            freezer.tick(10)
+            assert energy_sensor.native_value == 100000
+        # Then it catches up in one step.
+        freezer.tick(10)
+        fake_value["v"] = 100050
+        assert energy_sensor.native_value == 100050
+        assert "Dropping implausible energy delta" not in caplog.text
+
+        # The same step straight away, with no time for it, is still
+        # garbage.
+        fake_value["v"] = 100100
+        assert energy_sensor.native_value == 100050
+        assert "Dropping implausible energy delta for WH" in caplog.text
+
+
+@pytest.mark.parametrize(
+    ("stored_age_seconds", "accepted"),
+    [
+        # Home Assistant was down for an hour: 200 Wh at 1 kW is fine.
+        (3600, True),
+        # The stored value is brand new: 200 Wh in one poll is not.
+        (0, False),
+    ],
+)
+async def test_restored_energy_baseline_brings_its_age(
+    hass: HomeAssistant,
+    sunspec_client_mock,
+    freezer,
+    caplog,
+    stored_age_seconds,
+    accepted,
+) -> None:
+    """The first read after a restart is measured against the downtime.
+
+    RestoreSensor hands back the value and, through the state, when it
+    was last written. Measuring the catch-up jump against one scan
+    interval made the first read after any restart longer than a few
+    minutes a guaranteed rejection.
+    """
+    from datetime import timedelta
+
+    from homeassistant.core import State
+    from homeassistant.util import dt as dt_util
+    from pytest_homeassistant_custom_component.common import mock_restore_cache_with_extra_data
+
+    from custom_components.sunspec2.sensor import SunSpecEnergySensor
+
+    written = dt_util.utcnow() - timedelta(seconds=stored_age_seconds)
+    mock_restore_cache_with_extra_data(
+        hass,
+        (
+            (
+                State(
+                    TEST_INVERTER_SENSOR_ENERGY_ENTITY_ID,
+                    "99800",
+                    last_changed=written,
+                    last_updated=written,
+                ),
+                {"native_value": 99800, "native_unit_of_measurement": "Wh"},
+            ),
+        ),
+    )
+
+    config_entry = create_mock_sunspec_config_entry(
+        hass, data=MOCK_CONFIG, options={CONF_MAX_AC_POWER_KW: 0.5}
+    )
+    await setup_mock_sunspec_config_entry(hass, config_entry=config_entry)
+
+    energy_sensor = None
+    for entity in hass.data["entity_components"]["sensor"].entities:
+        if isinstance(entity, SunSpecEnergySensor) and entity.key == "WH":
+            energy_sensor = entity
+            break
+    assert energy_sensor is not None
+
+    # The fixture reports 100000, 200 Wh above the restored baseline.
+    state = hass.states.get(TEST_INVERTER_SENSOR_ENERGY_ENTITY_ID)
+    assert state is not None
+    if accepted:
+        assert state.state == "100000"
+        assert "Dropping implausible energy delta" not in caplog.text
+    else:
+        assert state.state == "99800"
+        assert "Dropping implausible energy delta for WH" in caplog.text
+
+
 # ---------- unit mapping (#17) ----------------------------------------------
 
 

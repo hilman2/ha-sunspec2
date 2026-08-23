@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from datetime import datetime
 from typing import Any
 
 from homeassistant.components.sensor import RestoreSensor
@@ -31,6 +32,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.core import callback
 from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.util import dt as dt_util
 
 from . import SunSpec2ConfigEntry
 from . import get_sunspec_unique_id
@@ -148,17 +150,18 @@ def _power_limit_in_native_unit(unit, key: str, max_power_kw: float | None) -> f
 
 
 def _energy_delta_limit_in_native_unit(
-    unit, max_power_kw: float | None, scan_interval_seconds: float | None
+    unit, max_power_kw: float | None, window_seconds: float | None
 ) -> float | None:
-    """Compute the maximum plausible energy delta between two consecutive reads.
+    """Compute the maximum plausible energy delta over ``window_seconds``.
 
-    Derived from the configured peak power and the scan interval, with the
-    safety factor in :data:`ENERGY_DELTA_SAFETY_FACTOR`. Returns ``None``
-    if the sensor is not a known energy unit or no peak power is configured.
+    Derived from the configured peak power and the time the energy can
+    have accumulated over, with the safety factor in
+    :data:`ENERGY_DELTA_SAFETY_FACTOR`. Returns ``None`` if the sensor is
+    not a known energy unit or no peak power is configured.
     """
-    if max_power_kw is None or scan_interval_seconds is None:
+    if max_power_kw is None or window_seconds is None:
         return None
-    max_delta_kwh = max_power_kw * (scan_interval_seconds / 3600.0) * ENERGY_DELTA_SAFETY_FACTOR
+    max_delta_kwh = max_power_kw * (window_seconds / 3600.0) * ENERGY_DELTA_SAFETY_FACTOR
     if unit == UnitOfEnergy.WATT_HOUR:
         return max_delta_kwh * 1000.0
     if unit == UnitOfEnergy.KILO_WATT_HOUR:
@@ -716,18 +719,40 @@ class SunSpecEnergySensor(SunSpecSensor, RestoreSensor):
         # mismatch, etc.) would freeze the sensor permanently because the
         # filter never updates lastKnown while it rejects.
         self._rejected_delta_count = 0
+        # When ``lastKnown`` last took a NEW value. The delta filter
+        # measures a jump against the energy the inverter can have made
+        # since then, not since the previous poll: a counter that stands
+        # still for three polls and then moves by three polls' worth is
+        # reporting correctly, and the filter used to reject exactly
+        # that (#45, Fronius GEN24, WH updated every few minutes).
+        self._counter_last_moved: datetime | None = None
 
     @property
     def _max_native_delta(self) -> float | None:
-        """Maximum plausible increase between two reads, in this unit.
+        """Maximum plausible increase since the counter last moved, in this unit.
 
-        Derived from the peak power and the scan interval. ``None``
-        disables the check, which is what a sensor that is not an energy
-        counter, or an install with no peak to go on, gets.
+        The window is the time since ``lastKnown`` last changed, floored
+        at the scan interval, times the peak power. Floored, because the
+        first read after a change is one poll later at the earliest; the
+        floor is also what applies when nothing is known about the past,
+        before the first read of a run with no restored state.
+
+        ``None`` disables the check, which is what a sensor that is not
+        an energy counter, or an install with no peak to go on, gets.
         """
         entry = self.coordinator.entry
         scan_interval = entry.options.get(CONF_SCAN_INTERVAL, entry.data.get(CONF_SCAN_INTERVAL))
-        return _energy_delta_limit_in_native_unit(self.unit, self._peak_power_kw, scan_interval)
+        window = scan_interval
+        if scan_interval is not None and self._counter_last_moved is not None:
+            elapsed = (dt_util.utcnow() - self._counter_last_moved).total_seconds()
+            window = max(float(scan_interval), elapsed)
+        return _energy_delta_limit_in_native_unit(self.unit, self._peak_power_kw, window)
+
+    def _counter_moved_to(self, val: Any) -> None:
+        """Adopt ``val`` as the baseline and restart the plausibility window."""
+        if val != self.lastKnown:
+            self._counter_last_moved = dt_util.utcnow()
+        self.lastKnown = val
 
     @property
     def native_value(self) -> Any:
@@ -757,9 +782,10 @@ class SunSpecEnergySensor(SunSpecSensor, RestoreSensor):
         # or restart where the restored state was not numeric): discard
         # this read so a potential garbage value never becomes the baseline.
         # The next poll will have a valid lastKnown to compare against.
+        max_delta = self._max_native_delta
         if (
             val is not None
-            and self._max_native_delta is not None
+            and max_delta is not None
             and self.lastKnown is None
             and isinstance(val, (int, float))
         ):
@@ -769,40 +795,44 @@ class SunSpecEnergySensor(SunSpecSensor, RestoreSensor):
                 val,
                 self.unit,
             )
-            self.lastKnown = val
+            self._counter_moved_to(val)
             self._assumed_state = True
             return None
         # Delta-based plausibility check: if the increase since the last
-        # known value would imply a power above the configured peak, treat
-        # the read as garbage and fall back to the last known value (same
-        # mechanism as the val == 0 path, so total_increasing stats stay
-        # intact).
+        # known value would imply a power above the configured peak over
+        # the time since the counter last moved, treat the read as
+        # garbage and fall back to the last known value (same mechanism
+        # as the val == 0 path, so total_increasing stats stay intact).
         #
         # Recovery escape hatch: count consecutive rejections. If the
         # inverter keeps reporting the same large jump for several reads
         # in a row it is almost certainly not a transient spike but a
-        # legitimate counter discontinuity (coarse WH granularity, fresh
-        # restore-state baseline below the truth, inverter firmware that
-        # only updates the register every kWh, ...). Without this hatch
-        # the sensor would freeze on lastKnown forever because lastKnown
-        # is never updated while the filter rejects.
+        # legitimate counter discontinuity (a restored baseline from a
+        # state file older than its timestamp says, a counter that was
+        # reset, ...). Without this hatch the sensor would freeze on
+        # lastKnown forever because lastKnown is never updated while the
+        # filter rejects. Counters that move in coarse steps used to
+        # depend on this hatch too, three rejections per step; the
+        # time window above handles them without a single rejection.
         if (
             val is not None
-            and self._max_native_delta is not None
+            and max_delta is not None
             and self.lastKnown is not None
             and isinstance(val, (int, float))
             and isinstance(self.lastKnown, (int, float))
-            and (val - self.lastKnown) > self._max_native_delta
+            and (val - self.lastKnown) > max_delta
         ):
             self._rejected_delta_count += 1
             if self._rejected_delta_count < ENERGY_DELTA_REJECT_RECOVERY_COUNT:
                 _LOGGER.warning(
-                    "Dropping implausible energy delta for %s: %s -> %s %s exceeds max plausible delta %s %s (rejection %d/%d)",
+                    "Dropping implausible energy delta for %s: %s -> %s %s is more than the "
+                    "%.1f %s the peak power allows since the counter last moved "
+                    "(rejection %d/%d)",
                     self.key,
                     self.lastKnown,
                     val,
                     self.unit,
-                    self._max_native_delta,
+                    max_delta,
                     self.unit,
                     self._rejected_delta_count,
                     ENERGY_DELTA_REJECT_RECOVERY_COUNT,
@@ -818,11 +848,11 @@ class SunSpecEnergySensor(SunSpecSensor, RestoreSensor):
                 self.unit,
             )
             self._rejected_delta_count = 0
-            self.lastKnown = val
+            self._counter_moved_to(val)
             self._assumed_state = False
             return val
         self._rejected_delta_count = 0
-        self.lastKnown = val
+        self._counter_moved_to(val)
         self._assumed_state = False
         return val
 
@@ -839,5 +869,15 @@ class SunSpecEnergySensor(SunSpecSensor, RestoreSensor):
             # after a restart, not only after the second poll.
             if isinstance(state.native_value, (int, float)):
                 self.lastKnown = state.native_value
+                # And seed the plausibility window from when that value
+                # was last written, so the energy made while Home
+                # Assistant was down is not measured against one scan
+                # interval. Without this the first read after a restart
+                # of more than a few minutes was a guaranteed rejection,
+                # three polls in a row, until the recovery hatch let it
+                # through.
+                last_state = await self.async_get_last_state()
+                if last_state is not None:
+                    self._counter_last_moved = last_state.last_changed
         else:
             _LOGGER.debug(f"{self.name} No previous state was found")
