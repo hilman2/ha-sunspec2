@@ -343,6 +343,14 @@ Common situations and what to check:
   is logged when the sensor comes back. A diagnostics download has the
   whole picture under `plausibility_filter`, including the ceiling in
   force for each quantity.
+
+  Energy counters get a second filter on the same number: a jump in a
+  lifetime counter is dropped when it is more than the peak power could
+  have produced since the counter last moved (times two). Measured since
+  it last moved, not per poll, because many inverters update that
+  register only every few minutes and then jump by the whole amount at
+  once. A `Dropping implausible energy delta` line in the log is
+  therefore a real outlier, not a slow counter.
 - **Repairs panel says "Cannot reach SunSpec inverter"**: open the
   diagnostics dump, look at `recent_errors`. If the same error
   appears three times in a row, the inverter is genuinely

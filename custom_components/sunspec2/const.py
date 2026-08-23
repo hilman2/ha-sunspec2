@@ -4,7 +4,7 @@
 NAME = "SunSpec 2"
 DOMAIN = "sunspec2"
 DOMAIN_DATA = f"{DOMAIN}_data"
-VERSION = "0.26.0"
+VERSION = "0.27.0"
 
 ATTRIBUTION = "Data provided by SunSpec alliance - https://sunspec.org"
 ISSUE_URL = "https://github.com/hilman2/ha-sunspec2/issues"
@@ -289,7 +289,11 @@ CONF_MAX_AC_POWER_KW = "max_ac_power_kw"
 # Safety factor applied when deriving the maximum plausible energy delta
 # from the configured peak power. Generous on purpose - we only want to
 # catch the really obvious garbage values (MW / TWh spikes), not legitimate
-# transients near the inverter's nameplate.
+# transients near the inverter's nameplate. The delta is measured over the
+# time since the counter last moved (floored at the scan interval), not
+# over one scan interval: an inverter that updates its lifetime counter
+# every few minutes reports the same value for several polls and then
+# jumps by the whole accumulated amount, and that jump is correct (#45).
 ENERGY_DELTA_SAFETY_FACTOR = 2.0
 # Headroom applied to the AUTO-DETECTED nameplate when it stands in for
 # a peak the user never configured.
@@ -419,10 +423,12 @@ def measured_power_headroom(key: str) -> float | None:
 IMPLAUSIBLE_LOG_EVERY = 20
 # After this many consecutive rejected reads the energy plausibility filter
 # accepts the new value as the new baseline. Without this escape hatch a
-# legitimate large jump (e.g. an inverter that bumps its lifetime counter
-# in coarse 1 kWh steps, or a freshly-started integration whose first read
-# was an outlier below the truth) would freeze the sensor on its initial
-# value forever, since lastKnown is never updated while the filter rejects.
+# legitimate large jump the time window above cannot explain (a restored
+# baseline whose timestamp is off, a freshly-started integration whose
+# first read was an outlier below the truth) would freeze the sensor on
+# its initial value forever, since lastKnown is never updated while the
+# filter rejects. Counters that move in coarse steps used to need this
+# hatch on every step; the time window handles them without a rejection.
 ENERGY_DELTA_REJECT_RECOVERY_COUNT = 3
 
 # Resilience: when an update cycle fails after the integration is already
