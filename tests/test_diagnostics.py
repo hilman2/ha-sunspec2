@@ -27,8 +27,23 @@ async def test_diagnostics_basic_shape(hass, sunspec_client_mock):
         "plausibility_filter",
         "recent_errors",
         "consecutive_failures",
+        "standby",
         "raw_captures",
         "versions",
+    }
+
+
+async def test_diagnostics_reports_standby_inputs(hass, sunspec_client_mock):
+    """#52: both inputs to the transport-repair decision live only in memory."""
+    entry = await setup_mock_sunspec_config_entry(hass)
+
+    diag = await async_get_config_entry_diagnostics(hass, entry)
+
+    # The fixture inverter reports MPPT (4), so nothing is suppressed.
+    assert diag["standby"] == {
+        "last_operating_state": 4,
+        "standby_when_idle_option": False,
+        "downtime_is_expected": False,
     }
 
 

@@ -85,6 +85,17 @@ async def async_get_config_entry_diagnostics(
         "plausibility_filter": _plausibility_filter_dump(coordinator, entry),
         "recent_errors": _recent_errors_dump(coordinator),
         "consecutive_failures": dict(getattr(coordinator, "_consecutive_failures", {})),
+        # #52: whether the transport repair issue is currently allowed
+        # to fire at all. A dump taken from an install that "never warns
+        # about the dead inverter" is otherwise impossible to read: both
+        # inputs to that decision live only in memory.
+        "standby": {
+            "last_operating_state": getattr(coordinator, "_last_operating_state", None),
+            "standby_when_idle_option": getattr(coordinator, "standby_when_idle", False),
+            "downtime_is_expected": coordinator._downtime_is_expected()
+            if hasattr(coordinator, "_downtime_is_expected")
+            else None,
+        },
         "raw_captures": list(getattr(coordinator.api, "_captured_reads", [])),
         "versions": {
             "homeassistant": HA_VERSION,

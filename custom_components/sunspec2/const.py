@@ -4,7 +4,7 @@
 NAME = "SunSpec 2"
 DOMAIN = "sunspec2"
 DOMAIN_DATA = f"{DOMAIN}_data"
-VERSION = "0.27.0"
+VERSION = "0.28.0"
 
 ATTRIBUTION = "Data provided by SunSpec alliance - https://sunspec.org"
 ISSUE_URL = "https://github.com/hilman2/ha-sunspec2/issues"
@@ -157,6 +157,26 @@ EXPORT_LIMIT_MIN_STEP_PCT = 0.01
 # Multiple config entries behind one gateway do not need this option;
 # that case is detected and handled on its own.
 CONF_RELEASE_SLOT = "release_slot"
+
+# Issue #52: many PV inverters power their communication board down
+# when there is no DC input, which on a domestic roof means every
+# night. The TCP session dies with it, so the integration sees a plain
+# connect timeout and, three cycles later, raises a red "Cannot reach
+# SunSpec inverter" repair. Nothing is broken, and there is nothing for
+# the user to fix.
+#
+# The coordinator detects the common case on its own by reading the
+# inverter's own operating state (see OPERATING_STATE_MODEL_IDS below),
+# so this option only exists for the devices that cannot be detected:
+# ones that drop the link without ever reporting SLEEPING in a poll we
+# still got an answer to, and ones whose model set has no operating
+# state point at all (an SMA Tripower X speaking model 701 rather than
+# 103, for instance).
+#
+# It suppresses the transport repair only. A device that answers with
+# a Modbus exception, or answers with something that is not SunSpec,
+# is awake and still escalates as before.
+CONF_STANDBY_WHEN_IDLE = "standby_when_idle"
 
 # Lower bound for the poll interval, enforced in the config flow and
 # again in the coordinator.
@@ -471,6 +491,32 @@ WRITE_LOCK_TIMEOUT_SECONDS = 120
 # minutes of dropped connectivity without bouncing the long-term
 # statistics graphs to "unknown".
 STALE_DATA_TOLERANCE_CYCLES = 5
+
+# Issue #52: SunSpec models that carry the inverter operating state
+# point, and the values of that point which mean "I am powering
+# myself down".
+#
+# Deliberately only the inverter models 101/102/103 (integer + scale
+# factor) and 111/112/113 (float). They share one enum: 1 OFF,
+# 2 SLEEPING, 3 STARTING, 4 MPPT, 5 THROTTLED, 6 SHUTTING_DOWN,
+# 7 FAULT, 8 STANDBY.
+#
+# Model 701 (DER AC Measurement) also has a point called "St" and it
+# must stay out of this list. Its enum is 0 OFF / 1 ON, so a perfectly
+# healthy inverter reporting ON would read as OFF here and silence a
+# genuine outage.
+OPERATING_STATE_MODEL_IDS = (101, 102, 103, 111, 112, 113)
+OPERATING_STATE_POINT = "St"
+# Only the states the device reaches on its way out. FAULT is not one
+# of them: a faulted inverter that then stops answering is exactly the
+# case the repair issue exists for.
+OPERATING_STATE_LABELS = {
+    1: "OFF",
+    2: "SLEEPING",
+    6: "SHUTTING_DOWN",
+    8: "STANDBY",
+}
+STANDBY_OPERATING_STATES = frozenset(OPERATING_STATE_LABELS)
 
 # How long a previously-detected SunSpec model has to stay missing
 # from successful scans before we raise a Repairs issue suggesting the
