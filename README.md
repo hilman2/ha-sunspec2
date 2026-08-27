@@ -85,6 +85,12 @@ point into a Home Assistant sensor.
 - **Repairs panel integration** for persistent transport / protocol /
   device errors with actionable troubleshooting text in English and
   German.
+- **Quiet about inverters that sleep**: most PV inverters power their
+  communication board down when there is no sun, so the connection dies
+  every night. The integration reads the inverter's own operating state
+  and, when the last thing the device reported before going quiet was
+  OFF, SLEEPING, SHUTTING_DOWN or STANDBY, it stays silent instead of
+  raising a red repair issue at dusk and clearing it at dawn.
 
 ## Supported devices
 
@@ -150,6 +156,7 @@ automatically and offer it as a discovered integration on the
 | `max_ac_power_kw` | Setup, Options | auto-detect from model 120/121 | Plausibility filter ceiling. Drops readings above this value |
 | `capture_raw_registers` | Options | off | Wraps every Modbus read so the bytes appear in the diagnostics dump |
 | `release_slot` | Options | off | Hand the inverter's Modbus slot back after each poll instead of holding one session open. Off is right for almost everyone; turn it on only if another program outside Home Assistant has to read the same inverter and cannot go through a Modbus proxy. Set automatically when several config entries share one gateway |
+| `standby_when_idle` | Options | off | Never raise the "Cannot reach SunSpec inverter" repair. Only needed for a device that drops off the network without first reporting a shutdown state, or that publishes no operating state at all: the common case is detected automatically |
 
 ## How the integration polls
 
@@ -356,6 +363,25 @@ Common situations and what to check:
   appears three times in a row, the inverter is genuinely
   unreachable - check power, network and that no other Modbus
   client is holding the slot.
+- **The inverter is unreachable every night**: that is normal for most
+  PV inverters. Below a certain DC input they shut down, and the
+  communication board goes with them, so the Modbus session dies until
+  the sun is back. Since v0.28.0 the integration recognises this on its
+  own: if the last successful poll reported the inverter as OFF,
+  SLEEPING, SHUTTING_DOWN or STANDBY, no repair issue is raised and the
+  log stays quiet until it wakes up. Sensors still go `unavailable`
+  after a few minutes, which is the honest state for a device that is
+  switched off.
+
+  If your inverter disappears without ever reporting one of those
+  states, or exposes no operating state at all, switch on **Inverter
+  powers down when idle** in the integration options. That suppresses
+  the transport repair unconditionally. A device that answers with a
+  Modbus error, or answers with something that is not SunSpec, still
+  reports it either way: those prove the inverter is awake.
+
+  The `standby` block in the diagnostics dump shows both inputs to that
+  decision, so you can tell which path applied.
 
 ## Experimental: inverter write controls (BETA, opt-in)
 

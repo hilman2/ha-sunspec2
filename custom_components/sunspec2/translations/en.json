@@ -101,11 +101,13 @@
           "capture_raw_registers": "Capture raw modbus bytes for diagnostics",
           "max_ac_power_kw": "Peak AC power of the inverter (kW, optional)",
           "write_beta_enabled": "Enable experimental write controls (BETA - inverter Number / Switch entities and the set_export_limit service action). Off by default. Read the README before enabling - writing to the wrong Modbus register on an inverter can lock you out until a physical reset.",
-          "release_slot": "Release the Modbus connection between polls"
+          "release_slot": "Release the Modbus connection between polls",
+          "standby_when_idle": "Inverter powers down when idle (no repair notification while it is unreachable)"
         },
         "data_description": {
           "release_slot": "Off is recommended. The integration keeps one Modbus session open, which is what Modbus TCP is designed for and what inverters handle best. Turn this on only if another program outside Home Assistant has to read the same inverter and cannot go through a Modbus proxy. Taking turns on a single connection is unreliable, and many inverters refuse new connections when asked for one every few seconds.",
-          "max_ac_power_kw": "Readings above this are discarded as implausible. Pre-filled from the inverter's own nameplate with 20% headroom, because inverters overshoot their continuous rating and DC power always reads above AC output. Do not lower it to the bare nameplate: the DC power and apparent power sensors would then read \"unknown\" for most of a sunny day. Clear the field to switch the filter off."
+          "max_ac_power_kw": "Readings above this are discarded as implausible. Pre-filled from the inverter's own nameplate with 20% headroom, because inverters overshoot their continuous rating and DC power always reads above AC output. Do not lower it to the bare nameplate: the DC power and apparent power sensors would then read \"unknown\" for most of a sunny day. Clear the field to switch the filter off.",
+          "standby_when_idle": "Leave this off unless you need it. The integration already detects an inverter that reports OFF, SLEEPING, SHUTTING_DOWN or STANDBY before the connection drops, and stays quiet about that on its own. Turn this on for a device that goes off the network without warning, or that does not publish an operating state at all. While it is on, the \"Cannot reach SunSpec inverter\" repair is never raised. Sensors still go unavailable when the inverter has been away for a few minutes, and a device that answers with a Modbus error still reports it."
         }
       }
     },

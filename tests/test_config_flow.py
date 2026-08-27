@@ -14,6 +14,7 @@ from custom_components.sunspec2.const import CONF_ENABLED_MODELS
 from custom_components.sunspec2.const import CONF_MAX_AC_POWER_KW
 from custom_components.sunspec2.const import CONF_PREFIX
 from custom_components.sunspec2.const import CONF_SCAN_INTERVAL
+from custom_components.sunspec2.const import CONF_STANDBY_WHEN_IDLE
 from custom_components.sunspec2.const import CONF_UNIT_ID
 from custom_components.sunspec2.const import DOMAIN
 from custom_components.sunspec2.const import MIN_SCAN_INTERVAL_SECONDS
@@ -696,6 +697,31 @@ async def _open_model_options(hass, entry):
     )
     assert result["step_id"] == "model_options"
     return result
+
+
+def _schema_default(data_schema, field_name):
+    """Read the default a vol.Optional field renders with."""
+    for key in data_schema.schema:
+        if str(key) == field_name:
+            return key.default()
+    raise AssertionError(f"{field_name} is not in the form schema")
+
+
+@pytest.mark.parametrize("stored", [True, False])
+async def test_options_flow_offers_standby_when_idle(hass, sunspec_client_mock, stored):
+    """#52: the standby opt-out is on the form and round-trips its value."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data=MOCK_CONFIG,
+        options={CONF_STANDBY_WHEN_IDLE: stored},
+        entry_id="test",
+    )
+    entry.add_to_hass(hass)
+    entry.runtime_data = MockSunSpecDataUpdateCoordinator(hass, [1, 2])
+
+    result = await _open_model_options(hass, entry)
+
+    assert _schema_default(result["data_schema"], CONF_STANDBY_WHEN_IDLE) is stored
 
 
 async def test_options_flow_suggests_nameplate_with_headroom(hass, sunspec_client_mock):

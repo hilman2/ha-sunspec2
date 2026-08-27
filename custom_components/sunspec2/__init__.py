@@ -38,6 +38,7 @@ from .const import CONF_RELEASE_SLOT
 from .const import CONF_SCAN_DELAY
 from .const import CONF_SCAN_INTERVAL
 from .const import CONF_SERIAL_PORT
+from .const import CONF_STANDBY_WHEN_IDLE
 from .const import CONF_TRANSPORT
 from .const import CONF_UNIT_ID
 from .const import CONF_WRITE_BETA_ENABLED
@@ -49,12 +50,16 @@ from .const import DOMAIN
 from .const import INTERVAL_RETRY_DELAY_SECONDS
 from .const import MIN_SCAN_INTERVAL_SECONDS
 from .const import NAMEPLATE_FILTER_HEADROOM
+from .const import OPERATING_STATE_LABELS
+from .const import OPERATING_STATE_MODEL_IDS
+from .const import OPERATING_STATE_POINT
 from .const import PARITY_NONE
 from .const import PLATFORMS
 from .const import PLATFORMS_READ_ONLY
 from .const import SERVICE_SET_EXPORT_LIMIT
 from .const import STALE_DATA_TOLERANCE_CYCLES
 from .const import STALE_MODEL_TOLERANCE_SECONDS
+from .const import STANDBY_OPERATING_STATES
 from .const import STARTUP_MESSAGE
 from .const import STRUCTURE_STORAGE_KEY
 from .const import STRUCTURE_STORAGE_VERSION
@@ -445,7 +450,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: SunSpec2ConfigEntry) ->
         # Drop any Repairs panel issues this coordinator may have raised.
         # Without this, removing the integration leaves ghost issues
         # in Settings -> Repairs that the user can never clear.
-        coordinator._clear_repair_issues()
+        coordinator._clear_repair_issues(force=True)
         # Close the TCP socket BEFORE we drop our references. KACO Powador
         # (and likely other inverters) only allow one Modbus TCP connection
         # at a time; without an explicit disconnect here a config entry
@@ -641,6 +646,19 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator):
         # would have to thread the diff between two attempts.
         self._missing_this_cycle: set[int] = set()
         self._new_this_cycle: set[int] = set()
+
+        # Issue #52: the inverter operating state (SunSpec "St") read by
+        # the last successful cycle, or None if the device does not
+        # expose a model that carries it. Recorded on the way out of a
+        # good cycle precisely because it has to outlive the connection:
+        # once the inverter powers its comms board down, the last thing
+        # it said before going quiet is the only evidence we have that
+        # the silence was its own decision.
+        self._last_operating_state: int | None = None
+        # Opt-out for devices whose shutdown this cannot observe. See
+        # CONF_STANDBY_WHEN_IDLE. Read once here rather than per cycle
+        # because changing an option reloads the entry anyway.
+        self.standby_when_idle: bool = bool(entry.options.get(CONF_STANDBY_WHEN_IDLE, False))
 
         self._log.debug("Data: %s", entry.data)
         self._log.debug("Options: %s", entry.options)
@@ -937,7 +955,13 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator):
         if self.data is None:
             return self._after_failed_cycle(first_err)
 
-        self._log.warning(
+        # Issue #52: this line fires once per poll, so on an inverter
+        # that sleeps through the night it is the single loudest thing
+        # in the log. Keep it at warning while the silence is
+        # unexplained, drop it to debug once the device has told us it
+        # was shutting down.
+        retry_log = self._log.debug if self._downtime_is_expected() else self._log.warning
+        retry_log(
             "Update cycle failed (%s: %s); retrying in %ds",
             first_err.__class__.__name__,
             first_err,
@@ -1172,13 +1196,21 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator):
         # specific moment in their HA log without having to grep
         # through every successful debug line.
         if self.consecutive_failed_cycles > 0:
-            self._log.warning(
+            # Issue #52: an inverter that announced its own shutdown and
+            # then answered again has not recovered from anything, it
+            # woke up. Same line either way, but not at a level that
+            # reads like an incident in the log. Evaluated before
+            # _last_operating_state is refreshed below, because the
+            # evidence is the state from *before* the silence.
+            recovery_log = self._log.info if self._downtime_is_expected() else self._log.warning
+            recovery_log(
                 "Inverter recovered after %d failed update cycle(s)",
                 self.consecutive_failed_cycles,
             )
         self.consecutive_failed_cycles = 0
         for cat in self._consecutive_failures:
             self._consecutive_failures[cat] = 0
+        self._last_operating_state = self._read_operating_state(data)
         self._clear_repair_issues()
         # cjne issue #200: log new models that just appeared so the
         # user can correlate "wait, my inverter has new sensors now"
@@ -1199,6 +1231,50 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator):
         # re-appear get their stamp cleared.
         self._update_stale_model_tracking()
         return data
+
+    def _read_operating_state(self, data) -> int | None:
+        """Return the inverter operating state from a fresh data dict.
+
+        Issue #52. ``data`` is {model_id: SunSpecModelWrapper}, and only
+        the models in OPERATING_STATE_MODEL_IDS are consulted - see the
+        note there about model 701, whose identically-named point means
+        something else entirely.
+
+        Returns None when the device exposes no such model, when the
+        user filtered it out of the polled set, or when the point is
+        there but unimplemented (``cvalue`` is None). None simply means
+        "no evidence", and the caller treats it as "not standby".
+        """
+        for model_id in OPERATING_STATE_MODEL_IDS:
+            wrapper = data.get(model_id)
+            if wrapper is None:
+                continue
+            try:
+                value = wrapper.getValue(OPERATING_STATE_POINT)
+            except (KeyError, IndexError, TypeError, AttributeError):
+                # A model instance without the point, or a wrapper
+                # shape we did not expect. Not worth failing a cycle
+                # over a convenience read.
+                continue
+            if isinstance(value, int):
+                return value
+        return None
+
+    def _downtime_is_expected(self) -> bool:
+        """Whether the inverter being unreachable right now is normal.
+
+        Issue #52. True when the device told us it was on its way down
+        (last successful read reported OFF / SLEEPING / SHUTTING_DOWN /
+        STANDBY), or when the user ticked CONF_STANDBY_WHEN_IDLE for a
+        device whose shutdown we cannot observe.
+
+        Only the transport category consults this. Anything that got an
+        answer out of the inverter proves it is awake, and an awake
+        inverter misbehaving is still worth a repair issue.
+        """
+        if self.standby_when_idle:
+            return True
+        return self._last_operating_state in STANDBY_OPERATING_STATES
 
     def _update_stale_model_tracking(self) -> None:
         """Stamp newly-missing models and surface long-gone ones."""
@@ -1314,13 +1390,44 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator):
             }
         )
         self._consecutive_failures[cat] += 1
-        self._log.warning(
-            "%s (#%d in a row): %s",
-            exc.__class__.__name__,
-            self._consecutive_failures[cat],
-            exc,
-        )
+        # Issue #52: a PV inverter that powers its comms board down at
+        # dusk is unreachable for ten hours by design. Escalating that
+        # to a red repair every night, and writing two warnings per
+        # poll into the log while doing it, told the user nothing they
+        # could act on.
+        expected = cat == "transport" and self._downtime_is_expected()
+        if expected:
+            state = OPERATING_STATE_LABELS.get(self._last_operating_state)
+            reason = (
+                f"it last reported {state}"
+                if state
+                else "this entry is configured for an inverter that powers down when idle"
+            )
+            # One line at the top of the outage so the log still says
+            # when the inverter went away, then quiet. The alternative,
+            # staying at warning, is roughly 2400 lines a night at the
+            # default poll interval.
+            quiet_log = self._log.info if self._consecutive_failures[cat] == 1 else self._log.debug
+            quiet_log(
+                "Inverter is not answering and %s, so this is an expected standby "
+                "rather than a fault (#%d in a row): %s",
+                reason,
+                self._consecutive_failures[cat],
+                exc,
+            )
+        else:
+            self._log.warning(
+                "%s (#%d in a row): %s",
+                exc.__class__.__name__,
+                self._consecutive_failures[cat],
+                exc,
+            )
         if cat == "transient":
+            return
+        if expected:
+            # The failure still goes in the ring buffer above, so a
+            # diagnostics dump taken at 3am shows exactly what happened.
+            # It just does not page the user about it.
             return
         threshold = 1 if cat == "protocol" else 3
         if self._consecutive_failures[cat] >= threshold:
@@ -1349,7 +1456,7 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator):
             },
         )
 
-    def _clear_repair_issues(self) -> None:
+    def _clear_repair_issues(self, *, force: bool = False) -> None:
         """Delete every Repairs issue this coordinator may have raised.
 
         Called on every successful update cycle (so a recovered inverter
@@ -1357,13 +1464,41 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator):
         removing the integration does not leave ghost issues behind).
         ``transient`` is excluded - it never raises issues to begin with.
         Also clears any per-model stale issues from cjne #202 tracking.
+
+        ``force`` deletes even an issue the user has ignored, and is for
+        teardown only: an entry that is being unloaded or removed should
+        not leave anything at all behind.
         """
         for category in CATEGORIES:
             if category == "transient":
                 continue
-            ir.async_delete_issue(self.hass, DOMAIN, f"{self.entry.entry_id}_{category}")
+            self._delete_issue(f"{self.entry.entry_id}_{category}", force=force)
         # cjne #202: clear any open stale-model issues so the Repairs
         # panel doesn't carry ghosts after the model came back or
         # the integration was removed.
         for mid in list(self._model_missing_since):
-            ir.async_delete_issue(self.hass, DOMAIN, f"{self.entry.entry_id}_stale_model_{mid}")
+            self._delete_issue(f"{self.entry.entry_id}_stale_model_{mid}", force=force)
+
+    def _delete_issue(self, issue_id: str, *, force: bool = False) -> None:
+        """Delete one Repairs issue, unless the user has ignored it.
+
+        Issue #52. HA's ``IssueRegistry.async_delete`` pops the whole
+        entry, ``dismissed_version`` included, so deleting an ignored
+        issue silently revokes the ignore. For a device that goes
+        unreachable every night that made the button useless: the issue
+        was cleared each morning and re-created unignored each evening,
+        so the user could press "Ignore" every day and never be rid of
+        it.
+
+        Leaving an ignored issue in the registry costs nothing visible.
+        The Repairs panel hides ignored issues, ``async_get_or_create``
+        keeps ``dismissed_version`` when the same issue is raised again,
+        and Home Assistant re-surfaces ignored issues after a core
+        version bump. That is exactly the contract the user accepted
+        when they pressed the button.
+        """
+        if not force:
+            issue = ir.async_get(self.hass).async_get_issue(DOMAIN, issue_id)
+            if issue is not None and issue.dismissed_version is not None:
+                return
+        ir.async_delete_issue(self.hass, DOMAIN, issue_id)

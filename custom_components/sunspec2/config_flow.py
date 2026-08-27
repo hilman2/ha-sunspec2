@@ -24,6 +24,7 @@ from .const import CONF_RELEASE_SLOT
 from .const import CONF_SCAN_DELAY
 from .const import CONF_SCAN_INTERVAL
 from .const import CONF_SERIAL_PORT
+from .const import CONF_STANDBY_WHEN_IDLE
 from .const import CONF_TRANSPORT
 from .const import CONF_UNIT_ID
 from .const import CONF_WRITE_BETA_ENABLED
@@ -817,6 +818,7 @@ class SunSpecOptionsFlowHandler(config_entries.OptionsFlow):
         )
         capture_raw = self.config_entry.options.get(CONF_CAPTURE_RAW, False)
         release_slot = self.config_entry.options.get(CONF_RELEASE_SLOT, False)
+        standby_when_idle = self.config_entry.options.get(CONF_STANDBY_WHEN_IDLE, False)
         scan_delay = self.config_entry.options.get(CONF_SCAN_DELAY, DEFAULT_SCAN_DELAY_SECONDS)
         # User-set value wins, and is shown back exactly as stored - the
         # filter uses it as-is, so the form must not quietly inflate it.
@@ -887,6 +889,9 @@ class SunSpecOptionsFlowHandler(config_entries.OptionsFlow):
                 # that has to share the inverter with a reader
                 # outside Home Assistant.
                 vol.Optional(CONF_RELEASE_SLOT, default=release_slot): bool,
+                # #52: opt-out for inverters that power their comms
+                # board down when idle and cannot be detected doing it.
+                vol.Optional(CONF_STANDBY_WHEN_IDLE, default=standby_when_idle): bool,
                 # v0.12.0 EXPERIMENTAL: opt-in for the write
                 # platforms (Number / Switch / service action) and
                 # the matching SunSpec model 123 entities.
