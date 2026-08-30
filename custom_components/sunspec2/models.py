@@ -24,8 +24,14 @@ class SunSpecModelWrapper:
     ``num_models`` for callers that need to iterate.
     """
 
-    def __init__(self, models) -> None:
-        """Sunspec model wrapper"""
+    def __init__(self, models: list[Any]) -> None:
+        """Wrap every instance a device exposes for one model id.
+
+        Args:
+            models (list[Any]): The pysunspec2 model instances, in the
+                order the device reports them. Untyped because
+                pysunspec2 ships no py.typed marker.
+        """
         self._models = models
         self.num_models = len(models)
 
@@ -57,12 +63,16 @@ class SunSpecModelWrapper:
         return point.cvalue
 
     def getMeta(self, point_name: str) -> dict[str, Any]:
-        return self.getPoint(point_name).pdef
+        # The annotation is the assertion: pysunspec2 hands back an
+        # untyped pdef, and this is where that Any stops travelling.
+        pdef: dict[str, Any] = self.getPoint(point_name).pdef
+        return pdef
 
     def getGroupMeta(self) -> dict[str, Any]:
-        return self._models[0].gdef
+        gdef: dict[str, Any] = self._models[0].gdef
+        return gdef
 
-    def getPoint(self, point_name: str, model_index: int = 0):
+    def getPoint(self, point_name: str, model_index: int = 0) -> Any:
         point_path = point_name.split(":")
         if len(point_path) == 1:
             return self._models[model_index].points[point_name]

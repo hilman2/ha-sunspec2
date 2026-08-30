@@ -1,5 +1,7 @@
 """Constants for SunSpec 2."""
 
+from __future__ import annotations
+
 # Base component constants
 NAME = "SunSpec 2"
 DOMAIN = "sunspec2"

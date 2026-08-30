@@ -36,22 +36,27 @@ Behavioural notes:
 from __future__ import annotations
 
 import logging
+from collections.abc import Iterator
+from typing import Any
 
 from homeassistant.components.number import NumberEntity
 from homeassistant.components.number import NumberMode
+from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import PERCENTAGE
+from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
-from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from . import SunSpec2ConfigEntry
+from . import SunSpecDataUpdateCoordinator
 from . import get_sunspec_unique_id
 from .const import CONF_WRITE_BETA_ENABLED
 from .const import EXPORT_LIMIT_DEFAULT_STEP_PCT
 from .const import EXPORT_LIMIT_MIN_STEP_PCT
 from .entity import SunSpecEntity
 from .errors import SunSpecError
+from .models import SunSpecModelWrapper
 from .write_controls import PLATFORM_NUMBER
 from .write_controls import WriteControlSpec
 from .write_controls import active_specs_for_platform
@@ -69,7 +74,7 @@ _PERCENT_UNITS = frozenset(
 )
 
 
-def has_point(wrapper, point_name: str) -> bool:
+def has_point(wrapper: SunSpecModelWrapper, point_name: str) -> bool:
     """True if the device actually implements this point.
 
     A device can implement a model without implementing every optional
@@ -83,7 +88,7 @@ def has_point(wrapper, point_name: str) -> bool:
     return True
 
 
-def _step_from_scale_factor(wrapper, point_name: str) -> float:
+def _step_from_scale_factor(wrapper: SunSpecModelWrapper, point_name: str) -> float:
     """Derive the UI step from the point's SunSpec scale factor.
 
     A device reporting SF -1 stores 995 for 99.5 %, and with a hardcoded
@@ -110,7 +115,7 @@ def _step_from_scale_factor(wrapper, point_name: str) -> float:
     return min(EXPORT_LIMIT_DEFAULT_STEP_PCT, max(10.0**sf, EXPORT_LIMIT_MIN_STEP_PCT))
 
 
-def _unit_for(spec: WriteControlSpec, wrapper) -> str | None:
+def _unit_for(spec: WriteControlSpec, wrapper: SunSpecModelWrapper) -> str | None:
     """Resolve the entity's unit: spec override first, model definition second."""
     if spec.unit is not None:
         return spec.unit
@@ -123,7 +128,9 @@ def _unit_for(spec: WriteControlSpec, wrapper) -> str | None:
     return None
 
 
-def build_specs(coordinator, platform: str):
+def build_specs(
+    coordinator: SunSpecDataUpdateCoordinator, platform: str
+) -> Iterator[tuple[WriteControlSpec, SunSpecModelWrapper]]:
     """Yield (spec, wrapper) for every control this device can support.
 
     Shared by the number, switch and select platforms so the three
@@ -191,13 +198,13 @@ class SunSpecWriteNumber(SunSpecEntity, NumberEntity):
 
     def __init__(
         self,
-        coordinator,
-        config_entry,
-        device_info,
-        model_info,
+        coordinator: SunSpecDataUpdateCoordinator,
+        config_entry: ConfigEntry,
+        device_info: SunSpecModelWrapper,
+        model_info: dict[str, Any],
         prefix: str,
         spec: WriteControlSpec,
-        model_wrapper,
+        model_wrapper: SunSpecModelWrapper,
     ) -> None:
         super().__init__(
             coordinator,
@@ -214,8 +221,15 @@ class SunSpecWriteNumber(SunSpecEntity, NumberEntity):
         self._attr_translation_key = spec.translation_key
         self._attr_icon = spec.icon
         self._attr_entity_registry_enabled_default = spec.enabled_by_default
-        self._attr_native_min_value = spec.native_min
-        self._attr_native_max_value = spec.native_max
+        # Every number spec sets both bounds. The dataclass defaults them
+        # to None because the same class also describes switches and
+        # selects, which have no bounds at all. Skipping the assignment
+        # leaves NumberEntity's own defaults in place, rather than handing
+        # it a None it would later compare a reading against.
+        if spec.native_min is not None:
+            self._attr_native_min_value = spec.native_min
+        if spec.native_max is not None:
+            self._attr_native_max_value = spec.native_max
         self._attr_native_step = (
             spec.native_step
             if spec.native_step is not None

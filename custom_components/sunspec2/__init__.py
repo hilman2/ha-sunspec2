@@ -5,11 +5,15 @@ For more details about this integration, please refer to
 https://github.com/cjne/ha-sunspec
 """
 
+from __future__ import annotations
+
 import asyncio
 import logging
 from collections import deque
 from datetime import datetime
 from datetime import timedelta
+from typing import Any
+from typing import NoReturn
 
 from homeassistant.components.persistent_notification import (
     async_create as async_create_notification,
@@ -21,6 +25,7 @@ from homeassistant.core_config import Config
 from homeassistant.exceptions import ConfigEntryNotReady
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.storage import Store
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
@@ -71,11 +76,13 @@ from .errors import CATEGORIES
 from .errors import SunSpecError
 from .errors import TransientError
 from .errors import TransportError
+from .logger import SunSpecLoggerAdapter
 from .logger import get_adapter
 from .migration import cleanup_excluded_sensor_entities
 from .migration import cleanup_superseded_control_entities
 from .migration import find_blocking_cjne_entries
 from .migration import migrate_from_cjne_sync
+from .models import SunSpecModelWrapper
 from .write_controls import export_limit_points
 
 SCAN_INTERVAL = timedelta(seconds=30)
@@ -134,9 +141,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: SunSpec2ConfigEntry) -> 
         hass.data[f"{DOMAIN}_started"] = True
         _LOGGER.info(STARTUP_MESSAGE)
 
-    host = entry.data.get(CONF_HOST)
-    port = entry.data.get(CONF_PORT)
-    unit_id = entry.data.get(CONF_UNIT_ID, 1)
+    # Every entry carries host and port, RTU ones included: the serial
+    # flow writes the port name and baudrate into those keys as synthetic
+    # coordinates so the logger prefix and the gateway lock have a stable
+    # identifier. entry.data is Mapping[str, Any], so the annotations here
+    # are what tells a type checker which shape actually arrives.
+    host: str = entry.data[CONF_HOST]
+    port: int = entry.data[CONF_PORT]
+    unit_id: int = entry.data.get(CONF_UNIT_ID, 1)
 
     # Phase 5 conflict guard: refuse to start polling while cjne/ha-sunspec
     # is still actively running for the same host/port/unit_id. KACO Powador
@@ -326,7 +338,9 @@ def _async_register_services(hass: HomeAssistant) -> None:
     )
 
 
-def _maybe_migrate_from_cjne(hass: HomeAssistant, entry: ConfigEntry, log) -> None:
+def _maybe_migrate_from_cjne(
+    hass: HomeAssistant, entry: ConfigEntry, log: SunSpecLoggerAdapter
+) -> None:
     """Run the cjne→sunspec2 entity migration and emit notifications.
 
     A thin wrapper around migration.migrate_from_cjne_sync that translates
@@ -387,7 +401,7 @@ def _maybe_migrate_from_cjne(hass: HomeAssistant, entry: ConfigEntry, log) -> No
 async def async_remove_config_entry_device(
     hass: HomeAssistant,
     entry: SunSpec2ConfigEntry,
-    device_entry,
+    device_entry: dr.DeviceEntry,
 ) -> bool:
     """Gold rule stale-devices: allow the user to remove a stale device.
 
@@ -415,7 +429,7 @@ async def async_remove_entry(hass: HomeAssistant, entry: SunSpec2ConfigEntry) ->
     device before it is ever used) but it would also be litter that
     nothing ever collects.
     """
-    store = Store(
+    store: Store[dict[str, Any]] = Store(
         hass,
         STRUCTURE_STORAGE_VERSION,
         f"{STRUCTURE_STORAGE_KEY}.{entry.entry_id}",
@@ -507,7 +521,7 @@ def get_sunspec_unique_id(config_entry_id: str, key: str, model_id: int, model_i
     return f"{config_entry_id}_{key}-{model_id}-{model_index}"
 
 
-class SunSpecDataUpdateCoordinator(DataUpdateCoordinator):
+class SunSpecDataUpdateCoordinator(DataUpdateCoordinator[dict[int, SunSpecModelWrapper]]):
     """Class to manage fetching data from the API."""
 
     # Per-gateway asyncio lock used to serialise update cycles from multiple
@@ -534,7 +548,9 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator):
             cls._GATEWAY_LOCKS[key] = lock
         return lock
 
-    def __init__(self, hass: HomeAssistant, client: SunSpecApiClient, entry) -> None:
+    def __init__(
+        self, hass: HomeAssistant, client: SunSpecApiClient, entry: SunSpec2ConfigEntry
+    ) -> None:
         """Initialize."""
         self.api = client
         self.hass = hass
@@ -546,11 +562,16 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator):
         # deadlocks single-slot inverters like KACO Powador - the first
         # connect grabs the slot, the second hits the 60s Home Assistant
         # setup timeout instead of returning.
-        self.device_info = None
+        self.device_info: SunSpecModelWrapper | None = None
+        # Which platforms async_setup_entry actually forwarded. Recorded
+        # there and read back by async_unload_entry, because the set
+        # depends on the write-beta option and the option may have been
+        # unticked in between. See the note at the assignment.
+        self.forwarded_platforms: list[str] = []
         # Persisted SunSpec model layout. The store is per config entry so
         # removing the entry can drop the file, and so two inverters never
         # share a cache key.
-        self._structure_store: Store = Store(
+        self._structure_store: Store[dict[str, Any]] = Store(
             hass,
             STRUCTURE_STORAGE_VERSION,
             f"{STRUCTURE_STORAGE_KEY}.{entry.entry_id}",
@@ -564,27 +585,27 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator):
         # layout. Checked once per run against the live device, so a
         # different inverter answering on a recycled IP cannot be read at
         # the previous one's offsets.
-        self._persisted_identity: dict | None = None
+        self._persisted_identity: dict[str, Any] | None = None
         self._identity_checked = False
         # Whether the nameplate auto-detection has run. It is a
         # convenience read, so it gets exactly one attempt per run rather
         # than being retried on every cycle for a device that simply does
         # not expose model 120 or 121.
         self._nameplate_probed = False
-        self._gateway_lock = self._get_gateway_lock(
-            entry.data.get(CONF_HOST), entry.data.get(CONF_PORT)
-        )
+        self._gateway_lock = self._get_gateway_lock(entry.data[CONF_HOST], entry.data[CONF_PORT])
         self._log = get_adapter(
-            entry.data.get(CONF_HOST),
-            entry.data.get(CONF_PORT),
-            entry.data.get(CONF_UNIT_ID),
+            entry.data[CONF_HOST],
+            entry.data[CONF_PORT],
+            entry.data[CONF_UNIT_ID],
         )
         # Phase-3 per-category buffers. The dict shape ({category: deque})
         # is the contract that diagnostics.py reads. Categories come from
         # errors.CATEGORIES so adding a new category there auto-creates a
         # buffer here. Each deque keeps at most 20 entries (FIFO drop on
         # overflow). Phase 4 may persist these across HA restarts.
-        self._recent_errors: dict[str, deque] = {cat: deque(maxlen=20) for cat in CATEGORIES}
+        self._recent_errors: dict[str, deque[dict[str, Any]]] = {
+            cat: deque(maxlen=20) for cat in CATEGORIES
+        }
         # Counts how many consecutive failures we have observed in each
         # category since the last successful update. Drives the Repairs
         # panel threshold (Phase 3 commit 4): protocol fires at 1, the
@@ -838,7 +859,7 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator):
         except Exception as err:  # noqa: BLE001 - best effort cleanup
             self._log.debug("Could not remove the stored SunSpec layout: %s", err)
 
-    def _device_identity(self) -> dict | None:
+    def _device_identity(self) -> dict[str, Any] | None:
         """Manufacturer / model / version / serial, out of SunSpec model 1.
 
         Stored next to the layout so a different device answering on a
@@ -920,7 +941,7 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator):
         self.api.reconnect_next()
         raise TransientError("Stored SunSpec layout belongs to a different device, rescanning")
 
-    async def _async_update_data(self):
+    async def _async_update_data(self) -> dict[int, SunSpecModelWrapper]:
         """Update data via library, with one in-cycle retry on failure.
 
         Inverters and Modbus TCP gateways have famously flaky network
@@ -1054,7 +1075,7 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator):
                 self.api.close()
             self._gateway_lock.release()
 
-    async def _run_one_update_cycle(self):
+    async def _run_one_update_cycle(self) -> dict[int, SunSpecModelWrapper]:
         """Single read attempt over the live session. Caller holds the gateway lock.
 
         Connects only when there is no live session: the first cycle,
@@ -1188,7 +1209,9 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator):
                 return kw
         return None
 
-    def _after_successful_cycle(self, data):
+    def _after_successful_cycle(
+        self, data: dict[int, SunSpecModelWrapper]
+    ) -> dict[int, SunSpecModelWrapper]:
         """Reset failure bookkeeping after a successful read."""
         # Silver rule log-when-unavailable: emit a single recovery
         # log line when we come back from an unavailable run, so
@@ -1232,7 +1255,7 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator):
         self._update_stale_model_tracking()
         return data
 
-    def _read_operating_state(self, data) -> int | None:
+    def _read_operating_state(self, data: dict[int, SunSpecModelWrapper]) -> int | None:
         """Return the inverter operating state from a fresh data dict.
 
         Issue #52. ``data`` is {model_id: SunSpecModelWrapper}, and only
@@ -1323,7 +1346,7 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator):
             },
         )
 
-    def _after_failed_cycle(self, exc):
+    def _after_failed_cycle(self, exc: BaseException) -> NoReturn:
         """Record a failed cycle and raise UpdateFailed.
 
         Wraps unclassified exceptions as TransportError before recording
@@ -1397,7 +1420,11 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator):
         # could act on.
         expected = cat == "transport" and self._downtime_is_expected()
         if expected:
-            state = OPERATING_STATE_LABELS.get(self._last_operating_state)
+            state = (
+                OPERATING_STATE_LABELS.get(self._last_operating_state)
+                if self._last_operating_state is not None
+                else None
+            )
             reason = (
                 f"it last reported {state}"
                 if state

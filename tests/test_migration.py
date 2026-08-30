@@ -121,6 +121,8 @@ async def test_migrate_orphan_entities_succeeds(hass):
     registry = er.async_get(hass)
     re_w = registry.async_get(eid_w)
     re_a = registry.async_get(eid_a)
+    assert re_w is not None
+    assert re_a is not None
     assert re_w.platform == "sunspec2"
     assert re_w.config_entry_id == entry.entry_id
     assert re_w.unique_id == f"{entry.entry_id}_W-103-0"
@@ -185,7 +187,9 @@ async def test_migrate_handles_malformed_unique_id(hass):
     assert len(errors) == 1
     assert bad_entry.entity_id in errors[0]
     # Healthy one was migrated successfully
-    assert registry.async_get(healthy_eid).platform == "sunspec2"
+    healthy = registry.async_get(healthy_eid)
+    assert healthy is not None
+    assert healthy.platform == "sunspec2"
 
 
 async def test_migrate_multi_inverter_only_matching(hass):
@@ -207,9 +211,13 @@ async def test_migrate_multi_inverter_only_matching(hass):
     assert migrated == 1
 
     registry = er.async_get(hass)
-    assert registry.async_get(matching_eid).platform == "sunspec2"
+    matching = registry.async_get(matching_eid)
+    other = registry.async_get(other_eid)
+    assert matching is not None
+    assert other is not None
+    assert matching.platform == "sunspec2"
     # The unrelated cjne entity is untouched.
-    assert registry.async_get(other_eid).platform == CJNE_DOMAIN
+    assert other.platform == CJNE_DOMAIN
 
 
 async def test_migrate_handles_legacy_slave_id_field(hass):
@@ -223,7 +231,9 @@ async def test_migrate_handles_legacy_slave_id_field(hass):
 
     assert migrated == 1
     registry = er.async_get(hass)
-    assert registry.async_get(eid).platform == "sunspec2"
+    migrated_entry = registry.async_get(eid)
+    assert migrated_entry is not None
+    assert migrated_entry.platform == "sunspec2"
 
 
 # ---------- find_blocking_cjne_entries ---------------------------------------

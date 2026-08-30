@@ -12,9 +12,9 @@ from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from custom_components.sunspec2 import DOMAIN
 from custom_components.sunspec2 import get_sunspec_unique_id
 from custom_components.sunspec2.api import SunSpecApiClient
+from custom_components.sunspec2.const import DOMAIN
 
 from .const import MOCK_CONFIG
 
@@ -95,7 +95,7 @@ def register_test_entity(
     platform: str,
     entity_id: str,
     key: str,
-    model_id: str,
+    model_id: int,
     model_index: int,
 ) -> None:
     """Register a test entity."""
@@ -132,6 +132,10 @@ class MockSunSpecDataUpdateCoordinator(DataUpdateCoordinator):
         # [] for this stub (no live client) and the test schema would
         # validate against an empty allowed-values set.
         self.detected_models = set(map(lambda m: int(m), models))
+        # Nameplate the options form pre-fills the peak-power field from.
+        # Declared rather than set from outside so the stub and the real
+        # coordinator carry the same attribute.
+        self.detected_max_ac_power_kw: float | None = None
 
     async def _async_update_data(self):
         """Update data via library."""

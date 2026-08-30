@@ -34,8 +34,6 @@ a persistent notification with that exact instruction.
 
 from __future__ import annotations
 
-from typing import Any
-
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.core import HomeAssistant
@@ -45,6 +43,7 @@ from .const import CONF_HOST
 from .const import CONF_PORT
 from .const import CONF_UNIT_ID
 from .const import is_excluded_sensor_point
+from .logger import LoggerLike
 
 CJNE_DOMAIN = "sunspec"
 """The legacy domain we migrate FROM."""
@@ -81,7 +80,7 @@ def find_blocking_cjne_entries(hass: HomeAssistant, entry: ConfigEntry) -> list[
 def migrate_from_cjne_sync(
     hass: HomeAssistant,
     entry: ConfigEntry,
-    log: Any,
+    log: LoggerLike,
 ) -> tuple[int, list[str], list[str]]:
     """Find orphan cjne sunspec entities and retarget them to sunspec2.
 
@@ -173,7 +172,9 @@ def migrate_from_cjne_sync(
     return (migrated, skipped_loaded, errors)
 
 
-def cleanup_excluded_sensor_entities(hass: HomeAssistant, entry: ConfigEntry, log) -> list[str]:
+def cleanup_excluded_sensor_entities(
+    hass: HomeAssistant, entry: ConfigEntry, log: LoggerLike
+) -> list[str]:
     """Delete sensor entities for points the sensor platform no longer builds.
 
     Reported by @haraldg in #17 after updating 0.13.3 -> 0.15.0: points
@@ -252,7 +253,10 @@ def _parse_sunspec_unique_id(unique_id: str, entry_id: str) -> tuple[int, str] |
 
 
 def cleanup_superseded_control_entities(
-    hass: HomeAssistant, entry: ConfigEntry, detected_models: set[int], log
+    hass: HomeAssistant,
+    entry: ConfigEntry,
+    detected_models: set[int],
+    log: LoggerLike,
 ) -> list[str]:
     """Delete control entities no longer backed by an active spec.
 

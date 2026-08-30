@@ -178,7 +178,7 @@ async def test_options_flow(hass, sunspec_client_mock):
     serialised = voluptuous_serialize.convert(
         result["data_schema"], custom_serializer=cv.custom_serializer
     )
-    serialised_names = {field["name"] for field in serialised}
+    serialised_names = {field["name"] for field in serialised}  # type: ignore[index]
     assert CONF_MAX_AC_POWER_KW in serialised_names
 
     result = await hass.config_entries.options.async_configure(

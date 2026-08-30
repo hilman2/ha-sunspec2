@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
 from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import DOMAIN
@@ -12,8 +14,14 @@ from .const import STALE_DATA_TOLERANCE_CYCLES
 from .model_labels import device_model_suffix
 from .models import SunSpecModelWrapper
 
+if TYPE_CHECKING:
+    # Imported for typing only. The coordinator lives in the package
+    # __init__, which imports half the integration, so importing it for
+    # real here would put every platform module behind that import.
+    from . import SunSpecDataUpdateCoordinator
 
-class SunSpecEntity(CoordinatorEntity):
+
+class SunSpecEntity(CoordinatorEntity["SunSpecDataUpdateCoordinator"]):
     # Bronze rule has-entity-name: the per-entity ``name`` property
     # carries only the point label (e.g. "Watts", "DC Voltage") and
     # the device name supplies the make-and-model prefix
@@ -24,7 +32,7 @@ class SunSpecEntity(CoordinatorEntity):
 
     def __init__(
         self,
-        coordinator,
+        coordinator: SunSpecDataUpdateCoordinator,
         config_entry: ConfigEntry,
         device_info: SunSpecModelWrapper,
         model_info: dict[str, Any],
@@ -81,7 +89,7 @@ class SunSpecEntity(CoordinatorEntity):
         return counter <= STALE_DATA_TOLERANCE_CYCLES
 
     @property
-    def device_info(self) -> dict[str, Any]:
+    def device_info(self) -> DeviceInfo:
         """Return the HA device registry payload for this entity.
 
         The device name is "<base> <model suffix>", e.g.
@@ -110,17 +118,28 @@ class SunSpecEntity(CoordinatorEntity):
             md = None
         suffix = device_model_suffix(self._model_id, self.model_info)
         base = self._prefix or md
+        device_name: str | None
         if base and suffix:
             device_name = f"{base} {suffix}"
         else:
             device_name = base or suffix
-        info = {
-            "identifiers": {(DOMAIN, self.config_entry.entry_id, self.model_info["name"])},
-            "name": device_name,
-            "model": md,
-            "sw_version": self._device_data.getValue("Vr"),
-            "manufacturer": self._device_data.getValue("Mn"),
-        }
+        info = DeviceInfo(
+            # HA types identifiers as set[tuple[str, str]] and this is a
+            # three-tuple. The integration creates one device per SunSpec
+            # model, so the entry id alone does not identify a device, and
+            # the registry stores whatever tuple it is handed. These
+            # identifiers are already written on every installed system:
+            # narrowing them to two elements would orphan every existing
+            # device and take the user's history, automations and
+            # dashboards with it.
+            identifiers={
+                (DOMAIN, self.config_entry.entry_id, self.model_info["name"])  # type: ignore[arg-type]
+            },
+            name=device_name,
+            model=md,
+            sw_version=self._device_data.getValue("Vr"),
+            manufacturer=self._device_data.getValue("Mn"),
+        )
         if self._model_id is not None:
             info["model_id"] = f"SunSpec {self._model_id}"
         return info

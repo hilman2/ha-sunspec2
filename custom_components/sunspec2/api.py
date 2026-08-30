@@ -1,11 +1,15 @@
 """Sample API Client."""
 
+from __future__ import annotations
+
 import logging
 import socket
 import struct
 import threading
 import time
+from collections.abc import Awaitable
 from types import SimpleNamespace
+from typing import Any
 
 import sunspec2.mb as mb
 import sunspec2.modbus.client as modbus_client
@@ -33,6 +37,12 @@ from .errors import TransportError
 from .logger import SunSpecLoggerAdapter
 from .logger import get_adapter
 from .models import SunSpecModelWrapper
+
+# pysunspec2 ships no py.typed marker, so every object it hands back reaches
+# mypy as Any. The alias names which Any is meant: a connected
+# SunSpecModbusClientDevice, TCP or RTU. It buys no checking, only a name a
+# reader of a signature can look up.
+type SunSpecClient = Any
 
 # Modbus TCP socket timeout (seconds). Used by pysunspec2 for both the
 # initial TCP connect and every subsequent register read on this client.
@@ -79,12 +89,12 @@ _LOGGER: logging.Logger = logging.getLogger(__package__)
 
 
 # pragma: not covered
-def progress(msg):
+def progress(msg: str) -> bool:
     _LOGGER.debug(msg)
     return True
 
 
-def _discovered_model_count(client) -> int:
+def _discovered_model_count(client: SunSpecClient) -> int:
     """How many models a (possibly failed) scan managed to register.
 
     Counts the integer keys only: pysunspec2 indexes ``client.models``
@@ -179,7 +189,7 @@ class SunSpecApiClient:
         self._parity = parity
         self._lock = threading.Lock()
         self._reconnect = False
-        self._client = None
+        self._client: SunSpecClient | None = None
         # Cached SunSpec layout: base address plus (model_id, addr, len)
         # per block. Survives close(), which since v0.22.0 only runs on
         # unload, on the failure path, and after a poll or a write when
@@ -209,7 +219,7 @@ class SunSpecApiClient:
         self._partial_scan = False
         self._log = get_adapter(host, port, unit_id)
         self._capture_enabled = capture_enabled
-        self._captured_reads: list[dict] = []
+        self._captured_reads: list[dict[str, Any]] = []
         self._log.debug(
             "New SunspecApi Client (transport=%s, capture=%s, timeout=%ds, scan_delay=%ss)",
             transport,
@@ -218,7 +228,7 @@ class SunSpecApiClient:
             self._scan_delay,
         )
 
-    def get_client(self, config=None):
+    def get_client(self, config: dict[str, Any] | None = None) -> SunSpecClient:
         """Return the active pysunspec2 client, building it on first use.
 
         On the explicit reconnect path (``reconnect_next()`` set
@@ -267,7 +277,7 @@ class SunSpecApiClient:
             self._client = self.modbus_connect()
         return self._client
 
-    def async_get_client(self, config=None):
+    def async_get_client(self, config: dict[str, Any] | None = None) -> Awaitable[SunSpecClient]:
         return self._hass.async_add_executor_job(self.get_client, config)
 
     def known_models(self) -> list[int]:
@@ -286,7 +296,7 @@ class SunSpecApiClient:
 
     async def async_get_data(self, model_id: int) -> SunSpecModelWrapper:
         with_model = SunSpecLoggerAdapter(
-            self._log.logger, {**self._log.extra, "model_id": model_id}
+            self._log.logger, {**self._log.bound, "model_id": model_id}
         )
         try:
             with_model.debug("Get data")
@@ -341,7 +351,7 @@ class SunSpecApiClient:
         base classes are not.
         """
         with_model = SunSpecLoggerAdapter(
-            self._log.logger, {**self._log.extra, "model_id": model_id}
+            self._log.logger, {**self._log.bound, "model_id": model_id}
         )
         with_model.debug("Write %s", ", ".join(f"{n} = {v!r}" for n, v in points))
         point_name = ", ".join(name for name, _ in points)
@@ -445,7 +455,7 @@ class SunSpecApiClient:
     async def async_get_device_info(self) -> SunSpecModelWrapper:
         return await self.read(1)
 
-    async def async_get_models(self, config: dict | None = None) -> list[int]:
+    async def async_get_models(self, config: dict[str, Any] | None = None) -> list[int]:
         self._log.debug("Fetching models")
         client = await self.async_get_client(config)
         model_ids = sorted(list(filter(lambda m: type(m) is int, client.models.keys())))
@@ -483,7 +493,7 @@ class SunSpecApiClient:
         """
         return self._partial_scan
 
-    def export_model_structure(self) -> dict | None:
+    def export_model_structure(self) -> dict[str, Any] | None:
         """Serialise the cached layout so the coordinator can persist it.
 
         Returns ``None`` when there is nothing worth storing. The
@@ -499,7 +509,7 @@ class SunSpecApiClient:
             "models": [list(entry) for entry in self._model_structure],
         }
 
-    def import_model_structure(self, payload) -> bool:
+    def import_model_structure(self, payload: object) -> bool:
         """Adopt a layout persisted by an earlier run. False means "ignored".
 
         Nothing here trusts the payload. It is validated against the
@@ -530,7 +540,7 @@ class SunSpecApiClient:
         )
         return True
 
-    def _scan_or_restore(self, client) -> None:
+    def _scan_or_restore(self, client: SunSpecClient) -> None:
         """Give ``client`` its model objects, rescanning only when needed.
 
         pysunspec2 populates ``client.models`` exclusively inside
@@ -632,7 +642,7 @@ class SunSpecApiClient:
         self._partial_scan = False
         self._capture_model_structure(client)
 
-    def _capture_model_structure(self, client) -> None:
+    def _capture_model_structure(self, client: SunSpecClient) -> None:
         """Remember the layout a successful scan just discovered.
 
         Reads back out of ``client.models`` rather than hooking into
@@ -677,7 +687,9 @@ class SunSpecApiClient:
         self._model_structure = structure
         self.structure_revision += 1
 
-    def _validate_model_structure(self, client, structure) -> bool:
+    def _validate_model_structure(
+        self, client: SunSpecClient, structure: list[tuple[int, int, int]]
+    ) -> bool:
         """Re-read both ends of the cached chain. False means "rescan".
 
         Three short reads, and none of them is optional:
@@ -752,7 +764,7 @@ class SunSpecApiClient:
             return False
         return True
 
-    def _restore_model_structure(self, client) -> bool:
+    def _restore_model_structure(self, client: SunSpecClient) -> bool:
         """Rebuild ``client.models`` from the cache. False means "scan instead".
 
         Every failure path returns False rather than raising, so a cache
@@ -816,7 +828,7 @@ class SunSpecApiClient:
             self._graceful_disconnect()
         self._client = None
 
-    def _graceful_disconnect(self, client=None) -> None:
+    def _graceful_disconnect(self, client: SunSpecClient | None = None) -> None:
         """Close with a FIN and let the peer tear the session down properly."""
         if client is None:
             client = self._client
@@ -827,7 +839,7 @@ class SunSpecApiClient:
         except Exception as exc:  # noqa: BLE001 - cleanup must not raise
             self._log.debug("graceful disconnect raised %s, ignoring", exc)
 
-    def _force_disconnect(self, client=None) -> None:
+    def _force_disconnect(self, client: SunSpecClient | None = None) -> None:
         """Tear down a client as aggressively as possible.
 
         Defaults to ``self._client``. Callers holding a client that is
@@ -929,7 +941,7 @@ class SunSpecApiClient:
             time.sleep(0.1)
         return is_open
 
-    def modbus_connect(self, config: dict | None = None):
+    def modbus_connect(self, config: dict[str, Any] | None = None) -> SunSpecClient:
         """Build a fresh pysunspec2 client and run its initial SunSpec scan.
 
         Dispatches to TCP or RTU based on ``self._transport``. The
@@ -941,7 +953,7 @@ class SunSpecApiClient:
             return self._modbus_connect_rtu()
         return self._modbus_connect_tcp(config)
 
-    def _modbus_connect_tcp(self, config: dict | None = None):
+    def _modbus_connect_tcp(self, config: dict[str, Any] | None = None) -> SunSpecClient:
         use_config = SimpleNamespace(
             **(config or {"host": self._host, "port": self._port, "unit_id": self._unit_id})
         )
@@ -1029,7 +1041,7 @@ class SunSpecApiClient:
             if not handed_off:
                 self._force_disconnect(client)
 
-    def _modbus_connect_rtu(self):
+    def _modbus_connect_rtu(self) -> SunSpecClient:
         """Build a Modbus RTU client over a serial port (RS-485).
 
         Lifecycle is different from TCP: pysunspec2's RTU client uses
@@ -1089,7 +1101,7 @@ class SunSpecApiClient:
             if not handed_off:
                 self._force_disconnect(client)
 
-    def _wrap_capturing_read(self, client) -> None:
+    def _wrap_capturing_read(self, client: SunSpecClient) -> None:
         """Wrap ``client.read`` so every byte landing on the wire is captured.
 
         The diagnostics dump surfaces ``self._captured_reads`` so
@@ -1108,7 +1120,7 @@ class SunSpecApiClient:
         # sites. A two-parameter wrapper raises TypeError the moment
         # one of those runs, but only while capture is enabled, which
         # is exactly when a user is already trying to debug something.
-        def capturing_read(addr, count, *args, **kwargs):
+        def capturing_read(addr: int, count: int, *args: Any, **kwargs: Any) -> Any:
             data = original_read(addr, count, *args, **kwargs)
             if len(self._captured_reads) < 1000:
                 self._captured_reads.append(

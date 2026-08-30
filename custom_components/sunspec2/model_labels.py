@@ -18,6 +18,7 @@ import json
 import logging
 from functools import lru_cache
 from importlib.resources import files
+from typing import Any
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -53,7 +54,7 @@ DEVICE_MODEL_NAME_OVERRIDES: dict[int, str] = {
 }
 
 
-def device_model_suffix(model_id: int | None, gdef: dict) -> str | None:
+def device_model_suffix(model_id: int | None, gdef: dict[str, Any]) -> str | None:
     """Return the model part of a device name, e.g. "Inverter (Three Phase)".
 
     Pure in-memory lookup on the already-loaded pysunspec2 group

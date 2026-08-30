@@ -14,16 +14,19 @@ from __future__ import annotations
 from typing import Any
 
 from homeassistant.components.diagnostics import async_redact_data
+from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import __version__ as HA_VERSION
 from homeassistant.core import HomeAssistant
 
 from . import SunSpec2ConfigEntry
+from . import SunSpecDataUpdateCoordinator
 from .const import CONF_HOST
 from .const import CONF_MAX_AC_POWER_KW
 from .const import MEASURED_POWER_POINT_HEADROOM
 from .const import NAMEPLATE_FILTER_HEADROOM
 from .const import VERSION
 from .const import effective_peak_power_kw
+from .models import SunSpecModelWrapper
 
 TO_REDACT = {CONF_HOST}
 
@@ -105,7 +108,9 @@ async def async_get_config_entry_diagnostics(
     }
 
 
-def _plausibility_filter_dump(coordinator, entry) -> dict[str, Any]:
+def _plausibility_filter_dump(
+    coordinator: SunSpecDataUpdateCoordinator, entry: ConfigEntry
+) -> dict[str, Any]:
     """State of the power plausibility filter, in the units it works in.
 
     ``effective_peak_power_kw`` is the same function the sensor platform
@@ -132,7 +137,9 @@ def _plausibility_filter_dump(coordinator, entry) -> dict[str, Any]:
     }
 
 
-def _recent_errors_dump(coordinator) -> dict[str, list]:
+def _recent_errors_dump(
+    coordinator: SunSpecDataUpdateCoordinator,
+) -> dict[str, list[dict[str, Any]]]:
     """Serialise the per-category recent_errors dict for the JSON dump.
 
     Phase 3 stores _recent_errors as ``dict[str, deque[dict]]`` keyed by
@@ -158,7 +165,7 @@ def _recent_errors_dump(coordinator) -> dict[str, list]:
     }
 
 
-def _safe_value(wrapper, key: str) -> Any:
+def _safe_value(wrapper: SunSpecModelWrapper, key: str) -> Any:
     """Read one point and coerce to a JSON-friendly type, or capture the error."""
     try:
         value = wrapper.getValue(key)
