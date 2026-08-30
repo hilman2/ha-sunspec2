@@ -19,18 +19,22 @@ the ordinary reason.
 from __future__ import annotations
 
 import logging
+from typing import Any
 
 from homeassistant.components.select import SelectEntity
+from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
-from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from . import SunSpec2ConfigEntry
+from . import SunSpecDataUpdateCoordinator
 from . import get_sunspec_unique_id
 from .const import CONF_WRITE_BETA_ENABLED
 from .entity import SunSpecEntity
 from .errors import SunSpecError
+from .models import SunSpecModelWrapper
 from .number import build_specs
 from .write_controls import PLATFORM_SELECT
 from .write_controls import WriteControlSpec
@@ -98,10 +102,10 @@ class SunSpecWriteSelect(SunSpecEntity, SelectEntity):
 
     def __init__(
         self,
-        coordinator,
-        config_entry,
-        device_info,
-        model_info,
+        coordinator: SunSpecDataUpdateCoordinator,
+        config_entry: ConfigEntry,
+        device_info: SunSpecModelWrapper,
+        model_info: dict[str, Any],
         prefix: str,
         spec: WriteControlSpec,
     ) -> None:

@@ -506,7 +506,6 @@ async def test_close_keeps_the_cached_structure(hass, sunspec_modbus_client_mock
     api = SunSpecApiClient(host="test", port=123, unit_id=1, hass=hass)
     api._base_addr = 40000
     api._model_structure = [(1, 40002, 66)]
-    api._structure_scanned_at = time.monotonic()
 
     api.close()
 
@@ -836,9 +835,12 @@ async def test_reconnect_flag_is_cleared_even_without_a_live_client(hass, mocker
     """
     api = SunSpecApiClient(host="test", port=123, unit_id=1, hass=hass)
     built = []
-    mocker.patch.object(
-        api, "modbus_connect", side_effect=lambda config=None: built.append(Mock()) or built[-1]
-    )
+
+    def _build_and_record(config=None):
+        built.append(Mock())
+        return built[-1]
+
+    mocker.patch.object(api, "modbus_connect", side_effect=_build_and_record)
     forced = mocker.patch.object(api, "_force_disconnect")
 
     api.reconnect_next()

@@ -18,9 +18,8 @@ Issues = "https://github.com/hilman2/ha-sunspec2/issues"
 # This project is a HA custom integration. We follow the same baseline rules
 # as HA core (E, F, W, B, UP, I) but stay relaxed about a few things that
 # legacy carryover from cjne would otherwise trip on (line length, some
-# bug-bear rules). Phase 4 added type hints to the public surface but the
-# private state is still partially untyped, so mypy --strict is NOT enabled.
-# That is a Phase-6.x followup once the codebase has soaked.
+# bug-bear rules). Type correctness is not ruff's job here, it is mypy's;
+# see the [tool.mypy] section at the bottom of this file.
 
 [tool.ruff]
 target-version = "py313"
@@ -66,3 +65,62 @@ testpaths = ["tests"]
 filterwarnings = [
     "ignore::DeprecationWarning",
 ]
+
+# ----------------------------------------------------------------------------
+# mypy: static type checking
+# ----------------------------------------------------------------------------
+# The integration runs under --strict, the test suite does not.
+#
+# The reason for the split is what each body of code is for. Every value in
+# custom_components/ crosses a boundary that mypy is the only thing watching:
+# a Modbus register comes back as an untyped value from pysunspec2, travels
+# through the coordinator, and ends up in a Home Assistant entity property
+# whose contract HA enforces at runtime with a ValueError. A wrong type there
+# surfaces as a broken sensor in someone's dashboard. In tests, a wrong type
+# surfaces as a failing test, which is what tests are for, so the strictness
+# would buy little and would cost a signature on every fixture.
+#
+# pysunspec2 ships no py.typed marker, so everything crossing that boundary is
+# Any. Rather than let the Any spread inward, api.py and models.py annotate
+# their own return types and mypy checks the rest of the codebase against those.
+# That is why warn_return_any stays on: it is the rule that catches a
+# pysunspec2 value being passed through unnoticed.
+
+[tool.mypy]
+python_version = "3.13"
+files = ["custom_components", "tests"]
+strict = true
+# HA's own decorators (@callback, @property overrides) are typed, so untyped
+# decorators are a sign of our own code, not of the framework.
+disallow_untyped_decorators = true
+# Path-based invocation ("mypy" with no arguments) needs the namespace layout
+# because custom_components/ is a HA drop-in directory, not an installed package.
+namespace_packages = true
+explicit_package_bases = true
+
+# pysunspec2 and the HA test plugin ship no type information. Without this,
+# every import from them is an error before mypy looks at a single line of ours.
+[[tool.mypy.overrides]]
+module = [
+    "sunspec2.*",
+    "pytest_homeassistant_custom_component.*",
+]
+ignore_missing_imports = true
+
+# Tests: bodies are checked, signatures are not required. What is switched
+# off below is test idiom, not type looseness:
+#
+# - subclassing Any: the fixtures subclass pysunspec2's FileClientDevice,
+#   which has no type information at all, so mypy sees an Any base class.
+# - method-assign: several tests replace a bound method on a client to drive
+#   a specific failure. Rewriting those as mocker.patch.object would change
+#   what they test, not how they are typed.
+[[tool.mypy.overrides]]
+module = "tests.*"
+disallow_untyped_defs = false
+disallow_incomplete_defs = false
+disallow_untyped_calls = false
+disallow_untyped_decorators = false
+disallow_subclassing_any = false
+warn_return_any = false
+disable_error_code = ["method-assign"]

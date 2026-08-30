@@ -13,6 +13,7 @@ from homeassistant.components.sensor import SensorStateClass
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import DEGREE
 from homeassistant.const import PERCENTAGE
+from homeassistant.const import EntityCategory
 from homeassistant.const import UnitOfApparentPower
 from homeassistant.const import UnitOfDataRate
 from homeassistant.const import UnitOfElectricCurrent
@@ -30,11 +31,11 @@ from homeassistant.const import UnitOfTemperature
 from homeassistant.const import UnitOfTime
 from homeassistant.core import HomeAssistant
 from homeassistant.core import callback
-from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.util import dt as dt_util
 
 from . import SunSpec2ConfigEntry
+from . import SunSpecDataUpdateCoordinator
 from . import get_sunspec_unique_id
 from .const import CONF_MAX_AC_POWER_KW
 from .const import CONF_PREFIX
@@ -130,7 +131,9 @@ _POWER_UNITS = (
 )
 
 
-def _power_limit_in_native_unit(unit, key: str, max_power_kw: float | None) -> float | None:
+def _power_limit_in_native_unit(
+    unit: str | None, key: str, max_power_kw: float | None
+) -> float | None:
     """Upper bound for one sensor, in its own unit, or ``None`` for no bound.
 
     All SunSpec power-like units (W, VA, VAr) are 1:1 with watts in HA, so
@@ -150,7 +153,7 @@ def _power_limit_in_native_unit(unit, key: str, max_power_kw: float | None) -> f
 
 
 def _energy_delta_limit_in_native_unit(
-    unit, max_power_kw: float | None, window_seconds: float | None
+    unit: str | None, max_power_kw: float | None, window_seconds: float | None
 ) -> float | None:
     """Compute the maximum plausible energy delta over ``window_seconds``.
 
@@ -169,72 +172,72 @@ def _energy_delta_limit_in_native_unit(
     return None
 
 
-HA_META = {
-    "A": [UnitOfElectricCurrent.AMPERE, ICON_AC_AMPS, SensorDeviceClass.CURRENT],
-    "HPa": [UnitOfPressure.HPA, ICON_DEFAULT, None],
-    "Hz": [UnitOfFrequency.HERTZ, ICON_FREQ, None],
-    "Mbps": [UnitOfDataRate.MEGABITS_PER_SECOND, ICON_DEFAULT, None],
-    "V": [UnitOfElectricPotential.VOLT, ICON_VOLT, SensorDeviceClass.VOLTAGE],
-    "VA": [UnitOfApparentPower.VOLT_AMPERE, ICON_POWER, None],
-    "VAr": [UnitOfReactivePower.VOLT_AMPERE_REACTIVE, ICON_POWER, None],
-    "W": [UnitOfPower.WATT, ICON_POWER, SensorDeviceClass.POWER],
-    "W/m2": [UnitOfIrradiance.WATTS_PER_SQUARE_METER, ICON_DEFAULT, None],
-    "Wh": [UnitOfEnergy.WATT_HOUR, ICON_ENERGY, SensorDeviceClass.ENERGY],
-    "WH": [UnitOfEnergy.WATT_HOUR, ICON_ENERGY, SensorDeviceClass.ENERGY],
-    "bps": [UnitOfDataRate.BITS_PER_SECOND, ICON_DEFAULT, None],
-    "deg": [DEGREE, ICON_TEMP, SensorDeviceClass.TEMPERATURE],
-    "Degrees": [DEGREE, ICON_TEMP, SensorDeviceClass.TEMPERATURE],
-    "C": [UnitOfTemperature.CELSIUS, ICON_TEMP, SensorDeviceClass.TEMPERATURE],
-    "kWh": [UnitOfEnergy.KILO_WATT_HOUR, ICON_ENERGY, SensorDeviceClass.ENERGY],
-    "m/s": [UnitOfSpeed.METERS_PER_SECOND, ICON_DEFAULT, None],
-    "mSecs": [UnitOfTime.MILLISECONDS, ICON_DEFAULT, None],
-    "meters": [UnitOfLength.METERS, ICON_DEFAULT, None],
-    "mm": [UnitOfLength.MILLIMETERS, ICON_DEFAULT, None],
-    "%": [PERCENTAGE, ICON_DEFAULT, None],
-    "Secs": [UnitOfTime.SECONDS, ICON_DEFAULT, None],
-    "Sec": [UnitOfTime.SECONDS, ICON_DEFAULT, None],
+HA_META: dict[str, tuple[str | None, str, SensorDeviceClass | None]] = {
+    "A": (UnitOfElectricCurrent.AMPERE, ICON_AC_AMPS, SensorDeviceClass.CURRENT),
+    "HPa": (UnitOfPressure.HPA, ICON_DEFAULT, None),
+    "Hz": (UnitOfFrequency.HERTZ, ICON_FREQ, None),
+    "Mbps": (UnitOfDataRate.MEGABITS_PER_SECOND, ICON_DEFAULT, None),
+    "V": (UnitOfElectricPotential.VOLT, ICON_VOLT, SensorDeviceClass.VOLTAGE),
+    "VA": (UnitOfApparentPower.VOLT_AMPERE, ICON_POWER, None),
+    "VAr": (UnitOfReactivePower.VOLT_AMPERE_REACTIVE, ICON_POWER, None),
+    "W": (UnitOfPower.WATT, ICON_POWER, SensorDeviceClass.POWER),
+    "W/m2": (UnitOfIrradiance.WATTS_PER_SQUARE_METER, ICON_DEFAULT, None),
+    "Wh": (UnitOfEnergy.WATT_HOUR, ICON_ENERGY, SensorDeviceClass.ENERGY),
+    "WH": (UnitOfEnergy.WATT_HOUR, ICON_ENERGY, SensorDeviceClass.ENERGY),
+    "bps": (UnitOfDataRate.BITS_PER_SECOND, ICON_DEFAULT, None),
+    "deg": (DEGREE, ICON_TEMP, SensorDeviceClass.TEMPERATURE),
+    "Degrees": (DEGREE, ICON_TEMP, SensorDeviceClass.TEMPERATURE),
+    "C": (UnitOfTemperature.CELSIUS, ICON_TEMP, SensorDeviceClass.TEMPERATURE),
+    "kWh": (UnitOfEnergy.KILO_WATT_HOUR, ICON_ENERGY, SensorDeviceClass.ENERGY),
+    "m/s": (UnitOfSpeed.METERS_PER_SECOND, ICON_DEFAULT, None),
+    "mSecs": (UnitOfTime.MILLISECONDS, ICON_DEFAULT, None),
+    "meters": (UnitOfLength.METERS, ICON_DEFAULT, None),
+    "mm": (UnitOfLength.MILLIMETERS, ICON_DEFAULT, None),
+    "%": (PERCENTAGE, ICON_DEFAULT, None),
+    "Secs": (UnitOfTime.SECONDS, ICON_DEFAULT, None),
+    "Sec": (UnitOfTime.SECONDS, ICON_DEFAULT, None),
     # SunSpec spells reactive power four ways across its model
     # definitions and we only had one of them, so "var" and "Var" points
     # (49 and 10 respectively) fell through to the raw-string fallback.
-    "var": [UnitOfReactivePower.VOLT_AMPERE_REACTIVE, ICON_POWER, None],
-    "Var": [UnitOfReactivePower.VOLT_AMPERE_REACTIVE, ICON_POWER, None],
-    "varh": [
+    "var": (UnitOfReactivePower.VOLT_AMPERE_REACTIVE, ICON_POWER, None),
+    "Var": (UnitOfReactivePower.VOLT_AMPERE_REACTIVE, ICON_POWER, None),
+    "varh": (
         UnitOfReactiveEnergy.VOLT_AMPERE_REACTIVE_HOUR,
         ICON_ENERGY,
         SensorDeviceClass.REACTIVE_ENERGY,
-    ],
-    "Varh": [
+    ),
+    "Varh": (
         UnitOfReactiveEnergy.VOLT_AMPERE_REACTIVE_HOUR,
         ICON_ENERGY,
         SensorDeviceClass.REACTIVE_ENERGY,
-    ],
-    "VArh": [
+    ),
+    "VArh": (
         UnitOfReactiveEnergy.VOLT_AMPERE_REACTIVE_HOUR,
         ICON_ENERGY,
         SensorDeviceClass.REACTIVE_ENERGY,
-    ],
+    ),
     # Percentages of some reference quantity. The reference belongs in
     # the entity name, not in the unit: HA has one percent and the
     # recorder can only merge series that agree on it.
-    "Pct": [PERCENTAGE, ICON_DEFAULT, None],
-    "% VRef": [PERCENTAGE, ICON_DEFAULT, None],
-    "% WMax": [PERCENTAGE, ICON_DEFAULT, None],
-    "% WRef": [PERCENTAGE, ICON_DEFAULT, None],
-    "% VArMax": [PERCENTAGE, ICON_DEFAULT, None],
-    "% VArAval": [PERCENTAGE, ICON_DEFAULT, None],
-    "VNomPct": [PERCENTAGE, ICON_DEFAULT, None],
-    "%WHRtg": [PERCENTAGE, ICON_DEFAULT, None],
+    "Pct": (PERCENTAGE, ICON_DEFAULT, None),
+    "% VRef": (PERCENTAGE, ICON_DEFAULT, None),
+    "% WMax": (PERCENTAGE, ICON_DEFAULT, None),
+    "% WRef": (PERCENTAGE, ICON_DEFAULT, None),
+    "% VArMax": (PERCENTAGE, ICON_DEFAULT, None),
+    "% VArAval": (PERCENTAGE, ICON_DEFAULT, None),
+    "VNomPct": (PERCENTAGE, ICON_DEFAULT, None),
+    "%WHRtg": (PERCENTAGE, ICON_DEFAULT, None),
     # Power factor is dimensionless in SunSpec (cosine of the phase
     # angle, -1..1). HA's POWER_FACTOR device class accepts exactly no
     # unit or percent, and the value is not a percentage.
-    "cos()": [None, ICON_DEFAULT, SensorDeviceClass.POWER_FACTOR],
-    "PF": [None, ICON_DEFAULT, SensorDeviceClass.POWER_FACTOR],
-    "W/m^2": [UnitOfIrradiance.WATTS_PER_SQUARE_METER, ICON_DEFAULT, None],
-    "enum16": [None, ICON_DEFAULT, SensorDeviceClass.ENUM],
+    "cos()": (None, ICON_DEFAULT, SensorDeviceClass.POWER_FACTOR),
+    "PF": (None, ICON_DEFAULT, SensorDeviceClass.POWER_FACTOR),
+    "W/m^2": (UnitOfIrradiance.WATTS_PER_SQUARE_METER, ICON_DEFAULT, None),
+    "enum16": (None, ICON_DEFAULT, SensorDeviceClass.ENUM),
     # Bitfields are deliberately NOT the ENUM device class. See the
     # vtype handling in SunSpecSensor.__init__ for why.
-    "bitfield16": [None, ICON_DEFAULT, None],
-    "bitfield32": [None, ICON_DEFAULT, None],
+    "bitfield16": (None, ICON_DEFAULT, None),
+    "bitfield32": (None, ICON_DEFAULT, None),
 }
 
 # Deliberately absent, and this is the point of the None fallback rather
@@ -311,7 +314,7 @@ async def async_setup_entry(
                     }
                     meta = model_wrapper.getMeta(key)
                     sunspec_unit = meta.get("units", "")
-                    ha_meta = HA_META.get(sunspec_unit, [sunspec_unit, None, None])
+                    ha_meta = HA_META.get(sunspec_unit, (sunspec_unit, None, None))
                     device_class = ha_meta[2]
                     if device_class == SensorDeviceClass.ENERGY:
                         new_sensors.append(SunSpecEnergySensor(coordinator, entry, data))
@@ -337,7 +340,7 @@ class SunSpecSensor(SunSpecEntity, SensorEntity):
 
     def __init__(
         self,
-        coordinator,
+        coordinator: SunSpecDataUpdateCoordinator,
         config_entry: ConfigEntry,
         data: dict[str, Any],
     ) -> None:
@@ -366,14 +369,20 @@ class SunSpecSensor(SunSpecEntity, SensorEntity):
         # model definitions ("% VRef" alone appears on 184 points), so
         # this was never specific to model 123. The value stays visible,
         # it just stops pretending to be a measurable quantity.
-        ha_meta = HA_META.get(sunspec_unit, [None, ICON_DEFAULT, None])
+        ha_meta = HA_META.get(sunspec_unit, (None, ICON_DEFAULT, None))
         self.unit = ha_meta[0]
         self.use_icon = ha_meta[1]
         self.use_device_class = ha_meta[2]
-        self._options = []
+        self._options: list[str] = []
         # Used if this is an energy sensor and the read value is 0
         # Updated whenever the value read is not 0
-        self.lastKnown = None
+        # The baseline the delta plausibility filter measures against.
+        # Annotated as a number because that is what an energy counter
+        # reports, but the value travels here from pysunspec2 through an
+        # untyped getValue, so the filter below still checks it with
+        # isinstance before doing arithmetic on it. Those checks are not
+        # redundant with this annotation.
+        self.lastKnown: float | None = None
         self._assumed_state = False
 
         self._unique_id = get_sunspec_unique_id(
@@ -677,7 +686,7 @@ class SunSpecSensor(SunSpecEntity, SensorEntity):
         return self.use_device_class
 
     @property
-    def state_class(self):
+    def state_class(self) -> SensorStateClass | None:
         """Return de device class of the sensor."""
         if self.unit == "" or self.unit is None:
             return None
@@ -709,7 +718,12 @@ class SunSpecSensor(SunSpecEntity, SensorEntity):
 
 
 class SunSpecEnergySensor(SunSpecSensor, RestoreSensor):
-    def __init__(self, coordinator, config_entry: ConfigEntry, data: dict[str, Any]) -> None:
+    def __init__(
+        self,
+        coordinator: SunSpecDataUpdateCoordinator,
+        config_entry: ConfigEntry,
+        data: dict[str, Any],
+    ) -> None:
         super().__init__(coordinator, config_entry, data)
         self.last_known_value: Any = None
         # Counter for consecutive rejected reads in the delta plausibility

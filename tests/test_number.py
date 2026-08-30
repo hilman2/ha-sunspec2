@@ -12,6 +12,7 @@ from homeassistant.exceptions import HomeAssistantError
 
 from custom_components.sunspec2.const import CONF_WRITE_BETA_ENABLED
 from custom_components.sunspec2.errors import DeviceError
+from custom_components.sunspec2.models import SunSpecModelWrapper
 
 from . import create_mock_sunspec_config_entry
 from . import setup_mock_sunspec_config_entry
@@ -176,14 +177,15 @@ def test_step_falls_back_when_the_scale_factor_is_missing():
     """
     from custom_components.sunspec2.number import _step_from_scale_factor
 
-    class _Wrapper:
+    class _Wrapper(SunSpecModelWrapper):
         def __init__(self, sf):
+            super().__init__([])
             self._sf = sf
 
         def getMeta(self, name):
             return {"sf": "WMaxLimPct_SF"}
 
-        def getValue(self, name):
+        def getValue(self, name, model_index=0):
             return self._sf
 
     assert _step_from_scale_factor(_Wrapper(None), "WMaxLimPct") == 1.0

@@ -94,14 +94,16 @@ async def test_device_names_carry_model_suffix(hass: HomeAssistant, sunspec_clie
 
     device_registry = dr.async_get(hass)
     inverter = device_registry.async_get_device(
-        identifiers={(DOMAIN, TEST_CONFIG_ENTRY_ID, "inverter_three_phase")}
+        identifiers={(DOMAIN, TEST_CONFIG_ENTRY_ID, "inverter_three_phase")}  # type: ignore[arg-type]
     )
     assert inverter is not None
     assert inverter.name == "Test-1547-1 Inverter (Three Phase)"
     assert inverter.model == "Test-1547-1"
     assert inverter.model_id == "SunSpec 103"
 
-    mppt = device_registry.async_get_device(identifiers={(DOMAIN, TEST_CONFIG_ENTRY_ID, "mppt")})
+    mppt = device_registry.async_get_device(
+        identifiers={(DOMAIN, TEST_CONFIG_ENTRY_ID, "mppt")}  # type: ignore[arg-type]
+    )
     assert mppt is not None
     assert mppt.name == "Test-1547-1 MPPT"
     assert mppt.model_id == "SunSpec 160"
@@ -119,7 +121,9 @@ async def test_device_name_with_prefix_keeps_model_suffix(
     await setup_mock_sunspec_config_entry(hass, MOCK_CONFIG_PREFIX)
 
     device_registry = dr.async_get(hass)
-    mppt = device_registry.async_get_device(identifiers={(DOMAIN, TEST_CONFIG_ENTRY_ID, "mppt")})
+    mppt = device_registry.async_get_device(
+        identifiers={(DOMAIN, TEST_CONFIG_ENTRY_ID, "mppt")}  # type: ignore[arg-type]
+    )
     assert mppt is not None
     assert mppt.name == "test MPPT"
 
@@ -585,9 +589,9 @@ async def test_multi_bit_event_survives_a_refresh(hass: HomeAssistant, sunspec_c
     await config_entry.runtime_data.async_refresh()
     await hass.async_block_till_done()
 
-    assert hass.states.get(TEST_INVERTER_SENSOR_EVENT_ENTITY_ID).state == (
-        "GROUND_FAULT,DC_OVER_VOLT"
-    )
+    state = hass.states.get(TEST_INVERTER_SENSOR_EVENT_ENTITY_ID)
+    assert state is not None
+    assert state.state == "GROUND_FAULT,DC_OVER_VOLT"
 
 
 async def test_bitfield_has_no_enum_device_class(hass: HomeAssistant, sunspec_client_mock) -> None:
@@ -599,6 +603,7 @@ async def test_bitfield_has_no_enum_device_class(hass: HomeAssistant, sunspec_cl
     await setup_mock_sunspec_config_entry(hass, MOCK_CONFIG)
 
     state = hass.states.get(TEST_INVERTER_SENSOR_EVENT_ENTITY_ID)
+    assert state is not None
 
     assert state.attributes.get("device_class") is None
     assert "options" not in state.attributes
@@ -611,6 +616,7 @@ async def test_bitfield_exposes_active_flags_as_a_list(
     await setup_mock_sunspec_config_entry(hass, MOCK_CONFIG)
 
     state = hass.states.get(TEST_INVERTER_SENSOR_EVENT_ENTITY_ID)
+    assert state is not None
 
     assert state.attributes["active_flags"] == ["GROUND_FAULT", "DC_OVER_VOLT"]
     assert state.attributes["raw"] == 3
@@ -623,6 +629,7 @@ async def test_enum_sensor_still_has_its_device_class(
     await setup_mock_sunspec_config_entry(hass, MOCK_CONFIG)
 
     state = hass.states.get(TEST_INVERTER_SENSOR_STATE_ENTITY_ID)
+    assert state is not None
 
     assert state.attributes.get("device_class") == "enum"
     assert state.state in state.attributes["options"]
@@ -784,6 +791,10 @@ def test_headroom_ranks_dc_above_apparent_above_active() -> None:
     apparent = measured_power_headroom("VA")
     reactive = measured_power_headroom("VAr")
     dc = measured_power_headroom("DCW")
+    assert active is not None
+    assert apparent is not None
+    assert reactive is not None
+    assert dc is not None
     assert active == 1.0
     assert apparent == reactive > active
     assert dc > apparent

@@ -11,18 +11,22 @@ v0.19.0 made this spec-driven, see :mod:`write_controls`.
 from __future__ import annotations
 
 import logging
+from typing import Any
 
 from homeassistant.components.switch import SwitchEntity
+from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
-from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from . import SunSpec2ConfigEntry
+from . import SunSpecDataUpdateCoordinator
 from . import get_sunspec_unique_id
 from .const import CONF_WRITE_BETA_ENABLED
 from .entity import SunSpecEntity
 from .errors import SunSpecError
+from .models import SunSpecModelWrapper
 from .number import build_specs
 from .write_controls import PLATFORM_SWITCH
 from .write_controls import WriteControlSpec
@@ -72,10 +76,10 @@ class SunSpecWriteSwitch(SunSpecEntity, SwitchEntity):
 
     def __init__(
         self,
-        coordinator,
-        config_entry,
-        device_info,
-        model_info,
+        coordinator: SunSpecDataUpdateCoordinator,
+        config_entry: ConfigEntry,
+        device_info: SunSpecModelWrapper,
+        model_info: dict[str, Any],
         prefix: str,
         spec: WriteControlSpec,
     ) -> None:
@@ -113,12 +117,12 @@ class SunSpecWriteSwitch(SunSpecEntity, SwitchEntity):
             return None
         if isinstance(value, str):
             return value.upper() in _TRUTHY_SYMBOLS
-        return value == self._spec.on_value
+        return bool(value == self._spec.on_value)
 
-    async def async_turn_on(self, **kwargs) -> None:
+    async def async_turn_on(self, **kwargs: Any) -> None:
         await self._write(self._spec.on_value)
 
-    async def async_turn_off(self, **kwargs) -> None:
+    async def async_turn_off(self, **kwargs: Any) -> None:
         await self._write(self._spec.off_value)
 
     async def _write(self, raw_value: int) -> None:

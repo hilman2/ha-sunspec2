@@ -1,5 +1,6 @@
 """Test SunSpec setup process."""
 
+from typing import Any
 from unittest.mock import AsyncMock as _AsyncMock
 from unittest.mock import patch
 
@@ -157,6 +158,7 @@ async def test_setup_blocked_when_cjne_actively_loaded(hass, sunspec_client_mock
     issue = ir.async_get(hass).async_get_issue(DOMAIN, f"{our_entry.entry_id}_cjne_conflict")
     assert issue is not None
     assert issue.translation_key == "cjne_conflict"
+    assert issue.translation_placeholders is not None
     assert issue.translation_placeholders["host"] == "test_host"
 
 
@@ -685,7 +687,7 @@ async def test_detected_models_cached_for_options_flow(hass, sunspec_client_mock
 # type their inverter's nameplate by hand.
 
 
-def _make_coordinator_with_mock_api(hass, model_data: dict):
+def _make_coordinator_with_mock_api(hass, model_data: dict[int, Any]):
     """Build a real coordinator with a hand-rolled mock API for nameplate tests.
 
     ``model_data`` is a {model_id: value_or_None} dict. ``async_get_data``
@@ -852,6 +854,7 @@ async def test_stale_model_tracking_raises_repair_issue_after_threshold(hass):
     issue = registry.async_get_issue(DOMAIN, f"{config_entry.entry_id}_stale_model_103")
     assert issue is not None
     assert issue.translation_key == "stale_model"
+    assert issue.translation_placeholders is not None
     assert issue.translation_placeholders["model_id"] == "103"
     assert issue.translation_placeholders["missing_minutes"] == "11"
 
@@ -1262,7 +1265,9 @@ async def test_layout_is_rewritten_when_only_the_identity_moved(hass):
 
     await coordinator._async_save_model_structure()
     coordinator._structure_store.async_save.assert_awaited_once()
-    saved = coordinator._structure_store.async_save.await_args.args[0]
+    await_args = coordinator._structure_store.async_save.await_args
+    assert await_args is not None
+    saved = await_args.args[0]
     assert saved["identity"] == {"Mn": "KACO", "SN": "111", "Vr": "2.0"}
 
     # And now it is settled: same revision, same identity, no rewrite.
@@ -1270,7 +1275,7 @@ async def test_layout_is_rewritten_when_only_the_identity_moved(hass):
     coordinator._structure_store.async_save.assert_awaited_once()
 
 
-def _stored_layout(identity: dict) -> dict:
+def _stored_layout(identity: dict[str, Any]) -> dict[str, Any]:
     """A store payload as ``_async_save_model_structure`` writes it."""
     return {
         "version": STRUCTURE_STORAGE_VERSION,
@@ -1317,7 +1322,7 @@ async def test_setup_recovers_from_a_stored_layout_of_another_device(
     ):
         await hass.config_entries.async_reload(config_entry.entry_id)
         await hass.async_block_till_done()
-    assert config_entry.state is ConfigEntryState.LOADED
+    assert config_entry.state is ConfigEntryState.LOADED  # type: ignore[comparison-overlap]
 
 
 async def test_setup_survives_a_firmware_update(hass, hass_storage, sunspec_client_mock, caplog):

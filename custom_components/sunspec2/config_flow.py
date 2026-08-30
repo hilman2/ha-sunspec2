@@ -1,15 +1,22 @@
 """Adds config flow for SunSpec."""
 
+from __future__ import annotations
+
 import logging
+from collections.abc import Mapping
 from typing import Any
 
 import homeassistant.helpers.config_validation as cv
 import voluptuous as vol
 from homeassistant import config_entries
+from homeassistant.config_entries import ConfigEntry
+from homeassistant.config_entries import ConfigFlowResult
 from homeassistant.core import callback
 from homeassistant.helpers import selector
+from homeassistant.helpers.service_info.dhcp import DhcpServiceInfo
 
 from . import SCAN_INTERVAL
+from . import SunSpecDataUpdateCoordinator
 from .api import SETUP_TIMEOUT
 from .api import SunSpecApiClient
 from .const import CONF_BAUDRATE
@@ -122,7 +129,13 @@ _SCAN_DELAY_SELECTOR = selector.NumberSelector(
 )
 
 
-def set_connection_error(errors, host, port, unit_id, err):
+def set_connection_error(
+    errors: dict[str, str],
+    host: str | None,
+    port: int | None,
+    unit_id: int | None,
+    err: Exception,
+) -> None:
     """Map backend failures to user-visible config flow errors."""
     if isinstance(err, TransientError):
         errors["base"] = "timeout"
@@ -172,9 +185,9 @@ class SunSpecFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
     VERSION = 2
     CONNECTION_CLASS = config_entries.CONN_CLASS_LOCAL_POLL
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize."""
-        self._errors = {}
+        self._errors: dict[str, str] = {}
         # Probe client. Assigned by the two _test_connection_* methods
         # and reused afterwards by _show_settings_form and
         # _probe_nameplate, which is why it is not closed at the end of
@@ -189,7 +202,7 @@ class SunSpecFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
         # picker without re-scanning.
         self._scan_results: list[SunSpecCandidate] = []
 
-    async def async_step_dhcp(self, discovery_info):
+    async def async_step_dhcp(self, discovery_info: DhcpServiceInfo) -> ConfigFlowResult:
         """Handle a DHCP discovery for a known SunSpec inverter vendor.
 
         Best-effort second path: most home routers hand out 8 h+
@@ -221,7 +234,7 @@ class SunSpecFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
         self._discovered_host = host
         return await self.async_step_manual()
 
-    def _get_unique_id(self, host, port, unit_id):
+    def _get_unique_id(self, host: str, port: int, unit_id: int) -> str:
         """Build a stable unique ID even when device serial data is missing."""
         try:
             uid = self._device_info.getValue("SN")
@@ -238,7 +251,7 @@ class SunSpecFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
 
         return str(uid)
 
-    async def async_step_user(self, user_input=None):
+    async def async_step_user(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         """Initial entry: ask how the inverter should be connected.
 
         Three options:
@@ -258,7 +271,7 @@ class SunSpecFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
             menu_options=["manual", "scan", "serial"],
         )
 
-    async def async_step_manual(self, user_input=None):
+    async def async_step_manual(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         """Manual TCP setup: enter host, port and unit ID by hand.
 
         This is the original ``async_step_user`` body from before
@@ -292,7 +305,7 @@ class SunSpecFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
 
         return await self._show_config_form(user_input)
 
-    async def async_step_serial(self, user_input=None):
+    async def async_step_serial(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         """Serial (Modbus RTU) setup: enter port, baudrate, parity, unit ID.
 
         Reachable only from the user-step menu - serial buses have
@@ -338,7 +351,7 @@ class SunSpecFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
 
         return await self._show_serial_form(user_input)
 
-    async def _show_serial_form(self, user_input):
+    async def _show_serial_form(self, user_input: dict[str, Any] | None) -> ConfigFlowResult:
         """Render the serial-setup form with sensible defaults."""
         defaults = user_input or {
             CONF_SERIAL_PORT: "/dev/ttyUSB0",
@@ -379,7 +392,9 @@ class SunSpecFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
             errors=self._errors,
         )
 
-    async def async_step_reconfigure(self, user_input=None):
+    async def async_step_reconfigure(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
         """Gold rule reconfiguration-flow: change host / port / unit ID
         on an existing config entry without losing the device or its
         sensor history.
@@ -439,7 +454,7 @@ class SunSpecFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
             errors=self._errors,
         )
 
-    async def async_step_scan(self, user_input=None):
+    async def async_step_scan(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         """Subnet entry form for the active network scan.
 
         Pre-fills the user's default LAN subnet from
@@ -468,7 +483,9 @@ class SunSpecFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
             errors=errors or None,
         )
 
-    async def async_step_scan_results(self, user_input=None):
+    async def async_step_scan_results(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
         """Pick a host from the cached scan result list.
 
         Vendor-matched candidates are listed first (the scan helper
@@ -495,7 +512,9 @@ class SunSpecFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
             data_schema=vol.Schema({vol.Required("host"): vol.In(options)}),
         )
 
-    async def async_step_settings(self, user_input=None):
+    async def async_step_settings(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
         self._errors = {}
         if user_input is not None:
             # Reject empty model selections in the SETUP flow too. The
@@ -537,10 +556,10 @@ class SunSpecFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
 
     @staticmethod
     @callback
-    def async_get_options_flow(config_entry):
+    def async_get_options_flow(config_entry: ConfigEntry) -> SunSpecOptionsFlowHandler:
         return SunSpecOptionsFlowHandler()
 
-    async def _show_config_form(self, user_input):
+    async def _show_config_form(self, user_input: dict[str, Any] | None) -> ConfigFlowResult:
         """Show the manual configuration form to edit connection data."""
         defaults = user_input or {
             CONF_HOST: self._discovered_host or "",
@@ -559,7 +578,7 @@ class SunSpecFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
             errors=self._errors,
         )
 
-    async def _show_settings_form(self, user_input):
+    async def _show_settings_form(self, user_input: dict[str, Any] | None) -> ConfigFlowResult:
         """Show the configuration form to edit settings data.
 
         Includes the optional peak AC power field directly here so the
@@ -571,6 +590,10 @@ class SunSpecFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
         pre-filled, otherwise the user enters it by hand or leaves it
         empty to disable the plausibility filter.
         """
+        # Only reached after a probe succeeded, which is what assigns
+        # self.client. HA config flows state that kind of step ordering
+        # with an assert rather than a branch nothing can take.
+        assert self.client is not None
         models = set(await self.client.async_get_models())
         # Resolve {model_id: "Group label (id)"} so the multi-select
         # shows "Inverter (Three Phase) (103)" instead of just "103".
@@ -630,6 +653,8 @@ class SunSpecFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
         both reads failed - the user can still type a value by hand
         in that case.
         """
+        if self.client is None:
+            return None
         for model_id, point_name, label in (
             (120, "WRtg", "model 120 WRtg"),
             (121, "WMax", "model 121 WMax"),
@@ -646,7 +671,7 @@ class SunSpecFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
                 return float(value) / 1000.0
         return None
 
-    async def _test_connection_tcp(self, host, port, unit_id):
+    async def _test_connection_tcp(self, host: str, port: int, unit_id: int) -> bool:
         """Probe a Modbus TCP inverter and cache its common-block info.
 
         Uses ``SETUP_TIMEOUT`` instead of the steady-state ``TIMEOUT``
@@ -669,7 +694,9 @@ class SunSpecFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
             set_connection_error(self._errors, host, port, unit_id, err)
         return False
 
-    async def _test_connection_rtu(self, serial_port, baudrate, parity, unit_id):
+    async def _test_connection_rtu(
+        self, serial_port: str, baudrate: int, parity: str, unit_id: int
+    ) -> bool:
         """Probe a Modbus RTU inverter over a serial port.
 
         Same purpose as the TCP probe: opens a fresh client, walks
@@ -738,14 +765,14 @@ class SunSpecOptionsFlowHandler(config_entries.OptionsFlow):
 
     VERSION = 1
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize options flow."""
-        self._errors = {}
-        self.settings = {}
-        self.options = {}
-        self.coordinator = None
+        self._errors: dict[str, str] = {}
+        self.settings: dict[str, Any] = {}
+        self.options: dict[str, Any] = {}
+        self.coordinator: SunSpecDataUpdateCoordinator | None = None
 
-    async def async_step_init(self, user_input=None):
+    async def async_step_init(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         """Manage the options."""
         self._errors = {}
         self.options = dict(self.config_entry.options)
@@ -758,7 +785,9 @@ class SunSpecOptionsFlowHandler(config_entries.OptionsFlow):
             self.coordinator = self.hass.data.get(DOMAIN, {}).get(self.config_entry.entry_id)
         return await self.async_step_host_options()
 
-    async def async_step_host_options(self, user_input=None):
+    async def async_step_host_options(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
         """Handle a flow initialized by the user."""
         if user_input is not None:
             self.settings.update(user_input)
@@ -767,7 +796,11 @@ class SunSpecOptionsFlowHandler(config_entries.OptionsFlow):
 
         return await self.show_settings_form()
 
-    async def show_settings_form(self, data=None, errors=None):
+    async def show_settings_form(
+        self,
+        data: Mapping[str, Any] | None = None,
+        errors: dict[str, str] | None = None,
+    ) -> ConfigFlowResult:
         settings = data or self.config_entry.data
         host = settings.get(CONF_HOST)
         port = settings.get(CONF_PORT)
@@ -785,7 +818,9 @@ class SunSpecOptionsFlowHandler(config_entries.OptionsFlow):
             errors=errors,
         )
 
-    async def async_step_model_options(self, user_input=None):
+    async def async_step_model_options(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
         """Handle a flow initialized by the user."""
         errors: dict[str, str] = {}
 
@@ -855,7 +890,11 @@ class SunSpecOptionsFlowHandler(config_entries.OptionsFlow):
             # close between polls. In those cases it returns ``[]`` and
             # the form would render an empty multi-select.
             models = set(getattr(self.coordinator, "detected_models", set()))
-            if not models:
+            # The coordinator is None when the entry is not loaded, which
+            # is exactly when the options flow can still be opened. Falling
+            # through to an empty multi-select beats raising an
+            # AttributeError the user sees as "unknown error".
+            if not models and self.coordinator is not None:
                 models = set(self.coordinator.api.known_models())
             # Resolve {model_id: "Group label (id)"} so the multi-select
             # shows "Inverter (Three Phase) (103)" instead of just
@@ -924,7 +963,7 @@ class SunSpecOptionsFlowHandler(config_entries.OptionsFlow):
             )
             return await self.show_settings_form(data=self.settings, errors=self._errors)
 
-    async def _update_options(self):
+    async def _update_options(self) -> ConfigFlowResult:
         """Update config entry options."""
         title = (
             f"{self.settings[CONF_HOST]}:{self.settings[CONF_PORT]}:{self.settings[CONF_UNIT_ID]}"

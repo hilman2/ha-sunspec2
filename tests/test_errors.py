@@ -3,6 +3,8 @@ and the Phase-3 coordinator hooks (per-category buffer, consecutive
 failure counters, Repairs panel).
 """
 
+from typing import Any
+
 import pytest
 import sunspec2.file.client as file_client
 from homeassistant.helpers import issue_registry as ir
@@ -128,6 +130,7 @@ async def test_repair_issue_after_three_transport_errors(hass):
     issue = ir.async_get(hass).async_get_issue(DOMAIN, issue_id)
     assert issue is not None
     assert issue.translation_key == "transport_error"
+    assert issue.translation_placeholders is not None
     assert issue.translation_placeholders["host"] == "test_host"
     assert "third - tipping point" in issue.translation_placeholders["error"]
 
@@ -185,13 +188,16 @@ async def test_clear_repair_issues_removes_active_issue(hass):
 # ----- Issue #52: an inverter that sleeps at night is not a broken one -------
 
 
-class _FakeWrapper:
+class _FakeWrapper(SunSpecModelWrapper):
     """Minimal stand-in for SunSpecModelWrapper carrying one point."""
 
-    def __init__(self, points: dict) -> None:
+    def __init__(self, points: dict[str, Any]) -> None:
+        # No pysunspec2 models behind this one: the coordinator paths
+        # under test read points and nothing else.
+        super().__init__([])
         self._points = points
 
-    def getValue(self, point_name: str, model_index: int = 0):
+    def getValue(self, point_name: str, model_index: int = 0) -> Any:
         return self._points[point_name]
 
 
