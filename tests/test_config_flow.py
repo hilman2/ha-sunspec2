@@ -10,19 +10,26 @@ from homeassistant.data_entry_flow import InvalidData
 from homeassistant.helpers import config_validation as cv
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
+from custom_components.sunspec2.const import CONF_BAUDRATE
 from custom_components.sunspec2.const import CONF_ENABLED_MODELS
 from custom_components.sunspec2.const import CONF_HOST
 from custom_components.sunspec2.const import CONF_MAX_AC_POWER_KW
+from custom_components.sunspec2.const import CONF_PARITY
 from custom_components.sunspec2.const import CONF_PORT
 from custom_components.sunspec2.const import CONF_PREFIX
 from custom_components.sunspec2.const import CONF_SCAN_INTERVAL
+from custom_components.sunspec2.const import CONF_SERIAL_PORT
 from custom_components.sunspec2.const import CONF_STANDBY_WHEN_IDLE
+from custom_components.sunspec2.const import CONF_TRANSPORT
 from custom_components.sunspec2.const import CONF_UNIT_ID
 from custom_components.sunspec2.const import DOMAIN
 from custom_components.sunspec2.const import MIN_SCAN_INTERVAL_SECONDS
+from custom_components.sunspec2.const import PARITY_NONE
+from custom_components.sunspec2.const import TRANSPORT_RTU
 
 from . import MockSunSpecDataUpdateCoordinator
 from .const import MOCK_CONFIG
+from .const import MOCK_CONFIG_RTU
 from .const import MOCK_CONFIG_STEP_1
 from .const import MOCK_SETTINGS
 
@@ -965,3 +972,35 @@ async def test_options_flow_saves_a_new_host_without_a_coordinator(hass):
 
     assert result["type"] == FlowResultType.CREATE_ENTRY
     assert entry.data[CONF_HOST] == "192.168.1.99"
+
+
+async def test_options_flow_keeps_the_serial_configuration(hass):
+    """Saving options must not turn a serial entry into a TCP one.
+
+    ``self.settings`` only ever holds what the host form asks for: host,
+    port and unit id. Writing that as the whole of ``entry.data`` dropped
+    transport, serial_port, baudrate and parity, which live nowhere else.
+    The entry then read as a TCP entry pointed at a host that does not
+    exist, and the only way back for the user was deleting it and adding
+    it again.
+
+    The user here does the ordinary thing: confirms the prefilled host
+    form and changes the scan interval.
+    """
+    entry = MockConfigEntry(domain=DOMAIN, data=MOCK_CONFIG_RTU, entry_id="rtu")
+    entry.add_to_hass(hass)
+
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        user_input={CONF_HOST: "/dev/ttyUSB0", CONF_PORT: 19200, CONF_UNIT_ID: 1},
+    )
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], user_input={CONF_SCAN_INTERVAL: 30}
+    )
+
+    assert result["type"] == FlowResultType.CREATE_ENTRY
+    assert entry.data[CONF_TRANSPORT] == TRANSPORT_RTU
+    assert entry.data[CONF_SERIAL_PORT] == "/dev/ttyUSB0"
+    assert entry.data[CONF_BAUDRATE] == 19200
+    assert entry.data[CONF_PARITY] == PARITY_NONE

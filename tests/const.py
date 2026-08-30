@@ -1,12 +1,17 @@
 """Constants for SunSpec tests."""
 
+from custom_components.sunspec2.const import CONF_BAUDRATE
 from custom_components.sunspec2.const import CONF_ENABLED_MODELS
 from custom_components.sunspec2.const import CONF_HOST
+from custom_components.sunspec2.const import CONF_PARITY
 from custom_components.sunspec2.const import CONF_PORT
 from custom_components.sunspec2.const import CONF_PREFIX
 from custom_components.sunspec2.const import CONF_SCAN_INTERVAL
+from custom_components.sunspec2.const import CONF_SERIAL_PORT
 from custom_components.sunspec2.const import CONF_TRANSPORT
 from custom_components.sunspec2.const import CONF_UNIT_ID
+from custom_components.sunspec2.const import PARITY_NONE
+from custom_components.sunspec2.const import TRANSPORT_RTU
 from custom_components.sunspec2.const import TRANSPORT_TCP
 
 MOCK_SETTINGS_PREFIX = {
@@ -28,6 +33,23 @@ MOCK_CONFIG = {
     CONF_HOST: "test_host",
     CONF_PORT: 123,
     CONF_UNIT_ID: 1,
+    CONF_PREFIX: "",
+    CONF_SCAN_INTERVAL: 10,
+    CONF_ENABLED_MODELS: MOCK_SETTINGS[CONF_ENABLED_MODELS],
+}
+# A serial entry as the RTU branch of the config flow persists it. The
+# host and port keys carry the port name and the baud rate as synthetic
+# coordinates, so the logger prefix and the gateway lock have a stable
+# identifier; the serial line itself is read from the four fields above
+# them and from nowhere else.
+MOCK_CONFIG_RTU = {
+    CONF_TRANSPORT: TRANSPORT_RTU,
+    CONF_SERIAL_PORT: "/dev/ttyUSB0",
+    CONF_BAUDRATE: 19200,
+    CONF_PARITY: PARITY_NONE,
+    CONF_UNIT_ID: 1,
+    CONF_HOST: "/dev/ttyUSB0",
+    CONF_PORT: 19200,
     CONF_PREFIX: "",
     CONF_SCAN_INTERVAL: 10,
     CONF_ENABLED_MODELS: MOCK_SETTINGS[CONF_ENABLED_MODELS],
