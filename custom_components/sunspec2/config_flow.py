@@ -986,7 +986,15 @@ class SunSpecOptionsFlowHandler(config_entries.OptionsFlow):
             self.settings,
             self.options,
         )
+        # Merge, do not replace. self.settings only ever holds what the host
+        # form asked for: host, port and unit id. A serial entry keeps its
+        # transport, serial_port, baudrate and parity in data and nowhere
+        # else, so writing settings as the whole of data turned it into a
+        # TCP entry aimed at a host that does not exist, and the user's only
+        # way back was deleting the entry and adding it again.
         self.hass.config_entries.async_update_entry(
-            self.config_entry, data=self.settings, title=title
+            self.config_entry,
+            data={**self.config_entry.data, **self.settings},
+            title=title,
         )
         return self.async_create_entry(title="", data=self.options)
