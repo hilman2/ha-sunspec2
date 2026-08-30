@@ -896,6 +896,18 @@ class SunSpecOptionsFlowHandler(config_entries.OptionsFlow):
             # AttributeError the user sees as "unknown error".
             if not models and self.coordinator is not None:
                 models = set(self.coordinator.api.known_models())
+            if not models:
+                # Nothing has polled the device: the entry never loaded, or
+                # its first cycle has not finished. Offer what the entry
+                # already carries instead of an empty multi-select. An empty
+                # one cannot be submitted at all, because the
+                # no_models_selected check at the top of this step rejects
+                # every submission, and a user who came here to correct an
+                # unreachable host would have no way to save the new one.
+                stored = self.config_entry.options.get(
+                    CONF_ENABLED_MODELS, self.config_entry.data.get(CONF_ENABLED_MODELS, [])
+                )
+                models = {int(m) for m in stored} or set(DEFAULT_MODELS)
             # Resolve {model_id: "Group label (id)"} so the multi-select
             # shows "Inverter (Three Phase) (103)" instead of just
             # "103". Reading the bundled pysunspec2 JSON files is

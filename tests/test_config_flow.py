@@ -11,7 +11,9 @@ from homeassistant.helpers import config_validation as cv
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.sunspec2.const import CONF_ENABLED_MODELS
+from custom_components.sunspec2.const import CONF_HOST
 from custom_components.sunspec2.const import CONF_MAX_AC_POWER_KW
+from custom_components.sunspec2.const import CONF_PORT
 from custom_components.sunspec2.const import CONF_PREFIX
 from custom_components.sunspec2.const import CONF_SCAN_INTERVAL
 from custom_components.sunspec2.const import CONF_STANDBY_WHEN_IDLE
@@ -910,3 +912,56 @@ async def test_setup_flow_rejects_an_unusable_scan_interval(hass, sunspec_client
                 CONF_ENABLED_MODELS: ["103"],
             },
         )
+
+
+async def test_options_flow_reaches_the_model_form_without_a_coordinator(hass):
+    """An entry that never loaded must still reach the second options step.
+
+    An unreachable inverter leaves its entry in SETUP_RETRY, and Home
+    Assistant has dropped runtime_data by then, so the options flow
+    finds no coordinator. That is the state a user is in when the
+    inverter moved to a new IP and they open the options to correct it.
+
+    Reading coordinator.api here raised an AttributeError into the
+    catch-all around this step, which showed the host form again with a
+    "device_error" the user could not act on.
+    """
+    entry = MockConfigEntry(domain=DOMAIN, data=MOCK_CONFIG, entry_id="test")
+    entry.add_to_hass(hass)
+
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    assert result["step_id"] == "host_options"
+
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], user_input=MOCK_CONFIG_STEP_1
+    )
+
+    assert result["step_id"] == "model_options"
+    assert result["errors"] is None
+
+
+async def test_options_flow_saves_a_new_host_without_a_coordinator(hass):
+    """Reaching the form is not enough, the correction has to save.
+
+    Nothing has polled the device, so the model multi-select has no
+    live list to offer. An empty one cannot be submitted at all: the
+    no_models_selected check rejects every submission, and the user is
+    stuck one step further along than before. The form therefore falls
+    back to the selection the entry already carries.
+    """
+    entry = MockConfigEntry(domain=DOMAIN, data=MOCK_CONFIG, entry_id="test")
+    entry.add_to_hass(hass)
+
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        user_input={CONF_HOST: "192.168.1.99", CONF_PORT: 502, CONF_UNIT_ID: 1},
+    )
+    assert result["step_id"] == "model_options"
+
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], user_input={CONF_SCAN_INTERVAL: 30}
+    )
+
+    assert result["type"] == FlowResultType.CREATE_ENTRY
+    assert entry.data[CONF_HOST] == "192.168.1.99"
