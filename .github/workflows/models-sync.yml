@@ -1,0 +1,73 @@
+name: Model definitions
+
+# Every second month, fetch the SunSpec model definitions from
+# sunspec/models and open a pull request when the JSON files differ from
+# the ones embedded under custom_components/sunspec2/pysunspec2/models/.
+# The definitions change a handful of times a year (a unit fix, a new
+# vendor model), so a shorter cadence would mostly run for nothing.
+# .github/scripts/sync_models.py does the comparison and writes the
+# commit message and the pull request body.
+#
+# The pull request goes through the same five checks as any other, but
+# it has to ask for them: a push made with the workflow token starts no
+# pull_request workflow, so the last step dispatches ci.yml on the branch.
+# workflow_dispatch is the one event the token is allowed to trigger.
+on:
+  schedule:
+    - cron: "17 6 1 */2 *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+  actions: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.14"
+
+      - name: Skip while a models pull request is still open
+        id: open
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          branch=$(gh pr list --state open --json headRefName \
+            --jq '[.[] | select(.headRefName | startswith("chore/models-"))][0].headRefName // empty')
+          if [ -n "$branch" ]; then
+            echo "The pull request from $branch is still open, nothing to do." >> "$GITHUB_STEP_SUMMARY"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Fetch sunspec/models
+        if: steps.open.outputs.skip != 'true'
+        run: git clone --depth 1 https://github.com/sunspec/models.git /tmp/sunspec-models
+
+      - name: Replace the embedded definitions
+        if: steps.open.outputs.skip != 'true'
+        id: sync
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python .github/scripts/sync_models.py /tmp/sunspec-models --out /tmp/sync
+          echo "changed=$(cat /tmp/sync/changed)" >> "$GITHUB_OUTPUT"
+
+      - name: Open the pull request
+        if: steps.open.outputs.skip != 'true' && steps.sync.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          branch="chore/models-$(date -u +%Y-%m-%d)"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$branch"
+          git add custom_components/sunspec2
+          git commit -F /tmp/sync/commit_msg.txt
+          git push -u origin "$branch"
+          gh pr create --title "$(head -1 /tmp/sync/commit_msg.txt)" --body-file /tmp/sync/pr_body.md
+          gh workflow run ci.yml --ref "$branch"
+          echo "Opened a pull request from $branch and started CI on it." >> "$GITHUB_STEP_SUMMARY"

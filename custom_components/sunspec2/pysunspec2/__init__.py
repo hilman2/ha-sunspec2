@@ -2,10 +2,11 @@
 
 Origin: https://github.com/sunspec/pysunspec2, tag v1.3.6, commit
 03aaa7f85f2dedaa28a9b4a6110d21f99b1886ff. The model definitions under
-``models/json`` are the ``sunspec/models`` submodule that tag pins, commit
-d11009faca0aec27daaf7d06cd5fb97055c97de3 (2025-06-13). Both are Apache 2.0,
-see the LICENSE files next to this one and next to the models; a few source
-files carry SunSpec's older MIT header, which stays with them.
+``models/json`` come from ``sunspec/models``; the commit they match is
+recorded in ``models/UPSTREAM``, and the "Model definitions" workflow
+brings them forward every second month. Both are Apache 2.0, see the
+LICENSE files next to this one and next to the models; a few source files
+carry SunSpec's older MIT header, which stays with them.
 
 What is embedded: the SunSpec device and model layer (``device``, ``mdef``,
 ``mb``, ``smdx``), the Modbus TCP and RTU clients (``modbus``) and the file
