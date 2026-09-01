@@ -149,6 +149,21 @@ async def test_config_flow_without_serial_number(
 
 
 # Our config flow also has an options flow, so we must test it as well.
+def _serialise_form(schema):
+    """Turn a form schema into the field list the frontend receives.
+
+    The flow API does this for every form. HA 2026.9 moved it from
+    voluptuous_serialize to probatio and re-exports probatio's entry
+    point from config_validation; older releases only have
+    voluptuous_serialize, and its convert() cannot handle the sentinel
+    the newer custom_serializer returns.
+    """
+    to_field_list = getattr(cv, "to_field_list", None)
+    if to_field_list is not None:
+        return to_field_list(schema, custom_serializer=cv.custom_serializer)
+    return voluptuous_serialize.convert(schema, custom_serializer=cv.custom_serializer)
+
+
 async def test_options_flow(hass, sunspec_client_mock):
     """Test an options flow."""
     # Create a new MockConfigEntry and add to HASS (we're bypassing config
@@ -177,17 +192,14 @@ async def test_options_flow(hass, sunspec_client_mock):
     assert result["type"] == FlowResultType.FORM
     assert result["step_id"] == "model_options"
 
-    # Regression guard for the voluptuous_serialize crash: when the
-    # frontend requests the options form, HA calls
-    # voluptuous_serialize.convert(schema, custom_serializer=cv.custom_serializer)
-    # to turn the schema into JSON. Plain callables (like the old
+    # Regression guard for the serialiser crash: when the frontend
+    # requests the options form, HA turns the schema into JSON (see
+    # _serialise_form). Plain callables (like the old
     # _optional_positive_float validator) blow up that call. A NumberSelector
     # serialises cleanly, so every field - including max_ac_power_kw -
     # must appear in the serialised output.
-    serialised = voluptuous_serialize.convert(
-        result["data_schema"], custom_serializer=cv.custom_serializer
-    )
-    serialised_names = {field["name"] for field in serialised}  # type: ignore[index]
+    serialised = _serialise_form(result["data_schema"])
+    serialised_names = {field["name"] for field in serialised}
     assert CONF_MAX_AC_POWER_KW in serialised_names
 
     result = await hass.config_entries.options.async_configure(

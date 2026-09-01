@@ -93,16 +93,20 @@ async def test_device_names_carry_model_suffix(hass: HomeAssistant, sunspec_clie
     await setup_mock_sunspec_config_entry(hass)
 
     device_registry = dr.async_get(hass)
-    inverter = device_registry.async_get_device(
-        identifiers={(DOMAIN, TEST_CONFIG_ENTRY_ID, "inverter_three_phase")}  # type: ignore[arg-type]
+    # Looked up per config entry: HA 2026.9 deprecates the plain identifier
+    # lookup because identifiers are only unique within one entry.
+    inverter = device_registry.async_get_device_by_identifier(
+        (DOMAIN, TEST_CONFIG_ENTRY_ID, "inverter_three_phase"),  # type: ignore[arg-type]
+        TEST_CONFIG_ENTRY_ID,
     )
     assert inverter is not None
     assert inverter.name == "Test-1547-1 Inverter (Three Phase)"
     assert inverter.model == "Test-1547-1"
     assert inverter.model_id == "SunSpec 103"
 
-    mppt = device_registry.async_get_device(
-        identifiers={(DOMAIN, TEST_CONFIG_ENTRY_ID, "mppt")}  # type: ignore[arg-type]
+    mppt = device_registry.async_get_device_by_identifier(
+        (DOMAIN, TEST_CONFIG_ENTRY_ID, "mppt"),  # type: ignore[arg-type]
+        TEST_CONFIG_ENTRY_ID,
     )
     assert mppt is not None
     assert mppt.name == "Test-1547-1 MPPT"
@@ -121,8 +125,9 @@ async def test_device_name_with_prefix_keeps_model_suffix(
     await setup_mock_sunspec_config_entry(hass, MOCK_CONFIG_PREFIX)
 
     device_registry = dr.async_get(hass)
-    mppt = device_registry.async_get_device(
-        identifiers={(DOMAIN, TEST_CONFIG_ENTRY_ID, "mppt")}  # type: ignore[arg-type]
+    mppt = device_registry.async_get_device_by_identifier(
+        (DOMAIN, TEST_CONFIG_ENTRY_ID, "mppt"),  # type: ignore[arg-type]
+        TEST_CONFIG_ENTRY_ID,
     )
     assert mppt is not None
     assert mppt.name == "test MPPT"
