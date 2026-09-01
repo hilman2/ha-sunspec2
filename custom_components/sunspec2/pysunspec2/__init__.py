@@ -25,6 +25,10 @@ Changes against upstream:
 * A repeating group whose count has to be inferred from the model length
   is measured by its full instance length, nested groups included, so
   model 705 scans (sunspec/pysunspec2#120, v2026.9.1).
+* A single register is written with function code 16 like every longer
+  write; ``single_register_write`` on either client brings function
+  code 6 back for a device that needs it (sunspec/pysunspec2#104,
+  v2026.9.1).
 
 Why a fork rather than the pip package: the integration works around the
 transport layer in several places (a Modbus TCP transaction id that is
