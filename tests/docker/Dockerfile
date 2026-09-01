@@ -20,6 +20,17 @@ RUN useradd --create-home --uid 1000 runner
 USER runner
 ENV PATH="/home/runner/.local/bin:${PATH}"
 
+# Which Home Assistant to test against. "stable" is what the CI gate
+# uses; build with --build-arg HA_CHANNEL=beta to reproduce what the
+# weekly HA beta workflow sees.
+ARG HA_CHANNEL=stable
+
+# The versions are resolved from PyPI at build time by the same script
+# the workflows call, so this image and the gate agree without a version
+# written down in two places. Docker caches the layer, so a rebuild after
+# a new HA release needs --no-cache to actually move.
+COPY .github/scripts/resolve_ha_versions.py /tmp/resolve_ha_versions.py
+
 # Same two steps as the workflow, same reasons:
 #
 #   1) pytest-haX pins pytest==9.0.x in its metadata, but 9.x changed the
@@ -27,13 +38,15 @@ ENV PATH="/home/runner/.local/bin:${PATH}"
 #      Resolve it with its full dep set first ...
 #   2) ... then downgrade pytest, which uninstalls 9.x and installs 8.x.
 #
-# The homeassistant cap keeps pip on a stable release: pytest-haX pins one
-# exact HA version and its newest release always tracks the next HA beta.
 # voluptuous-serialize is imported directly by tests/test_config_flow.py.
 # pyserial is the integration's one runtime requirement, see manifest.json.
-RUN pip install --no-cache-dir --user \
-        "homeassistant<2026.9" \
-        "pytest-homeassistant-custom-component>=0.13.316" \
+RUN python /tmp/resolve_ha_versions.py --channel "${HA_CHANNEL}" > /tmp/versions \
+    && HA=$(sed -n 's/^ha=//p' /tmp/versions) \
+    && PHCC=$(sed -n 's/^phcc=//p' /tmp/versions) \
+    && echo "Testing against homeassistant ${HA} via pytest-haX ${PHCC}" \
+    && pip install --no-cache-dir --user \
+        "homeassistant==${HA}" \
+        "pytest-homeassistant-custom-component==${PHCC}" \
         pytest-mock \
         pytest-timeout \
         pytest-xdist \

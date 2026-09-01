@@ -35,3 +35,16 @@ services:
   tests-verbose:
     <<: *common
     command: ["pytest", "tests/", "-v", "-s", "--log-cli-level=INFO"]
+
+  # The next Home Assistant release, before it is released. Same suite,
+  # separate image, so it never displaces the stable one. This is what
+  # the weekly "HA beta" workflow runs; use it to reproduce an issue it
+  # opened.
+  tests-beta:
+    <<: *common
+    build:
+      context: ../..
+      dockerfile: tests/docker/Dockerfile
+      args:
+        HA_CHANNEL: beta
+    image: ha-sunspec2-tests-beta
