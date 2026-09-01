@@ -11,685 +11,278 @@
 [![GitHub release](https://img.shields.io/github/v/release/hilman2/ha-sunspec2)](https://github.com/hilman2/ha-sunspec2/releases)
 [![Quality Scale](https://img.shields.io/badge/Quality%20Scale-Gold-FFD700.svg)](https://developers.home-assistant.io/docs/core/integration-quality-scale/)
 
-**Works with: KACO . SolarEdge . Fronius . SMA . Kostal . Sungrow . Delta .
-GoodWe . ABB / FIMER . Power-One . SunPower . Chint Power Systems** and any
-other inverter, meter or battery that speaks the SunSpec Modbus
-specification. SunSpec is the manufacturer-independent standard for
-photovoltaic equipment communication; if your device documentation
-mentions "SunSpec Modbus" or you can find the SunSpec ID register holding
-`0x53756e53` ("SunS") at one of the standard base addresses, this
-integration will talk to it.
+Home Assistant integration for solar inverters, meters and batteries
+that speak **SunSpec Modbus**. Set up entirely in the UI: enter the IP
+or let it scan your network, tick the data you want, done. No YAML, no
+template sensors.
 
-## What this is
+What you get:
 
-A Home Assistant integration for any device that implements the
-[SunSpec Information Model][sunspec-spec] over Modbus TCP. Built on
-[`pysunspec2`][pysunspec2] (the official SunSpec Alliance reference
-client) - hence the **`sunspec2`** name. The integration auto-discovers
-which SunSpec model blocks the device exposes and turns each readable
-point into a Home Assistant sensor.
+- Everything the device publishes as a normal HA sensor: power,
+  energy, voltages, currents, temperatures, operating state and error
+  events
+- The lifetime energy counter as an Energy dashboard source, with no
+  template sensor in between
+- One integration for every brand, so a SolarEdge string and a KACO
+  next to it look the same in Home Assistant
+- Sensors that ride out a flaky network instead of flickering
+  unavailable every few minutes
+- Dawn and dusk garbage filtered out before it reaches your statistics
+- A diagnostics download that makes a bug report reproducible
 
-## Use cases
+## Will it work with my inverter?
 
-- **Plug your inverter into the HA Energy dashboard** with the lifetime
-  energy register as the production source. No template sensors, no
-  Modbus YAML, no per-brand integration needed.
-- **Multi-brand homes**: cover a SolarEdge string and a KACO Powador
-  with the same integration, no setup difference.
-- **Production monitoring with automations**: build "battery charge from
-  PV surplus" or "switch on the wallbox when production exceeds X kW"
-  flows directly off the AC power sensor.
-- **Diagnostic dashboards**: temperatures, operating state, error
-  events and DC-side currents/voltages are all exposed as separate
-  sensors so a card with a glance at "what is the inverter doing right
-  now" is one drag-and-drop away.
+If the manual mentions "SunSpec Modbus", yes. That covers most brands:
 
-## Features
+**KACO** Powador, blueplanet . **SolarEdge** SE, HD-Wave, Energy Hub .
+**Fronius** Symo, Primo, Galvo, GEN24 . **SMA** Sunny Boy, Tripower
+(enable the Speedwire Modbus profile first) . **Kostal** Plenticore,
+Piko . **Sungrow** SG, SH . **GoodWe** XS, DT, ET . **ABB / FIMER /
+Power-One** Aurora, Trio, UNO, REACT . **Delta** Solivia, RPI .
+**SunPower** . **Chint Power Systems**
 
-- **Auto-discovery of SunSpec model blocks** on the device, with model
-  multi-select in the config flow so the user picks which families
-  become sensors.
-- **Active network scan** ("Add Integration -> SunSpec -> Scan my
-  network"): probes Modbus TCP port 502 across the local subnet,
-  ARP-matches responders against a curated SunSpec vendor MAC OUI
-  list, and floats inverter-vendor matches to the top of the picker.
-- **Passive DHCP discovery** as a best-effort second path: when HA sees
-  a fresh DHCP lease whose MAC matches one of the supported vendor
-  OUIs, the integration appears as a discovered tile in
-  *Devices & Services*.
-- **Auto-detected nameplate AC power**: reads SunSpec model 120 (`WRtg`)
-  or model 121 (`WMax`) on the first cycle and pre-fills the
-  plausibility filter so the user does not have to type the inverter's
-  rated power by hand.
-- **Plausibility filter** drops dawn / dusk garbage (the MW or TWh
-  spikes some inverters report at startup) before they poison
-  long-term statistics.
-- **Resilience for flaky inverter networks**: in-cycle retry after a
-  short pause, plus stale-data tolerance that keeps sensors on their
-  last good value through up to five consecutive failed cycles. A
-  KACO Powador with a chronically twitchy ethernet link no longer
-  flips to "unavailable" every other minute.
-- **Friendly device names**: each SunSpec model becomes its own HA
-  device named `Powador 7.8 TL3 Inverter (Three Phase)` - the `Md`
-  field of common model 1 plus the model's block label, so multiple
-  enabled models stay distinguishable in the device list. The
-  device-info card additionally shows the numeric model id
-  (`SunSpec 103`), matching the ids in the options-flow model
-  selection.
-- **Structured per-device logging** with `[host:port#unit_id]` prefix
-  on every line so multi-inverter setups stay triageable from a
-  single log stream.
-- **One-click diagnostics dump** with the host redacted, plus optional
-  raw-register capture so a bug report can be reproduced from the
-  JSON file alone.
-- **Repairs panel integration** for persistent transport / protocol /
-  device errors with actionable troubleshooting text in English and
-  German.
-- **Quiet about inverters that sleep**: most PV inverters power their
-  communication board down when there is no sun, so the connection dies
-  every night. The integration reads the inverter's own operating state
-  and, when the last thing the device reported before going quiet was
-  OFF, SLEEPING, SHUTTING_DOWN or STANDBY, it stays silent instead of
-  raising a red repair issue at dusk and clearing it at dawn.
+Most inverters need Modbus TCP switched on in their own web interface
+before they answer. It is usually off by default.
 
-## Supported devices
+Developed against a KACO Powador 7.8 TL3. Everything else is the
+standard doing its job, so reports about other hardware are welcome.
 
-Tested in production against a **KACO Powador 7.8 TL3** (firmware
-V2.30). Designed to work with anything that implements the SunSpec
-Information Model over Modbus TCP, including:
+## Installation
 
-- **KACO** Powador, blueplanet
-- **SolarEdge** SE / HD-Wave / Energy Hub
-- **Fronius** Symo, Primo, Galvo
-- **SMA** Sunny Boy / Tripower (with the Speedwire Modbus profile
-  enabled in Sunny Explorer)
-- **Kostal** Plenticore, Piko
-- **Sungrow** SG / SH series
-- **GoodWe** XS / DT / ET
-- **ABB / FIMER / Power-One** Aurora, Trio, UNO, REACT
-- **SunPower** SPR-8000m / SPR-10000m
-- **Delta** Solivia, RPI
-- **Chint Power Systems** CPS
-
-Anything not in the list above that advertises "SunSpec Modbus
-TCP" in its documentation should also work; the integration is
-brand-agnostic by design.
-
-## Installation via HACS
-
-This integration is in the **default HACS store**, so there is no
-custom repository to add.
+The integration is in the default HACS store.
 
 1. **HACS** -> search for **SunSpec Modbus** -> **Download**
 2. **Restart Home Assistant**
-3. **Settings -> Devices & Services -> Add Integration -> SunSpec Modbus**
-4. Pick the connection type:
-   - **Enter IP address manually** for Modbus TCP if you know the IP
-   - **Scan my network** for Modbus TCP if you don't know the IP
-   - **Connect via serial port** for Modbus RTU over RS-485
-     (typically a USB-to-RS-485 adapter on `/dev/ttyUSB0` or `COM3`)
-5. Confirm the connection details (port 502 + unit ID 1 for TCP, or
-   serial port + baud rate + parity + unit ID for RTU)
-6. Pick the SunSpec models you want sensors for and optionally enter
-   the inverter's nameplate AC power for the plausibility filter
+3. **Settings -> Devices & Services -> Add Integration -> SunSpec
+   Modbus**
+4. Choose how to connect:
+   - **Enter IP address manually** if you know the inverter's IP
+   - **Scan my network** if you do not
+   - **Connect via serial port** for RS-485, usually a USB adapter
+     on `/dev/ttyUSB0` or `COM3`
+5. Confirm port `502` and unit ID `1` (the usual defaults), or the
+   serial settings
+6. Tick the data blocks you want sensors for
 
-If your inverter is on the same LAN as Home Assistant and uses one of
-the supported manufacturers, HA can also detect it via DHCP
-automatically and offer it as a discovered integration on the
-*Devices & Services* page - you only have to confirm.
+If your inverter picks up a fresh DHCP lease, Home Assistant may also
+find it on its own and offer it on the *Devices & Services* page.
 
-## Configuration parameters
+## Adding it to the Energy dashboard
 
-| Parameter | Where | Default | Purpose |
-|---|---|---|---|
-| `transport` | Setup | `tcp` | Modbus transport. Either `tcp` or `rtu`. RTU mode talks to the inverter over a serial line (RS-485) instead of Ethernet |
-| `host` | Setup TCP, Reconfigure | - | Inverter IP or hostname (TCP only) |
-| `port` | Setup TCP, Reconfigure | `502` | Modbus TCP port (TCP only) |
-| `serial_port` | Setup RTU | - | Serial device path, e.g. `/dev/ttyUSB0` or `COM3` (RTU only) |
-| `baudrate` | Setup RTU | `9600` | Serial baud rate (RTU only) |
-| `parity` | Setup RTU | `N` | Serial parity, `N` (none) or `E` (even). RTU only |
-| `unit_id` | Setup, Reconfigure | `1` | Modbus unit / slave ID |
-| `prefix` | Setup, Options | empty | Optional prefix for the device name (e.g. `Garage`, `Cellar`) for multi-inverter setups |
-| `scan_interval` | Setup, Options | `30 s` | How often the coordinator polls the inverter |
-| `scan_delay` | Options | `0.5 s` | Pause between models while scanning the SunSpec model tree. The tree is only scanned when a new connection has to be built and there is no stored layout that still matches the device, never on a normal poll, so this costs nothing in steady state. Raise it if scans fail on slow hardware |
-| `models_enabled` | Setup, Options | sensible defaults | Which SunSpec model blocks become sensors |
-| `max_ac_power_kw` | Setup, Options | auto-detect from model 120/121 | Plausibility filter ceiling. Drops readings above this value |
-| `capture_raw_registers` | Options | off | Wraps every Modbus read so the bytes appear in the diagnostics dump |
-| `release_slot` | Options | off | Hand the inverter's Modbus slot back after each poll instead of holding one session open. Off is right for almost everyone; turn it on only if another program outside Home Assistant has to read the same inverter and cannot go through a Modbus proxy. Set automatically when several config entries share one gateway |
-| `standby_when_idle` | Options | off | Never raise the "Cannot reach SunSpec inverter" repair. Only needed for a device that drops off the network without first reporting a shutdown state, or that publishes no operating state at all: the common case is detected automatically |
+Use the **Lifetime energy** sensor as your *Solar production* source
+under **Settings -> Dashboards -> Energy**. Nothing else to configure.
 
-## How the integration polls
+SunSpec reports that value in watt-hours, so the number gets large
+after a few years. The Energy dashboard handles it correctly either
+way, but if you prefer kWh: open the entity, click the cog, change
+**Unit of Measurement**, and confirm when HA offers to convert your
+existing history.
 
-A single `DataUpdateCoordinator` per config entry runs the following
-loop, by default every 30 seconds:
+## Options
 
-1. Acquire a class-level **per-(host, port) `asyncio.Lock`**. This
-   matters when several config entries share the same Modbus TCP
-   gateway: KACO Powador and many other devices only allow one
-   Modbus TCP slot at a time, so two coordinators behind one
-   gateway would race each other without this lock.
-2. Make sure the client has its model layout. pysunspec2 only fills
-   `client.models` during a scan, and until v0.22.0 step 6 threw the
-   client away at the end of every cycle, so this meant walking the
-   whole model tree on every poll: `1 + 2n` Modbus round trips plus a
-   `scan_delay` pause per model, twice a minute, to rediscover a
-   layout that only changes on a firmware update. The session now
-   stays open, so on a normal cycle there is nothing to rebuild. A
-   client is only built when there is none - first setup, after a
-   failed cycle, or with *Release the Modbus connection between
-   polls* on - and then the cached layout (held in memory, and
-   persisted to disk so a restart does not have to scan either) is
-   checked against the device with three short reads: the base
-   address, the tail block, and the end marker behind it. A real
-   re-scan happens only when that check fails, which is what a
-   firmware update looks like, or after a failed cycle, since a
-   layout read at addresses that just stopped answering is a suspect.
-   There is deliberately no periodic re-scan: a scan cannot confirm a
-   layout, it can only replace it, and pysunspec2 walks the chain
-   with `addr += model_len + 2`, so one misread block length shifts
-   every block behind it and the scan still returns without raising.
-3. Walk every enabled SunSpec model and read its valid points.
-4. On the first successful cycle: cache the inverter's full model
-   list, the common-block device info, and the auto-detected
-   nameplate.
-5. On a successful cycle: reset every per-category failure counter
-   and clear any active Repairs issues. If the previous run had
-   failed, log a single recovery WARNING so the user can correlate
-   the recovery moment in the log.
-6. Keep the Modbus session open for the next cycle. Every cycle used
-   to end in a `SO_LINGER=0` close, sending a TCP RST instead of a
-   polite FIN so single-slot inverters freed their slot at once
-   rather than waiting on their own keep-alive. Measured against the
-   hardware that motivated that design, a KACO Powador 7.8 TL3 at a
-   30 s interval, it is what broke it: reconnecting per poll failed
-   5 of 6 cycles, while one held session served 20 of 20 at a steady
-   1.6 s. The socket is now closed after a cycle only when another
-   config entry shares the same endpoint, or when *Release the Modbus
-   connection between polls* is on, and that close is a normal FIN.
-   The `SO_LINGER=0` abort is reserved for the paths where the
-   session is already a suspect: a failed cycle, or an unload that
-   has to free the slot before the next coordinator connects.
+Reachable any time via *Settings -> Devices & Services -> SunSpec
+Modbus -> Configure*.
 
-**On failure**, the coordinator does NOT immediately mark the entity
-unavailable. Instead:
+| Option | Default | What it does |
+|---|---|---|
+| Device name prefix | empty | Prefix for the device name, e.g. `Garage`. Useful with several inverters |
+| Scan interval | 30 s | How often the inverter is polled |
+| Models | sensible defaults | Which SunSpec data blocks become sensors |
+| Peak AC power | read from the inverter | Ceiling for the plausibility filter. Readings above it are dropped. Older firmware does not publish its rated power, then you enter it once |
+| Scan delay | 0.5 s | Pause between blocks while mapping the inverter. Raise it if setup fails on slow hardware |
+| Release the Modbus connection between polls | off | Only needed when another program outside Home Assistant reads the same inverter |
+| Inverter powers down when idle | off | Suppresses the unreachable warning for inverters that vanish at night without saying so |
+| Capture raw registers | off | Puts the raw Modbus bytes into the diagnostics download, for bug reports |
+| Enable experimental write controls | off | See [Battery and export control](#battery-and-export-control-beta) |
 
-1. **In-cycle retry**: release the gateway lock, sleep 5 seconds,
-   then run the cycle one more time. This catches the most common
-   failure mode (a one-shot blip).
-2. **Stale-data tolerance**: while consecutive cycles keep failing,
-   the entity `available` property serves the last good value for
-   up to 5 cycles. Only after that does the sensor flip to
-   "unavailable". With the default 30 s interval plus the 5 s
-   retry, this rides out roughly three minutes of dropped
-   connectivity without bouncing the long-term statistics graphs
-   to "unknown".
-3. **Repairs panel** issues fire after 1 consecutive protocol error
-   or 3 consecutive transport / device errors, with actionable
-   text in English and German. Issues clear automatically on the
-   next successful cycle.
+Host, port and unit ID are changed via **Reconfigure** in the same
+menu.
 
-## Example uses
+## Several inverters on one connection
 
-### Energy dashboard
+Add one entry per unit ID, with the same IP and port (or the same
+serial port). The integration takes turns on the connection by itself,
+which matters because many inverters only accept one Modbus client at
+a time. Nothing to switch on.
 
-The lifetime energy sensor (`WH` on a three-phase inverter, key
-`lifetime_energy`) reports the inverter's total produced energy in
-Wh and has the `total_increasing` state class. Add it to **Settings
--> Dashboards -> Energy** as a *Solar production* source. No
-template sensor needed.
+Each unit ID becomes its own device with its own sensors and options.
 
-**Tip on units**: SunSpec reports lifetime energy in raw watt-hours,
-which can produce huge numbers (e.g. 50,000,000 Wh after a couple
-of years). HA's Energy Dashboard handles that correctly internally,
-but if you prefer kWh in your dashboards you can change the
-displayed unit per sensor without losing history:
+You cannot, however, run this alongside another Modbus program reading
+the same inverter, be that the old cjne integration, openHAB or a
+script. Put a Modbus proxy in front if you need that.
 
-1. Open the lifetime energy entity in *Settings -> Devices &
-   Services -> SunSpec Modbus -> ... -> Lifetime energy*
-2. Click the cog icon in the top right
-3. Change **Unit of Measurement** from `Wh` to `kWh`
-4. HA asks whether to convert the existing long-term statistics -
-   confirm and your historical graph stays consistent.
+## Battery and export control (BETA)
 
-This is a per-entity HA UI feature, not something the integration
-configures - we expose the raw SunSpec values so the conversion
-choice stays with the user.
+> **This one can bite.** Writing to an inverter changes its
+> configuration, and some devices persist that through a reboot or
+> refuse to hand control back. Grid feed-in limits may also be
+> regulated where you live. Read this section before switching it on.
 
-### Surplus-driven wallbox automation
-
-The AC power sensor (`W`, key `watts`) gives the current production
-in watts. A simple "switch on the wallbox if production exceeds
-3 kW for 5 minutes" automation reads it directly:
-
-```yaml
-trigger:
-  - platform: numeric_state
-    entity_id: sensor.powador_7_8_tl3_ac_power
-    above: 3000
-    for: "00:05:00"
-action:
-  - service: switch.turn_on
-    target:
-      entity_id: switch.wallbox
-```
-
-### Quick-glance dashboard card
-
-Drop the **device** for your inverter onto a dashboard via *Add
-Card -> By device*. The integration's friendly device name plus
-the per-entity translation_keys means the card already shows
-`AC power`, `DC voltage`, `Frequency`, `Cabinet temperature` and so
-on out of the box - no manual `name:` overrides.
-
-## Troubleshooting
-
-**The Diagnostics dump is the primary debugging tool.** Get it via
-*Settings -> Devices & Services -> SunSpec Modbus -> Download
-diagnostics*. The host field is automatically redacted, the captured
-raw register bytes (when enabled) make most bugs reproducible from
-the JSON file alone, and the per-category recent-error buffer plus
-the consecutive-failure counters tell you immediately what went
-wrong.
-
-Common situations and what to check:
-
-- **All sensors `unavailable` after a model selection edit**: you
-  saved the options form with no models ticked. Re-open the options
-  flow and re-tick the models you want. v0.7.6 onwards refuses to
-  save an empty selection; if you are on an older version, update
-  first.
-- **All sensors `unavailable` and Repairs shows a `cjne_conflict`
-  issue**: the legacy `cjne/ha-sunspec` integration is still loaded
-  for the same host. Single-slot inverters cannot be polled from
-  two integrations at once. Uninstall cjne via HACS, restart Home
-  Assistant, and the migration runs automatically.
-- **Sensors flip to `unavailable` for a few minutes every few hours**:
-  this is exactly what the resilience features (in-cycle retry +
-  stale tolerance) are designed to absorb. Before v0.22.0 the
-  integration rebuilt its Modbus session on every poll, which is the
-  thing an embedded Modbus TCP stack handles worst: on a KACO Powador
-  7.8 TL3 at a 30 s interval, 5 of 6 cycles failed on the reconnect
-  while one held session served 20 of 20. If you are on an older
-  version, update first. On v0.22.0 or later, check whether *Release
-  the Modbus connection between polls* is switched on in the options,
-  because that deliberately brings the old reconnect-per-poll
-  behaviour back. Otherwise the underlying network link is dropping
-  for longer than three minutes - check the WiFi / ethernet to the
-  inverter.
-- **Dawn / dusk spikes in your statistics**: the **Peak AC power**
-  option drives a plausibility filter that drops every reading above
-  that value, including the MW / TWh garbage some inverters generate
-  at startup. The integration reads your inverter's nameplate from
-  SunSpec model 120 / 121 and pre-fills the field with 20 % on top,
-  so in most cases you can leave it alone.
-
-  The number is an **AC active power** ceiling, and the filter knows
-  that the other quantities are bounded by something else, so it gives
-  each of them room: apparent and reactive power get 25 % on top
-  (grid codes require operation down to cos phi 0.80), and DC power
-  may go up to three times the AC ceiling, because the DC side is
-  bounded by the MPPT inputs and the battery rather than by the AC
-  stage: two MPPTs each rated at the full AC power is already 2x, and
-  a DC-coupled hybrid charges its battery on top of that. Only live
-  measurements are filtered - nameplate ratings, setpoints and limit
-  registers are never touched.
-
-- **`Watts`, `VA` or `DC Watts` read `unknown` on a bright day**: the
-  peak AC power is set too low. Raise it, or clear the field to switch
-  the filter off entirely. The log names the culprit and says which
-  ceiling it used and where that came from:
-
-  ```
-  Dropping implausible value for DCW: 9800.0 W is beyond the 7500.0 W
-  ceiling from configured peak AC power (rejection 1). If this is a
-  real reading, raise or clear 'Peak AC power' in the integration
-  options.
-  ```
-
-  The line repeats only once every 20 rejections, and one more line
-  is logged when the sensor comes back. A diagnostics download has the
-  whole picture under `plausibility_filter`, including the ceiling in
-  force for each quantity.
-
-  Energy counters get a second filter on the same number: a jump in a
-  lifetime counter is dropped when it is more than the peak power could
-  have produced since the counter last moved (times two). Measured since
-  it last moved, not per poll, because many inverters update that
-  register only every few minutes and then jump by the whole amount at
-  once. A `Dropping implausible energy delta` line in the log is
-  therefore a real outlier, not a slow counter.
-- **Repairs panel says "Cannot reach SunSpec inverter"**: open the
-  diagnostics dump, look at `recent_errors`. If the same error
-  appears three times in a row, the inverter is genuinely
-  unreachable - check power, network and that no other Modbus
-  client is holding the slot.
-- **The inverter is unreachable every night**: that is normal for most
-  PV inverters. Below a certain DC input they shut down, and the
-  communication board goes with them, so the Modbus session dies until
-  the sun is back. Since v0.28.0 the integration recognises this on its
-  own: if the last successful poll reported the inverter as OFF,
-  SLEEPING, SHUTTING_DOWN or STANDBY, no repair issue is raised and the
-  log stays quiet until it wakes up. Sensors still go `unavailable`
-  after a few minutes, which is the honest state for a device that is
-  switched off.
-
-  If your inverter disappears without ever reporting one of those
-  states, or exposes no operating state at all, switch on **Inverter
-  powers down when idle** in the integration options. That suppresses
-  the transport repair unconditionally. A device that answers with a
-  Modbus error, or answers with something that is not SunSpec, still
-  reports it either way: those prove the inverter is awake.
-
-  The `standby` block in the diagnostics dump shows both inputs to that
-  decision, so you can tell which path applied.
-
-## Experimental: inverter write controls (BETA, opt-in)
-
-> **Important: this is genuinely risky.** Read the whole section before
-> ticking the opt-in. Writing to a Modbus register on a real inverter
-> can persist a configuration change that locks you out of the device
-> until a physical reset. There are no test users yet who have
-> validated this code path against real hardware - the integration
-> owner does not have an inverter that exposes SunSpec model 123.
-
-v0.12.0 adds an **opt-in beta** for setpoint control via the standard
-**SunSpec model 123 (Immediate Controls)**. When enabled, the
-integration registers two extra HA platforms (`number` and `switch`)
-plus a service action so you can curtail your inverter's export from
-HA automations.
+Opt-in support for setting an export limit and steering a battery from
+Home Assistant. Off by default, and no write entity exists until you
+turn it on.
 
 ### What you get when you enable it
 
-| Entity | Type | SunSpec point | What it does |
-|---|---|---|---|
-| Export limit | Number (0..200 %) | 123 `WMaxLimPct` / 704 `WMaxLimPct` | Caps AC output to N % of nameplate. Set to 0 for zero-export operation. Above 100 is allowed because some firmware uses e.g. 110 to mean "no limit"; the inverter clamps what it will not honour |
-| Export limit enabled | Switch | 123 `WMaxLim_Ena` / 704 `WMaxLimPctEna` | The export limit only takes effect while this switch is ON |
-| Export limit revert time | Number (seconds) | 123 `WMaxLimPct_RvrtTms` / 704 `WMaxLimPctRvrtTms` | How long the inverter honours the limit before reverting on its own. Some devices lapse silently: the limit stops applying while the enable flag and the setpoint still report it as active (KACO in #17). 0 disables the timeout where the device supports it, which removes a dead-man switch, so leave it alone unless you want a permanent cap |
-| Export limit revert value | Number (0..200 %) | 704 `WMaxLimPctRvrt` | The percentage the inverter falls back to when the revert timer expires. Set it to the limit you just wrote and the expiry becomes a no-op. Disabled by default |
-| Export limit stays on after revert | Switch | 704 `WMaxLimPctEnaRvrt` | Whether the limit stays enabled once the timer expires. With the row above, a lapse changes nothing. Disabled by default |
-| Active power setpoint | Number (watts) | 704 `WSet` | Absolute setpoint in watts rather than percent of nameplate. Usually what a zero-export control loop wants, since percent requires the automation to know the nameplate. Needs the setpoint mode on `WATTS` |
-| Active power setpoint enabled | Switch | 704 `WSetEna` | |
-| Active power setpoint mode | Select | 704 `WSetMod` | Whether `WSet` (watts) or `WSetPct` (percent) is in force. Disabled by default |
-| Battery charge rate | Number (0..100 %) | 124 `InWRte` | Charge power as a percentage of the maximum. The dynamic half of battery control, meant to be moved from an automation |
-| Battery discharge rate | Number (0..100 %) | 124 `OutWRte` | Discharge power as a percentage of the maximum |
-| Battery max charge power | Number (watts) | 124 `WChaMax` | The ceiling the two rates above are a percentage of |
-| Battery control mode | Select | 124 `StorCtl_Mod` | Off / charge only / discharge only / both. One entity rather than two switches on purpose: the point is a bitfield, and two switches would compute their read-modify-write base from the same possibly stale poll data and clobber each other |
-| Battery rate revert time | Number (seconds) | 124 `InOutWRte_RvrtTms` | Same lapse behaviour as the export limit's revert time |
-| Battery minimum reserve | Number (0..100 %) | 124 `MinRsvPct` | State of charge to hold back, e.g. for backup power. Disabled by default |
-| Power factor setpoint | Number (-1..1) | 123 `OutPFSet` | Cos-phi setpoint for reactive power control |
-| Power factor enabled | Switch | 123 `OutPFSet_Ena` | The PF setpoint only takes effect while this switch is ON |
-| Inverter grid connection | Switch | 123 `Conn` | **Most dangerous**: turning OFF disconnects the inverter from the grid entirely |
+| Entity | What it does |
+|---|---|
+| Export limit | Caps AC output to N % of nameplate. 0 means no export |
+| Export limit enabled | The limit only applies while this is on |
+| Export limit revert time | Seconds the inverter honours the limit before reverting on its own |
+| Export limit revert value | The percentage it falls back to. Disabled by default |
+| Export limit stays on after revert | Whether the limit survives the timer. Disabled by default |
+| Active power setpoint | The limit in watts instead of percent, where the inverter supports it |
+| Active power setpoint enabled | The setpoint only applies while this is on |
+| Active power setpoint mode | Watts or percent. Disabled by default |
+| Battery charge rate | Charge power, as a percentage of the maximum |
+| Battery discharge rate | Discharge power, as a percentage of the maximum |
+| Battery max charge power | The watts those two percentages refer to |
+| Battery control mode | Off, charge only, discharge only, or both |
+| Battery rate revert time | Seconds the rates hold before the inverter reverts |
+| Battery minimum reserve | Charge level to hold back for backup power. Disabled by default |
+| Power factor setpoint | Cos-phi setpoint for reactive power |
+| Power factor enabled | The setpoint only applies while this is on |
+| Inverter grid connection | **Most dangerous.** Off disconnects the inverter from the grid |
 
-Plus the **`sunspec2.set_export_limit`** service action with two
-parameters (`config_entry_id`, `percent`, optional `enable`) so
-automations can flip the export limit without going through a
-Number entity.
+There is also a `sunspec2.set_export_limit` service action, so an
+automation can set the limit without going through the entity.
 
-### Why it's opt-in
+### Watch the revert timer
 
-Every remaining point of these models is exposed as a read-only sensor,
-including the `*_WinTms` / `*_RmpTms` timers, so you can see when a
-limit is about to lapse. Only the points that are controls are held
-back, because a sensor there would duplicate the entity above and
-disagree with it mid-write.
+Most inverters treat a limit as a dead-man switch. They apply it for
+the revert time, then drop it. An inverter left behind by a dead
+controller goes back to normal instead of staying throttled forever.
+Some keep reporting the old value afterwards, so the limit looks
+active when it is not.
 
-**Where a device exposes both model 123 and model 704**, the controls are
-built from 704 and 123 stays read-only. 704 is the modern equivalent, it
-can take an absolute watt setpoint, and on the one device we have
-evidence from it reports a lapsed limit honestly while 123 on the same
-inverter still shows it as active. Two controls for one physical setting
-would be confusing even if they agreed.
-
-### Keeping a limit from lapsing
-
-Most inverters treat an export limit as a **dead-man switch**: they
-apply it for `WMaxLimPct_RvrtTms` seconds and then revert on their own,
-so an inverter driven by a controller that dies returns to normal
-operation instead of staying throttled forever. On some devices the
-enable flag and the setpoint keep reporting the old value afterwards,
-so the limit looks active when it is not (KACO in
-[#17](https://github.com/hilman2/ha-sunspec2/issues/17)).
-
-Three ways to deal with it, in descending order of how much of the
-safety net they keep:
-
-1. **Re-write on a schedule (recommended).** Set the revert time to
-   comfortably more than your automation's interval, for example 120 s
-   for an automation that runs every 15 s, and write the limit each
-   time. The limit holds while your control loop is alive and lapses on
-   its own if Home Assistant stops. This is what
-   [milanhin/pv_curtailment](https://github.com/milanhin/pv_curtailment)
-   does, and it is the pattern to copy.
-2. **Make the lapse harmless.** Model 704 only: set
-   *Export limit revert value* to the same percentage and
-   *Export limit stays on after revert* to on. The timer still fires,
-   it just lands on the value you already wanted.
-3. **Turn the timeout off.** Set the revert time to 0 where the device
-   supports it. Simplest, and it removes the dead-man switch entirely,
-   so the inverter stays throttled if your automation, Home Assistant
-   or the network goes away. Reasonable for a permanent cap, a bad idea
-   for a dynamic control loop.
-
-**Which models are deliberately not writable.** SunSpec marks far more
-points RW than it is safe to expose: 1586 of them across 67 models.
-Models 707 to 710 are the over/under voltage and frequency trip curves,
-model 703 is the enter-service envelope, and `AntiIslEna` in model 704 is
-islanding detection. Those are type-approved grid protection settings
-(VDE-AR-N 4105 and equivalents), not preferences. Model 121 looks like a
-settings model but holds `VMax` / `VMin` and `WMax`, the last of which is
-the reference every percentage in the device is measured against.
-Models 126 and 129 to 142 are curves in repeating groups, where writing
-one point without the others produces a shape the device never agreed to.
-None of those are exposed, and that is not an oversight.
-
-- **Vendor deviations**: SunSpec model 123 is part of the standard
-  but vendors are inconsistent about which firmware revisions
-  expose it, what scale-factor handling they apply, and what
-  ranges they accept. We test against the spec, not against your
-  specific firmware.
-- **Persistence semantics vary**: some inverters persist a write
-  through power-cycle, others reset to defaults on reboot. Some
-  require a non-zero `WMaxLimPct_RvrtTms` (revert timeout) to
-  prevent the limit from sticking forever.
-- **No real-hardware test on the integration owner's side**: my
-  KACO Powador 7.8 TL3 does not expose model 123, so I cannot
-  smoke-test the write path against a live device. The first
-  community user who runs this on a real inverter is doing the
-  validation work, hence the BETA flag.
+The reliable pattern is to write the limit repeatedly from an
+automation, with a revert time comfortably longer than the automation's
+interval. Setting the revert time to 0 makes the limit permanent on
+devices that allow it, and removes the safety net with it.
 
 ### How to enable
 
-1. Open *Settings → Devices & Services → SunSpec Modbus → Configure*
+1. *Settings -> Devices & Services -> SunSpec Modbus -> Configure*
 2. Click through to the model options step
 3. Tick **"Enable experimental write controls (BETA)"**
-4. Save - the integration reloads and the Number / Switch entities
-   appear under your inverter's device card
+4. Save. The new entities appear on your inverter's device card
 
-You do NOT need to tick model 123 in the model list yourself. The
-integration polls it automatically while the beta flag is on, and
-keeps it out of the sensor list because its points are setpoints
-rather than measurements.
+You do not have to tick the matching data block yourself, that happens
+automatically. If your inverter does not offer these controls at all,
+no entities appear even with the option on. The diagnostics download
+tells you which blocks it has, under `detected_models`.
 
-If your inverter does NOT expose model 123, the entities will not
-register even with the flag on. To check, download the diagnostics
-dump (*three-dot menu → Download diagnostics*) and look at the
-top-level **`detected_models`** array, which is the raw scan result.
+### Please report back
 
-Do not use `scanned_models` for this: it is built from the models
-actually being polled, so a model your inverter has but you never
-enabled will be missing from it. That is what made a KACO Blueplanet
-look like it had no model 123 in
-[#17](https://github.com/hilman2/ha-sunspec2/issues/17), even though
-it had been answering writes to the matching registers for two years.
+Nobody has confirmed these writes against real hardware yet, which is
+why they are still a beta. If you run them, please
+[open an issue](https://github.com/hilman2/ha-sunspec2/issues) with
+your inverter model, its firmware version, and what worked and what
+did not. That feedback is what lets the BETA flag come off.
 
-### Looking for testers
+## When something is wrong
 
-If you are running this beta on a real inverter and want to share
-results, please open an issue on
-<https://github.com/hilman2/ha-sunspec2/issues> with the model name,
-the firmware revision, and a description of which writes worked
-and which did not. That feedback is what will let us drop the
-BETA flag and ship v1.0.
+**Download the diagnostics first.** *Settings -> Devices & Services ->
+SunSpec Modbus -> Download diagnostics*. Your IP is redacted
+automatically, and it contains almost everything needed to work out
+what happened.
 
-## Multiple inverters behind one gateway
+**Sensors drop out for a few minutes now and then.** Expected on a
+shaky network. The integration retries and keeps showing the last good
+value for about three minutes before giving up. If gaps are longer than
+that, check the WiFi or cable to the inverter.
 
-If you have several SunSpec devices sharing one connection - for
-example two Modbus TCP slaves behind a single network gateway, or
-several RS-485 slaves on the same `/dev/ttyUSB0` bus - **just add
-one config entry per unit ID with the same host/port (TCP) or
-serial port/baud rate (RTU)**.
+**The inverter is unreachable every night.** Normal. Most inverters
+switch off with the sun and take their network connection with them.
+The integration recognises this and stays quiet. If yours vanishes
+without announcing it first, switch on **Inverter powers down when
+idle** in the options.
 
-The integration uses a per-(host, port) `asyncio.Lock` that all
-coordinators behind the same connection share. Reads are
-serialised across all matching config entries, so:
+**Everything is unavailable after changing the options.** You probably
+saved with no data blocks ticked. Re-open the options and tick them
+again.
 
-- on **Modbus TCP gateways** that only allow one TCP slot at a
-  time (notably the SolarEdge SE-CC, several KACO models), the
-  lock guarantees you never see two concurrent connects fighting
-  for the slot
-- on **RS-485 buses** the same lock covers `/dev/ttyUSB0` so two
-  coordinators never open the serial port concurrently (each
-  coordinator runs an `open() -> restore layout -> read -> close()`
-  cycle fully within the lock, and once a layout has been cached the
-  restore is three short reads against it rather than a full model
-  scan)
+**Power or energy values read `unknown` on a bright day.** The
+plausibility filter is set too low. Raise **Peak AC power**, or clear
+the field to switch the filter off. The log names the sensor and the
+ceiling it used.
 
-Each unit ID lands as its own HA device, with its own friendly
-name from the inverter's `Md` field, its own sensors, its own
-options. The only thing they share is the bus.
+**Spikes in your statistics at dawn or dusk.** That is the same filter
+doing its job, or not doing it because the ceiling is too high. It is
+prefilled from the inverter's own nameplate, so in most cases you can
+leave it alone.
 
-You don't have to enable any setting for this. The behaviour
-is automatic the moment you add a second config entry whose
-host/port (TCP) or serial port/baud rate (RTU) matches an
-existing one. That includes handing the connection back after
-each poll: since v0.22.0 a lone config entry keeps its Modbus
-session open, but as soon as a second entry shares the same
-connection the integration releases the slot between cycles on
-its own, without you touching the *Release the Modbus connection
-between polls* option.
+**Repairs says "Cannot reach SunSpec inverter".** The inverter really
+is not answering. Check power, check the network, and check that no
+other Modbus program is holding the connection.
 
-## Known limitations
+## Coming from cjne/ha-sunspec
 
-- **Single Modbus TCP slot devices** like KACO Powador can only be
-  polled from one OS process at a time. ha-sunspec2 itself handles
-  the multi-coordinator case correctly via its per-gateway lock
-  (see "Multiple inverters behind one gateway" above), but you
-  cannot run ha-sunspec2 in parallel with cjne, openHAB, or any
-  other Modbus client against the same device. The integration
-  detects an active cjne entry on the same host and refuses to
-  start with a clear Repairs panel message. Since v0.22.0 the one
-  session is held open between polls, so there is no gap another
-  client could slip into either. If something outside Home Assistant
-  genuinely has to read the same inverter, put a Modbus proxy in
-  front of it. *Release the Modbus connection between polls* is the
-  fallback for when you cannot, and taking turns on a single slot is
-  unreliable by construction.
-- **DHCP discovery requires a fresh lease**, which means it does
-  not fire for inverters with a static IP (most home installs)
-  and only fires every few hours for DHCP leases. The active
-  **Scan my network** path is the workaround for both situations.
-- **Vendor-specific SunSpec extension models** (the 6xx, 7xx, 8xx
-  blocks) are read if the inverter exposes them, but the per-point
-  translations are limited to the standard inverter / nameplate /
-  settings keys. Vendor-specific events fall back to the SunSpec
-  spec label from `pysunspec2`.
-- **Auto-detected nameplate** only works for inverters that
-  expose model 120 (`WRtg`) or model 121 (`WMax`). Older or
-  vendor-stripped firmware (notably some KACO Powador models)
-  does not have these blocks; the user has to type the
-  nameplate by hand once during setup.
+**Your entity IDs, history, dashboards and automations are kept.** The
+old entities are moved over to this integration on first setup.
 
-## Migration from cjne/ha-sunspec
-
-If you previously used the [cjne/ha-sunspec][cjne] integration and
-your Home Assistant already has sensor entities under the `sunspec`
-platform (e.g. `sensor.inverter_three_phase_watts`), SunSpec 2 is
-the natural upgrade path. **Your entity IDs, Recorder history,
-dashboards, and automations are preserved** - the migration
-automatically retargets the existing entities to the new platform
-on first setup.
-
-The cjne integration is the original community port and laid the
-groundwork for everything that followed. SunSpec 2 builds on that
-work, adds the resilience features (in-cycle retry, stale-data
-tolerance), the active network scan, the friendly device names,
-and the full Bronze + Silver + Gold quality scale items. Big thanks
-to **@cjne** for the original codebase and the years of community
-support.
-
-**Migration steps:**
-
-1. In **HACS**, uninstall cjne/ha-sunspec
+1. Uninstall cjne/ha-sunspec in **HACS**
 2. **Restart Home Assistant**
-3. Install SunSpec Modbus as described in *Installation via HACS*
-4. Add the SunSpec Modbus integration with the **same host, port
-   and unit ID** you used before
-5. A notification confirms: *"X sensor(s) were migrated from
-   sunspec to sunspec2. Their entity IDs and Recorder history have
-   been preserved."*
+3. Install SunSpec Modbus and add it with the **same host, port and
+   unit ID** as before
+4. A notification confirms how many sensors were migrated
 
-That's it. The Energy dashboard, automations and historical graphs
-keep working without any further action.
+Both integrations cannot run at the same time. If cjne is still loaded,
+SunSpec 2 says so in the Repairs panel and waits.
 
-If both integrations are loaded at the same time, SunSpec 2 detects
-the conflict and refuses to start with a clear Repairs panel
-message until cjne is uninstalled. Single-slot inverters cannot be
-polled from two integrations simultaneously.
+Thanks to [@cjne](https://github.com/cjne) for the original integration
+and years of community support. This one builds on that work.
 
-[cjne]: https://github.com/cjne/ha-sunspec
+## Removing it
 
-## Removing the integration
+1. *Settings -> Devices & Services -> SunSpec Modbus* -> three-dot menu
+   -> **Delete**, for each device
+2. Optionally remove it in HACS as well
+3. Restart Home Assistant
 
-1. **Settings -> Devices & Services -> SunSpec Modbus** -> three-dot
-   menu -> **Delete** for each configured device. This removes the
-   entry, all sensor entities, and their device entry from the
-   registry.
-2. (Optional) In HACS, three-dot menu on **SunSpec Modbus** ->
-   **Remove**. This deletes the `custom_components/sunspec2`
-   directory from your config.
-3. **Restart Home Assistant** so HA forgets the integration was
-   ever loaded.
+The inverter itself is untouched, the integration just stops talking to
+it. Your recorded history stays until HA's own purge removes it, 10
+days by default.
 
-Removing the integration leaves the inverter itself untouched. It
-just stops talking to it. Recorder history for the deleted entities
-is kept by HA's Recorder until its own purge interval kicks in
-(10 days by default), so dashboards that reference the entities
-will go to "unknown" but not lose old data immediately.
+## How polling works
 
-## Quality scale
+The integration opens one connection to the inverter and reads it every
+30 seconds, which you can change in the options. A failed read is
+retried after five seconds. If it keeps failing, the sensors hold their
+last good value for another five cycles, roughly three minutes, before
+they go unavailable. That is what keeps a short network hiccup out of
+your graphs.
 
-This integration meets the Home Assistant **Gold** quality scale.
-Every Bronze, Silver and Gold rule is documented in
-[`custom_components/sunspec2/quality_scale.yaml`][quality-scale]
-with one entry per rule, marked done / exempt with a one-paragraph
-explanation of how the rule is satisfied.
+The connection is held open between polls rather than rebuilt each
+time, because that is what the Modbus stack in a typical inverter
+copes with best.
 
-The current state at a glance:
+## Limitations
 
-- **Bronze**: 18/18 done or exempt - config flow, runtime data,
-  test before configure / before setup, device-info, has-entity-name,
-  unique config entry, removal docs, etc.
-- **Silver**: 9/9 done or exempt - entity-unavailable with
-  stale-data tolerance, log-when-unavailable, parallel-updates,
-  test coverage with 120+ tests, etc.
-- **Gold**: 18/18 done or exempt - active discovery,
-  reconfiguration flow, stale-devices, entity-translations,
-  exception-translations, icon-translations, entity-category,
-  entity-disabled-by-default, all the docs-* items, etc.
-
-[quality-scale]: custom_components/sunspec2/quality_scale.yaml
+- **One Modbus client at a time** on most inverters. Several entries in
+  this integration work fine, another program does not. See
+  [Several inverters on one connection](#several-inverters-on-one-connection).
+- **DHCP discovery needs a fresh lease**, so it misses inverters with a
+  static IP. Use **Scan my network** for those.
+- **Vendor-specific data blocks** are read, but their points may show
+  the raw SunSpec label instead of a translated name.
+- **Rated power is detected only where the inverter publishes it.**
+  Older firmware needs it entered once.
 
 ## Reporting issues
 
-Bug reports are welcome at <https://github.com/hilman2/ha-sunspec2/issues>.
-**Always include the diagnostics download** (*Settings -> Devices &
-Services -> SunSpec Modbus -> Download diagnostics*). The host is
-automatically redacted, and the captured raw register bytes (when
-enabled) make most bugs reproducible from the JSON alone.
+Bug reports are welcome at
+<https://github.com/hilman2/ha-sunspec2/issues>. **Always attach the
+diagnostics download.**
+
+---
+
+Built on [`pysunspec2`][pysunspec2], the SunSpec Alliance reference
+client, hence the name. Meets the Home Assistant **Gold** quality
+scale, documented rule by rule in
+[`quality_scale.yaml`][quality-scale].
+
+MIT licensed, see [`LICENSE`](LICENSE).
 
 [pysunspec2]: https://github.com/sunspec/pysunspec2
-[sunspec-spec]: https://sunspec.org/
-
-## License
-
-MIT. See [`LICENSE`](LICENSE).
+[quality-scale]: custom_components/sunspec2/quality_scale.yaml
