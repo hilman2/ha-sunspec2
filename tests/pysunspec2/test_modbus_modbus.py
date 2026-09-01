@@ -245,9 +245,10 @@ class TestModbusClientTCP:
         assert c.socket.request[0][:2] == b'\xff\xff'
         assert c.socket.request[1][:2] == b'\x00\x00'
 
-    def test_stale_response_is_dropped(self, monkeypatch):
+    def test_stale_response_is_dropped(self, monkeypatch, caplog):
         # The answer to a request the client gave up on arrives first, then
-        # the answer to the current one. Only the second one counts.
+        # the answer to the current one. Only the second one counts, and the
+        # dropped one leaves a warning, which is how a user sees it happen.
         c = modbus_client.ModbusClientTCP()
         monkeypatch.setattr(socket, 'socket', MockSocket.mock_socket)
         c.connect()
@@ -257,6 +258,8 @@ class TestModbusClientTCP:
                               b'\x00\x07\x00\x00\x00\x05\x01\x03\x02', b'\x00B'])
         assert c.read(40003, 1) == b'\x00B'
         assert len(c.socket.request) == 1
+        assert 'Dropped a late Modbus response' in caplog.text
+        assert 'transaction id 6, waiting for 7' in caplog.text
 
     def test_stale_responses_without_end_raise(self, monkeypatch):
         c = modbus_client.ModbusClientTCP()
