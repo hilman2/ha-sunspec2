@@ -45,8 +45,11 @@ rules:
   dependency-transparency:
     status: done
     comment: |
-      Single dependency pysunspec2[serial], pinned to ==1.3.6 in the
-      manifest. Available on PyPI under an open-source licence.
+      Single dependency pyserial, pinned to ==3.5 in the manifest,
+      available on PyPI under an open-source licence. The SunSpec
+      client itself is an embedded fork of pysunspec2 (Apache 2.0),
+      with its origin, version and every change recorded in
+      pysunspec2/__init__.py.
   docs-actions:
     status: done
     comment: |

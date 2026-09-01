@@ -5,12 +5,8 @@ import time
 from unittest.mock import Mock
 
 import pytest
-import sunspec2.mb as mb
-from sunspec2.modbus.client import SunSpecModbusClientError
-from sunspec2.modbus.client import SunSpecModbusClientException
-from sunspec2.modbus.client import SunSpecModbusClientTimeout
-from sunspec2.modbus.modbus import ModbusClientError
 
+import custom_components.sunspec2.pysunspec2.mb as mb
 from custom_components.sunspec2.api import SunSpecApiClient
 from custom_components.sunspec2.const import DEFAULT_SCAN_DELAY_SECONDS
 from custom_components.sunspec2.const import MAX_SCAN_DELAY_SECONDS
@@ -19,6 +15,10 @@ from custom_components.sunspec2.errors import DeviceError
 from custom_components.sunspec2.errors import ProtocolError
 from custom_components.sunspec2.errors import TransientError
 from custom_components.sunspec2.errors import TransportError
+from custom_components.sunspec2.pysunspec2.modbus.client import SunSpecModbusClientError
+from custom_components.sunspec2.pysunspec2.modbus.client import SunSpecModbusClientException
+from custom_components.sunspec2.pysunspec2.modbus.client import SunSpecModbusClientTimeout
+from custom_components.sunspec2.pysunspec2.modbus.modbus import ModbusClientError
 
 
 async def test_api(hass, sunspec_client_mock):
@@ -82,12 +82,12 @@ async def test_modbus_connect(hass, sunspec_modbus_client_mock):
 async def test_modbus_connect_fail(hass, mocker):
     mocker.patch(
         # api_call is from slow.py but imported to main.py
-        "sunspec2.modbus.client.SunSpecModbusClientDeviceTCP.connect",
+        "custom_components.sunspec2.pysunspec2.modbus.client.SunSpecModbusClientDeviceTCP.connect",
         return_value={},
     )
     mocker.patch(
         # api_call is from slow.py but imported to main.py
-        "sunspec2.modbus.client.SunSpecModbusClientDeviceTCP.is_connected",
+        "custom_components.sunspec2.pysunspec2.modbus.client.SunSpecModbusClientDeviceTCP.is_connected",
         return_value=False,
     )
     """Test API calls."""
@@ -102,12 +102,12 @@ async def test_modbus_connect_fail(hass, mocker):
 async def test_modbus_connect_exception(hass, mocker):
     mocker.patch(
         # api_call is from slow.py but imported to main.py
-        "sunspec2.modbus.client.SunSpecModbusClientDeviceTCP.connect",
+        "custom_components.sunspec2.pysunspec2.modbus.client.SunSpecModbusClientDeviceTCP.connect",
         side_effect=ModbusClientError,
     )
     mocker.patch(
         # api_call is from slow.py but imported to main.py
-        "sunspec2.modbus.client.SunSpecModbusClientDeviceTCP.is_connected",
+        "custom_components.sunspec2.pysunspec2.modbus.client.SunSpecModbusClientDeviceTCP.is_connected",
         return_value=False,
     )
     mocker.patch("custom_components.sunspec2.SunSpecApiClient.check_port", return_value=True)
@@ -159,12 +159,16 @@ async def test_failed_scan_tears_down_the_connected_client(hass, mocker):
     which makes the failure sticky and makes the second attempt's error
     message describe our own leak instead of the original fault.
     """
-    mocker.patch("sunspec2.modbus.client.SunSpecModbusClientDeviceTCP.connect", return_value=None)
     mocker.patch(
-        "sunspec2.modbus.client.SunSpecModbusClientDeviceTCP.is_connected", return_value=True
+        "custom_components.sunspec2.pysunspec2.modbus.client.SunSpecModbusClientDeviceTCP.connect",
+        return_value=None,
     )
     mocker.patch(
-        "sunspec2.modbus.client.SunSpecModbusClientDeviceTCP.scan",
+        "custom_components.sunspec2.pysunspec2.modbus.client.SunSpecModbusClientDeviceTCP.is_connected",
+        return_value=True,
+    )
+    mocker.patch(
+        "custom_components.sunspec2.pysunspec2.modbus.client.SunSpecModbusClientDeviceTCP.scan",
         side_effect=SunSpecModbusClientError("Error scanning SunSpec base addresses"),
     )
     mocker.patch("custom_components.sunspec2.SunSpecApiClient.check_port", return_value=True)
@@ -182,11 +186,18 @@ async def test_failed_scan_tears_down_the_connected_client(hass, mocker):
 
 async def test_successful_connect_does_not_tear_down(hass, mocker):
     """The teardown must not fire on the happy path."""
-    mocker.patch("sunspec2.modbus.client.SunSpecModbusClientDeviceTCP.connect", return_value=None)
     mocker.patch(
-        "sunspec2.modbus.client.SunSpecModbusClientDeviceTCP.is_connected", return_value=True
+        "custom_components.sunspec2.pysunspec2.modbus.client.SunSpecModbusClientDeviceTCP.connect",
+        return_value=None,
     )
-    mocker.patch("sunspec2.modbus.client.SunSpecModbusClientDeviceTCP.scan", return_value=None)
+    mocker.patch(
+        "custom_components.sunspec2.pysunspec2.modbus.client.SunSpecModbusClientDeviceTCP.is_connected",
+        return_value=True,
+    )
+    mocker.patch(
+        "custom_components.sunspec2.pysunspec2.modbus.client.SunSpecModbusClientDeviceTCP.scan",
+        return_value=None,
+    )
     mocker.patch("custom_components.sunspec2.SunSpecApiClient.check_port", return_value=True)
     api = SunSpecApiClient(host="test", port=123, unit_id=1, hass=hass)
     torn_down = mocker.patch.object(SunSpecApiClient, "_force_disconnect")
@@ -533,7 +544,7 @@ async def test_restore_builds_real_pysunspec2_models(hass):
     definition does not resolve, model.read() later has nothing to
     decode registers with and every point comes back None.
     """
-    import sunspec2.modbus.client as real_client
+    import custom_components.sunspec2.pysunspec2.modbus.client as real_client
 
     client = real_client.SunSpecModbusClientDeviceTCP(slave_id=1, ipaddr="1.2.3.4")
 
@@ -573,9 +584,11 @@ async def test_partial_scan_keeps_the_models_it_found(hass, mocker):
     inverter looks like it speaks no SunSpec at all. Reported upstream
     for an SMA STP110-60 (cjne/ha-sunspec#375).
     """
-    mocker.patch("sunspec2.modbus.client.SunSpecModbusClientDeviceTCP.connect")
     mocker.patch(
-        "sunspec2.modbus.client.SunSpecModbusClientDeviceTCP.is_connected",
+        "custom_components.sunspec2.pysunspec2.modbus.client.SunSpecModbusClientDeviceTCP.connect"
+    )
+    mocker.patch(
+        "custom_components.sunspec2.pysunspec2.modbus.client.SunSpecModbusClientDeviceTCP.is_connected",
         return_value=True,
     )
     mocker.patch("custom_components.sunspec2.SunSpecApiClient.check_port", return_value=True)
@@ -585,7 +598,7 @@ async def test_partial_scan_keeps_the_models_it_found(hass, mocker):
         raise SunSpecModbusClientError("Unknown error")
 
     mocker.patch(
-        "sunspec2.modbus.client.SunSpecModbusClientDeviceTCP.scan",
+        "custom_components.sunspec2.pysunspec2.modbus.client.SunSpecModbusClientDeviceTCP.scan",
         _partial_scan,
         create=True,
     )
@@ -603,9 +616,11 @@ async def test_partial_scan_does_not_cache_the_truncated_layout(hass, mocker):
     chain still has a well-formed tail, so nothing would ever prompt the
     rescan that would find the rest.
     """
-    mocker.patch("sunspec2.modbus.client.SunSpecModbusClientDeviceTCP.connect")
     mocker.patch(
-        "sunspec2.modbus.client.SunSpecModbusClientDeviceTCP.is_connected",
+        "custom_components.sunspec2.pysunspec2.modbus.client.SunSpecModbusClientDeviceTCP.connect"
+    )
+    mocker.patch(
+        "custom_components.sunspec2.pysunspec2.modbus.client.SunSpecModbusClientDeviceTCP.is_connected",
         return_value=True,
     )
     mocker.patch("custom_components.sunspec2.SunSpecApiClient.check_port", return_value=True)
@@ -615,7 +630,7 @@ async def test_partial_scan_does_not_cache_the_truncated_layout(hass, mocker):
         raise SunSpecModbusClientError("Unknown error")
 
     mocker.patch(
-        "sunspec2.modbus.client.SunSpecModbusClientDeviceTCP.scan",
+        "custom_components.sunspec2.pysunspec2.modbus.client.SunSpecModbusClientDeviceTCP.scan",
         _partial_scan,
         create=True,
     )
@@ -632,9 +647,11 @@ async def test_scan_that_found_nothing_still_fails(hass, mocker):
     A device that answers nothing is a misconfiguration the user needs
     told about, not something to paper over with an empty model list.
     """
-    mocker.patch("sunspec2.modbus.client.SunSpecModbusClientDeviceTCP.connect")
     mocker.patch(
-        "sunspec2.modbus.client.SunSpecModbusClientDeviceTCP.is_connected",
+        "custom_components.sunspec2.pysunspec2.modbus.client.SunSpecModbusClientDeviceTCP.connect"
+    )
+    mocker.patch(
+        "custom_components.sunspec2.pysunspec2.modbus.client.SunSpecModbusClientDeviceTCP.is_connected",
         return_value=True,
     )
     mocker.patch("custom_components.sunspec2.SunSpecApiClient.check_port", return_value=True)
@@ -644,7 +661,7 @@ async def test_scan_that_found_nothing_still_fails(hass, mocker):
         raise SunSpecModbusClientError("Error scanning SunSpec base addresses")
 
     mocker.patch(
-        "sunspec2.modbus.client.SunSpecModbusClientDeviceTCP.scan",
+        "custom_components.sunspec2.pysunspec2.modbus.client.SunSpecModbusClientDeviceTCP.scan",
         _failed_scan,
         create=True,
     )
@@ -776,16 +793,16 @@ async def test_connect_uses_the_short_timeout_and_restores_the_long_one(hass, mo
         self.client = Mock(socket=seen.setdefault("socket", Mock()))
 
     mocker.patch(
-        "sunspec2.modbus.client.SunSpecModbusClientDeviceTCP.connect",
+        "custom_components.sunspec2.pysunspec2.modbus.client.SunSpecModbusClientDeviceTCP.connect",
         _connect,
         create=True,
     )
     mocker.patch(
-        "sunspec2.modbus.client.SunSpecModbusClientDeviceTCP.is_connected",
+        "custom_components.sunspec2.pysunspec2.modbus.client.SunSpecModbusClientDeviceTCP.is_connected",
         return_value=True,
     )
     mocker.patch(
-        "sunspec2.modbus.client.SunSpecModbusClientDeviceTCP.scan",
+        "custom_components.sunspec2.pysunspec2.modbus.client.SunSpecModbusClientDeviceTCP.scan",
         lambda self, **kwargs: None,
         create=True,
     )

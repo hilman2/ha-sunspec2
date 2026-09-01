@@ -30,6 +30,7 @@ ENV PATH="/home/runner/.local/bin:${PATH}"
 # The homeassistant cap keeps pip on a stable release: pytest-haX pins one
 # exact HA version and its newest release always tracks the next HA beta.
 # voluptuous-serialize is imported directly by tests/test_config_flow.py.
+# pyserial is the integration's one runtime requirement, see manifest.json.
 RUN pip install --no-cache-dir --user \
         "homeassistant<2026.9" \
         "pytest-homeassistant-custom-component>=0.13.316" \
@@ -37,7 +38,7 @@ RUN pip install --no-cache-dir --user \
         pytest-timeout \
         pytest-xdist \
         voluptuous-serialize \
-        "pysunspec2[serial]==1.3.6" \
+        "pyserial==3.5" \
     && pip install --no-cache-dir --user "pytest<9"
 
 WORKDIR /src

@@ -1,15 +1,14 @@
 """Tests for SunSpecModelWrapper extracted in Phase 4.
 
 Uses the existing tests/test_data/inverter.json fixture via the
-sunspec2.file.client.FileClientDevice path. The wrapper has zero
+custom_components.sunspec2.pysunspec2.file.client.FileClientDevice path. The wrapper has zero
 dependencies on the rest of the integration, so the tests instantiate
 it directly without any HA fixtures.
 """
 
 from __future__ import annotations
 
-import sunspec2.file.client as file_client
-
+import custom_components.sunspec2.pysunspec2.file.client as file_client
 from custom_components.sunspec2.models import SunSpecModelWrapper
 
 

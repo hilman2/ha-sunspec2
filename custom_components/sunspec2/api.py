@@ -11,17 +11,7 @@ from collections.abc import Awaitable
 from types import SimpleNamespace
 from typing import Any
 
-import sunspec2.mb as mb
-import sunspec2.modbus.client as modbus_client
 from homeassistant.core import HomeAssistant
-from sunspec2.device import ModelError
-from sunspec2.modbus.client import SunSpecModbusClientError
-from sunspec2.modbus.client import SunSpecModbusClientException
-from sunspec2.modbus.client import SunSpecModbusClientTimeout
-from sunspec2.modbus.client import SunSpecModbusValueError
-from sunspec2.modbus.modbus import ModbusClientError
-from sunspec2.modbus.modbus import ModbusClientException
-from sunspec2.modbus.modbus import ModbusClientTimeout
 
 from .const import DEFAULT_BAUDRATE
 from .const import DEFAULT_SCAN_DELAY_SECONDS
@@ -37,8 +27,18 @@ from .errors import TransportError
 from .logger import SunSpecLoggerAdapter
 from .logger import get_adapter
 from .models import SunSpecModelWrapper
+from .pysunspec2 import mb
+from .pysunspec2.device import ModelError
+from .pysunspec2.modbus import client as modbus_client
+from .pysunspec2.modbus.client import SunSpecModbusClientError
+from .pysunspec2.modbus.client import SunSpecModbusClientException
+from .pysunspec2.modbus.client import SunSpecModbusClientTimeout
+from .pysunspec2.modbus.client import SunSpecModbusValueError
+from .pysunspec2.modbus.modbus import ModbusClientError
+from .pysunspec2.modbus.modbus import ModbusClientException
+from .pysunspec2.modbus.modbus import ModbusClientTimeout
 
-# pysunspec2 ships no py.typed marker, so every object it hands back reaches
+# The embedded pysunspec2 is untyped, so every object it hands back reaches
 # mypy as Any. The alias names which Any is meant: a connected
 # SunSpecModbusClientDevice, TCP or RTU. It buys no checking, only a name a
 # reader of a signature can look up.
@@ -331,7 +331,7 @@ class SunSpecApiClient:
         has three unrelated exception roots and only one of them
         (``SunSpecModbusClientError``) was covered before v0.13.4:
 
-        - ``sunspec2.device.ModelError`` is a plain ``Exception``. It is
+        - ``ModelError`` from ``pysunspec2/device.py`` is a plain ``Exception``. It is
           what an unread scale factor or an unimplemented ``*_SF``
           register produces on the ``cvalue`` assignment.
         - ``SunSpecModbusValueError`` is a plain ``Exception`` too,

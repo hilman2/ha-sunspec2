@@ -27,6 +27,7 @@ from .const import NAMEPLATE_FILTER_HEADROOM
 from .const import VERSION
 from .const import effective_peak_power_kw
 from .models import SunSpecModelWrapper
+from .pysunspec2 import VERSION as PYSUNSPEC2_VERSION
 
 TO_REDACT = {CONF_HOST}
 
@@ -57,8 +58,6 @@ async def async_get_config_entry_diagnostics(
                 }
             except Exception as exc:  # noqa: BLE001 - defensive: never break the dump
                 scanned_models.append({"model_id": model_id, "error": str(exc)})
-
-    sunspec2_version = await hass.async_add_executor_job(_read_pysunspec2_version)
 
     return {
         "config": async_redact_data(dict(entry.data), TO_REDACT),
@@ -102,7 +101,9 @@ async def async_get_config_entry_diagnostics(
         "raw_captures": list(getattr(coordinator.api, "_captured_reads", [])),
         "versions": {
             "homeassistant": HA_VERSION,
-            "pysunspec2": sunspec2_version,
+            # The embedded fork's upstream base, so a bug report says which
+            # pysunspec2 behaviour the reporter was running on.
+            "pysunspec2": PYSUNSPEC2_VERSION,
             "sunspec2_integration": VERSION,
         },
     }
@@ -174,19 +175,3 @@ def _safe_value(wrapper: SunSpecModelWrapper, key: str) -> Any:
     if value is None or isinstance(value, (str, int, float, bool)):
         return value
     return str(value)
-
-
-def _read_pysunspec2_version() -> str:
-    """Read the pysunspec2 version via importlib.metadata.
-
-    importlib.metadata.version() walks site-packages and reads the wheel
-    METADATA file synchronously, which is forbidden inside the HA event
-    loop. This helper exists so the diagnostics handler can offload it
-    to an executor via hass.async_add_executor_job.
-    """
-    try:
-        from importlib.metadata import version as _version
-
-        return _version("pysunspec2")
-    except Exception:  # noqa: BLE001
-        return "unknown"

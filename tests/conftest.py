@@ -7,8 +7,8 @@ from unittest.mock import PropertyMock
 from unittest.mock import patch
 
 import pytest
-import sunspec2.file.client as modbus_client
 
+import custom_components.sunspec2.pysunspec2.file.client as modbus_client
 from custom_components.sunspec2.api import SunSpecApiClient
 from custom_components.sunspec2.errors import TransientError
 from custom_components.sunspec2.errors import TransportError
@@ -176,7 +176,10 @@ def sunspec_modbus_client_mock():
     """Skip calls to get data from API."""
     mock = Mock()
     with (
-        patch("sunspec2.modbus.client.SunSpecModbusClientDeviceTCP", return_value=mock),
+        patch(
+            "custom_components.sunspec2.pysunspec2.modbus.client.SunSpecModbusClientDeviceTCP",
+            return_value=mock,
+        ),
         patch("custom_components.sunspec2.SunSpecApiClient.check_port", return_value=True),
     ):
         yield

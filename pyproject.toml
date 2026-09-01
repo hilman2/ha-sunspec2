@@ -31,6 +31,11 @@ target-version = "py313"
 line-length = 100
 extend-exclude = [
     "tests/test_data",
+    # The embedded pysunspec2 fork and the upstream tests that came with it.
+    # Verbatim from upstream apart from the import paths, in upstream's own
+    # style, so linting or formatting them would only bury the origin diff.
+    "custom_components/sunspec2/pysunspec2",
+    "tests/pysunspec2",
 ]
 
 [tool.ruff.lint]
@@ -85,7 +90,7 @@ filterwarnings = [
 # surfaces as a failing test, which is what tests are for, so the strictness
 # would buy little and would cost a signature on every fixture.
 #
-# pysunspec2 ships no py.typed marker, so everything crossing that boundary is
+# The embedded pysunspec2 is untyped, so everything crossing that boundary is
 # Any. Rather than let the Any spread inward, api.py and models.py annotate
 # their own return types and mypy checks the rest of the codebase against those.
 # That is why warn_return_any stays on: it is the rule that catches a
@@ -102,15 +107,33 @@ disallow_untyped_decorators = true
 # because custom_components/ is a HA drop-in directory, not an installed package.
 namespace_packages = true
 explicit_package_bases = true
+# The embedded pysunspec2 fork and the upstream tests that came with it are
+# untyped and stay that way; see the override below for how their imports
+# are treated. The exclude keeps them out of the file walk.
+exclude = [
+    "^custom_components/sunspec2/pysunspec2/",
+    "^tests/pysunspec2/",
+]
 
-# pysunspec2 and the HA test plugin ship no type information. Without this,
-# every import from them is an error before mypy looks at a single line of ours.
+# The HA test plugin ships no type information. Without this, every import
+# from it is an error before mypy looks at a single line of ours.
+[[tool.mypy.overrides]]
+module = "pytest_homeassistant_custom_component.*"
+ignore_missing_imports = true
+
+# Whatever our code imports from the embedded pysunspec2 is Any, exactly as
+# it was when the library came from pip without a py.typed marker. Following
+# the import instead would type every client call in api.py against untyped
+# definitions, and strict mode rejects a call to an untyped function.
 [[tool.mypy.overrides]]
 module = [
-    "sunspec2.*",
-    "pytest_homeassistant_custom_component.*",
+    "custom_components.sunspec2.pysunspec2",
+    "custom_components.sunspec2.pysunspec2.*",
+    "tests.pysunspec2",
+    "tests.pysunspec2.*",
 ]
-ignore_missing_imports = true
+follow_imports = "skip"
+ignore_errors = true
 
 # Tests: bodies are checked, signatures are not required. What is switched
 # off below is test idiom, not type looseness:
