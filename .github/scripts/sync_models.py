@@ -66,7 +66,7 @@ def changed_files():
 
 
 def bump_patch_version():
-    """0.31.0 becomes 0.31.1 in both files hassfest compares."""
+    """2026.9.0 becomes 2026.9.1 in both files hassfest compares."""
     pattern = re.compile(r'(VERSION = "|"version": ")(\d+)\.(\d+)\.(\d+)(")')
     new_version = None
     for path in VERSION_FILES:
