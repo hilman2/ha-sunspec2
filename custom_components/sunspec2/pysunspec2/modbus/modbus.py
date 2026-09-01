@@ -17,6 +17,7 @@
     IN THE SOFTWARE.
 """
 
+import logging
 import socket
 import struct
 import serial
@@ -26,6 +27,8 @@ try:
 except Exception as e:
     print('Missing ssl python package: %s' % e)
 import time
+
+_LOGGER = logging.getLogger(__name__)
 
 PARITY_NONE = 'N'
 PARITY_EVEN = 'E'
@@ -709,6 +712,11 @@ class ModbusClientTCP(object):
             if resp_tid == tid:
                 break
             discarded += 1
+            # A warning rather than a trace line: the trace callback is not
+            # wired up in normal operation, and a dropped frame is the one
+            # visible sign that a device answered after the client gave up.
+            _LOGGER.warning('Dropped a late Modbus response from %s:%s (transaction id %d, waiting for %d)',
+                            self.ipaddr, self.ipport, resp_tid, tid)
             if self.trace_func:
                 self.trace_func('dropped stale response: transaction id %d, expected %d' % (resp_tid, tid))
             if discarded >= TCP_STALE_RESPONSE_LIMIT:

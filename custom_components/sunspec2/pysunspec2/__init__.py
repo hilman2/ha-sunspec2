@@ -20,7 +20,8 @@ Changes against upstream:
 * ``ModbusClientTCP`` numbers its requests and checks the transaction id
   and the function code of every response. A frame with another id is
   dropped as the late answer to an earlier request; upstream sent id 0
-  in every frame and took whatever came back (v0.31.0).
+  in every frame and took whatever came back (v0.31.0). The drop is
+  logged as a warning on this module's logger (v0.31.2).
 
 Why a fork rather than the pip package: the integration works around the
 transport layer in several places (a Modbus TCP transaction id that is
