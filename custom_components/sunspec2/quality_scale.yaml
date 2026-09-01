@@ -50,7 +50,7 @@ rules:
   docs-actions:
     status: done
     comment: |
-      README "Experimental: inverter write controls (BETA)"
+      README "Battery and export control (BETA)"
       section documents the ``sunspec2.set_export_limit`` service
       action, the matching Number / Switch entities, the SunSpec
       model 123 points each one writes to, the opt-in flag, the
@@ -62,12 +62,12 @@ rules:
   docs-installation-instructions:
     status: done
     comment: |
-      README.md ships HACS install instructions plus the manual
-      copy-into-config-dir fallback.
+      README "Installation" section: HACS download, restart, and
+      the config flow step by step.
   docs-removal-instructions:
     status: done
     comment: |
-      README.md "Removing the integration" section.
+      README "Removing it" section.
   entity-event-setup:
     status: exempt
     comment: |
@@ -135,16 +135,10 @@ rules:
       the modbus client (with the SO_LINGER=0 RST trick on the
       underlying socket so single-slot inverters free their slot
       immediately) and clears the update listener.
-  docs-configuration-parameters:
-    status: todo
-    comment: |
-      The README documents the options flow at a high level but does
-      not yet have a one-row-per-parameter table. Scheduled for the
-      Gold doc pass alongside docs-supported-functions.
   docs-installation-parameters:
     status: done
     comment: |
-      README "Installation via HACS" section walks through every
+      README "Installation" section walks through every
       input the user has to provide on the initial setup form
       (host, port, unit ID, model selection, peak AC power).
   entity-unavailable:
@@ -237,59 +231,58 @@ rules:
   docs-data-update:
     status: done
     comment: |
-      README "How the integration polls" section explains the
-      coordinator's update interval (default 30 s, configurable),
-      the in-cycle retry, the stale-data tolerance window, and the
-      per-(host, port) gateway lock that serialises multiple
-      coordinator instances behind the same TCP endpoint.
+      README "How polling works" section explains the update
+      interval (default 30 s, configurable), the in-cycle retry and
+      the stale-data tolerance window. "Several inverters on one
+      connection" covers the gateway lock that serialises multiple
+      coordinators behind the same endpoint.
   docs-examples:
     status: done
     comment: |
-      README "Example uses" section walks through the canonical
-      Energy dashboard hookup (lifetime_energy as the Solar
-      production source) and a basic load-shedding automation that
-      reads the AC power sensor.
+      README "Adding it to the Energy dashboard" section walks
+      through the canonical hookup: lifetime energy as the Solar
+      production source, plus the unit conversion HA offers on that
+      entity.
   docs-known-limitations:
     status: done
     comment: |
-      README "Known limitations" section lists Modbus TCP only (no
-      RTU), single-slot inverter limitation, the static-IP
-      requirement for reliable DHCP discovery, and the
-      vendor-specific point coverage gap.
+      README "Limitations" section lists the single-client
+      restriction of most inverters, the fresh-lease requirement for
+      DHCP discovery, the vendor-specific point coverage gap, and
+      the firmware that publishes no rated power.
   docs-supported-devices:
     status: done
     comment: |
-      README "Supported devices" section lists every brand the
-      integration has been tested or expected to work with, plus
-      a note that anything implementing the SunSpec Information
-      Model over Modbus TCP should work.
+      README "Will it work with my inverter?" section lists every
+      brand the integration has been tested or expected to work
+      with, plus a note that anything speaking SunSpec Modbus
+      should work.
   docs-supported-functions:
     status: done
     comment: |
-      README "Supported functions" section enumerates the major
-      capabilities: model selection, plausibility filter, prefix
-      naming, raw register capture, diagnostics dump, the
-      configurable peak power, and the active network scan.
+      The README opens with a "What you get" list of the major
+      capabilities, and the "Options" table names every one that is
+      configurable: model selection, plausibility filter, prefix
+      naming, raw register capture, and the scan interval.
   docs-troubleshooting:
     status: done
     comment: |
-      README "Troubleshooting" section walks through the most
-      common failure modes (KACO single slot, cjne migration,
-      empty model selection, dawn / dusk spikes) with the
-      Diagnostics dump as the primary debugging tool.
+      README "When something is wrong" section walks through the
+      most common failure modes (dropouts on a shaky link, inverters
+      asleep at night, empty model selection, dawn / dusk spikes)
+      with the diagnostics download as the primary tool.
   docs-use-cases:
     status: done
     comment: |
-      README "Use cases" section explains why a user would pick
-      this integration over the cjne fork or a generic Modbus
-      template, focused on the resilience features and the
-      brand-agnostic SunSpec spec.
+      The README's "What you get" list explains why a user would
+      pick this over the cjne fork or a generic Modbus template:
+      resilience on a flaky link, brand independence, and the
+      Energy dashboard without a template sensor.
   docs-configuration-parameters:
     status: done
     comment: |
-      README "Configuration parameters" section now documents
-      every option in the options flow as a one-row-per-parameter
-      table.
+      README "Options" section documents every option in the
+      options flow as a one-row-per-parameter table.
   dynamic-devices:
     status: exempt
     comment: |
