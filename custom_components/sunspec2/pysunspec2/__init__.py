@@ -12,10 +12,14 @@ What is embedded: the SunSpec device and model layer (``device``, ``mdef``,
 client the test suite uses (``file``). Left out: the spreadsheet and Excel
 tooling, the TLS test fixtures and the pymodbus-based test server.
 
-Changes against upstream, so far only the ones the move itself needed:
+Changes against upstream:
 
 * Imports between the modules are relative, so the package works from
   inside the integration. Every touched file says so in its first line.
+* ``ModbusClientTCP`` numbers its requests and checks the transaction id
+  and the function code of every response. A frame with another id is
+  dropped as the late answer to an earlier request; upstream sent id 0
+  in every frame and took whatever came back (v0.31.0).
 
 Why a fork rather than the pip package: the integration works around the
 transport layer in several places (a Modbus TCP transaction id that is

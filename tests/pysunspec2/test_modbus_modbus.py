@@ -218,6 +218,71 @@ class TestModbusClientTCP:
         c.write(40052, data_to_write)
 
         check_req0 = b"\x00\x00\x00\x00\x00\xfd\x01" + b"\x10\x9ct\x00{\xf6" + data_to_write[:(c.max_write_count*2)]
-        check_req1 = b"\x00\x00\x00\x00\x00\x09\x01" + b"\x10\x9c\xef\x00\x01\x02\x00\x00"
+        check_req1 = b"\x00\x01\x00\x00\x00\x09\x01" + b"\x10\x9c\xef\x00\x01\x02\x00\x00"
         assert c.socket.request[0] == check_req0
         assert c.socket.request[1] == check_req1
+
+    def test_transaction_id_counts_up_per_request(self, monkeypatch):
+        c = modbus_client.ModbusClientTCP()
+        monkeypatch.setattr(socket, 'socket', MockSocket.mock_socket)
+        c.connect()
+        c.socket._set_buffer([b'\x00\x00\x00\x00\x00\x05\x01\x03\x02', b'\x00B',
+                              b'\x00\x00\x00\x00\x00\x05\x01\x03\x02', b'\x00B'])
+        c.read(40003, 1)
+        c.read(40003, 1)
+        assert c.socket.request[0][:2] == b'\x00\x00'
+        assert c.socket.request[1][:2] == b'\x00\x01'
+
+    def test_transaction_id_wraps_at_16_bits(self, monkeypatch):
+        c = modbus_client.ModbusClientTCP()
+        monkeypatch.setattr(socket, 'socket', MockSocket.mock_socket)
+        c.connect()
+        c._next_transaction_id = 0xFFFF
+        c.socket._set_buffer([b'\x00\x00\x00\x00\x00\x05\x01\x03\x02', b'\x00B',
+                              b'\x00\x00\x00\x00\x00\x05\x01\x03\x02', b'\x00B'])
+        c.read(40003, 1)
+        c.read(40003, 1)
+        assert c.socket.request[0][:2] == b'\xff\xff'
+        assert c.socket.request[1][:2] == b'\x00\x00'
+
+    def test_stale_response_is_dropped(self, monkeypatch):
+        # The answer to a request the client gave up on arrives first, then
+        # the answer to the current one. Only the second one counts.
+        c = modbus_client.ModbusClientTCP()
+        monkeypatch.setattr(socket, 'socket', MockSocket.mock_socket)
+        c.connect()
+        c.socket.echo_transaction_id = False
+        c._next_transaction_id = 7
+        c.socket._set_buffer([b'\x00\x06\x00\x00\x00\x05\x01\x03\x02', b'\xde\xad',
+                              b'\x00\x07\x00\x00\x00\x05\x01\x03\x02', b'\x00B'])
+        assert c.read(40003, 1) == b'\x00B'
+        assert len(c.socket.request) == 1
+
+    def test_stale_responses_without_end_raise(self, monkeypatch):
+        c = modbus_client.ModbusClientTCP()
+        monkeypatch.setattr(socket, 'socket', MockSocket.mock_socket)
+        c.connect()
+        c.socket.echo_transaction_id = False
+        c._next_transaction_id = 7
+        stale = [b'\x00\x06\x00\x00\x00\x05\x01\x03\x02', b'\xde\xad']
+        c.socket._set_buffer(stale * modbus_client.TCP_STALE_RESPONSE_LIMIT)
+        with pytest.raises(modbus_client.ModbusClientError) as exc:
+            c.read(40003, 1)
+        assert 'transaction id' in str(exc.value)
+
+    def test_response_with_other_function_code_raises(self, monkeypatch):
+        c = modbus_client.ModbusClientTCP()
+        monkeypatch.setattr(socket, 'socket', MockSocket.mock_socket)
+        c.connect()
+        c.socket._set_buffer([b'\x00\x00\x00\x00\x00\x06\x01\x10\x9c', b't\x00\x10'])
+        with pytest.raises(modbus_client.ModbusClientError) as exc:
+            c.read(40003, 1)
+        assert 'function code' in str(exc.value)
+
+    def test_exception_response_raises_modbus_exception(self, monkeypatch):
+        c = modbus_client.ModbusClientTCP()
+        monkeypatch.setattr(socket, 'socket', MockSocket.mock_socket)
+        c.connect()
+        c.socket._set_buffer([b'\x00\x00\x00\x00\x00\x03\x01\x83\x02'])
+        with pytest.raises(modbus_client.ModbusClientException):
+            c.read(40003, 1)

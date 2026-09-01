@@ -581,15 +581,14 @@ class SunSpecApiClient:
             # Never swallowed, unlike the other Modbus errors below.
             #
             # A timeout means a request went out and no answer came
-            # back, and pysunspec2 builds every Modbus TCP frame with
-            # transaction id 0 and never checks it on the way in (see
-            # ModbusClientTCP._read). A late answer arriving after we
-            # gave up is therefore read as the answer to the NEXT
-            # request, and from there the whole conversation is off by
-            # one frame: every register lands in the wrong point and the
-            # values look plausible rather than missing. Failing the
-            # cycle drops the socket and reconnects, which is the only
-            # way back into sync.
+            # back, so the scan is missing a block and nothing below can
+            # tell which. Continuing with the models found so far would
+            # cache a chain that stops short of the device's real one.
+            # Failing the cycle drops the socket and scans again on the
+            # next connect. (Since v0.31.0 the transport checks the
+            # transaction id, so a late answer can no longer be taken
+            # for the answer to the next request; the scan is still
+            # incomplete.)
             raise
         except (SunSpecModbusClientError, ModbusClientError) as err:
             # Not a timeout, so the device did answer, typically with a
