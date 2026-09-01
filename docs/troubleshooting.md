@@ -61,6 +61,13 @@ register only every few minutes and then jump by the whole amount at
 once. A `Dropping implausible energy delta` line in the log is
 therefore a real outlier, not a slow counter.
 
+A counter that goes down is held at its last value as well, whether or
+not a peak power is set: a lifetime counter has no legitimate way down,
+and a drop that got through would be booked as a meter reset. The log
+line for that is `Holding ... a lifetime counter does not go down`. A
+counter that stays low for three polls in a row is taken as a real
+reset and accepted.
+
 ## The inverter disappears every night
 
 Normal for most PV inverters. Below a certain DC input they shut down

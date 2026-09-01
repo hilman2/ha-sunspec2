@@ -300,3 +300,22 @@ class TestModbusClientTCP:
         with pytest.raises(modbus_client.ModbusClientConnectionClosed):
             c.read(40003, 1)
         assert c.socket is None
+
+    def test_single_register_write_uses_function_code_16(self, monkeypatch):
+        # One register goes out as a multi-register write by default. Some
+        # devices, the APsystems ECU-R among them, answer function code 6
+        # with a timeout (sunspec/pysunspec2#104).
+        c = modbus_client.ModbusClientTCP()
+        monkeypatch.setattr(socket, 'socket', MockSocket.mock_socket)
+        c.connect()
+        c.socket._set_buffer([b'\x00\x00\x00\x00\x00\x06\x01\x10\x9c\x40\x00\x01'])
+        c.write(40000, b'\x12\x34')
+        assert c.socket.request[0] == b'\x00\x00\x00\x00\x00\x09\x01\x10\x9c\x40\x00\x01\x02\x12\x34'
+
+    def test_single_register_write_can_use_function_code_6(self, monkeypatch):
+        c = modbus_client.ModbusClientTCP(single_register_write=True)
+        monkeypatch.setattr(socket, 'socket', MockSocket.mock_socket)
+        c.connect()
+        c.socket._set_buffer([b'\x00\x00\x00\x00\x00\x06\x01\x06\x9c\x40\x12\x34'])
+        c.write(40000, b'\x12\x34')
+        assert c.socket.request[0] == b'\x00\x00\x00\x00\x00\x06\x01\x06\x9c\x40\x12\x34'

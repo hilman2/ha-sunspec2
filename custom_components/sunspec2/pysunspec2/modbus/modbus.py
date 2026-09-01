@@ -212,6 +212,9 @@ class ModbusClientRTU:
         self.devices = {}
         self.trace_func = None
         self.inter_frame_gap = 0.00175
+        # Write one register with function code 6 instead of 16. Off, see
+        # ModbusClientTCP for why.
+        self.single_register_write = False
 
         baudrate = int(baudrate)
         if baudrate <= 19200:
@@ -512,7 +515,7 @@ class ModbusClientRTU:
         count = len(data)/2
 
         if self.serial is not None:
-            if count == 1:  # If only one register, use Func Code 0x06
+            if count == 1 and self.single_register_write:
                 self._write_single(slave_id, addr, data)
             else:
                 while count > 0:
@@ -563,7 +566,8 @@ class ModbusClientTCP(object):
 
     def __init__(self, slave_id=1, ipaddr='127.0.0.1', ipport=502, timeout=None, ctx=None, trace_func=None,
                  tls=False, cafile=CAFILE, certfile=CLIENT_CERTFILE, keyfile=CLIENT_KEYFILE, insecure_skip_tls_verify=False,
-                 max_count=REQ_COUNT_MAX, max_write_count=REQ_WRITE_COUNT_MAX):
+                 max_count=REQ_COUNT_MAX, max_write_count=REQ_WRITE_COUNT_MAX,
+                 single_register_write=False):
 
         self.slave_id = slave_id
         self.ipaddr = ipaddr
@@ -579,6 +583,13 @@ class ModbusClientTCP(object):
         self.tls_verify = not insecure_skip_tls_verify
         self.max_count = max_count
         self.max_write_count = max_write_count
+        # Write one register with function code 6 (Write Single Register)
+        # instead of 16 (Write Multiple Registers). Off by default: 16 is
+        # what every write used until upstream added 6 in 2024, and some
+        # devices, the APsystems ECU-R among them, answer 6 with a timeout
+        # (sunspec/pysunspec2#104). A device that only takes 6 for one
+        # register has not turned up; this is the switch for it.
+        self.single_register_write = single_register_write
         # Modbus TCP transaction id of the next request. Upstream sent 0 in
         # every frame and never looked at the id in the response, so a late
         # answer was taken for the answer to whatever request came next.
@@ -864,8 +875,8 @@ class ModbusClientTCP(object):
             self.connect(self.timeout)
 
         try:
-            if count == 1:
-                self._write_single(addr, data)  # If only one register, use Func Code 0x06
+            if count == 1 and self.single_register_write:
+                self._write_single(addr, data)
             else:
                 while count > 0:
                     if count > self.max_write_count:

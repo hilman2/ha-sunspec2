@@ -788,7 +788,9 @@ class SunSpecEnergySensor(SunSpecSensor, RestoreSensor):
         # For an energy sensor a value of 0 woulld mess up long term stats because of how total_increasing works
         if val == 0:
             _LOGGER.debug(
-                "Returning last known value instead of 0 for {self.name) to avoid resetting total_increasing counter"
+                "Returning last known value instead of 0 for %s to avoid resetting the "
+                "total_increasing counter",
+                self.name,
             )
             self._assumed_state = True
             return self.lastKnown
@@ -828,29 +830,54 @@ class SunSpecEnergySensor(SunSpecSensor, RestoreSensor):
         # filter rejects. Counters that move in coarse steps used to
         # depend on this hatch too, three rejections per step; the
         # time window above handles them without a single rejection.
+        #
+        # A drop is rejected the same way, and without a peak power to go
+        # on: a lifetime counter has no legitimate way down. The one seen
+        # in the wild is a scale factor misread on a Fronius Symo, model
+        # 160, which reports the total a thousand times too small for a
+        # poll or two. Passed through, HA books it as a meter reset, and
+        # when the real value returns, the jump back is what the
+        # peak-power rule rejects, until the hatch accepts it and the
+        # whole lifetime total lands in the statistics as new energy. A
+        # counter that really was reset comes through the same hatch.
+        implausible: str | None = None
         if (
-            val is not None
-            and max_delta is not None
-            and self.lastKnown is not None
+            self.lastKnown is not None
             and isinstance(val, (int, float))
             and isinstance(self.lastKnown, (int, float))
-            and (val - self.lastKnown) > max_delta
         ):
+            if val < self.lastKnown:
+                implausible = "drop"
+            elif max_delta is not None and (val - self.lastKnown) > max_delta:
+                implausible = "jump"
+        if implausible is not None:
             self._rejected_delta_count += 1
             if self._rejected_delta_count < ENERGY_DELTA_REJECT_RECOVERY_COUNT:
-                _LOGGER.warning(
-                    "Dropping implausible energy delta for %s: %s -> %s %s is more than the "
-                    "%.1f %s the peak power allows since the counter last moved "
-                    "(rejection %d/%d)",
-                    self.key,
-                    self.lastKnown,
-                    val,
-                    self.unit,
-                    max_delta,
-                    self.unit,
-                    self._rejected_delta_count,
-                    ENERGY_DELTA_REJECT_RECOVERY_COUNT,
-                )
+                if implausible == "drop":
+                    _LOGGER.warning(
+                        "Holding %s at %s %s: the inverter reported %s, and a lifetime "
+                        "counter does not go down (rejection %d/%d)",
+                        self.key,
+                        self.lastKnown,
+                        self.unit,
+                        val,
+                        self._rejected_delta_count,
+                        ENERGY_DELTA_REJECT_RECOVERY_COUNT,
+                    )
+                else:
+                    _LOGGER.warning(
+                        "Dropping implausible energy delta for %s: %s -> %s %s is more than the "
+                        "%.1f %s the peak power allows since the counter last moved "
+                        "(rejection %d/%d)",
+                        self.key,
+                        self.lastKnown,
+                        val,
+                        self.unit,
+                        max_delta,
+                        self.unit,
+                        self._rejected_delta_count,
+                        ENERGY_DELTA_REJECT_RECOVERY_COUNT,
+                    )
                 self._assumed_state = True
                 return self.lastKnown
             _LOGGER.warning(
