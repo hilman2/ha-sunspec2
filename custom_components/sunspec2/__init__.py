@@ -1015,12 +1015,14 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator[dict[int, SunSpecModelW
         * **Mid-cycle**: the write got the coordinator's *live* client
           back from ``api.get_client()`` and drove ``point.write()`` on
           it from a second executor thread while ``read_model`` was
-          mid-``recv`` on the same socket. pysunspec2 packs a leading
-          ``0, 0`` MBAP header - the transaction id is hardcoded 0 -
-          and takes no lock of its own, so neither side can tell whose
-          response it just pulled off the socket. This is not a
-          single-slot-inverter problem; frames can interleave on any
-          gateway.
+          mid-``recv`` on the same socket. The Modbus client takes no
+          lock of its own, so both threads pull frames off the same
+          socket. (Until v0.31.0 every frame carried transaction id 0
+          and each side silently took the other's answer; the embedded
+          transport now drops a frame with the wrong id, so both reads
+          end in a timeout instead. Either way the lock is required.)
+          This is not a single-slot-inverter problem; frames can
+          interleave on any gateway.
         * **Between cycles**: ``api._client`` was None, because back
           then ``_run_one_update_cycle`` closed at the end of every
           cycle, so the write opened a *second* TCP session (connect
@@ -1181,12 +1183,11 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator[dict[int, SunSpecModelW
                 value = wrapper.getValue(point_name)
             except TransientError:
                 # A read timeout is the one failure this must not
-                # swallow. pysunspec2 never checks the Modbus TCP
-                # transaction id, so a late answer to the request we
-                # gave up on is read as the answer to the next one, and
-                # every register after it lands in the wrong point. The
-                # convenience read is not worth poisoning the cycle it
-                # sits in front of, so let it fail and reconnect.
+                # swallow. A device that did not answer this read will
+                # not answer the model reads that follow either, and each
+                # of those waits the full socket timeout. Failing here
+                # saves the cycle those waits and starts the reconnect
+                # at once.
                 raise
             except Exception as exc:  # noqa: BLE001 - convenience read, never escalate
                 self._log.debug(
@@ -1367,12 +1368,14 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator[dict[int, SunSpecModelW
             wrapped.__cause__ = exc
         self._record_error(wrapped)
         # Drop the session now rather than flagging it for the next
-        # get_client(). Whatever went wrong, this socket is a suspect:
-        # pysunspec2 never checks the Modbus TCP transaction id, so a
-        # late answer on a socket we gave up on is read as the answer to
-        # the next request. force=True, because a session that already
-        # misbehaved has not earned a polite goodbye, and the inverter
-        # should get its slot back at once.
+        # get_client(). Whatever went wrong, this socket is a suspect: a
+        # half-open TCP session to an inverter that rebooted looks
+        # exactly like a slow one until the next timeout. force=True,
+        # because a session that already misbehaved has not earned a
+        # polite goodbye, and the inverter should get its slot back at
+        # once. (Until v0.31.0 there was a second reason: a late answer
+        # on this socket would have been read as the answer to the next
+        # request. The embedded transport checks the transaction id now.)
         self.api.close(force=True)
         self.api.reconnect_next()
         self.consecutive_failed_cycles += 1

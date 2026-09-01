@@ -620,12 +620,12 @@ class SunSpecSensor(SunSpecEntity, SensorEntity):
         # MW-range garbage that poisons long-term statistics.
         #
         # Compared on abs() since #45. The garbage this catches is not
-        # signed: pysunspec2 packs the Modbus TCP transaction id as a
-        # literal 0 and never validates it on read (see the comment on
-        # _read_nameplate in __init__.py), so a late reply shifts every
-        # register after it and the damage lands wherever it lands. The
-        # one-sided test left half of that unguarded while still clipping
-        # the legitimately bipolar points - meter W, battery 802 W, DER
+        # signed: a misread scale factor or a shifted register lands
+        # wherever it lands. (Until v0.31.0 a late Modbus reply was the
+        # usual source of the shift; the embedded transport checks the
+        # transaction id now, the other sources remain.) The one-sided
+        # test left half of that unguarded while still clipping the
+        # legitimately bipolar points - meter W, battery 802 W, DER
         # 714 DCW - in the other direction.
         limit = self._max_native_value
         if limit is not None and isinstance(val, (int, float)) and abs(val) > limit:
