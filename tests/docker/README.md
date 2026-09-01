@@ -44,6 +44,22 @@ docker compose -f tests/docker/compose.yml run --rm tests-verbose
 Every test has a 60 second timeout. A hanging test fails and names
 itself rather than taking the run down with it.
 
+## Against the next Home Assistant
+
+`tests-beta` runs the same suite against the current HA beta, which is
+what the weekly `HA beta` workflow does. Use it to reproduce an issue
+that workflow opened:
+
+```bash
+docker compose -f tests/docker/compose.yml build tests-beta
+```
+
+```bash
+docker compose -f tests/docker/compose.yml run --rm tests-beta
+```
+
+It is a separate image, so it never displaces the stable one.
+
 ## After changing dependencies
 
 The image installs them at build time, so rebuild:
@@ -54,8 +70,18 @@ docker compose -f tests/docker/compose.yml build tests
 
 The dependency set lives in the `Dockerfile` and mirrors the pytest job
 in `.github/workflows/ci.yml`. Change one, change the other. The comment
-at the install step says why it is two steps and why Home Assistant is
-capped.
+at the install step says why it is two steps.
+
+The Home Assistant version is not written down anywhere. Both the image
+and the workflows resolve it from PyPI through
+`.github/scripts/resolve_ha_versions.py`, which picks the newest
+`pytest-homeassistant-custom-component` that pins a final HA release,
+or a beta one with `--channel beta`. Docker caches that layer, so
+picking up a Home Assistant released since your last build needs:
+
+```bash
+docker compose -f tests/docker/compose.yml build --no-cache tests
+```
 
 ## Why the source is read-only
 
