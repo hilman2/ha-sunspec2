@@ -24,12 +24,19 @@ between integrations." It is the only public HA API that can change
 ``platform`` on an existing entity without removing it - and removing
 the entity would lose the Recorder history.
 
-Constraint enforced by HA: the entity must NOT currently be loaded
-(no state in ``hass.states``, or state is ``unknown``). If cjne is
-still actively running, its entities are loaded and the migration
-will skip them. The user has to uninstall cjne first, restart HA,
-then add our integration. The blocked-migration code path produces
-a persistent notification with that exact instruction.
+Constraint enforced by HA: the entity must NOT currently be loaded,
+meaning a running platform is serving it. If cjne is still active its
+entities are loaded and the migration will skip them. The user has to
+uninstall cjne first, restart HA, then add our integration. The
+blocked-migration code path produces a persistent notification with
+that exact instruction.
+
+What "loaded" means changed in HA 2026.3: up to 2026.2 it was a state
+in ``hass.states``, since then it is membership in ``entity_sources``,
+which only a live platform fills. The new reading is the better one
+for us. A state left behind by an integration that is gone no longer
+blocks the migration, and that entity is exactly the one we want to
+take over.
 """
 
 from __future__ import annotations

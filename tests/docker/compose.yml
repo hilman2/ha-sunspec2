@@ -1,0 +1,37 @@
+# Test runners. See tests/docker/README.md for what to type.
+#
+# The source is mounted read-only and every write goes to a tmpfs, so a
+# run cannot leave anything behind in the working tree, and a test that
+# tries to write next to the source fails here rather than in CI.
+
+# Without this the project name is the directory name, "docker", which
+# collides with every other compose project whose file sits in a folder
+# called docker. Compose then reports their containers as orphans of
+# this project and offers to remove them.
+name: ha-sunspec2-tests
+
+x-common: &common
+  build:
+    context: ../..
+    dockerfile: tests/docker/Dockerfile
+  image: ha-sunspec2-tests
+  volumes:
+    - ../..:/src:ro
+  tmpfs:
+    - /tmp
+
+services:
+  # Full suite. What you run before pushing.
+  tests:
+    <<: *common
+
+  # Same suite in parallel. Faster, but the output interleaves.
+  tests-fast:
+    <<: *common
+    command: ["pytest", "tests/", "-q", "-n", "auto"]
+
+  # Live output while it runs, for a test that hangs or logs its way to
+  # an answer. Not for the routine run: it is loud.
+  tests-verbose:
+    <<: *common
+    command: ["pytest", "tests/", "-v", "-s", "--log-cli-level=INFO"]

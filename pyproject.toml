@@ -4,7 +4,7 @@ version = "0.7.0"
 description = "Home Assistant custom integration for SunSpec Modbus devices, brownfield rewrite of cjne/ha-sunspec."
 readme = "README.md"
 license = { file = "LICENSE" }
-requires-python = ">=3.13"
+requires-python = ">=3.14"
 authors = [{ name = "hilman2" }]
 keywords = ["home-assistant", "homeassistant", "sunspec", "modbus", "solar", "inverter", "kaco"]
 
@@ -22,6 +22,11 @@ Issues = "https://github.com/hilman2/ha-sunspec2/issues"
 # see the [tool.mypy] section at the bottom of this file.
 
 [tool.ruff]
+# Deliberately one release behind requires-python. At py314 the formatter
+# applies PEP 758 and rewrites every "except (A, B):" to "except A, B:",
+# which is 15 lines of pure churn across 7 files for a spelling that reads
+# like the Python 2 "except E, name:" exception binding. The runtime and
+# mypy are on 3.14; only the formatter is asked to stay conservative.
 target-version = "py313"
 line-length = 100
 extend-exclude = [
@@ -87,7 +92,7 @@ filterwarnings = [
 # pysunspec2 value being passed through unnoticed.
 
 [tool.mypy]
-python_version = "3.13"
+python_version = "3.14"
 files = ["custom_components", "tests"]
 strict = true
 # HA's own decorators (@callback, @property overrides) are typed, so untyped

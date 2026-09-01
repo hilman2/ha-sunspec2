@@ -6,6 +6,7 @@ import logging
 
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers.entity import entity_sources
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.sunspec2.const import DOMAIN
@@ -147,12 +148,17 @@ async def test_migrate_preserves_entity_id(hass):
 
 
 async def test_migrate_skips_loaded_entities(hass):
-    """Entities with a live state in hass.states cannot be migrated."""
+    """An entity a running platform is still serving cannot be migrated."""
     entry = _our_entry(hass)
     cjne = _make_cjne_entry(hass)
     eid = _register_cjne_entity(hass, cjne, "W-103-0")
 
-    # Simulate cjne still actively running this entity by writing a state.
+    # Simulate cjne still actively running this entity. Both halves
+    # matter: HA blocks on entity_sources, which only a live platform
+    # fills, and a running platform also has a state. Writing the state
+    # alone was enough until HA 2026.3 and silently stopped testing
+    # anything after it.
+    entity_sources(hass)[eid] = {"domain": CJNE_DOMAIN}
     hass.states.async_set(eid, "1234")
 
     migrated, skipped, errors = migrate_from_cjne_sync(hass, entry, _LOG)
