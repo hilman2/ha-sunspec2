@@ -697,8 +697,13 @@ class TestSunSpecModbusClientModel:
         assert c_tcp_model.__class__.__name__ == 'SunSpecModbusClientModel'
 
     def test_error(self, monkeypatch):
-        d_rtu = client.SunSpecModbusClientDeviceRTU(slave_id=1, name="COM2")
+        # The mock has to be in place before the device is built: the
+        # constructor opens the port unless an earlier test in the same
+        # process left a client for COM2 in the module cache. Upstream
+        # patched afterwards and passed only in that order; under xdist
+        # the test can land on a worker with an empty cache.
         monkeypatch.setattr(serial, 'Serial', MockPort.mock_port)
+        d_rtu = client.SunSpecModbusClientDeviceRTU(slave_id=1, name="COM2")
 
         rtu_buffer = [
             b'\x01\x83\x02\xc0\xf1',
