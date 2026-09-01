@@ -289,3 +289,14 @@ class TestModbusClientTCP:
         c.socket._set_buffer([b'\x00\x00\x00\x00\x00\x03\x01\x83\x02'])
         with pytest.raises(modbus_client.ModbusClientException):
             c.read(40003, 1)
+
+    def test_peer_closing_the_connection_is_not_a_timeout(self, monkeypatch):
+        # An empty recv() is the peer hanging up. Upstream called it a
+        # response timeout; the error now says what happened, and the dead
+        # socket is dropped so the next read connects again.
+        c = modbus_client.ModbusClientTCP()
+        monkeypatch.setattr(socket, 'socket', MockSocket.mock_socket)
+        c.connect()
+        with pytest.raises(modbus_client.ModbusClientConnectionClosed):
+            c.read(40003, 1)
+        assert c.socket is None

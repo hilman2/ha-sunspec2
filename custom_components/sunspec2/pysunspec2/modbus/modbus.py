@@ -80,6 +80,15 @@ class ModbusClientException(ModbusClientError):
     pass
 
 
+class ModbusClientConnectionClosed(ModbusClientError):
+    """The peer closed the TCP connection while a response was due.
+
+    Not a timeout: the device answered by hanging up, which some do after
+    every request or after a short idle time (the APsystems ECU-R, for
+    one). The socket is gone; the caller has to connect again.
+    """
+
+
 def modbus_rtu_client(name=None, baudrate=None, parity=None, timeout=0.5):
     global modbus_rtu_clients
 
@@ -679,10 +688,11 @@ class ModbusClientTCP(object):
         than missing.
 
         Returns the whole frame, MBAP header included, so the caller can
-        pick the exception code out of it. Raises ModbusClientTimeout when
-        the socket delivers nothing, and ModbusClientError when the frames
-        keep coming with the wrong id or the function code does not match
-        the request.
+        pick the exception code out of it. Raises ModbusClientConnectionClosed
+        when the peer hangs up before the response is complete, and
+        ModbusClientError when the frames keep coming with the wrong id or
+        the function code does not match the request. A socket timeout
+        surfaces as ModbusClientTimeout from read() and write().
         """
         discarded = 0
         while True:
@@ -700,7 +710,14 @@ class ModbusClientTCP(object):
                         data_len = struct.unpack('>H', resp[TCP_HDR_O_LEN:TCP_HDR_O_LEN + 2])
                         len_remaining = data_len[0] - (len(resp) - TCP_HDR_LEN)
                 else:
-                    raise ModbusClientTimeout('Response timeout')
+                    # recv() returns no bytes only when the peer closed the
+                    # connection; a socket that is merely slow raises
+                    # socket.timeout instead. Upstream called this a
+                    # timeout, and a caller could not tell a device that
+                    # hangs up after every request from one that is gone.
+                    # Drop the dead socket so the next read connects anew.
+                    self.disconnect()
+                    raise ModbusClientConnectionClosed('Connection closed by peer')
 
             if self.trace_func:
                 s = '< '

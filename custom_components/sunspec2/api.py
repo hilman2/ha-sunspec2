@@ -34,6 +34,7 @@ from .pysunspec2.modbus.client import SunSpecModbusClientError
 from .pysunspec2.modbus.client import SunSpecModbusClientException
 from .pysunspec2.modbus.client import SunSpecModbusClientTimeout
 from .pysunspec2.modbus.client import SunSpecModbusValueError
+from .pysunspec2.modbus.modbus import ModbusClientConnectionClosed
 from .pysunspec2.modbus.modbus import ModbusClientError
 from .pysunspec2.modbus.modbus import ModbusClientException
 from .pysunspec2.modbus.modbus import ModbusClientTimeout
@@ -313,6 +314,13 @@ class SunSpecApiClient:
         except SunSpecModbusClientTimeout as exc:
             with_model.warning("Modbus read timeout")
             raise TransientError(f"Modbus read timeout for model {model_id}") from exc
+        except ModbusClientConnectionClosed as exc:
+            # read_model already connected again once; a device that
+            # hangs up twice in a row is not answering this cycle.
+            with_model.warning("Device closed the Modbus connection twice in a row")
+            raise TransportError(
+                f"Device closed the Modbus connection while reading model {model_id}"
+            ) from exc
         except SunSpecModbusClientException as exc:
             with_model.warning("Modbus exception while reading model")
             raise DeviceError(f"Modbus exception while reading model {model_id}: {exc}") from exc
@@ -586,7 +594,7 @@ class SunSpecApiClient:
                 # inside the executor thread on every model.
                 delay=self._scan_delay or None,
             )
-        except (SunSpecModbusClientTimeout, ModbusClientTimeout):
+        except (SunSpecModbusClientTimeout, ModbusClientTimeout, ModbusClientConnectionClosed):
             # Never swallowed, unlike the other Modbus errors below.
             #
             # A timeout means a request went out and no answer came
@@ -597,7 +605,8 @@ class SunSpecApiClient:
             # next connect. (Since v0.31.0 the transport checks the
             # transaction id, so a late answer can no longer be taken
             # for the answer to the next request; the scan is still
-            # incomplete.)
+            # incomplete.) A device that hung up mid-scan is the same
+            # case with the socket already gone.
             raise
         except (SunSpecModbusClientError, ModbusClientError) as err:
             # Not a timeout, so the device did answer, typically with a
@@ -1144,6 +1153,24 @@ class SunSpecApiClient:
         client.read = capturing_read
 
     def read_model(self, model_id: int) -> SunSpecModelWrapper:
+        try:
+            return self._read_model_once(model_id)
+        except ModbusClientConnectionClosed:
+            # The device hung up mid-cycle. Some do that after every
+            # request or after a short idle time (APsystems ECU-R,
+            # cjne/ha-sunspec#170), and until now that cost the whole
+            # cycle: the read failed, the coordinator tore the session
+            # down, and only the next cycle connected again, so every
+            # second poll on such a device was a failure. The socket is
+            # already gone, so a polite close is all there is to do; the
+            # cached layout survives it and the rebuild costs three
+            # validating reads, not a scan. One attempt: a device that
+            # hangs up on the fresh session too is not answering.
+            self._log.info("Device closed the Modbus connection, connecting again")
+            self.close()
+            return self._read_model_once(model_id)
+
+    def _read_model_once(self, model_id: int) -> SunSpecModelWrapper:
         client = self.get_client()
         models = client.models[model_id]
         for model in models:
