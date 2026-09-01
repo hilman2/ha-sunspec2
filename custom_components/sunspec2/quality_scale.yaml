@@ -50,13 +50,12 @@ rules:
   docs-actions:
     status: done
     comment: |
-      README "Battery and export control (BETA)"
-      section documents the ``sunspec2.set_export_limit`` service
-      action, the matching Number / Switch entities, the SunSpec
-      model 123 points each one writes to, the opt-in flag, the
-      risk profile, and how to enable the feature. The section
-      explicitly carries an EXPERIMENTAL warning so users
-      understand the BETA status before flipping the flag.
+      docs/write-controls.md documents the
+      ``sunspec2.set_export_limit`` service action, every Number /
+      Switch / Select entity, the SunSpec point each one writes to,
+      the opt-in flag and the risk profile. The README section that
+      links there carries the EXPERIMENTAL warning, so nobody
+      reaches the feature without seeing the BETA status first.
   docs-high-level-description:
     status: done
   docs-installation-instructions:
@@ -271,6 +270,9 @@ rules:
       most common failure modes (dropouts on a shaky link, inverters
       asleep at night, empty model selection, dawn / dusk spikes)
       with the diagnostics download as the primary tool.
+      docs/troubleshooting.md carries the long version of each,
+      including the plausibility filter's per-quantity ceilings and
+      the log lines it emits.
   docs-use-cases:
     status: done
     comment: |

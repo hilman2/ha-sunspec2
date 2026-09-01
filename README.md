@@ -113,72 +113,30 @@ script. Put a Modbus proxy in front if you need that.
 
 ## Battery and export control (BETA)
 
-> **This one can bite.** Writing to an inverter changes its
-> configuration, and some devices persist that through a reboot or
-> refuse to hand control back. Grid feed-in limits may also be
-> regulated where you live. Read this section before switching it on.
+> **This can bite.** Writing to an inverter changes its configuration,
+> and some devices persist that through a reboot or refuse to hand
+> control back. Grid feed-in limits may also be regulated where you
+> live.
 
-Opt-in support for setting an export limit and steering a battery from
-Home Assistant. Off by default, and no write entity exists until you
-turn it on.
+Opt-in support for capping your export and steering a battery from Home
+Assistant. Off by default, and no write entity exists until you tick
+**"Enable experimental write controls (BETA)"** in the options.
 
-### What you get when you enable it
+What appears then, depending on what your inverter offers: an export
+limit in percent or watts, with an enable switch and a revert timer;
+battery charge and discharge rates with a control mode; a power factor
+setpoint; and the grid connection switch. Plus a
+`sunspec2.set_export_limit` service action for automations.
 
-| Entity | What it does |
-|---|---|
-| Export limit | Caps AC output to N % of nameplate. 0 means no export |
-| Export limit enabled | The limit only applies while this is on |
-| Export limit revert time | Seconds the inverter honours the limit before reverting on its own |
-| Export limit revert value | The percentage it falls back to. Disabled by default |
-| Export limit stays on after revert | Whether the limit survives the timer. Disabled by default |
-| Active power setpoint | The limit in watts instead of percent, where the inverter supports it |
-| Active power setpoint enabled | The setpoint only applies while this is on |
-| Active power setpoint mode | Watts or percent. Disabled by default |
-| Battery charge rate | Charge power, as a percentage of the maximum |
-| Battery discharge rate | Discharge power, as a percentage of the maximum |
-| Battery max charge power | The watts those two percentages refer to |
-| Battery control mode | Off, charge only, discharge only, or both |
-| Battery rate revert time | Seconds the rates hold before the inverter reverts |
-| Battery minimum reserve | Charge level to hold back for backup power. Disabled by default |
-| Power factor setpoint | Cos-phi setpoint for reactive power |
-| Power factor enabled | The setpoint only applies while this is on |
-| Inverter grid connection | **Most dangerous.** Off disconnects the inverter from the grid |
-
-There is also a `sunspec2.set_export_limit` service action, so an
-automation can set the limit without going through the entity.
-
-### Watch the revert timer
-
-Most inverters treat a limit as a dead-man switch. They apply it for
-the revert time, then drop it. An inverter left behind by a dead
-controller goes back to normal instead of staying throttled forever.
-Some keep reporting the old value afterwards, so the limit looks
-active when it is not.
-
-The reliable pattern is to write the limit repeatedly from an
-automation, with a revert time comfortably longer than the automation's
-interval. Setting the revert time to 0 makes the limit permanent on
-devices that allow it, and removes the safety net with it.
-
-### How to enable
-
-1. *Settings -> Devices & Services -> SunSpec Modbus -> Configure*
-2. Click through to the model options step
-3. Tick **"Enable experimental write controls (BETA)"**
-4. Save. The new entities appear on your inverter's device card
-
-You do not have to tick the matching data block yourself, that happens
-automatically. If your inverter does not offer these controls at all,
-no entities appear even with the option on. The diagnostics download
-tells you which blocks it has, under `detected_models`.
-
-### Please report back
+**[Full documentation in docs/write-controls.md](docs/write-controls.md)**:
+every entity with the register behind it, the revert timer and how not
+to get caught by it, and which blocks are deliberately left alone.
 
 Nobody has confirmed these writes against real hardware yet, which is
-why they are still a beta. If you run them, please
-[open an issue](https://github.com/hilman2/ha-sunspec2/issues) with
-your inverter model, its firmware version, and what worked and what
-did not. That feedback is what lets the BETA flag come off.
+why they are a beta. If you run them, please
+[open an issue](https://github.com/hilman2/ha-sunspec2/issues) with your
+inverter model, its firmware version, and what worked. That feedback is
+what lets the BETA flag come off.
 
 ## When something is wrong
 
@@ -186,6 +144,11 @@ did not. That feedback is what lets the BETA flag come off.
 SunSpec Modbus -> Download diagnostics*. Your IP is redacted
 automatically, and it contains almost everything needed to work out
 what happened.
+
+The cases below are the common ones in a line or two.
+**[docs/troubleshooting.md](docs/troubleshooting.md)** has the long
+version: how the plausibility filter picks its ceilings, what the log
+lines mean, and which field in the diagnostics answers which question.
 
 **Sensors drop out for a few minutes now and then.** Expected on a
 shaky network. The integration retries and keeps showing the last good
