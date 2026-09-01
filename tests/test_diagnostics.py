@@ -161,7 +161,7 @@ async def test_capture_wraps_client_read(hass):
 
     with (
         patch(
-            "sunspec2.modbus.client.SunSpecModbusClientDeviceTCP",
+            "custom_components.sunspec2.pysunspec2.modbus.client.SunSpecModbusClientDeviceTCP",
             return_value=fake_client,
         ),
         patch.object(SunSpecApiClient, "check_port", return_value=True),

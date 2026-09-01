@@ -241,11 +241,15 @@ diagnostics download.**
 ---
 
 Built on [`pysunspec2`][pysunspec2], the SunSpec Alliance reference
-client, hence the name. Meets the Home Assistant **Gold** quality
-scale, documented rule by rule in
+client, hence the name. The integration carries its own fork of it in
+[`custom_components/sunspec2/pysunspec2/`][fork]; the only package it
+installs from PyPI is `pyserial`, for RS-485. Meets the Home Assistant
+**Gold** quality scale, documented rule by rule in
 [`quality_scale.yaml`][quality-scale].
 
-MIT licensed, see [`LICENSE`](LICENSE).
+MIT licensed, see [`LICENSE`](LICENSE). The embedded pysunspec2 fork
+stays under its Apache 2.0 license, see the `LICENSE` file next to it.
 
 [pysunspec2]: https://github.com/sunspec/pysunspec2
+[fork]: custom_components/sunspec2/pysunspec2/__init__.py
 [quality-scale]: custom_components/sunspec2/quality_scale.yaml

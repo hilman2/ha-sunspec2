@@ -6,10 +6,10 @@ failure counters, Repairs panel).
 from typing import Any
 
 import pytest
-import sunspec2.file.client as file_client
 from homeassistant.helpers import issue_registry as ir
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
+import custom_components.sunspec2.pysunspec2.file.client as file_client
 from custom_components.sunspec2 import SunSpecDataUpdateCoordinator
 from custom_components.sunspec2.api import SunSpecApiClient
 from custom_components.sunspec2.const import DOMAIN

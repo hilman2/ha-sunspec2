@@ -69,7 +69,7 @@ jobs:
             "pytest-homeassistant-custom-component==${{ steps.ha.outputs.phcc }}" \
             pytest-mock \
             voluptuous-serialize \
-            "pysunspec2[serial]==1.3.6"
+            "pyserial==3.5"
           pip install "pytest<9"
       - name: Run mypy
         # Paths, strictness and per-module exceptions all live in
@@ -130,12 +130,16 @@ jobs:
           # tests/test_config_flow.py. It arrived as an HA dependency
           # until 2026.9 dropped it, so it is named here rather than
           # relied on.
+          #
+          # pyserial is the one runtime requirement in manifest.json: the
+          # embedded pysunspec2 fork imports it for Modbus RTU. Nothing
+          # else comes from PyPI for the integration itself.
           pip install \
             "homeassistant==${{ steps.ha.outputs.ha }}" \
             "pytest-homeassistant-custom-component==${{ steps.ha.outputs.phcc }}" \
             pytest-mock \
             voluptuous-serialize \
-            "pysunspec2[serial]==1.3.6"
+            "pyserial==3.5"
           pip install "pytest<9"
       - name: Run tests
         run: pytest tests/ -v

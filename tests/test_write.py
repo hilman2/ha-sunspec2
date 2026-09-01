@@ -8,7 +8,7 @@ hardware raised ``ModelError: SF field WMaxLimPct_SF value not
 initialized`` (reported in #17). A mock cannot reproduce a scale-factor
 bug, because a mock has no scale factor.
 
-``sunspec2.device.Model`` gives us the genuine point definitions and the
+``custom_components.sunspec2.pysunspec2.device.Model`` gives us the genuine point definitions and the
 genuine ``Point.set_value(computed=True)`` encoding logic. The only two
 things it lacks are ``Model.read()`` and ``Point.write()``, which the
 Modbus client subclasses add, so the helper below grafts those on as the
@@ -19,19 +19,19 @@ from unittest.mock import Mock
 from unittest.mock import patch
 
 import pytest
-import sunspec2.device as sunspec_device
-from sunspec2.device import ModelError
-from sunspec2.modbus.client import SunSpecModbusClientError
-from sunspec2.modbus.client import SunSpecModbusClientException
-from sunspec2.modbus.client import SunSpecModbusClientTimeout
-from sunspec2.modbus.client import SunSpecModbusValueError
-from sunspec2.modbus.modbus import ModbusClientError
-from sunspec2.modbus.modbus import ModbusClientException
-from sunspec2.modbus.modbus import ModbusClientTimeout
 
+import custom_components.sunspec2.pysunspec2.device as sunspec_device
 from custom_components.sunspec2.api import SunSpecApiClient
 from custom_components.sunspec2.errors import DeviceError
 from custom_components.sunspec2.errors import TransientError
+from custom_components.sunspec2.pysunspec2.device import ModelError
+from custom_components.sunspec2.pysunspec2.modbus.client import SunSpecModbusClientError
+from custom_components.sunspec2.pysunspec2.modbus.client import SunSpecModbusClientException
+from custom_components.sunspec2.pysunspec2.modbus.client import SunSpecModbusClientTimeout
+from custom_components.sunspec2.pysunspec2.modbus.client import SunSpecModbusValueError
+from custom_components.sunspec2.pysunspec2.modbus.modbus import ModbusClientError
+from custom_components.sunspec2.pysunspec2.modbus.modbus import ModbusClientException
+from custom_components.sunspec2.pysunspec2.modbus.modbus import ModbusClientTimeout
 
 
 def _api_with_model(hass, model_id, sf_on_read):

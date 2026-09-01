@@ -17,12 +17,15 @@ from __future__ import annotations
 import json
 import logging
 from functools import lru_cache
-from importlib.resources import files
+from pathlib import Path
 from typing import Any
 
 _LOGGER = logging.getLogger(__name__)
 
-_MODEL_PACKAGE = "sunspec2.models.json"
+# The model definitions ship inside the integration with the embedded
+# pysunspec2 fork, so a plain path is enough; there is no site-packages
+# lookup to go through any more.
+_MODEL_DIR = Path(__file__).parent / "pysunspec2" / "models" / "json"
 
 # Curated short names for SunSpec models whose official group label is
 # too unwieldy to sit inside a device name (issue #33). With
@@ -98,11 +101,7 @@ def sunspec_model_label(model_id: int) -> str:
     'Model 99999'
     """
     fallback = f"Model {model_id}"
-    try:
-        resource = files(_MODEL_PACKAGE).joinpath(f"model_{model_id}.json")
-    except (ModuleNotFoundError, OSError) as exc:
-        _LOGGER.debug("Could not locate model_%s.json: %s", model_id, exc)
-        return fallback
+    resource = _MODEL_DIR / f"model_{model_id}.json"
     if not resource.is_file():
         return fallback
     try:
