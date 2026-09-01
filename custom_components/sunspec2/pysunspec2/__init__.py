@@ -22,6 +22,9 @@ Changes against upstream:
   dropped as the late answer to an earlier request; upstream sent id 0
   in every frame and took whatever came back (v0.31.0). The drop is
   logged as a warning on this module's logger (v0.31.2).
+* A repeating group whose count has to be inferred from the model length
+  is measured by its full instance length, nested groups included, so
+  model 705 scans (sunspec/pysunspec2#120, v2026.9.1).
 
 Why a fork rather than the pip package: the integration works around the
 transport layer in several places (a Modbus TCP transaction id that is
