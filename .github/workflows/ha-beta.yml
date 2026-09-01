@@ -56,7 +56,7 @@ jobs:
         # PyPI. Only the first of those deserves an issue. The last step
         # fails the run either way.
         continue-on-error: true
-        run: pytest tests/ -q
+        run: pytest tests/ -n auto -q
 
       - name: Report the failure on an issue
         if: steps.tests.outcome == 'failure'

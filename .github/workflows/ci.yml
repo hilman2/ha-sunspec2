@@ -142,4 +142,5 @@ jobs:
             "pyserial==3.5"
           pip install "pytest<9"
       - name: Run tests
-        run: pytest tests/ -v
+        # One worker per core; pytest-xdist comes with the HA test plugin.
+        run: pytest tests/ -n auto -v
