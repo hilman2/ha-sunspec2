@@ -29,6 +29,9 @@ Changes against upstream:
   write; ``single_register_write`` on either client brings function
   code 6 back for a device that needs it (sunspec/pysunspec2#104,
   v2026.9.1).
+* A peer that closes the TCP connection raises
+  ``ModbusClientConnectionClosed`` and the dead socket is dropped;
+  upstream reported it as a response timeout (v2026.9.1).
 
 Why a fork rather than the pip package: the integration works around the
 transport layer in several places (a Modbus TCP transaction id that is

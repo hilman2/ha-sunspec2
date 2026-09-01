@@ -18,6 +18,7 @@ from custom_components.sunspec2.errors import TransportError
 from custom_components.sunspec2.pysunspec2.modbus.client import SunSpecModbusClientError
 from custom_components.sunspec2.pysunspec2.modbus.client import SunSpecModbusClientException
 from custom_components.sunspec2.pysunspec2.modbus.client import SunSpecModbusClientTimeout
+from custom_components.sunspec2.pysunspec2.modbus.modbus import ModbusClientConnectionClosed
 from custom_components.sunspec2.pysunspec2.modbus.modbus import ModbusClientError
 
 
@@ -139,6 +140,55 @@ async def test_read_model_error(hass, mocker):
     api = SunSpecApiClient(host="test", port=123, unit_id=1, hass=hass)
 
     with pytest.raises(DeviceError):
+        await api.async_get_data(1)
+
+
+class _HangingUpModel:
+    """A model whose first read finds the device gone, like an ECU-R does."""
+
+    def __init__(self, hangs_up_first: bool) -> None:
+        self.reads = 0
+        self.hangs_up_first = hangs_up_first
+
+    def read(self) -> None:
+        self.reads += 1
+        if self.hangs_up_first and self.reads == 1:
+            raise ModbusClientConnectionClosed("Connection closed by peer")
+
+
+async def test_read_model_connects_again_when_the_device_hangs_up(hass, mocker):
+    """A hang-up mid-cycle costs one reconnect inside the cycle, not the cycle.
+
+    Until now the transport reported the closed connection as a timeout,
+    the cycle failed, and only the next cycle connected again. On a device
+    that hangs up after every request (cjne/ha-sunspec#170) that meant
+    every second poll was lost.
+    """
+    from types import SimpleNamespace
+
+    api = SunSpecApiClient(host="test", port=123, unit_id=1, hass=hass)
+    first = SimpleNamespace(models={1: [_HangingUpModel(hangs_up_first=True)]}, disconnect=Mock())
+    second = SimpleNamespace(models={1: [_HangingUpModel(hangs_up_first=False)]}, disconnect=Mock())
+    connect = mocker.patch.object(api, "modbus_connect", side_effect=[first, second])
+
+    wrapper = api.read_model(1)
+
+    assert connect.call_count == 2
+    assert first.models[1][0].reads == 1
+    assert second.models[1][0].reads == 1
+    assert wrapper.num_models == 1
+    # The dead session went out politely; the cached layout is not dropped.
+    first.disconnect.assert_called_once()
+
+
+async def test_device_that_keeps_hanging_up_is_a_transport_error(hass, mocker):
+    mocker.patch(
+        "custom_components.sunspec2.api.SunSpecApiClient.read_model",
+        side_effect=ModbusClientConnectionClosed,
+    )
+    api = SunSpecApiClient(host="test", port=123, unit_id=1, hass=hass)
+
+    with pytest.raises(TransportError):
         await api.async_get_data(1)
 
 

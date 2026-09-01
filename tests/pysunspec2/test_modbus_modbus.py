@@ -290,6 +290,17 @@ class TestModbusClientTCP:
         with pytest.raises(modbus_client.ModbusClientException):
             c.read(40003, 1)
 
+    def test_peer_closing_the_connection_is_not_a_timeout(self, monkeypatch):
+        # An empty recv() is the peer hanging up. Upstream called it a
+        # response timeout; the error now says what happened, and the dead
+        # socket is dropped so the next read connects again.
+        c = modbus_client.ModbusClientTCP()
+        monkeypatch.setattr(socket, 'socket', MockSocket.mock_socket)
+        c.connect()
+        with pytest.raises(modbus_client.ModbusClientConnectionClosed):
+            c.read(40003, 1)
+        assert c.socket is None
+
     def test_single_register_write_uses_function_code_16(self, monkeypatch):
         # One register goes out as a multi-register write by default. Some
         # devices, the APsystems ECU-R among them, answer function code 6
