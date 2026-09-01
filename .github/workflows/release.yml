@@ -1,12 +1,28 @@
 name: Release
 
-# Tag push (vX.Y.Z) is the trigger. The workflow refuses to publish a
-# release until the CI workflow on the same commit has finished green,
-# so a broken main can never accidentally ship to HACS users via a
+# Tag push is the trigger. The workflow refuses to publish a release
+# until the CI workflow on the same commit has finished green, so a
+# broken main can never accidentally ship to HACS users via a
 # manually-cut tag.
 #
+# Versions follow Home Assistant's calendar scheme, YEAR.MONTH.PATCH,
+# with a v in front of the tag. Two kinds of tag:
+#
+#   v2026.9.0     a release. Published as the latest release, which is
+#                 what HACS offers every user as an update.
+#   v2026.9.0b1   a pre-release: anything after the three numbers,
+#                 b1 and rc1 as Home Assistant spells them, or -rc1.
+#                 Published with the pre-release flag and never as
+#                 latest. HACS shows it only to users who tick "Show
+#                 beta versions" in the redownload dialog, so a build
+#                 can be tried on real hardware without reaching
+#                 everyone else.
+#
+# Both must carry the version that manifest.json declares, suffix
+# aside; the check below refuses a tag that does not.
+#
 # The complementary half of this gate lives in the branch protection
-# rules on `main` (required status checks for the four CI jobs). Tags
+# rules on `main` (required status checks for the five CI jobs). Tags
 # can only sit on commits that already passed CI, but this workflow
 # also re-verifies that at release time as a belt-and-braces check.
 
@@ -73,6 +89,20 @@ jobs:
           echo "::error::Timed out waiting for CI on $SHA to complete"
           exit 1
 
+      - name: Refuse if the tag does not match manifest.json
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF_NAME}"
+          # v2026.9.0b1 -> 2026.9.0: drop the leading v and whatever
+          # follows the three numbers.
+          WANT=$(printf '%s' "$TAG" | sed -E 's/^v//; s/^([0-9]+\.[0-9]+\.[0-9]+).*$/\1/')
+          HAVE=$(jq -r .version custom_components/sunspec2/manifest.json)
+          if [ "$WANT" != "$HAVE" ]; then
+            echo "::error::Tag $TAG names version $WANT but manifest.json says $HAVE"
+            exit 1
+          fi
+          echo "Tag $TAG matches manifest version $HAVE"
+
       - name: Publish GitHub release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -80,17 +110,29 @@ jobs:
           set -euo pipefail
           TAG="${GITHUB_REF_NAME}"
 
-          # release-drafter keeps a draft up to date as PRs land on
-          # main. If one already exists for this tag, publish it as-is
-          # so the curated changelog survives. Otherwise create a
-          # fresh release with auto-generated notes.
-          if gh release view "$TAG" >/dev/null 2>&1; then
-            echo "Existing release $TAG found - publishing as latest"
-            gh release edit "$TAG" --draft=false --latest
+          if [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            # release-drafter keeps a draft up to date as PRs land on
+            # main. If one already exists for this tag, publish it
+            # as-is so the curated changelog survives. Otherwise
+            # create a fresh release with auto-generated notes.
+            if gh release view "$TAG" >/dev/null 2>&1; then
+              echo "Existing release $TAG found - publishing as latest"
+              gh release edit "$TAG" --draft=false --latest
+            else
+              echo "No existing release for $TAG - creating one with auto-generated notes"
+              gh release create "$TAG" \
+                --title "$TAG" \
+                --generate-notes \
+                --latest
+            fi
           else
-            echo "No existing release for $TAG - creating one with auto-generated notes"
+            # A pre-release never touches the release-drafter draft,
+            # which is waiting for the final tag, and never becomes
+            # latest. Notes are generated from the commits since the
+            # previous release.
+            echo "Pre-release tag $TAG - publishing with the pre-release flag"
             gh release create "$TAG" \
               --title "$TAG" \
               --generate-notes \
-              --latest
+              --prerelease
           fi
