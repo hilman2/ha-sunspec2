@@ -565,11 +565,15 @@ class Group(object):
                 gdata = self._group_data(data=data, name=gdef[mdef.NAME], index=0)
                 g = self.group_class(gdef=gdef, model=self.model, model_offset=model_offset, data=gdata,
                                      data_offset=data_offset, index=1)
-                group_points_len = g.points_len
+                # g.len is one instance resolved in full, nested repeating
+                # groups included; g.points_len counts only the group's own
+                # points. Model 705 nests Pt inside Crv, and dividing by
+                # points_len there declared the length inconsistent for every
+                # device that exposes it (sunspec/pysunspec2#120).
+                group_points_len = g.len
                 # count is (model.len - non-repeating points) / group_points_len
                 # (ID and L points are not included in model length)
                 # TODO: investigate if this only works when there's a single group in the model
-                # TODO: investigate the case of groups of groups
                 non_repeating_points = sum(
                     p.len for pname, p in self.model.points.items() if pname not in ('ID', 'L')
                 )
