@@ -61,8 +61,10 @@ jobs:
           # pinned separately.
           pip install \
             mypy \
+            "homeassistant<2026.9" \
             "pytest-homeassistant-custom-component>=0.13.316" \
             pytest-mock \
+            voluptuous-serialize \
             "pysunspec2[serial]==1.3.6"
           pip install "pytest<9"
       - name: Run mypy
@@ -112,11 +114,27 @@ jobs:
           #
           # Why pin pytest-haX>=0.13.316: older versions ship a transient
           # aiodns 3.5.0 which has a broken pycares.ares_query_a_result
-          # type annotation that fails on import under Python 3.13.
-          # 0.13.316 pulls aiodns 4.x which is fine.
+          # type annotation that fails on import. 0.13.316 pulls aiodns
+          # 4.x which is fine.
+          #
+          # Why cap homeassistant rather than pytest-haX: pytest-haX pins
+          # one exact HA version, and its newest release always tracks the
+          # next HA beta. 0.13.361 pins 2026.9.0b4, which is what turned
+          # this job red on the move to 3.14. Testing against a beta makes
+          # an unrelated upstream change fail somebody else's PR. Capping
+          # HA at the next month lets pip pick the newest pytest-haX that
+          # still resolves to a stable release. Raise the cap when a new
+          # HA month goes stable.
+          #
+          # voluptuous-serialize is imported directly by
+          # tests/test_config_flow.py. It arrived as an HA dependency
+          # until 2026.9 dropped it, so it is named here rather than
+          # relied on.
           pip install \
+            "homeassistant<2026.9" \
             "pytest-homeassistant-custom-component>=0.13.316" \
             pytest-mock \
+            voluptuous-serialize \
             "pysunspec2[serial]==1.3.6"
           pip install "pytest<9"
       - name: Run tests
