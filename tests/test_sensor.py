@@ -381,6 +381,81 @@ async def test_energy_sensor_recovers_after_repeated_rejected_deltas(
     assert readings[-1] != 100000, f"sensor still glued to baseline on last read: {readings}"
 
 
+async def test_energy_counter_drop_is_held(hass: HomeAssistant, sunspec_client_mock) -> None:
+    """A lifetime counter that goes down is held at the last value.
+
+    The case from the field is a scale factor misread on a Fronius Symo
+    model 160: the total comes back a thousand times too small for a poll
+    or two. No peak power is configured here on purpose, the rule must
+    not depend on one. Once the real value is back, the sensor follows
+    it again at once.
+    """
+    from custom_components.sunspec2.sensor import SunSpecEnergySensor
+
+    config_entry = await setup_mock_sunspec_config_entry(hass)
+    coordinator = config_entry.runtime_data
+
+    energy_sensor = None
+    for entity in hass.data["entity_components"]["sensor"].entities:
+        if isinstance(entity, SunSpecEnergySensor) and entity.key == "WH":
+            energy_sensor = entity
+            break
+    assert energy_sensor is not None
+    assert energy_sensor.native_value == 100000
+
+    fake_value = {"v": 100}
+    real_get_value = coordinator.data[103].getValue
+
+    def fake_get_value(point_name, model_index=0):
+        if point_name == "WH":
+            return fake_value["v"]
+        return real_get_value(point_name, model_index)
+
+    with patch.object(coordinator.data[103], "getValue", side_effect=fake_get_value):
+        held_once = energy_sensor.native_value
+        held_twice = energy_sensor.native_value
+        fake_value["v"] = 100050
+        recovered = energy_sensor.native_value
+
+    assert held_once == 100000
+    assert held_twice == 100000
+    assert recovered == 100050
+
+
+async def test_energy_counter_reset_is_accepted_after_repeated_reads(
+    hass: HomeAssistant, sunspec_client_mock
+) -> None:
+    """A counter that stays low is a real reset and is accepted through the hatch."""
+    from custom_components.sunspec2.const import ENERGY_DELTA_REJECT_RECOVERY_COUNT
+    from custom_components.sunspec2.sensor import SunSpecEnergySensor
+
+    config_entry = await setup_mock_sunspec_config_entry(hass)
+    coordinator = config_entry.runtime_data
+
+    energy_sensor = None
+    for entity in hass.data["entity_components"]["sensor"].entities:
+        if isinstance(entity, SunSpecEnergySensor) and entity.key == "WH":
+            energy_sensor = entity
+            break
+    assert energy_sensor is not None
+    assert energy_sensor.native_value == 100000
+
+    real_get_value = coordinator.data[103].getValue
+
+    def reset_get_value(point_name, model_index=0):
+        if point_name == "WH":
+            return 100
+        return real_get_value(point_name, model_index)
+
+    with patch.object(coordinator.data[103], "getValue", side_effect=reset_get_value):
+        readings = [energy_sensor.native_value for _ in range(ENERGY_DELTA_REJECT_RECOVERY_COUNT)]
+
+    assert readings[: ENERGY_DELTA_REJECT_RECOVERY_COUNT - 1] == [100000] * (
+        ENERGY_DELTA_REJECT_RECOVERY_COUNT - 1
+    )
+    assert readings[-1] == 100
+
+
 async def test_energy_counter_that_moves_in_steps_is_not_rejected(
     hass: HomeAssistant, sunspec_client_mock, freezer, caplog
 ) -> None:
