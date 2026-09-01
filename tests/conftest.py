@@ -52,6 +52,18 @@ def skip_notifications_fixture():
         yield
 
 
+@pytest.fixture(autouse=True)
+def no_model_read_pacing():
+    """Switch off the pause read_model puts before every model read.
+
+    It paces real inverters; the file-backed test client answers at
+    once. With it on, every test that sets the integration up waited
+    about two seconds for nothing.
+    """
+    with patch("custom_components.sunspec2.api.MODEL_READ_PACING_SECONDS", 0):
+        yield
+
+
 @pytest.fixture(name="auto_enable_custom_integrations", autouse=True)
 def auto_enable_custom_integrations(
     hass: Any,

@@ -85,6 +85,15 @@ CONNECT_TIMEOUT = 2
 # and the diagnostics probe pass this longer timeout to the API client.
 SETUP_TIMEOUT = 60
 
+# Pause before every model instance read_model reads (seconds). Inherited
+# verbatim from cjne/ha-sunspec in the phase 0 baseline, where it paced
+# the request stream for inverters that answer slowly, and never
+# re-examined since. A named constant so the test suite can switch it
+# off: the file-backed test client needs no pacing, and at 0.6 s per
+# model every test that sets the integration up paid two seconds for
+# nothing, most of the suite's three minutes.
+MODEL_READ_PACING_SECONDS = 0.6
+
 _LOGGER: logging.Logger = logging.getLogger(__package__)
 
 
@@ -1138,7 +1147,8 @@ class SunSpecApiClient:
         client = self.get_client()
         models = client.models[model_id]
         for model in models:
-            time.sleep(0.6)
+            if MODEL_READ_PACING_SECONDS:
+                time.sleep(MODEL_READ_PACING_SECONDS)
             model.read()
 
         return SunSpecModelWrapper(models)

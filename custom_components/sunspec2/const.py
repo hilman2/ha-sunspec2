@@ -199,8 +199,8 @@ CONF_STANDBY_WHEN_IDLE = "standby_when_idle"
 #       the past. ``loop.call_at`` fires immediately, every time, for
 #       as long as Home Assistant is up.
 #
-# 5 s rather than 1 s because a single model read already costs a
-# hardcoded 0.6 s sleep inside pysunspec2 plus a round trip, and
+# 5 s rather than 1 s because a single model read already costs the
+# MODEL_READ_PACING_SECONDS pause in api.py plus a round trip, and
 # INTERVAL_RETRY_DELAY_SECONDS is itself 5: below that the in-cycle
 # retry, not the configured interval, sets the real pace.
 MIN_SCAN_INTERVAL_SECONDS = 5
