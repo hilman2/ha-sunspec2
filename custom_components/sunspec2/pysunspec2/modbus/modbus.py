@@ -51,6 +51,10 @@ TCP_WRITE_SINGLE_REQ_LEN = 4
 
 TCP_DEFAULT_PORT = 502
 TCP_DEFAULT_TIMEOUT = 2
+# How many responses with a wrong transaction id a single request tolerates
+# before the connection is declared out of step. A device that answers
+# late produces one or two of these, not dozens.
+TCP_STALE_RESPONSE_LIMIT = 16
 
 TLS_DATA_DIR = os.path.normpath(os.path.join(os.path.dirname(__file__), '..', 'tests', 'tls_data'))
 # Secure SunSpec Modbus test PKI (ECDSA P-256). See tls_data/README.md.
@@ -563,6 +567,10 @@ class ModbusClientTCP(object):
         self.tls_verify = not insecure_skip_tls_verify
         self.max_count = max_count
         self.max_write_count = max_write_count
+        # Modbus TCP transaction id of the next request. Upstream sent 0 in
+        # every frame and never looked at the id in the response, so a late
+        # answer was taken for the answer to whatever request came next.
+        self._next_transaction_id = 0
 
         # If using TLS, use the default CA, cert, and key files if they are not specified.
         if self.tls:
@@ -639,16 +647,14 @@ class ModbusClientTCP(object):
     def is_connected(self):
         return self.socket
 
-    def _read(self, addr, count, op=FUNC_READ_HOLDING):
-        resp = bytearray()
-        len_remaining = TCP_HDR_LEN + TCP_RESP_MIN_LEN
-        len_found = False
-        except_code = None
+    def _transaction_id(self):
+        """Hand out the transaction id for the next request, 0 to 65535, wrapping."""
+        tid = self._next_transaction_id
+        self._next_transaction_id = (tid + 1) & 0xFFFF
+        return tid
 
-        req = struct.pack('>HHHBBHH', 0, 0, TCP_READ_REQ_LEN, int(self.slave_id), op, int(addr), int(count))
-
+    def _send(self, req):
         if self.trace_func:
-            # s = '%s:%s:%s[addr=%s] ->' % (self.ipaddr, str(self.ipport), str(self.slave_id), addr)
             s = '> '
             for c in req:
                 s += '%02X' % c
@@ -659,29 +665,70 @@ class ModbusClientTCP(object):
         except Exception as e:
             raise ModbusClientError('Socket write error: %s' % str(e))
 
-        while len_remaining > 0:
-            c = self.socket.recv(len_remaining)
-            len_read = len(c)
-            if len_read > 0:
-                resp += c
-                len_remaining -= len_read
-                if len_found is False and len(resp) >= TCP_HDR_LEN + TCP_RESP_MIN_LEN:
-                    data_len = struct.unpack('>H', resp[TCP_HDR_O_LEN:TCP_HDR_O_LEN + 2])
-                    len_remaining = data_len[0] - (len(resp) - TCP_HDR_LEN)
-            else:
-                raise ModbusClientTimeout('Response timeout')
+    def _recv_response(self, tid, func):
+        """Read the response to the request that carried transaction id ``tid``.
+
+        A frame with another transaction id answers a request this client
+        already gave up on, typically after a response timeout. It is traced
+        and dropped, and the read goes on with the next frame. Taking it for
+        the answer to the current request would put every register that
+        follows into the wrong point, with values that look plausible rather
+        than missing.
+
+        Returns the whole frame, MBAP header included, so the caller can
+        pick the exception code out of it. Raises ModbusClientTimeout when
+        the socket delivers nothing, and ModbusClientError when the frames
+        keep coming with the wrong id or the function code does not match
+        the request.
+        """
+        discarded = 0
+        while True:
+            resp = bytearray()
+            len_remaining = TCP_HDR_LEN + TCP_RESP_MIN_LEN
+            len_found = False
+            while len_remaining > 0:
+                c = self.socket.recv(len_remaining)
+                len_read = len(c)
+                if len_read > 0:
+                    resp += c
+                    len_remaining -= len_read
+                    if len_found is False and len(resp) >= TCP_HDR_LEN + TCP_RESP_MIN_LEN:
+                        len_found = True
+                        data_len = struct.unpack('>H', resp[TCP_HDR_O_LEN:TCP_HDR_O_LEN + 2])
+                        len_remaining = data_len[0] - (len(resp) - TCP_HDR_LEN)
+                else:
+                    raise ModbusClientTimeout('Response timeout')
+
+            if self.trace_func:
+                s = '< '
+                for c in resp:
+                    s += '%02X' % c
+                self.trace_func(s)
+
+            resp_tid = struct.unpack('>H', resp[0:2])[0]
+            if resp_tid == tid:
+                break
+            discarded += 1
+            if self.trace_func:
+                self.trace_func('dropped stale response: transaction id %d, expected %d' % (resp_tid, tid))
+            if discarded >= TCP_STALE_RESPONSE_LIMIT:
+                raise ModbusClientError('%d responses in a row with the wrong transaction id, expected %d'
+                                        % (discarded, tid))
+
+        resp_func = resp[TCP_HDR_LEN + 1] & 0x7F
+        if resp_func != func:
+            raise ModbusClientError('Response function code %d does not match the request (%d)'
+                                    % (resp_func, func))
+        return resp
+
+    def _read(self, addr, count, op=FUNC_READ_HOLDING):
+        tid = self._transaction_id()
+        req = struct.pack('>HHHBBHH', tid, 0, TCP_READ_REQ_LEN, int(self.slave_id), op, int(addr), int(count))
+        self._send(req)
+        resp = self._recv_response(tid, op)
 
         if resp[TCP_HDR_LEN + 1] & 0x80:
             except_code = resp[TCP_HDR_LEN + 2]
-
-        if self.trace_func:
-            # s = '%s:%s:%s[addr=%s] <--' % (self.ipaddr, str(self.ipport), str(self.slave_id), addr)
-            s ='< '
-            for c in resp:
-                s += '%02X' % c
-            self.trace_func(s)
-
-        if except_code:
             raise ModbusClientException('Modbus exception %d: addr: %s count: %s' % (except_code, addr, count))
 
         return resp[(TCP_HDR_LEN + 3):]
@@ -737,53 +784,19 @@ class ModbusClientTCP(object):
         return bytes(resp)
 
     def _write(self, addr, data):
-        resp = bytearray()
-        len_remaining = TCP_HDR_LEN + TCP_RESP_MIN_LEN
-        len_found = False
-        except_code = None
         func = FUNC_WRITE_MULTIPLE
 
         write_len = len(data)
         write_count = int(write_len/2)
-        req = struct.pack('>HHHBBHHB', 0, 0, TCP_WRITE_MULT_REQ_LEN + write_len, int(self.slave_id),
+        tid = self._transaction_id()
+        req = struct.pack('>HHHBBHHB', tid, 0, TCP_WRITE_MULT_REQ_LEN + write_len, int(self.slave_id),
                           func, int(addr), write_count, write_len)
         req += data
-
-        if self.trace_func:
-            # s = '%s:%s:%s[addr=%s] ->' % (self.ipaddr, str(self.ipport), str(self.slave_id), addr)
-            s = '> '
-            for c in req:
-                s += '%02X' % c
-            self.trace_func(s)
-
-        try:
-            self.socket.sendall(req)
-        except Exception as e:
-            raise ModbusClientError('Socket write error: %s' % str(e))
-
-        while len_remaining > 0:
-            c = self.socket.recv(len_remaining)
-            len_read = len(c)
-            if len_read > 0:
-                resp += c
-                len_remaining -= len_read
-                if len_found is False and len(resp) >= TCP_HDR_LEN + TCP_RESP_MIN_LEN:
-                    data_len = struct.unpack('>H', resp[TCP_HDR_O_LEN:TCP_HDR_O_LEN + 2])
-                    len_remaining = data_len[0] - (len(resp) - TCP_HDR_LEN)
-            else:
-                raise ModbusClientTimeout('Response timeout')
+        self._send(req)
+        resp = self._recv_response(tid, func)
 
         if (resp[TCP_HDR_LEN + 1]) & 0x80:
             except_code = resp[TCP_HDR_LEN + 2]
-
-        if self.trace_func:
-            # s = '%s:%s:%s[addr=%s] <--' % (self.ipaddr, str(self.ipport), str(self.slave_id), addr)
-            s = '< '
-            for c in resp:
-                s += '%02X' % c
-            self.trace_func(s)
-
-        if except_code:
             raise ModbusClientException('Modbus exception: %d' % except_code)
 
     def _write_single(self, addr, data):
@@ -791,52 +804,18 @@ class ModbusClientTCP(object):
         Write Single Modbus device register
         """
 
-        resp = bytearray()
-        len_remaining = TCP_HDR_LEN + TCP_RESP_MIN_LEN
-        len_found = False
-        except_code = None
         func = FUNC_WRITE_SINGLE
 
         write_len = len(data)
-        req = struct.pack('>HHHBBH', 0, 0, TCP_WRITE_SINGLE_REQ_LEN + write_len, int(self.slave_id),
+        tid = self._transaction_id()
+        req = struct.pack('>HHHBBH', tid, 0, TCP_WRITE_SINGLE_REQ_LEN + write_len, int(self.slave_id),
                           func, int(addr))
         req += data
-
-        if self.trace_func:
-            # s = '%s:%s:%s[addr=%s] ->' % (self.ipaddr, str(self.ipport), str(self.slave_id), addr)
-            s = '> '
-            for c in req:
-                s += '%02X' % c
-            self.trace_func(s)
-
-        try:
-            self.socket.sendall(req)
-        except Exception as e:
-            raise ModbusClientError('Socket write error: %s' % str(e))
-
-        while len_remaining > 0:
-            c = self.socket.recv(len_remaining)
-            len_read = len(c)
-            if len_read > 0:
-                resp += c
-                len_remaining -= len_read
-                if len_found is False and len(resp) >= TCP_HDR_LEN + TCP_RESP_MIN_LEN:
-                    data_len = struct.unpack('>H', resp[TCP_HDR_O_LEN:TCP_HDR_O_LEN + 2])
-                    len_remaining = data_len[0] - (len(resp) - TCP_HDR_LEN)
-            else:
-                raise ModbusClientTimeout('Response timeout')
+        self._send(req)
+        resp = self._recv_response(tid, func)
 
         if (resp[TCP_HDR_LEN + 1]) & 0x80:
             except_code = resp[TCP_HDR_LEN + 2]
-
-        if self.trace_func:
-            # s = '%s:%s:%s[addr=%s] <--' % (self.ipaddr, str(self.ipport), str(self.slave_id), addr)
-            s = '< '
-            for c in resp:
-                s += '%02X' % c
-            self.trace_func(s)
-
-        if except_code:
             raise ModbusClientException('Modbus exception: %d' % except_code)
 
     def write(self, addr, data):

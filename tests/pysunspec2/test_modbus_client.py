@@ -901,10 +901,13 @@ class TestSunSpecModbusClientDevice:
         monkeypatch.setattr(client.SunSpecModbusClientDeviceTCP, 'disconnect', MockSocket.mock_tcp_connect)
 
         c_tcp = client.SunSpecModbusClientDeviceTCP()
+        # The first two bytes count the requests: the client numbers each
+        # frame. This scan sends seven, the list checks the first four, and
+        # the sequence carries on at 7 for the second scan below.
         tcp_req_check = [b'\x00\x00\x00\x00\x00\x06\x01\x03\x9c@\x00\x03',
-                         b'\x00\x00\x00\x00\x00\x06\x01\x03\x9cC\x00\x01',
-                         b'\x00\x00\x00\x00\x00\x06\x01\x03\x9cB\x00D',
-                         b'\x00\x00\x00\x00\x00\x06\x01\x03\x9c\x86\x00\x01']
+                         b'\x00\x01\x00\x00\x00\x06\x01\x03\x9cC\x00\x01',
+                         b'\x00\x02\x00\x00\x00\x06\x01\x03\x9cB\x00D',
+                         b'\x00\x03\x00\x00\x00\x06\x01\x03\x9c\x86\x00\x01']
         tcp_buffer = [b'\x00\x00\x00\x00\x00\t\x01\x03\x06',
                       b'SunS\x00\x01',
                       b'\x00\x00\x00\x00\x00\x05\x01\x03\x02',
@@ -949,9 +952,9 @@ class TestSunSpecModbusClientDevice:
             b'\xff\xff'
         ]
         tcp_req_check2 = [
-            b'\x00\x00\x00\x00\x00\x06\x01\x03\x9c@\x00\x03',
-            b'\x00\x00\x00\x00\x00\x06\x01\x03\x9cC\x00\x01',
-            b'\x00\x00\x00\x00\x00\x06\x01\x03\x9c\x86\x00\x01'
+            b'\x00\x07\x00\x00\x00\x06\x01\x03\x9c@\x00\x03',
+            b'\x00\x08\x00\x00\x00\x06\x01\x03\x9cC\x00\x01',
+            b'\x00\x09\x00\x00\x00\x06\x01\x03\x9c\x86\x00\x01'
         ]
         c_tcp.client.socket._set_buffer(tcp_buffer2)
         c_tcp.scan(full_model_read=False)
