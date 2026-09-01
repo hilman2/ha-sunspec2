@@ -194,13 +194,14 @@ class TestSunSpecModbusClientPoint:
         assert d_rtu.common[0].DA.dirty
 
         # 0x01: This is the device address, 1.
-        # 0x06: This is the function code for "Write Single Register"/0x10 (16) = "Write Multiple Registers".
+        # 0x10: Function code 16, "Write Multiple Registers". The fork writes a
+        #       single register with 16 as well; upstream used 6 here.
         # 0x9c84: This is the register address, 0x9c84 is 40068. (DA)
-        # 0x0002: This is the data value to be written to the register, 2.
-        # Cyclic Redundancy Check (CRC) - struct.pack('>H', suns_modbus.computeCRC(b'\x01\x06\x9c\x84\x00\x02'))
+        # 0x0001: The register count the device echoes back.
+        # Cyclic Redundancy Check (CRC) - struct.pack('>H', suns_modbus.computeCRC(b'\x01\x10\x9c\x84\x00\x01'))
         rtu_read_buffer = [
-            b'\x01\x06\x9c\x84\x00\x02',
-            suns_modbus.computeCRC(b'\x01\x06\x9c\x84\x00\x02').to_bytes(2, 'big')
+            b'\x01\x10\x9c\x84\x00\x01',
+            suns_modbus.computeCRC(b'\x01\x10\x9c\x84\x00\x01').to_bytes(2, 'big')
         ]
         d_rtu.client.serial.clear_buffer()
         d_rtu.client.serial._set_buffer(rtu_read_buffer)
@@ -509,9 +510,10 @@ class TestSunSpecModbusClientGroup:
         assert d_rtu.common[0].DA.value == 2
         assert d_rtu.common[0].DA.dirty
 
+        # Function code 16 for the single register DA, see the Point test.
         rtu_read_buffer = [
-            b'\x01\x06\x9c\x84\x00\x02',
-            struct.pack('>H', suns_modbus.computeCRC(b'\x01\x06\x9c\x84\x00\x02'))
+            b'\x01\x10\x9c\x84\x00\x01',
+            struct.pack('>H', suns_modbus.computeCRC(b'\x01\x10\x9c\x84\x00\x01'))
         ]
         d_rtu.client.serial.clear_buffer()
         d_rtu.client.serial._set_buffer(rtu_read_buffer)

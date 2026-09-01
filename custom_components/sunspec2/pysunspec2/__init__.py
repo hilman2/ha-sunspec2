@@ -22,6 +22,10 @@ Changes against upstream:
   dropped as the late answer to an earlier request; upstream sent id 0
   in every frame and took whatever came back (v0.31.0). The drop is
   logged as a warning on this module's logger (v0.31.2).
+* A single register is written with function code 16 like every longer
+  write; ``single_register_write`` on either client brings function
+  code 6 back for a device that needs it (sunspec/pysunspec2#104,
+  v2026.9.1).
 
 Why a fork rather than the pip package: the integration works around the
 transport layer in several places (a Modbus TCP transaction id that is
