@@ -1,11 +1,14 @@
-name-template: "v$RESOLVED_VERSION"
-tag-template: "v$RESOLVED_VERSION"
+# The draft carries a placeholder name. Versions follow the calendar
+# (2026.9.0, see release.yml), which release-drafter cannot compute: it
+# only knows how to bump the previous tag semver-style. The release
+# workflow publishes this draft under whatever final tag is pushed and
+# appends the compare link then, so neither needs the version here.
+name-template: "Next release"
+tag-template: "next"
 template: |
   ## What's Changed
 
   $CHANGES
-
-  **Full Changelog**: https://github.com/$OWNER/$REPOSITORY/compare/$PREVIOUS_TAG...v$RESOLVED_VERSION
 
 categories:
   - title: "Breaking changes"
@@ -37,24 +40,6 @@ categories:
 
 change-template: "- $TITLE @$AUTHOR (#$NUMBER)"
 change-title-escapes: '\<*_&'
-
-version-resolver:
-  major:
-    labels:
-      - "major"
-      - "breaking"
-  minor:
-    labels:
-      - "minor"
-      - "feature"
-      - "enhancement"
-  patch:
-    labels:
-      - "patch"
-      - "bug"
-      - "fix"
-      - "chore"
-  default: patch
 
 # Auto-label PRs based on conventional commits in the title
 autolabeler:

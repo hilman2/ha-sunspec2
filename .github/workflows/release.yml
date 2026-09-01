@@ -111,15 +111,30 @@ jobs:
           TAG="${GITHUB_REF_NAME}"
 
           if [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            # release-drafter keeps a draft up to date as PRs land on
-            # main. If one already exists for this tag, publish it
-            # as-is so the curated changelog survives. Otherwise
-            # create a fresh release with auto-generated notes.
-            if gh release view "$TAG" >/dev/null 2>&1; then
-              echo "Existing release $TAG found - publishing as latest"
-              gh release edit "$TAG" --draft=false --latest
+            # release-drafter keeps one draft up to date as PRs land on
+            # main, under a placeholder name because it cannot compute
+            # a calendar version. Publish that draft under the pushed
+            # tag so the curated changelog survives, and append the
+            # compare link the draft could not know. Without a draft,
+            # create a release with generated notes.
+            DRAFT=$(gh release list --json tagName,isDraft --jq '[.[] | select(.isDraft)][0].tagName // empty')
+            PREVIOUS=$(gh release list --exclude-drafts --exclude-pre-releases --json tagName --jq '.[0].tagName // empty')
+            if [ -n "$DRAFT" ]; then
+              echo "Publishing the release-drafter draft ($DRAFT) as $TAG"
+              gh release view "$DRAFT" --json body --jq .body > /tmp/notes.md
+              if [ -n "$PREVIOUS" ]; then
+                printf '\n**Full Changelog**: https://github.com/%s/compare/%s...%s\n' \
+                  "$GITHUB_REPOSITORY" "$PREVIOUS" "$TAG" >> /tmp/notes.md
+              fi
+              gh release edit "$DRAFT" \
+                --tag "$TAG" \
+                --target "$GITHUB_SHA" \
+                --title "$TAG" \
+                --notes-file /tmp/notes.md \
+                --draft=false \
+                --latest
             else
-              echo "No existing release for $TAG - creating one with auto-generated notes"
+              echo "No draft found - creating $TAG with generated notes"
               gh release create "$TAG" \
                 --title "$TAG" \
                 --generate-notes \
