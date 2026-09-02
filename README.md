@@ -11,6 +11,14 @@
 [![GitHub release](https://img.shields.io/github/v/release/hilman2/ha-sunspec2)](https://github.com/hilman2/ha-sunspec2/releases)
 [![Quality Scale](https://img.shields.io/badge/Quality%20Scale-Gold-FFD700.svg)](https://developers.home-assistant.io/docs/core/integration-quality-scale/)
 
+> [!NOTE]
+> **2026.10.0 polls through [modbus-connection](https://github.com/home-assistant-libs/modbus-connection)**,
+> the Modbus transport Home Assistant's own integrations moved to in
+> 2026. The SunSpec model layer awaits it; nothing in the read or write
+> path leaves the event loop any more. Same entities, same options,
+> no migration. What changed underneath is in the
+> [release notes](https://github.com/hilman2/ha-sunspec2/releases/tag/v2026.10.0).
+
 Home Assistant integration for solar inverters, meters and batteries
 that speak **SunSpec Modbus**. Set up entirely in the UI: enter the IP
 or let it scan your network, tick the data you want, done. No YAML, no
