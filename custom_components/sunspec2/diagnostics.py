@@ -11,6 +11,7 @@ unit_id are kept (they are non-sensitive and we need them to triage).
 
 from __future__ import annotations
 
+import dataclasses
 from typing import Any
 
 from homeassistant.components.diagnostics import async_redact_data
@@ -20,6 +21,7 @@ from homeassistant.core import HomeAssistant
 
 from . import SunSpec2ConfigEntry
 from . import SunSpecDataUpdateCoordinator
+from .const import CONF_FRONIUS_WEB_TOKEN
 from .const import CONF_HOST
 from .const import CONF_MAX_AC_POWER_KW
 from .const import MEASURED_POWER_POINT_HEADROOM
@@ -29,7 +31,8 @@ from .const import effective_peak_power_kw
 from .models import SunSpecModelWrapper
 from .pysunspec2 import VERSION as PYSUNSPEC2_VERSION
 
-TO_REDACT = {CONF_HOST}
+# The web token is the Digest secret of the inverter's web login.
+TO_REDACT = {CONF_HOST, CONF_FRONIUS_WEB_TOKEN}
 
 
 async def async_get_config_entry_diagnostics(
@@ -75,6 +78,7 @@ async def async_get_config_entry_diagnostics(
         # Which vendor profile (vendors/) applied, so a report about a
         # battery mode can be matched to the recipe that wrote it.
         "vendor": vendor.slug if (vendor := getattr(coordinator, "vendor", None)) else None,
+        "fronius_web": _web_dump(coordinator),
         "model_filters": {
             "option_model_filter": sorted(getattr(coordinator, "option_model_filter", set()) or []),
             "write_model_filter": sorted(getattr(coordinator, "write_model_filter", set()) or []),
@@ -167,6 +171,16 @@ def _recent_errors_dump(
         "device": [],
         "transient": [],
     }
+
+
+def _web_dump(coordinator: SunSpecDataUpdateCoordinator) -> dict[str, Any] | None:
+    """The last poll of the vendor's web interface, or None without a web login."""
+    web = getattr(coordinator, "web", None)
+    if web is None:
+        return None
+    if web.data is None:
+        return {"error": str(web.last_exception)}
+    return dataclasses.asdict(web.data)
 
 
 def _safe_value(wrapper: SunSpecModelWrapper, key: str) -> Any:

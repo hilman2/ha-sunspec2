@@ -37,6 +37,7 @@ from .api import SunSpecApiClient
 from .const import CONF_BAUDRATE
 from .const import CONF_CAPTURE_RAW
 from .const import CONF_ENABLED_MODELS
+from .const import CONF_FRONIUS_WEB_TOKEN
 from .const import CONF_HOST
 from .const import CONF_PARITY
 from .const import CONF_PORT
@@ -77,6 +78,8 @@ from .errors import CATEGORIES
 from .errors import SunSpecError
 from .errors import TransientError
 from .errors import TransportError
+from .fronius_web import FroniusWebCoordinator
+from .fronius_web import WebToken
 from .logger import SunSpecLoggerAdapter
 from .logger import get_adapter
 from .migration import cleanup_excluded_sensor_entities
@@ -240,6 +243,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: SunSpec2ConfigEntry) -> 
 
     await coordinator.async_config_entry_first_refresh()
 
+    coordinator.web = await _async_setup_web(hass, entry, coordinator, log)
+
     # Phase 5 user-value: if the user is migrating from cjne/ha-sunspec
     # and has uninstalled it (entities are orphans in the registry, no
     # live state), retarget those entities to our domain so the user
@@ -285,6 +290,34 @@ async def async_setup_entry(hass: HomeAssistant, entry: SunSpec2ConfigEntry) -> 
     _async_register_services(hass)
 
     return True
+
+
+async def _async_setup_web(
+    hass: HomeAssistant,
+    entry: SunSpec2ConfigEntry,
+    coordinator: SunSpecDataUpdateCoordinator,
+    log: logging.LoggerAdapter[logging.Logger],
+) -> FroniusWebCoordinator | None:
+    """The web interface coordinator, for a vendor whose web API we speak and a stored login.
+
+    Refreshed once here rather than as a first refresh: a web
+    interface that is down makes its entities unavailable and must not
+    keep the Modbus entities from loading.
+    """
+    vendor = coordinator.vendor
+    token = WebToken.from_dict(entry.options.get(CONF_FRONIUS_WEB_TOKEN))
+    if (
+        vendor is None
+        or vendor.web_user is None
+        or token is None
+        or entry.data.get(CONF_TRANSPORT, TRANSPORT_TCP) != TRANSPORT_TCP
+    ):
+        return None
+    web = FroniusWebCoordinator(hass, entry, entry.data[CONF_HOST], token)
+    await web.async_refresh()
+    if not web.last_update_success:
+        log.warning("The web interface did not answer: %s", web.last_exception)
+    return web
 
 
 def _async_register_services(hass: HomeAssistant) -> None:
@@ -578,6 +611,9 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator[dict[int, SunSpecModelW
         # The scheduled discharge, built by the first of its entities
         # and shared by the rest. See discharge_plan.py.
         self.discharge_plan: DischargePlanner | None = None
+        # The vendor's web interface, when the profile has one and the
+        # user entered its password. See fronius_web.py.
+        self.web: FroniusWebCoordinator | None = None
         # Which platforms async_setup_entry actually forwarded. Recorded
         # there and read back by async_unload_entry, because the set
         # depends on the write-beta option and the option may have been

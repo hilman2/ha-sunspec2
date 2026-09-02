@@ -103,9 +103,12 @@
           "write_beta_enabled": "Experimentelle Einspeisesteuerung aktivieren (BETA: Einspeiselimit, Leistungsfaktor und Netzverbindung aus den Modellen 123 / 704 sowie die Aktion set_export_limit). Standardmäßig aus. Lies die Doku, bevor du das aktivierst; das Schreiben in das falsche Modbus-Register kann den Wechselrichter so verkonfigurieren, dass nur noch ein physischer Reset hilft. Die Batteriesteuerung aus Modell 124 braucht das nicht.",
           "release_slot": "Modbus-Verbindung zwischen Abfragen freigeben",
           "standby_when_idle": "Wechselrichter schaltet sich im Leerlauf ab (keine Reparatur-Meldung, solange er nicht erreichbar ist)",
-          "rearm_on_change": "Einspeiselimit und Leistungsfaktor bei Wertänderung durch Aus- und Einschalten neu anwenden (Fronius)"
+          "rearm_on_change": "Einspeiselimit und Leistungsfaktor bei Wertänderung durch Aus- und Einschalten neu anwenden (Fronius)",
+          "fronius_web_password": "Passwort der Weboberfläche (Fronius, lokaler Login \"customer\")",
+          "fronius_web_forget": "Gespeicherten Login der Weboberfläche vergessen"
         },
         "data_description": {
+          "fronius_web_password": "Schaltet frei, was ein GEN24 seiner eigenen Webseite sagt und nicht Modbus: Temperaturen, Identität und Zelltemperatur der Batterie, die Position des Smart Meters, die Netzlade-Schalter, ob Modbus-Steuerung erlaubt ist, und einen Modbus-Reset. Das Passwort wird nicht gespeichert; gespeichert wird ein Hash davon, der nur an diesem Wechselrichter anmeldet. Feld leer lassen, um den gespeicherten Login zu behalten.",
           "rearm_on_change": "Ein Fronius GEN24 übernimmt ein neues Einspeiselimit oder einen neuen Leistungsfaktor nur, wenn der zugehörige Schalter von Aus auf Ein geht. Ist die Option an, schreibt eine Wertänderung bei eingeschaltetem Schalter erst den Schalter aus, dann den Wert und eine Sekunde später den Schalter wieder ein; für diese Sekunde läuft der Wechselrichter ohne Limit. Ist sie aus, wird nur der Wert geschrieben, und der Wechselrichter behält den alten, bis der Schalter aus- und wieder eingeschaltet wird, von Hand oder per Automation.",
           "release_slot": "Empfohlen ist aus. Die Integration hält eine Modbus-Sitzung offen, wofür Modbus TCP gebaut ist und womit Wechselrichter am besten zurechtkommen. Nur einschalten, wenn ein weiteres Programm außerhalb von Home Assistant denselben Wechselrichter lesen muss und nicht über einen Modbus-Proxy laufen kann. Sich eine einzelne Verbindung abwechselnd zu teilen ist unzuverlässig, und viele Wechselrichter verweigern neue Verbindungen, wenn sie alle paar Sekunden eine aufbauen sollen.",
           "max_ac_power_kw": "Werte oberhalb dieser Grenze werden als unplausibel verworfen. Vorbelegt aus dem Typenschild des Wechselrichters plus 20% Reserve, denn Wechselrichter überschreiten ihre Dauerleistung kurzzeitig und die DC-Leistung liegt immer über der AC-Leistung. Nicht auf das nackte Typenschild absenken: die Sensoren für DC-Leistung und Scheinleistung stehen sonst an einem sonnigen Tag die meiste Zeit auf \"unbekannt\". Feld leeren schaltet den Filter ab.",
@@ -115,7 +118,9 @@
     },
     "error": {
       "no_models_selected": "Wähle mindestens ein SunSpec-Modell aus. Eine leere Auswahl zu speichern würde dazu führen, dass die Integration den Wechselrichter nicht mehr abfragt und alle Sensoren verschwinden.",
-      "connection": "Der Wechselrichter ist gerade nicht erreichbar. Warte einen Moment und versuche es erneut, oder prüfe ob das Gerät online ist."
+      "connection": "Der Wechselrichter ist gerade nicht erreichbar. Warte einen Moment und versuche es erneut, oder prüfe ob das Gerät online ist.",
+      "web_auth_failed": "Der Wechselrichter hat dieses Passwort abgelehnt. Gemeint ist der lokale Login \"customer\" der eigenen Webseite des Wechselrichters, nicht das Solar.web-Konto.",
+      "web_unreachable": "Die Weboberfläche des Wechselrichters hat auf Port 80 nicht geantwortet."
     }
   },
   "entity": {
@@ -221,6 +226,15 @@
       },
       "scheduled_discharge": {
         "name": "Geplante Entladung"
+      },
+      "battery_charge_from_grid": {
+        "name": "Batterieladen aus dem Netz (Weboberfläche)"
+      },
+      "battery_charge_from_ac": {
+        "name": "Batterieladen aus AC (Weboberfläche)"
+      },
+      "modbus_control_allowed": {
+        "name": "Modbus-Steuerung erlaubt"
       }
     },
     "time": {
@@ -229,6 +243,11 @@
       },
       "scheduled_discharge_end": {
         "name": "Geplante Entladung Ende"
+      }
+    },
+    "button": {
+      "reset_modbus_control": {
+        "name": "Modbus-Steuerung zurücksetzen"
       }
     },
     "sensor": {
@@ -357,6 +376,19 @@
       },
       "pv_power": {
         "name": "PV-Leistung"
+      },
+      "inverter_temperature": {
+        "name": "Wechselrichtertemperatur"
+      },
+      "battery_cell_temperature": {
+        "name": "Batterie-Zelltemperatur"
+      },
+      "smart_meter_location": {
+        "name": "Position Smart Meter",
+        "state": {
+          "feed_in_point": "Einspeisepunkt",
+          "consumption_path": "Verbrauchspfad"
+        }
       }
     }
   },

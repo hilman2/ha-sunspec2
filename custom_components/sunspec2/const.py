@@ -23,10 +23,11 @@ NUMBER = "number"
 SWITCH = "switch"
 SELECT = "select"
 TIME = "time"
+BUTTON = "button"
 # Every platform is forwarded on every entry. What the write platforms
 # build depends on the device and on CONF_WRITE_BETA_ENABLED, see
 # number.build_specs.
-PLATFORMS = [SENSOR, NUMBER, SWITCH, SELECT, TIME]
+PLATFORMS = [SENSOR, NUMBER, SWITCH, SELECT, TIME, BUTTON]
 
 
 # Configuration and options
@@ -88,6 +89,13 @@ CONF_WRITE_BETA_ENABLED = "write_beta_enabled"
 # unlimited for a second, which is not something to do behind the
 # user's back (#17).
 CONF_REARM_ON_CHANGE = "rearm_on_change"
+
+# The Fronius web interface (fronius_web.py). The password is a form
+# field only and never stored; what the entry keeps is the Digest
+# secret the login minted from it. The forget flag drops that secret.
+CONF_FRONIUS_WEB_PASSWORD = "fronius_web_password"
+CONF_FRONIUS_WEB_FORGET = "fronius_web_forget"
+CONF_FRONIUS_WEB_TOKEN = "fronius_web_token"
 
 # Standard SunSpec model that exposes the immediate-control points
 # we expose as writable Number / Switch entities. The integration
