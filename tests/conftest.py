@@ -213,6 +213,24 @@ def sunspec_fronius_client_mock():
 
 
 @pytest.fixture
+def sunspec_symo_hybrid_client_mock():
+    """A Fronius Symo Hybrid 5.0-3-S on Hybridmanager 1.31.1-5, discharging its battery.
+
+    Model 160 has "String 1" (PV, 1500 W) and "String 2" (the battery,
+    800 W unsigned); model 124 says ChaSt 3, discharging, and WChaMax
+    11520, the battery's Wh capacity reported as a rate, the way
+    evcc-io/evcc#19078 dumped it.
+    """
+    client = MockFileClientDevice("./tests/test_data/inverter_fronius_symo_hybrid.json")
+    client.scan()
+    with (
+        patch("custom_components.sunspec2.SunSpecApiClient.modbus_connect", return_value=client),
+        patch("custom_components.sunspec2.SunSpecApiClient.check_port", return_value=True),
+    ):
+        yield client
+
+
+@pytest.fixture
 def sunspec_solaredge_client_mock():
     """A SolarEdge Home Hub: models 1 and 103, and SolarEdge's own registers.
 

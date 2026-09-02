@@ -4,8 +4,11 @@ A Fronius hybrid inverter with a battery gets a **Battery mode** menu
 and four power fields in watts on top of the generic controls described
 in [write-controls.md](write-controls.md), and sensors that say what
 the battery and the PV strings are doing. This page is about those.
-The integration recognises the inverter by the manufacturer name it
-reports, nothing to configure.
+The integration recognises the inverter by what it reports about
+itself, nothing to configure.
+
+For the generation before, a Symo, Primo, Eco or Galvo with a
+Datamanager card, or a Symo Hybrid, see [fronius-symo.md](fronius-symo.md).
 
 Everything here is the SunSpec storage block (124) as Fronius reads it,
 documented in the

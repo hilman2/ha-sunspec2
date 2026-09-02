@@ -7,7 +7,10 @@ modules, one for charging and one for discharging, and the only thing
 that says so is the ``IDStr`` label. The vendor profile reads the
 label, and this module turns the answer into sensors named by role:
 battery charge and discharge power, the two lifetime energies, and PV
-power as the sum over the string modules.
+power as the sum over the string modules. A Fronius Symo Hybrid
+reports its battery as one module with an unsigned power; the same two
+power sensors are built from it, with the direction read from the
+storage model.
 
 The generic module sensors stay. These read the same registers under
 a name that says what they are, which is what the Energy Dashboard and
@@ -39,6 +42,11 @@ from .vendors import ModuleRole
 _LOGGER: logging.Logger = logging.getLogger(__package__)
 
 MODEL_MPPT = 160
+MODEL_STORAGE = 124
+
+#: ``ChaSt`` of model 124: the two states in which energy moves.
+CHARGE_STATE_DISCHARGING = 3
+CHARGE_STATE_CHARGING = 4
 
 #: One sensor per row: the role whose module is read, the point read
 #: from it, and the translation key that names the sensor.
@@ -49,19 +57,30 @@ CHANNEL_SENSORS: tuple[tuple[ModuleRole, str, str], ...] = (
     (ModuleRole.BATTERY_DISCHARGE, "DCWH", "battery_discharged_energy"),
 )
 
+#: The two power sensors built from one unsigned battery module: the
+#: role the sensor stands for, its translation key, and whether it
+#: shows the module's power while the battery charges or discharges.
+DIRECTION_SENSORS: tuple[tuple[ModuleRole, str, bool], ...] = (
+    (ModuleRole.BATTERY_CHARGE, "battery_charge_power", True),
+    (ModuleRole.BATTERY_DISCHARGE, "battery_discharge_power", False),
+)
+
 
 def module_roles(
-    module_role: Callable[[str], ModuleRole | None],
+    module_role: Callable[[str, str], ModuleRole | None],
     wrapper: SunSpecModelWrapper,
     model_index: int,
+    model: str,
 ) -> dict[int, tuple[str, ModuleRole]]:
     """The labelled modules of one model 160 instance.
 
     Args:
-        module_role (Callable[[str], ModuleRole|None]): The vendor's
+        module_role (Callable[[str, str], ModuleRole|None]): The vendor's
             label reader, see ``VendorProfile.module_role``.
         wrapper (SunSpecModelWrapper): The model 160 wrapper.
         model_index (int): Which instance, for a device with several.
+        model (str): ``Md`` of common model 1, for a vendor whose
+            labels mean different things on different devices.
 
     Returns:
         dict: Module index to ``(label, role)``, for the modules whose
@@ -75,10 +94,24 @@ def module_roles(
         label = wrapper.getValue(f"module:{idx}:IDStr", model_index)
         if not isinstance(label, str):
             continue
-        role = module_role(label)
+        role = module_role(label, model)
         if role is not None:
             roles[idx] = (label, role)
     return roles
+
+
+def charge_state(coordinator: SunSpecDataUpdateCoordinator) -> int | None:
+    """``ChaSt`` of model 124 as last read, or None without the model or the point."""
+    wrapper = coordinator.data.get(MODEL_STORAGE) if coordinator.data else None
+    if wrapper is None:
+        return None
+    try:
+        value = wrapper.getValue("ChaSt")
+    except (KeyError, AttributeError):
+        return None
+    if isinstance(value, bool) or not isinstance(value, int):
+        return None
+    return value
 
 
 class DcChannelSensor(SunSpecSensor):
@@ -124,6 +157,41 @@ class DcChannelSensor(SunSpecSensor):
         attrs = super().extra_state_attributes
         attrs["module_label"] = self._module_label
         return attrs
+
+
+class BatteryDirectionSensor(DcChannelSensor):
+    """One direction of a battery module that reports its power unsigned.
+
+    A Symo Hybrid's "String 2" carries the battery's DC power as an
+    absolute value, and ``ChaSt`` of the storage model says whether it
+    is charging or discharging. This sensor shows the module's ``DCW``
+    while that state agrees with its direction and 0 while it does not,
+    so the charge and discharge power sensors read the same as on an
+    inverter that reports two channels.
+    """
+
+    def __init__(
+        self,
+        coordinator: SunSpecDataUpdateCoordinator,
+        config_entry: ConfigEntry,
+        data: dict[str, Any],
+        charging: bool,
+    ) -> None:
+        super().__init__(coordinator, config_entry, data)
+        self._charging = charging
+
+    @property
+    def native_value(self) -> Any:
+        value = super().native_value
+        if not isinstance(value, (int, float)) or isinstance(value, bool):
+            return None
+        state = charge_state(self.coordinator)
+        if state is None:
+            # Without the storage model there is no direction to read.
+            # A module at rest is at rest either way.
+            return 0 if value == 0 else None
+        wanted = CHARGE_STATE_CHARGING if self._charging else CHARGE_STATE_DISCHARGING
+        return abs(value) if state == wanted else 0
 
 
 class DcChannelEnergySensor(DcChannelSensor, SunSpecEnergySensor):
@@ -195,6 +263,31 @@ class PvPowerSensor(SunSpecEntity, SensorEntity):
         }
 
 
+def _channel_data(
+    device_info: SunSpecModelWrapper,
+    wrapper: SunSpecModelWrapper,
+    prefix: str,
+    model_index: int,
+    idx: int,
+    label: str,
+    point: str,
+    role: ModuleRole,
+    translation_key: str,
+) -> dict[str, Any]:
+    """The ``data`` dict a channel sensor is built from: a generic sensor's, plus the role keys."""
+    return {
+        "device_info": device_info,
+        "key": f"module:{idx}:{point}",
+        "model_id": MODEL_MPPT,
+        "model_index": model_index,
+        "model": wrapper,
+        "prefix": prefix,
+        "role": role,
+        "translation_key": translation_key,
+        "module_label": label,
+    }
+
+
 def dc_channel_sensors(
     coordinator: SunSpecDataUpdateCoordinator,
     config_entry: ConfigEntry,
@@ -219,9 +312,14 @@ def dc_channel_sensors(
     vendor = coordinator.vendor
     if vendor is None or vendor.module_role is None:
         return []
+    try:
+        model = device_info.getValue("Md")
+    except (KeyError, AttributeError):
+        model = None
+    model_name = model if isinstance(model, str) else ""
     sensors: list[SensorEntity] = []
     for model_index in range(wrapper.num_models):
-        roles = module_roles(vendor.module_role, wrapper, model_index)
+        roles = module_roles(vendor.module_role, wrapper, model_index, model_name)
         if not roles:
             continue
         _LOGGER.debug("Model 160 instance %d modules by role: %s", model_index, roles)
@@ -229,22 +327,42 @@ def dc_channel_sensors(
             for idx, (label, module_role) in roles.items():
                 if module_role is not role:
                     continue
-                data = {
-                    "device_info": device_info,
-                    "key": f"module:{idx}:{point}",
-                    "model_id": MODEL_MPPT,
-                    "model_index": model_index,
-                    "model": wrapper,
-                    "prefix": prefix,
-                    "role": role,
-                    "translation_key": translation_key,
-                    "module_label": label,
-                }
+                data = _channel_data(
+                    device_info,
+                    wrapper,
+                    prefix,
+                    model_index,
+                    idx,
+                    label,
+                    point,
+                    role,
+                    translation_key,
+                )
                 cls = DcChannelEnergySensor if point == "DCWH" else DcChannelSensor
                 sensors.append(cls(coordinator, config_entry, data))
                 # One battery: a second module with the same role would
                 # be a second entity under the same unique id.
                 break
+        for idx, (label, module_role) in roles.items():
+            if module_role is not ModuleRole.BATTERY:
+                continue
+            # The same two power sensors, under the same ids, as a
+            # battery reported as two channels gets. No energies: the
+            # one counter cannot be split by direction.
+            for role, translation_key, charging in DIRECTION_SENSORS:
+                data = _channel_data(
+                    device_info,
+                    wrapper,
+                    prefix,
+                    model_index,
+                    idx,
+                    label,
+                    "DCW",
+                    role,
+                    translation_key,
+                )
+                sensors.append(BatteryDirectionSensor(coordinator, config_entry, data, charging))
+            break
         pv_modules = tuple(
             idx for idx, (_, module_role) in roles.items() if module_role is ModuleRole.PV
         )

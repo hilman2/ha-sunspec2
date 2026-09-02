@@ -127,6 +127,9 @@ class ModuleRole(StrEnum):
     PV = "pv"
     BATTERY_CHARGE = "battery_charge"
     BATTERY_DISCHARGE = "battery_discharge"
+    #: One module for both directions, its power unsigned; the storage
+    #: model's charge state says which way. A Symo Hybrid's "String 2".
+    BATTERY = "battery"
 
 
 @dataclass(frozen=True)
@@ -359,19 +362,29 @@ class VendorProfile:
             against the start of ``Mn`` in common model 1. Prefixes, not
             names, because vendors are not consistent about their own
             name ("Fronius", "Fronius International GmbH").
+        identifies (Callable[[str, str, str], bool]|None): Called as
+            ``identifies(model, option, version)`` with ``Md``, ``Opt``
+            and ``Vr`` of common model 1, empty where the device reports
+            nothing. Returns whether this profile is the one for the
+            device, for a manufacturer with more than one profile. None
+            when the manufacturer name decides alone.
         storage (StorageModeProfile|None): The battery mode vocabulary,
             when the vendor has one.
-        module_role (Callable[[str], ModuleRole|None]|None): Called as
-            ``module_role(id_str)`` with the ``IDStr`` label of a model
-            160 module. Returns what the module carries, or None for a
-            label the vendor does not use that way. None when the vendor
-            does not label its modules.
+        module_role (Callable[[str, str], ModuleRole|None]|None): Called
+            as ``module_role(id_str, model)`` with the ``IDStr`` label of
+            a model 160 module and ``Md`` of common model 1. Returns what
+            the module carries, or None for a label the vendor does not
+            use that way. None when the vendor does not label its modules.
         enable_edge (Mapping[tuple[int, str], str]): Points the device
             takes a new value for only on the rising edge of an enable
             point, keyed ``(model_id, point)``, mapped to that enable
             point. Empty when the vendor applies a value as written.
         enable_edge_settle_seconds (float): The pause between writing
             such a value and raising its enable point again.
+        rearm_by_default (bool): Whether the off/on cycle runs unless
+            the user switches it off. True where the manual gives the
+            cycle as the procedure for a new value, False where it is a
+            firmware quirk the user opts into.
         web_user (str|None): The local login of the device's web
             interface, when the integration speaks it (see
             ``fronius_web.py``). None for a vendor without one.
@@ -390,10 +403,12 @@ class VendorProfile:
 
     slug: str
     manufacturer_prefixes: tuple[str, ...]
+    identifies: Callable[[str, str, str], bool] | None = None
     storage: StorageModeProfile | None = None
-    module_role: Callable[[str], ModuleRole | None] | None = None
+    module_role: Callable[[str, str], ModuleRole | None] | None = None
     enable_edge: Mapping[tuple[int, str], str] = field(default_factory=dict)
     enable_edge_settle_seconds: float = 1.0
+    rearm_by_default: bool = False
     web_user: str | None = None
     raw_blocks: tuple[RawBlock, ...] = ()
     raw_devices: tuple[RawDevice, ...] = ()
