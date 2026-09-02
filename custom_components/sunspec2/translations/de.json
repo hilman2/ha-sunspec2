@@ -161,6 +161,12 @@
       },
       "battery_grid_discharge_power_w": {
         "name": "Batterie Netzentladeleistung"
+      },
+      "scheduled_discharge_reserve_pct": {
+        "name": "Geplante Entladung Reserve"
+      },
+      "battery_capacity_kwh": {
+        "name": "Batteriekapazität"
       }
     },
     "select": {
@@ -212,6 +218,17 @@
       },
       "battery_grid_charging": {
         "name": "Batterieladen aus dem Netz erlaubt"
+      },
+      "scheduled_discharge": {
+        "name": "Geplante Entladung"
+      }
+    },
+    "time": {
+      "scheduled_discharge_start": {
+        "name": "Geplante Entladung Beginn"
+      },
+      "scheduled_discharge_end": {
+        "name": "Geplante Entladung Ende"
       }
     },
     "sensor": {
