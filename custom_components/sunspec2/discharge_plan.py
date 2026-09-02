@@ -14,8 +14,8 @@ mode with that power. At the end of the window it sets the mode back
 to automatic. Switched on inside the window, or started inside it
 after a restart, it plans for what is left of it.
 
-Built where the battery modes are: the write beta on, a vendor with a
-storage profile, a WChaMax above zero.
+Built where the battery modes are: a vendor with a storage profile and
+a WChaMax above zero.
 """
 
 from __future__ import annotations

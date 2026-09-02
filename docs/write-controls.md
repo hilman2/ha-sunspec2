@@ -1,7 +1,7 @@
 # Battery and export control
 
 The full version of the section in the
-[README](../README.md#battery-and-export-control-beta). Read that one
+[README](../README.md#battery-and-export-control). Read that one
 first if you only want to know what the feature is.
 
 > **This can bite.** Writing to an inverter changes its configuration.
@@ -10,8 +10,11 @@ first if you only want to know what the feature is.
 > does is not always what the SunSpec specification says it does.
 > Grid feed-in limits may also be regulated where you live.
 
-The controls are off until you tick **"Enable experimental write
-controls (BETA)"** in the options. No write entity exists before that.
+The battery controls (block 124) are there for every inverter that has
+the block. The export limit, the power factor, the grid connection
+(blocks 123 and 704) and the `set_export_limit` action are off until
+you tick **"Enable experimental export controls (BETA)"** in the
+options.
 
 ## The entities
 
@@ -116,16 +119,17 @@ None of these are exposed, and that is not an oversight. The reasoning
 per entry is in the docstring of
 [`write_controls.py`](../custom_components/sunspec2/write_controls.py).
 
-## Enabling it
+## Enabling the export controls
 
 1. *Settings -> Devices & Services -> SunSpec Modbus -> Configure*
 2. Click through to the model options step
-3. Tick **"Enable experimental write controls (BETA)"**
+3. Tick **"Enable experimental export controls (BETA)"**
 4. Save. The entities appear on your inverter's device card
 
 You do not have to tick the matching data blocks in the model list
-yourself. They are polled automatically while the flag is on, and kept
-out of the sensor list because their points are setpoints rather than
+yourself. The battery block is polled whenever the inverter has it,
+the export blocks while the flag is on, and all of them are kept out
+of the sensor list because their points are setpoints rather than
 measurements.
 
 If your inverter does not offer the blocks at all, no entities appear
@@ -134,7 +138,7 @@ it has, in the top-level `detected_models` array. Not `scanned_models`,
 and the difference has cost people time before:
 [which data blocks does my inverter actually have?](troubleshooting.md#which-data-blocks-does-my-inverter-actually-have)
 
-## Why it is still a beta
+## Why the export controls are still a beta
 
 - **Vendors deviate.** Which firmware exposes which block, how scale
   factors are handled, what ranges are accepted. This integration is

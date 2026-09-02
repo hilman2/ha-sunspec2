@@ -31,7 +31,6 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from . import SunSpec2ConfigEntry
 from . import SunSpecDataUpdateCoordinator
 from . import get_sunspec_unique_id
-from .const import CONF_WRITE_BETA_ENABLED
 from .entity import SunSpecEntity
 from .errors import SunSpecError
 from .models import SunSpecModelWrapper
@@ -55,11 +54,8 @@ async def async_setup_entry(
     entry: SunSpec2ConfigEntry,
     async_add_devices: AddEntitiesCallback,
 ) -> None:
-    """Set up the experimental write Select entities, gated by the beta flag."""
+    """Set up the write Select entities the device and the options allow."""
     coordinator = entry.runtime_data
-    if not entry.options.get(CONF_WRITE_BETA_ENABLED, False):
-        return
-
     device_info = coordinator.device_info
     if device_info is None:
         return

@@ -9,9 +9,9 @@ charge power has nowhere to live in the device while the battery is in
 a PV charge limit. Both read the device for their state rather than
 remembering what they asked for.
 
-Only built while the write beta is on, the vendor has a storage
-profile, and model 124 reports a WChaMax above zero, which is how the
-device says it has a battery.
+Only built when the vendor has a storage profile and model 124 reports
+a WChaMax above zero, which is how the device says it has a battery.
+No option to tick: the battery block is not behind the write beta.
 """
 
 from __future__ import annotations

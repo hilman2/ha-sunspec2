@@ -93,7 +93,7 @@ Modbus -> Configure*.
 | Release the Modbus connection between polls | off | Only needed when another program outside Home Assistant reads the same inverter |
 | Inverter powers down when idle | off | Suppresses the unreachable warning for inverters that vanish at night without saying so |
 | Capture raw registers | off | Puts the raw Modbus bytes into the diagnostics download, for bug reports |
-| Enable experimental write controls | off | See [Battery and export control](#battery-and-export-control-beta) |
+| Enable experimental export controls | off | The export limit and its relatives. See [Battery and export control](#battery-and-export-control) |
 
 Host, port and unit ID are changed via **Reconfigure** in the same
 menu.
@@ -111,34 +111,34 @@ You cannot, however, run this alongside another Modbus program reading
 the same inverter, be that the old cjne integration, openHAB or a
 script. Put a Modbus proxy in front if you need that.
 
-## Battery and export control (BETA)
+## Battery and export control
 
 > **This can bite.** Writing to an inverter changes its configuration,
 > and some devices persist that through a reboot or refuse to hand
 > control back. Grid feed-in limits may also be regulated where you
 > live.
 
-Opt-in support for capping your export and steering a battery from Home
-Assistant. Off by default, and no write entity exists until you tick
-**"Enable experimental write controls (BETA)"** in the options.
+Steering a battery and capping your export from Home Assistant.
 
-What appears then, depending on what your inverter offers: an export
-limit in percent or watts, with an enable switch and a revert timer;
-battery charge and discharge rates with a control mode; a power factor
-setpoint; and the grid connection switch. Plus a
+**Battery controls** appear on their own for an inverter with the
+SunSpec storage block: charge and discharge rates, a control mode, the
+grid charging switch and the minimum reserve. **Fronius GEN24, Verto
+and Tauro with a battery** additionally get a *Battery mode* menu, from
+"Charge from grid" to "Block discharging", with the powers entered in
+watts, and a scheduled discharge that gives the battery's surplus back
+over night. See **[docs/fronius.md](docs/fronius.md)**.
+
+**Export controls** are a beta and off by default: tick **"Enable
+experimental export controls (BETA)"** in the options for an export
+limit in percent or watts with an enable switch and a revert timer, a
+power factor setpoint, the grid connection switch, and the
 `sunspec2.set_export_limit` service action for automations.
 
 **[Full documentation in docs/write-controls.md](docs/write-controls.md)**:
 every entity with the register behind it, the revert timer and how not
 to get caught by it, and which blocks are deliberately left alone.
 
-**Fronius GEN24, Verto and Tauro with a battery** additionally get a
-*Battery mode* menu, from "Charge from grid" to "Block discharging",
-with the powers entered in watts. See
-**[docs/fronius.md](docs/fronius.md)**.
-
-Nobody has confirmed these writes against real hardware yet, which is
-why they are a beta. If you run them, please
+If you run the export controls, please
 [open an issue](https://github.com/hilman2/ha-sunspec2/issues) with your
 inverter model, its firmware version, and what worked. That feedback is
 what lets the BETA flag come off.

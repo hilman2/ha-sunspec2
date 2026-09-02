@@ -62,7 +62,6 @@ from .const import OPERATING_STATE_MODEL_IDS
 from .const import OPERATING_STATE_POINT
 from .const import PARITY_NONE
 from .const import PLATFORMS
-from .const import PLATFORMS_READ_ONLY
 from .const import SERVICE_SET_EXPORT_LIMIT
 from .const import STALE_DATA_TOLERANCE_CYCLES
 from .const import STALE_MODEL_TOLERANCE_SECONDS
@@ -92,6 +91,7 @@ from .vendors import profile_for
 if TYPE_CHECKING:
     # Typing only: discharge_plan imports the coordinator from here.
     from .discharge_plan import DischargePlanner
+from .write_controls import STORAGE_CONTROL_MODEL
 from .write_controls import export_limit_points
 
 SCAN_INTERVAL = timedelta(seconds=30)
@@ -260,26 +260,22 @@ async def async_setup_entry(hass: HomeAssistant, entry: SunSpec2ConfigEntry) -> 
     # device with both 123 and 704 is driven from 704 since v0.19.0, so
     # the 123 Number / Switch entities from an earlier release have
     # nothing feeding them any more.
-    if entry.options.get(CONF_WRITE_BETA_ENABLED, False):
-        cleanup_superseded_control_entities(hass, entry, coordinator.detected_models, log)
+    cleanup_superseded_control_entities(hass, entry, coordinator.detected_models, log)
 
-    # v0.12.0: forward to the write platforms (number, switch) only
-    # when the user has opted in via CONF_WRITE_BETA_ENABLED. The
-    # individual number / switch async_setup_entry hooks each do
-    # their own check, so this is mostly a "don't even try"
-    # optimisation - the platform-level guards are the source of
-    # truth.
-    write_beta_enabled = entry.options.get(CONF_WRITE_BETA_ENABLED, False)
-    platforms_to_load = list(PLATFORMS) if write_beta_enabled else list(PLATFORMS_READ_ONLY)
-    # Remember what we forwarded. async_unload_entry must NOT re-derive
-    # this from entry.options: HA writes the new options BEFORE it
-    # dispatches the update listener, so unticking the beta flag makes
-    # the unload read False and unload only the sensor platform. The
-    # Number / Switch entities then stay in the state machine bound to
-    # a coordinator that has already been replaced, report available
-    # forever off its frozen data, and write through its closed api on
-    # the next press. Set before the forward, not after: if the forward
-    # raises partway, the recorded list still describes intent.
+    # Every platform, on every entry. The write platforms build the
+    # battery controls of model 124 for any device that has the block,
+    # and the export and grid controls of 123 / 704 only behind
+    # CONF_WRITE_BETA_ENABLED; that choice is made per spec in
+    # number.build_specs, not by leaving a platform out.
+    platforms_to_load = list(PLATFORMS)
+    # Remember what we forwarded, and unload exactly that. The list
+    # used to depend on the beta option, and async_unload_entry
+    # re-deriving it from entry.options went wrong because HA writes
+    # the new options BEFORE it dispatches the update listener: the
+    # Number / Switch entities stayed in the state machine bound to a
+    # coordinator that had been replaced. Set before the forward, not
+    # after: if the forward raises partway, the recorded list still
+    # describes intent.
     coordinator.forwarded_platforms = platforms_to_load
     await hass.config_entries.async_forward_entry_setups(entry, platforms_to_load)
 
@@ -311,9 +307,9 @@ def _async_register_services(hass: HomeAssistant) -> None:
             raise HomeAssistantError(f"SunSpec config entry {entry_id} is not loaded")
         if not target_entry.options.get(CONF_WRITE_BETA_ENABLED, False):
             raise HomeAssistantError(
-                "Experimental write controls are not enabled for this entry. "
+                "Experimental export controls are not enabled for this entry. "
                 "Open the integration options and tick "
-                "'Enable experimental write controls (BETA)' first."
+                "'Enable experimental export controls (BETA)' first."
             )
         coordinator = target_entry.runtime_data
         # Resolve the model the same way the entities do, so the service
@@ -458,9 +454,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: SunSpec2ConfigEntry) ->
     # here is wrong - see the comment at the forward site. The fallback
     # covers a coordinator built before this attribute existed.
     coordinator = entry.runtime_data
-    platforms_to_unload = getattr(coordinator, "forwarded_platforms", None) or list(
-        PLATFORMS_READ_ONLY
-    )
+    platforms_to_unload = getattr(coordinator, "forwarded_platforms", None) or list(PLATFORMS)
     unloaded = all(
         await asyncio.gather(
             *[
@@ -748,23 +742,24 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator[dict[int, SunSpecModelW
             interval_seconds = MIN_SCAN_INTERVAL_SECONDS
         scan_interval = timedelta(seconds=interval_seconds)
         self.option_model_filter = set(map(lambda m: int(m), models))
-        # #17: model 123 has to be polled whenever the experimental
-        # write controls are on, even if the user never ticked 123 in
-        # the model multi-select. number.py and switch.py read the
-        # current setpoint from ``coordinator.data[123]``; without the
-        # model in the polled set they bail out at
-        # ``coordinator.data.get(...) is None`` and no write entity ever
-        # registers, so ticking the beta flag looks like it did nothing.
+        # The control models are polled whether or not the user ticked
+        # them in the model multi-select: the write entities read their
+        # state from ``coordinator.data[model]``, and without the model
+        # in the polled set no write entity ever registers (#17). The
+        # battery block, 124, is polled on every device that has it;
+        # the export and grid blocks, 123 and 704, only behind the
+        # beta, so the beta off means those registers are never read
+        # behind the user's back.
         #
         # Deliberately a SEPARATE set from option_model_filter.
         # option_model_filter mirrors exactly what the user picked and
-        # is what the options form round-trips, so folding 123 into it
-        # would render a tick the user never made and then persist it
-        # on their next save.
+        # is what the options form round-trips, so folding a model into
+        # it would render a tick the user never made and then persist
+        # it on their next save.
         self.write_model_filter: set[int] = (
             set(WRITE_CAPABLE_MODEL_IDS)
             if entry.options.get(CONF_WRITE_BETA_ENABLED, False)
-            else set()
+            else {STORAGE_CONTROL_MODEL}
         )
         self.unsub = entry.add_update_listener(async_reload_entry)
         self._log.debug(

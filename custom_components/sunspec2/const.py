@@ -23,11 +23,10 @@ NUMBER = "number"
 SWITCH = "switch"
 SELECT = "select"
 TIME = "time"
-# v0.12.0: write controls (Number, Switch) are kept off by default
-# and only forwarded when the user explicitly opts in via the
-# CONF_WRITE_BETA_ENABLED option. The sensor platform is always on.
+# Every platform is forwarded on every entry. What the write platforms
+# build depends on the device and on CONF_WRITE_BETA_ENABLED, see
+# number.build_specs.
 PLATFORMS = [SENSOR, NUMBER, SWITCH, SELECT, TIME]
-PLATFORMS_READ_ONLY = [SENSOR]
 
 
 # Configuration and options

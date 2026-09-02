@@ -100,7 +100,7 @@
           "models_enabled": "Aktive Modelle",
           "capture_raw_registers": "Rohe Modbus-Bytes für Diagnose mitschneiden",
           "max_ac_power_kw": "Spitzen-AC-Leistung des Wechselrichters (kW, optional)",
-          "write_beta_enabled": "Experimentelle Schreibsteuerung aktivieren (BETA - Number- / Switch-Entities und die set_export_limit Service Action). Standardmäßig aus. Lies die README bevor du das aktivierst - das Schreiben in das falsche Modbus-Register kann den Wechselrichter so verkonfigurieren dass nur noch ein physischer Reset hilft.",
+          "write_beta_enabled": "Experimentelle Einspeisesteuerung aktivieren (BETA: Einspeiselimit, Leistungsfaktor und Netzverbindung aus den Modellen 123 / 704 sowie die Aktion set_export_limit). Standardmäßig aus. Lies die Doku, bevor du das aktivierst; das Schreiben in das falsche Modbus-Register kann den Wechselrichter so verkonfigurieren, dass nur noch ein physischer Reset hilft. Die Batteriesteuerung aus Modell 124 braucht das nicht.",
           "release_slot": "Modbus-Verbindung zwischen Abfragen freigeben",
           "standby_when_idle": "Wechselrichter schaltet sich im Leerlauf ab (keine Reparatur-Meldung, solange er nicht erreichbar ist)",
           "rearm_on_change": "Einspeiselimit und Leistungsfaktor bei Wertänderung durch Aus- und Einschalten neu anwenden (Fronius)"
