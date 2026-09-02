@@ -437,7 +437,10 @@ async def test_the_rearm_switch_writes_the_command_again_while_remote(
     registers[0xE00D] = 7
     freezer.tick(REMOTE_COMMAND_REARM_SECONDS + 1)
     async_fire_time_changed(hass)
-    await hass.async_block_till_done()
+    # The interval fires the rewrite as a background task, which the
+    # plain block_till_done does not wait for: on a slow runner the
+    # write landed after the assertion.
+    await hass.async_block_till_done(wait_background_tasks=True)
     assert registers[0xE00D] == 3
 
     # Out of remote control the rewrite stays quiet.
@@ -446,7 +449,7 @@ async def test_the_rearm_switch_writes_the_command_again_while_remote(
     registers[0xE00D] = 7
     freezer.tick(REMOTE_COMMAND_REARM_SECONDS + 1)
     async_fire_time_changed(hass)
-    await hass.async_block_till_done()
+    await hass.async_block_till_done(wait_background_tasks=True)
     assert registers[0xE00D] == 7
 
     await rearm.async_turn_off()
