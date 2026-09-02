@@ -18,6 +18,15 @@ class FileClientPoint(device.Point):
     def write(self):
         pass
 
+    # ha-sunspec2: the async twins the integration reads and writes
+    # through; a file holds no registers, so they do what read and write do.
+
+    async def async_read(self):
+        self.read()
+
+    async def async_write(self):
+        self.write()
+
 
 class FileClientGroup(device.Group):
 
@@ -26,6 +35,12 @@ class FileClientGroup(device.Group):
 
     def write(self):
         pass
+
+    async def async_read(self, len=None):
+        self.read()
+
+    async def async_write(self):
+        self.write()
 
 
 class FileClientModel(FileClientGroup):

@@ -1,16 +1,19 @@
 """Tests for SunSpec api."""
 
-import socket
 import time
+from unittest.mock import AsyncMock
 from unittest.mock import Mock
 
 import pytest
+from modbus_connection import ModbusSerialParams
+from modbus_connection import ModbusTcpParams
 
 import custom_components.sunspec2.pysunspec2.mb as mb
 from custom_components.sunspec2.api import SunSpecApiClient
 from custom_components.sunspec2.const import DEFAULT_SCAN_DELAY_SECONDS
 from custom_components.sunspec2.const import MAX_SCAN_DELAY_SECONDS
 from custom_components.sunspec2.const import MIN_SCAN_DELAY_SECONDS
+from custom_components.sunspec2.const import TRANSPORT_RTU
 from custom_components.sunspec2.errors import DeviceError
 from custom_components.sunspec2.errors import ProtocolError
 from custom_components.sunspec2.errors import TransientError
@@ -20,6 +23,9 @@ from custom_components.sunspec2.pysunspec2.modbus.client import SunSpecModbusCli
 from custom_components.sunspec2.pysunspec2.modbus.client import SunSpecModbusClientTimeout
 from custom_components.sunspec2.pysunspec2.modbus.modbus import ModbusClientConnectionClosed
 from custom_components.sunspec2.pysunspec2.modbus.modbus import ModbusClientError
+from custom_components.sunspec2.pysunspec2.modbus.unit_device import SunSpecModbusClientDeviceUnit
+
+from .fake_unit import FakeConnection
 
 
 async def test_api(hass, sunspec_client_mock):
@@ -67,8 +73,8 @@ async def test_get_client(hass, sunspec_modbus_client_mock):
 
     # To test the api submodule, we first create an instance of our API client
     api = SunSpecApiClient(host="test", port=123, unit_id=1, hass=hass)
-    client = api.get_client()
-    client.scan.assert_called_once()
+    client = await api.async_get_client()
+    client.async_scan.assert_awaited_once()
 
 
 async def test_modbus_connect(hass, sunspec_modbus_client_mock):
@@ -76,54 +82,30 @@ async def test_modbus_connect(hass, sunspec_modbus_client_mock):
 
     # To test the api submodule, we first create an instance of our API client
     api = SunSpecApiClient(host="test", port=123, unit_id=1, hass=hass)
-    client = api.get_client()
-    client.scan.assert_called_once()
+    client = await api.async_get_client()
+    client.async_scan.assert_awaited_once()
 
 
-async def test_modbus_connect_fail(hass, mocker):
-    mocker.patch(
-        # api_call is from slow.py but imported to main.py
-        "custom_components.sunspec2.pysunspec2.modbus.client.SunSpecModbusClientDeviceTCP.connect",
-        return_value={},
-    )
-    mocker.patch(
-        # api_call is from slow.py but imported to main.py
-        "custom_components.sunspec2.pysunspec2.modbus.client.SunSpecModbusClientDeviceTCP.is_connected",
-        return_value=False,
-    )
-    """Test API calls."""
-
-    # To test the api submodule, we first create an instance of our API client
-    api = SunSpecApiClient(host="test", port=123, unit_id=1, hass=hass)
-
-    with pytest.raises(Exception):
-        api.modbus_connect()
-
-
-async def test_modbus_connect_exception(hass, mocker):
-    mocker.patch(
-        # api_call is from slow.py but imported to main.py
-        "custom_components.sunspec2.pysunspec2.modbus.client.SunSpecModbusClientDeviceTCP.connect",
-        side_effect=ModbusClientError,
-    )
-    mocker.patch(
-        # api_call is from slow.py but imported to main.py
-        "custom_components.sunspec2.pysunspec2.modbus.client.SunSpecModbusClientDeviceTCP.is_connected",
-        return_value=False,
-    )
-    mocker.patch("custom_components.sunspec2.SunSpecApiClient.check_port", return_value=True)
-    """Test API calls."""
-
-    # To test the api submodule, we first create an instance of our API client
+async def test_modbus_connect_fail(hass, sunspec_modbus_client_mock):
+    """A client that reports no link after connecting is a transport error."""
+    sunspec_modbus_client_mock.is_connected.return_value = False
     api = SunSpecApiClient(host="test", port=123, unit_id=1, hass=hass)
 
     with pytest.raises(TransportError):
-        api.modbus_connect()
+        await api.modbus_connect()
+
+
+async def test_modbus_connect_exception(hass, sunspec_modbus_client_mock):
+    sunspec_modbus_client_mock.async_connect.side_effect = ModbusClientError("refused")
+    api = SunSpecApiClient(host="test", port=123, unit_id=1, hass=hass)
+
+    with pytest.raises(TransportError):
+        await api.modbus_connect()
 
 
 async def test_read_model_timeout(hass, mocker):
     mocker.patch(
-        "custom_components.sunspec2.api.SunSpecApiClient.read_model",
+        "custom_components.sunspec2.api.SunSpecApiClient.async_read_model",
         side_effect=SunSpecModbusClientTimeout,
     )
     api = SunSpecApiClient(host="test", port=123, unit_id=1, hass=hass)
@@ -134,7 +116,7 @@ async def test_read_model_timeout(hass, mocker):
 
 async def test_read_model_error(hass, mocker):
     mocker.patch(
-        "custom_components.sunspec2.api.SunSpecApiClient.read_model",
+        "custom_components.sunspec2.api.SunSpecApiClient.async_read_model",
         side_effect=SunSpecModbusClientException,
     )
     api = SunSpecApiClient(host="test", port=123, unit_id=1, hass=hass)
@@ -150,7 +132,7 @@ class _HangingUpModel:
         self.reads = 0
         self.hangs_up_first = hangs_up_first
 
-    def read(self) -> None:
+    async def async_read(self) -> None:
         self.reads += 1
         if self.hangs_up_first and self.reads == 1:
             raise ModbusClientConnectionClosed("Connection closed by peer")
@@ -167,23 +149,27 @@ async def test_read_model_connects_again_when_the_device_hangs_up(hass, mocker):
     from types import SimpleNamespace
 
     api = SunSpecApiClient(host="test", port=123, unit_id=1, hass=hass)
-    first = SimpleNamespace(models={1: [_HangingUpModel(hangs_up_first=True)]}, disconnect=Mock())
-    second = SimpleNamespace(models={1: [_HangingUpModel(hangs_up_first=False)]}, disconnect=Mock())
+    first = SimpleNamespace(
+        models={1: [_HangingUpModel(hangs_up_first=True)]}, async_disconnect=AsyncMock()
+    )
+    second = SimpleNamespace(
+        models={1: [_HangingUpModel(hangs_up_first=False)]}, async_disconnect=AsyncMock()
+    )
     connect = mocker.patch.object(api, "modbus_connect", side_effect=[first, second])
 
-    wrapper = api.read_model(1)
+    wrapper = await api.async_read_model(1)
 
-    assert connect.call_count == 2
+    assert connect.await_count == 2
     assert first.models[1][0].reads == 1
     assert second.models[1][0].reads == 1
     assert wrapper.num_models == 1
     # The dead session went out politely; the cached layout is not dropped.
-    first.disconnect.assert_called_once()
+    first.async_disconnect.assert_awaited_once()
 
 
 async def test_device_that_keeps_hanging_up_is_a_transport_error(hass, mocker):
     mocker.patch(
-        "custom_components.sunspec2.api.SunSpecApiClient.read_model",
+        "custom_components.sunspec2.api.SunSpecApiClient.async_read_model",
         side_effect=ModbusClientConnectionClosed,
     )
     api = SunSpecApiClient(host="test", port=123, unit_id=1, hass=hass)
@@ -197,7 +183,9 @@ async def test_device_that_keeps_hanging_up_is_a_transport_error(hass, mocker):
 # ---------------------------------------------------------------------------
 
 
-async def test_failed_scan_tears_down_the_connected_client(hass, mocker):
+async def test_failed_scan_tears_down_the_connected_client(
+    hass, mocker, sunspec_modbus_client_mock
+):
     """A client that connects and then fails its scan must not leak.
 
     This is the exact shape reported in #25: the TCP connect succeeds,
@@ -209,84 +197,42 @@ async def test_failed_scan_tears_down_the_connected_client(hass, mocker):
     which makes the failure sticky and makes the second attempt's error
     message describe our own leak instead of the original fault.
     """
-    mocker.patch(
-        "custom_components.sunspec2.pysunspec2.modbus.client.SunSpecModbusClientDeviceTCP.connect",
-        return_value=None,
+    sunspec_modbus_client_mock.async_scan.side_effect = SunSpecModbusClientError(
+        "Error scanning SunSpec base addresses"
     )
-    mocker.patch(
-        "custom_components.sunspec2.pysunspec2.modbus.client.SunSpecModbusClientDeviceTCP.is_connected",
-        return_value=True,
-    )
-    mocker.patch(
-        "custom_components.sunspec2.pysunspec2.modbus.client.SunSpecModbusClientDeviceTCP.scan",
-        side_effect=SunSpecModbusClientError("Error scanning SunSpec base addresses"),
-    )
-    mocker.patch("custom_components.sunspec2.SunSpecApiClient.check_port", return_value=True)
     api = SunSpecApiClient(host="test", port=123, unit_id=1, hass=hass)
-    torn_down = mocker.patch.object(SunSpecApiClient, "_force_disconnect")
+    torn_down = mocker.patch.object(SunSpecApiClient, "_async_disconnect")
 
     with pytest.raises(ProtocolError):
-        api.modbus_connect()
+        await api.modbus_connect()
 
-    assert torn_down.call_count == 1
     # Called with the client explicitly, because self._client is still
-    # None at this point and the argument-free form would be a no-op.
-    assert torn_down.call_args.args and torn_down.call_args.args[0] is not None
+    # None at this point.
+    torn_down.assert_awaited_once()
+    assert torn_down.call_args.args[-1] is sunspec_modbus_client_mock
 
 
-async def test_successful_connect_does_not_tear_down(hass, mocker):
+async def test_successful_connect_does_not_tear_down(hass, mocker, sunspec_modbus_client_mock):
     """The teardown must not fire on the happy path."""
-    mocker.patch(
-        "custom_components.sunspec2.pysunspec2.modbus.client.SunSpecModbusClientDeviceTCP.connect",
-        return_value=None,
-    )
-    mocker.patch(
-        "custom_components.sunspec2.pysunspec2.modbus.client.SunSpecModbusClientDeviceTCP.is_connected",
-        return_value=True,
-    )
-    mocker.patch(
-        "custom_components.sunspec2.pysunspec2.modbus.client.SunSpecModbusClientDeviceTCP.scan",
-        return_value=None,
-    )
-    mocker.patch("custom_components.sunspec2.SunSpecApiClient.check_port", return_value=True)
     api = SunSpecApiClient(host="test", port=123, unit_id=1, hass=hass)
-    torn_down = mocker.patch.object(SunSpecApiClient, "_force_disconnect")
+    torn_down = mocker.patch.object(SunSpecApiClient, "_async_disconnect")
 
-    client = api.modbus_connect()
+    client = await api.modbus_connect()
 
-    assert client is not None
-    torn_down.assert_not_called()
+    assert client is sunspec_modbus_client_mock
+    torn_down.assert_not_awaited()
 
 
-async def test_force_disconnect_accepts_an_explicit_client(hass):
+async def test_disconnect_takes_the_client_explicitly(hass):
     """The explicit-client form must work while self._client is None."""
     api = SunSpecApiClient(host="test", port=123, unit_id=1, hass=hass)
-    orphan = Mock()
+    orphan = Mock(async_disconnect=AsyncMock())
 
-    api._force_disconnect(orphan)
+    await api._async_disconnect(orphan)
 
-    orphan.disconnect.assert_called_once_with()
+    orphan.async_disconnect.assert_awaited_once_with()
     # The instance's own (absent) client is untouched.
     assert api._client is None
-
-
-async def test_check_port_does_not_mutate_the_process_default_timeout(hass, mocker):
-    """check_port must use a per-socket timeout, not the global default.
-
-    socket.setdefaulttimeout() is process-wide, so our 3s leaked into
-    every other integration in the same Home Assistant process that
-    created a socket without setting its own timeout.
-    """
-    before = socket.getdefaulttimeout()
-    fake_sock = Mock()
-    fake_sock.connect_ex.return_value = 0
-    mocker.patch("socket.socket", return_value=fake_sock)
-    api = SunSpecApiClient(host="test", port=123, unit_id=1, hass=hass)
-
-    assert api.check_port() is True
-
-    fake_sock.settimeout.assert_called_once_with(3.0)
-    assert socket.getdefaulttimeout() == before
 
 
 # ---------- scan delay (#17) ------------------------------------------------
@@ -300,25 +246,25 @@ async def test_scan_delay_defaults_and_reaches_pysunspec2(hass, sunspec_modbus_c
     walks. A default that never reaches scan() would be invisible.
     """
     api = SunSpecApiClient(host="test", port=123, unit_id=1, hass=hass)
-    client = api.get_client()
+    client = await api.async_get_client()
 
     assert api._scan_delay == DEFAULT_SCAN_DELAY_SECONDS
-    assert client.scan.call_args.kwargs["delay"] == DEFAULT_SCAN_DELAY_SECONDS
+    assert client.async_scan.call_args.kwargs["delay"] == DEFAULT_SCAN_DELAY_SECONDS
 
 
 async def test_scan_delay_is_configurable(hass, sunspec_modbus_client_mock):
     api = SunSpecApiClient(host="test", port=123, unit_id=1, hass=hass, scan_delay=0.75)
-    client = api.get_client()
+    client = await api.async_get_client()
 
-    assert client.scan.call_args.kwargs["delay"] == 0.75
+    assert client.async_scan.call_args.kwargs["delay"] == 0.75
 
 
 async def test_scan_delay_zero_passes_none(hass, sunspec_modbus_client_mock):
     """0 has to become None: pysunspec2 only skips the sleep on None."""
     api = SunSpecApiClient(host="test", port=123, unit_id=1, hass=hass, scan_delay=0)
-    client = api.get_client()
+    client = await api.async_get_client()
 
-    assert client.scan.call_args.kwargs["delay"] is None
+    assert client.async_scan.call_args.kwargs["delay"] is None
 
 
 @pytest.mark.parametrize(
@@ -408,17 +354,26 @@ class _FakeClient:
     def is_connected(self):
         return True
 
+    # What the api client goes through: the twins hand the call to the
+    # sync methods above, so a test can still patch ``read`` or ``scan``.
 
-def _api_with_structure(hass, client):
+    async def async_scan(self, **kwargs):
+        self.scan(**kwargs)
+
+    async def async_read(self, addr, count):
+        return self.read(addr, count)
+
+
+async def _api_with_structure(hass, client):
     """An api client that has already scanned ``client`` once."""
     api = SunSpecApiClient(host="test", port=123, unit_id=1, hass=hass)
-    api._scan_or_restore(client)
+    await api._async_scan_or_restore(client)
     return api
 
 
 async def test_first_connect_scans_and_caches(hass):
     client = _FakeClient()
-    api = _api_with_structure(hass, client)
+    api = await _api_with_structure(hass, client)
 
     assert client.scan_calls == 1
     assert api._model_structure == [(1, 40002, 66), (103, 40070, 50)]
@@ -428,10 +383,10 @@ async def test_first_connect_scans_and_caches(hass):
 async def test_second_connect_restores_without_scanning(hass):
     """The whole point: a reconnect must not walk the model tree again."""
     client = _FakeClient()
-    api = _api_with_structure(hass, client)
+    api = await _api_with_structure(hass, client)
 
     fresh = _FakeClient()
-    api._scan_or_restore(fresh)
+    await api._async_scan_or_restore(fresh)
 
     assert fresh.scan_calls == 0
     assert sorted(k for k in fresh.models) == [1, 103]
@@ -450,11 +405,11 @@ async def test_cached_structure_does_not_expire(hass):
     every block behind it and scan() still returns without raising.
     """
     client = _FakeClient()
-    api = _api_with_structure(hass, client)
+    api = await _api_with_structure(hass, client)
 
     for _ in range(50):
         fresh = _FakeClient()
-        api._scan_or_restore(fresh)
+        await api._async_scan_or_restore(fresh)
         assert fresh.scan_calls == 0
 
 
@@ -467,11 +422,11 @@ async def test_changed_chain_tail_triggers_a_rescan(hass):
     what has to be re-read.
     """
     client = _FakeClient()
-    api = _api_with_structure(hass, client)
+    api = await _api_with_structure(hass, client)
 
     # Same first model, same base address, but the second block grew.
     moved = _FakeClient(layout=[(1, 40002, 66), (103, 40070, 60)])
-    api._scan_or_restore(moved)
+    await api._async_scan_or_restore(moved)
 
     assert moved.scan_calls == 1
 
@@ -483,11 +438,11 @@ async def test_chain_that_grew_past_its_end_triggers_a_rescan(hass):
     tell us the chain now continues past it.
     """
     client = _FakeClient()
-    api = _api_with_structure(hass, client)
+    api = await _api_with_structure(hass, client)
 
     grown = _FakeClient()
     grown.end_marker = 704
-    api._scan_or_restore(grown)
+    await api._async_scan_or_restore(grown)
 
     assert grown.scan_calls == 1
 
@@ -499,7 +454,7 @@ async def test_device_that_will_not_read_past_the_chain_is_not_punished(hass):
     its cache instead of rescanning on every single connect.
     """
     client = _FakeClient()
-    api = _api_with_structure(hass, client)
+    api = await _api_with_structure(hass, client)
 
     quiet = _FakeClient()
     last_id, last_addr, last_len = quiet._layout[-1]
@@ -513,7 +468,7 @@ async def test_device_that_will_not_read_past_the_chain_is_not_punished(hass):
         return original_read(addr, count)
 
     quiet.read = _read
-    api._scan_or_restore(quiet)
+    await api._async_scan_or_restore(quiet)
 
     assert quiet.scan_calls == 0
 
@@ -525,21 +480,21 @@ async def test_changed_model_tree_triggers_a_rescan(hass):
     would succeed and return values that are simply wrong.
     """
     client = _FakeClient()
-    api = _api_with_structure(hass, client)
+    api = await _api_with_structure(hass, client)
 
     swapped = _FakeClient(layout=[(103, 40002, 50)], header_model_id=103)
-    api._scan_or_restore(swapped)
+    await api._async_scan_or_restore(swapped)
 
     assert swapped.scan_calls == 1
 
 
 async def test_failed_validation_read_falls_back_to_scanning(hass):
     client = _FakeClient()
-    api = _api_with_structure(hass, client)
+    api = await _api_with_structure(hass, client)
 
     fresh = _FakeClient()
     fresh.read = Mock(side_effect=OSError("boom"))
-    api._scan_or_restore(fresh)
+    await api._async_scan_or_restore(fresh)
 
     assert fresh.scan_calls == 1
 
@@ -547,14 +502,14 @@ async def test_failed_validation_read_falls_back_to_scanning(hass):
 async def test_reconnect_next_drops_the_cached_structure(hass):
     """After a failure the layout is a suspect, not an asset."""
     client = _FakeClient()
-    api = _api_with_structure(hass, client)
+    api = await _api_with_structure(hass, client)
     assert api._model_structure is not None
 
     api.reconnect_next()
 
     assert api._model_structure is None
     fresh = _FakeClient()
-    api._scan_or_restore(fresh)
+    await api._async_scan_or_restore(fresh)
     assert fresh.scan_calls == 1
 
 
@@ -568,7 +523,7 @@ async def test_close_keeps_the_cached_structure(hass, sunspec_modbus_client_mock
     api._base_addr = 40000
     api._model_structure = [(1, 40002, 66)]
 
-    api.close()
+    await api.async_close()
 
     assert api._model_structure == [(1, 40002, 66)]
 
@@ -581,7 +536,7 @@ async def test_vendor_models_without_a_group_name_stay_cached(hass):
     silently stop polling it after the first reconnect.
     """
     client = _FakeClient(layout=[(1, 40002, 66), (64110, 40120, 30)])
-    api = _api_with_structure(hass, client)
+    api = await _api_with_structure(hass, client)
 
     assert (64110, 40120, 30) in api._model_structure
 
@@ -594,24 +549,22 @@ async def test_restore_builds_real_pysunspec2_models(hass):
     definition does not resolve, model.read() later has nothing to
     decode registers with and every point comes back None.
     """
-    import custom_components.sunspec2.pysunspec2.modbus.client as real_client
+    client = SunSpecModbusClientDeviceUnit(FakeConnection(), slave_id=1)
 
-    client = real_client.SunSpecModbusClientDeviceTCP(slave_id=1, ipaddr="1.2.3.4")
-
-    def _read(addr, count):
+    async def _read(addr, count, op=None):
         if addr == 40000:
             return b"SunS" + mb.u16_to_data(103)
         if addr == 40002:
             return mb.u16_to_data(103) + mb.u16_to_data(50)
         return mb.u16_to_data(mb.SUNS_END_MODEL_ID)
 
-    client.read = Mock(side_effect=_read)
+    client.async_read = _read
 
     api = SunSpecApiClient(host="test", port=123, unit_id=1, hass=hass)
     api._base_addr = 40000
     api._model_structure = [(103, 40002, 50)]
 
-    assert api._restore_model_structure(client) is True
+    assert await api._async_restore_model_structure(client) is True
 
     assert client.base_addr == 40000
     model = client.models[103][0]
@@ -634,27 +587,16 @@ async def test_partial_scan_keeps_the_models_it_found(hass, mocker):
     inverter looks like it speaks no SunSpec at all. Reported upstream
     for an SMA STP110-60 (cjne/ha-sunspec#375).
     """
-    mocker.patch(
-        "custom_components.sunspec2.pysunspec2.modbus.client.SunSpecModbusClientDeviceTCP.connect"
-    )
-    mocker.patch(
-        "custom_components.sunspec2.pysunspec2.modbus.client.SunSpecModbusClientDeviceTCP.is_connected",
-        return_value=True,
-    )
-    mocker.patch("custom_components.sunspec2.SunSpecApiClient.check_port", return_value=True)
+    mocker.patch.object(SunSpecApiClient, "_get_connection", return_value=FakeConnection())
 
-    def _partial_scan(self, **kwargs):
+    async def _partial_scan(self, **kwargs):
         self.models = {1: [Mock()], "common": [Mock()], 103: [Mock()]}
         raise SunSpecModbusClientError("Unknown error")
 
-    mocker.patch(
-        "custom_components.sunspec2.pysunspec2.modbus.client.SunSpecModbusClientDeviceTCP.scan",
-        _partial_scan,
-        create=True,
-    )
+    mocker.patch.object(SunSpecModbusClientDeviceUnit, "async_scan", _partial_scan)
 
     api = SunSpecApiClient(host="test", port=123, unit_id=1, hass=hass)
-    client = api.get_client()
+    client = await api.async_get_client()
 
     assert sorted(k for k in client.models if isinstance(k, int)) == [1, 103]
 
@@ -666,27 +608,16 @@ async def test_partial_scan_does_not_cache_the_truncated_layout(hass, mocker):
     chain still has a well-formed tail, so nothing would ever prompt the
     rescan that would find the rest.
     """
-    mocker.patch(
-        "custom_components.sunspec2.pysunspec2.modbus.client.SunSpecModbusClientDeviceTCP.connect"
-    )
-    mocker.patch(
-        "custom_components.sunspec2.pysunspec2.modbus.client.SunSpecModbusClientDeviceTCP.is_connected",
-        return_value=True,
-    )
-    mocker.patch("custom_components.sunspec2.SunSpecApiClient.check_port", return_value=True)
+    mocker.patch.object(SunSpecApiClient, "_get_connection", return_value=FakeConnection())
 
-    def _partial_scan(self, **kwargs):
+    async def _partial_scan(self, **kwargs):
         self.models = {1: [Mock()]}
         raise SunSpecModbusClientError("Unknown error")
 
-    mocker.patch(
-        "custom_components.sunspec2.pysunspec2.modbus.client.SunSpecModbusClientDeviceTCP.scan",
-        _partial_scan,
-        create=True,
-    )
+    mocker.patch.object(SunSpecModbusClientDeviceUnit, "async_scan", _partial_scan)
 
     api = SunSpecApiClient(host="test", port=123, unit_id=1, hass=hass)
-    api.get_client()
+    await api.async_get_client()
 
     assert api._model_structure is None
 
@@ -697,28 +628,17 @@ async def test_scan_that_found_nothing_still_fails(hass, mocker):
     A device that answers nothing is a misconfiguration the user needs
     told about, not something to paper over with an empty model list.
     """
-    mocker.patch(
-        "custom_components.sunspec2.pysunspec2.modbus.client.SunSpecModbusClientDeviceTCP.connect"
-    )
-    mocker.patch(
-        "custom_components.sunspec2.pysunspec2.modbus.client.SunSpecModbusClientDeviceTCP.is_connected",
-        return_value=True,
-    )
-    mocker.patch("custom_components.sunspec2.SunSpecApiClient.check_port", return_value=True)
+    mocker.patch.object(SunSpecApiClient, "_get_connection", return_value=FakeConnection())
 
-    def _failed_scan(self, **kwargs):
+    async def _failed_scan(self, **kwargs):
         self.models = {}
         raise SunSpecModbusClientError("Error scanning SunSpec base addresses")
 
-    mocker.patch(
-        "custom_components.sunspec2.pysunspec2.modbus.client.SunSpecModbusClientDeviceTCP.scan",
-        _failed_scan,
-        create=True,
-    )
+    mocker.patch.object(SunSpecModbusClientDeviceUnit, "async_scan", _failed_scan)
 
     api = SunSpecApiClient(host="test", port=123, unit_id=1, hass=hass)
     with pytest.raises(ProtocolError):
-        api.get_client()
+        await api.async_get_client()
 
 
 async def test_partial_scan_falls_back_to_the_last_known_layout(hass):
@@ -731,7 +651,7 @@ async def test_partial_scan_falls_back_to_the_last_known_layout(hass):
     still validates against the device, so it is strictly better than
     what the failed scan produced.
     """
-    api = _api_with_structure(hass, _FakeClient())
+    api = await _api_with_structure(hass, _FakeClient())
 
     class _TruncatingClient(_FakeClient):
         def scan(self, **kwargs):
@@ -740,7 +660,7 @@ async def test_partial_scan_falls_back_to_the_last_known_layout(hass):
             raise SunSpecModbusClientException("Illegal data address")
 
     truncated = _TruncatingClient()
-    api._scan_or_restore(truncated)
+    await api._async_scan_or_restore(truncated)
 
     assert sorted(k for k in truncated.models) == [1, 103]
     assert api.last_scan_was_partial is False
@@ -756,7 +676,7 @@ async def test_scan_timeout_is_never_swallowed(hass):
     rather than missing. Continuing on that socket, with a cached layout
     or without, is the one thing that must not happen.
     """
-    api = _api_with_structure(hass, _FakeClient())
+    api = await _api_with_structure(hass, _FakeClient())
 
     class _TimingOutClient(_FakeClient):
         def scan(self, **kwargs):
@@ -769,19 +689,19 @@ async def test_scan_timeout_is_never_swallowed(hass):
     stuck.end_marker = 704
 
     with pytest.raises(SunSpecModbusClientTimeout):
-        api._scan_or_restore(stuck)
+        await api._async_scan_or_restore(stuck)
 
 
 async def test_structure_survives_an_export_import_round_trip(hass):
     """What the coordinator persists has to rebuild the same layout."""
-    api = _api_with_structure(hass, _FakeClient())
+    api = await _api_with_structure(hass, _FakeClient())
     payload = api.export_model_structure()
 
     restored = SunSpecApiClient(host="test", port=123, unit_id=1, hass=hass)
     assert restored.import_model_structure(payload) is True
 
     fresh = _FakeClient()
-    restored._scan_or_restore(fresh)
+    await restored._async_scan_or_restore(fresh)
 
     assert fresh.scan_calls == 0
     assert sorted(k for k in fresh.models) == [1, 103]
@@ -807,12 +727,12 @@ async def test_import_rejects_junk(hass):
 async def test_revision_only_moves_when_the_layout_does(hass):
     """A rescan that confirms the layout must not trigger a store write."""
     client = _FakeClient()
-    api = _api_with_structure(hass, client)
+    api = await _api_with_structure(hass, client)
     revision = api.structure_revision
 
     # Force a real rescan by invalidating, then rescan the same device.
     api._invalidate_model_structure()
-    api._scan_or_restore(_FakeClient())
+    await api._async_scan_or_restore(_FakeClient())
     assert api.structure_revision > revision
 
     revision = api.structure_revision
@@ -822,70 +742,65 @@ async def test_revision_only_moves_when_the_layout_does(hass):
     assert api.structure_revision == revision
 
 
-async def test_connect_uses_the_short_timeout_and_restores_the_long_one(hass, mocker):
-    """Connect fails fast, reads still get room.
+async def test_the_connection_is_built_once_with_the_request_timeout(hass, mocker):
+    """One ModbusConnection per api client, carrying the entry's timeout.
 
-    Every successful connect measured against real hardware landed
-    between 0.08 s and 0.33 s, so a connect still unfinished after two
-    seconds is being refused rather than being slow. But pysunspec2 pins
-    whatever timeout connect() was handed onto the socket with
-    settimeout(), so without restoring it afterwards every register read
-    would inherit the short one, and a read genuinely can take longer
-    than a connect.
+    The connection outlives the client: a close drops the link and the
+    models, and the next client connects on the same object.
     """
-    from custom_components.sunspec2.api import CONNECT_TIMEOUT
-    from custom_components.sunspec2.api import TIMEOUT
+    from custom_components.sunspec2.api import SETUP_TIMEOUT
 
-    seen = {}
+    built = mocker.patch("custom_components.sunspec2.api.ModbusConnection")
+    api = SunSpecApiClient(host="test", port=123, unit_id=1, hass=hass, timeout=SETUP_TIMEOUT)
 
-    def _connect(self, timeout=None):
-        seen["timeout"] = timeout
-        self.client = Mock(socket=seen.setdefault("socket", Mock()))
+    first = api._get_connection()
+    second = api._get_connection()
 
-    mocker.patch(
-        "custom_components.sunspec2.pysunspec2.modbus.client.SunSpecModbusClientDeviceTCP.connect",
-        _connect,
-        create=True,
+    assert first is second
+    built.assert_called_once_with(ModbusTcpParams(host="test", port=123), timeout=SETUP_TIMEOUT)
+
+
+async def test_rtu_entries_connect_over_serial_params(hass):
+    api = SunSpecApiClient(
+        host="/dev/ttyUSB0",
+        port=19200,
+        unit_id=3,
+        hass=hass,
+        transport=TRANSPORT_RTU,
+        serial_port="/dev/ttyUSB0",
+        baudrate=19200,
+        parity="E",
     )
-    mocker.patch(
-        "custom_components.sunspec2.pysunspec2.modbus.client.SunSpecModbusClientDeviceTCP.is_connected",
-        return_value=True,
+
+    assert api._params() == ModbusSerialParams(device="/dev/ttyUSB0", baudrate=19200, parity="E")
+
+    without_port = SunSpecApiClient(
+        host="rtu", port=9600, unit_id=1, hass=hass, transport=TRANSPORT_RTU
     )
-    mocker.patch(
-        "custom_components.sunspec2.pysunspec2.modbus.client.SunSpecModbusClientDeviceTCP.scan",
-        lambda self, **kwargs: None,
-        create=True,
-    )
-
-    api = SunSpecApiClient(host="test", port=123, unit_id=1, hass=hass)
-    api.modbus_connect()
-
-    assert seen["timeout"] == CONNECT_TIMEOUT
-    seen["socket"].settimeout.assert_called_once_with(TIMEOUT)
+    with pytest.raises(TransportError):
+        without_port._params()
 
 
-async def test_close_is_polite_unless_forced(hass, mocker):
-    """A normal close sends a FIN; the RST is reserved for trouble.
+async def test_close_drops_the_client_whether_forced_or_not(hass):
+    """Both closes go through the client's disconnect; there is no RST to send any more.
 
     Every close used to be an RST, on the theory that it frees a
-    single-slot inverter faster. That was built for a design which
-    reconnected on every poll. With the session held open, an abort is
-    only ever sent when something has already gone wrong, and an
-    embedded TCP stack handles a proper teardown better than one.
+    single-slot inverter faster. modbus-connection owns the socket and
+    closes it with a FIN either way; ``force`` is what the log says.
     """
     api = SunSpecApiClient(host="test", port=123, unit_id=1, hass=hass)
-    api._client = Mock()
+    polite = Mock(async_disconnect=AsyncMock())
+    api._client = polite
 
-    graceful = mocker.patch.object(api, "_graceful_disconnect")
-    forced = mocker.patch.object(api, "_force_disconnect")
+    await api.async_close()
+    polite.async_disconnect.assert_awaited_once_with()
+    assert api._client is None
 
-    api.close()
-    graceful.assert_called_once()
-    forced.assert_not_called()
-
-    api._client = Mock()
-    api.close(force=True)
-    forced.assert_called_once()
+    forced = Mock(async_disconnect=AsyncMock())
+    api._client = forced
+    await api.async_close(force=True)
+    forced.async_disconnect.assert_awaited_once_with()
+    assert api._client is None
 
 
 async def test_reconnect_flag_is_cleared_even_without_a_live_client(hass, mocker):
@@ -903,19 +818,19 @@ async def test_reconnect_flag_is_cleared_even_without_a_live_client(hass, mocker
     api = SunSpecApiClient(host="test", port=123, unit_id=1, hass=hass)
     built = []
 
-    def _build_and_record(config=None):
+    def _build_and_record():
         built.append(Mock())
         return built[-1]
 
     mocker.patch.object(api, "modbus_connect", side_effect=_build_and_record)
-    forced = mocker.patch.object(api, "_force_disconnect")
+    dropped = mocker.patch.object(api, "_async_disconnect")
 
     api.reconnect_next()
     assert api._client is None
 
-    first = api.get_client()
-    second = api.get_client()
+    first = await api.async_get_client()
+    second = await api.async_get_client()
 
     assert first is second
     assert len(built) == 1
-    forced.assert_not_called()
+    dropped.assert_not_awaited()

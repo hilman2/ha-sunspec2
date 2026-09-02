@@ -39,7 +39,10 @@ COPY .github/scripts/resolve_ha_versions.py /tmp/resolve_ha_versions.py
 #   2) ... then downgrade pytest, which uninstalls 9.x and installs 8.x.
 #
 # voluptuous-serialize is imported directly by tests/test_config_flow.py.
-# pyserial is the integration's one runtime requirement, see manifest.json.
+# The last two are the runtime requirements of manifest.json:
+# modbus-connection with its tmodbus backend, named twice because Home
+# Assistant ignores a package's extras when it checks what is installed
+# (home-assistant-libs/modbus-connection#182).
 RUN python /tmp/resolve_ha_versions.py --channel "${HA_CHANNEL}" > /tmp/versions \
     && HA=$(sed -n 's/^ha=//p' /tmp/versions) \
     && PHCC=$(sed -n 's/^phcc=//p' /tmp/versions) \
@@ -51,7 +54,8 @@ RUN python /tmp/resolve_ha_versions.py --channel "${HA_CHANNEL}" > /tmp/versions
         pytest-timeout \
         pytest-xdist \
         voluptuous-serialize \
-        "pyserial==3.5" \
+        "modbus-connection[tmodbus]>=4.10.0,<5" \
+        "tmodbus>=0.6.1" \
     && pip install --no-cache-dir --user "pytest<9"
 
 WORKDIR /src

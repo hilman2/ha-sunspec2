@@ -21,20 +21,10 @@
     IN THE SOFTWARE.
 """
 
-import time
+import asyncio
 import uuid
 from .. import mdef, device, mb
 from . import modbus as modbus_client
-from .modbus import CLIENT_CERTFILE, CLIENT_KEYFILE, CAFILE
-
-TEST_NAME = 'test_name'
-
-modbus_rtu_clients = {}
-
-# Reference for SVP driver
-MAPPED = 'Mapped SunSpec Device'
-RTU = 'Modbus RTU'
-TCP = 'Modbus TCP'
 
 
 class SunSpecModbusClientError(Exception):
@@ -55,21 +45,24 @@ class SunSpecModbusClientException(SunSpecModbusClientError):
 
 class SunSpecModbusClientPoint(device.Point):
 
-    def read(self):
-        data = self.model.device.read(self.model.model_addr + self.offset, self.len)
+    # ha-sunspec2: upstream's read and write called the device from the
+    # calling thread. These await it, for a device that talks through an
+    # asyncio transport (see unit_device.py); the sync pair is gone with
+    # the socket and serial clients.
+
+    async def async_read(self):
+        data = await self.model.device.async_read(self.model.model_addr + self.offset, self.len)
         self.set_mb(data=data, dirty=False)
 
-    def write(self):
+    async def async_write(self):
         """Write the point to the physical device"""
         try:
             data = self.info.to_data(self.value, int(self.len) * 2)
         except Exception as e:
             raise SunSpecModbusValueError('Point value error for %s %s: %s' % (self.pdef.get(mdef.NAME), self.value,
                                                                                str(e)))
-        model_addr = self.model.model_addr
-        point_offset = self.offset
-        addr = model_addr + point_offset
-        self.model.device.write(addr, data)
+        addr = self.model.model_addr + self.offset
+        await self.model.device.async_write(addr, data)
         self.dirty = False
 
 
@@ -82,35 +75,31 @@ class SunSpecModbusClientGroup(device.Group):
                               data=data, data_offset=data_offset, group_class=group_class, point_class=point_class,
                               index=index)
 
-    def read(self, len=None):
+    # ha-sunspec2: upstream's read, write and write_points, awaiting the
+    # device. The connect-if-not-connected dance around the read is gone
+    # with it: the device connects on demand.
+
+    async def async_read(self, len=None):
         if len is None:
             len = self.len
-        # check if currently connected
-        connected = self.model.device.is_connected()
-        if not connected:
-            self.model.device.connect()
-
         if self.access_regions:
             data = bytearray()
             for region in self.access_regions:
-                data += self.model.device.read(self.model.model_addr + self.offset + region[0], region[1])
+                data += await self.model.device.async_read(self.model.model_addr + self.offset + region[0],
+                                                           region[1])
             data = bytes(data)
         else:
-            data = self.model.device.read(self.model.model_addr + self.offset, len)
+            data = await self.model.device.async_read(self.model.model_addr + self.offset, len)
         self.set_mb(data=data, dirty=False)
 
-        # disconnect if was not connected
-        if not connected:
-            self.model.device.disconnect()
-
-    def write(self):
+    async def async_write(self):
         start_addr = next_addr = self.model.model_addr + self.offset
         data = b''
-        start_addr, next_addr, data = self.write_points(start_addr, next_addr, data)
+        start_addr, next_addr, data = await self.async_write_points(start_addr, next_addr, data)
         if data:
-            self.model.device.write(start_addr, data)
+            await self.model.device.async_write(start_addr, data)
 
-    def write_points(self, start_addr=None, next_addr=None, data=None):
+    async def async_write_points(self, start_addr=None, next_addr=None, data=None):
         """
         Write all points that have been modified since the last write operation to the physical device
         """
@@ -120,7 +109,7 @@ class SunSpecModbusClientGroup(device.Group):
             point_offset = point.offset
             point_addr = model_addr + point_offset
             if data and (not point.dirty or point_addr != next_addr):
-                self.model.device.write(start_addr, data)
+                await self.model.device.async_write(start_addr, data)
                 data = b''
             if point.dirty:
                 point_len = point.len
@@ -137,9 +126,9 @@ class SunSpecModbusClientGroup(device.Group):
         for name, group in self.groups.items():
             if isinstance(group, list):
                 for g in group:
-                    start_addr, next_addr, data = g.write_points(start_addr, next_addr, data)
+                    start_addr, next_addr, data = await g.async_write_points(start_addr, next_addr, data)
             else:
-                start_addr, next_addr, data = group.write_points(start_addr, next_addr, data)
+                start_addr, next_addr, data = await group.async_write_points(start_addr, next_addr, data)
 
         return start_addr, next_addr, data
 
@@ -167,12 +156,15 @@ class SunSpecModbusClientModel(SunSpecModbusClientGroup):
 
         # determine largest point index that contains a group len
         group_len_points_index = mdef.get_group_len_points_index(gdef)
-        # if data len < largest point index that contains a group len, read the rest of the point data
+        # Upstream read the rest of the point data here, from the calling
+        # thread. A device over an asyncio transport cannot serve that, so
+        # the scan and the cache restore read it first (async_model_data)
+        # and a constructor that is still short says so instead.
         data_regs = len(data)/2
         remaining = group_len_points_index - data_regs
         if remaining > 0:
-            points_data = self.device.read(self.model_addr + data_regs, remaining)
-            data += points_data
+            raise SunSpecModbusClientError('Model %s needs %s more register(s) up to its group counts; '
+                                           'read them with async_model_data first' % (model_id, remaining))
 
         SunSpecModbusClientGroup.__init__(self, gdef=gdef, model=self.model, model_offset=0, group_len=self.model_len,
                                           data=data, data_offset=0, group_class=group_class, point_class=point_class)
@@ -188,8 +180,8 @@ class SunSpecModbusClientModel(SunSpecModbusClientGroup):
     def add_error(self, error_info):
         self.error_info = '%s%s\n' % (self.error_info, error_info)
 
-    def read(self, len=None):
-        SunSpecModbusClientGroup.read(self, len=self.len + 2)
+    async def async_read(self, len=None):
+        await SunSpecModbusClientGroup.async_read(self, len=self.len + 2)
 
 
 class SunSpecModbusClientDevice(device.Device):
@@ -200,27 +192,56 @@ class SunSpecModbusClientDevice(device.Device):
         self.base_addr_list = [40000, 0, 50000]
         self.base_addr = None
 
-    def connect(self):
-        pass
-
-    def disconnect(self):
-        pass
+    # ha-sunspec2: the transport interface a device implements, awaited.
+    # Upstream's sync connect, read, write and scan went with the socket
+    # and serial clients; unit_device.py is the one implementation.
 
     def is_connected(self):
         return True
 
-    def close(self):
+    async def async_connect(self):
+        pass
+
+    async def async_disconnect(self):
+        pass
+
+    async def async_close(self):
         pass
 
     # must be overridden by Modbus protocol implementation
-    def read(self, addr, count):
-        return ''
+    async def async_read(self, addr, count):
+        return b''
 
     # must be overridden by Modbus protocol implementation
-    def write(self, addr, data):
+    async def async_write(self, addr, data):
         return
 
-    def scan(self, progress=None, delay=None, connect=True, full_model_read=True):
+    async def async_model_data(self, model_id, addr, data):
+        """Extend the id and length registers in ``data`` so the model
+        constructor has no register left to read.
+
+        SunSpecModbusClientModel reads the registers up to the last
+        group-count point itself when it is handed too few, through the
+        sync ``read``, which a device over an asyncio transport cannot
+        serve. Reading them here first keeps the constructor off the wire.
+        """
+        try:
+            model_def = device.get_model_def(model_id)
+        except Exception:
+            return data
+        gdef = model_def.get(mdef.GROUP) if model_def else None
+        if not gdef:
+            return data
+        try:
+            index = mdef.get_group_len_points_index(gdef)
+        except Exception:
+            return data
+        have = len(data) // 2
+        if index > have:
+            data += await self.async_read(addr + have, index - have)
+        return data
+
+    async def async_scan(self, progress=None, delay=None, connect=True, full_model_read=True):
         """Scan all the models of the physical device and create the
         corresponding model objects within the device object based on the
         SunSpec model definitions.
@@ -233,18 +254,18 @@ class SunSpecModbusClientDevice(device.Device):
         connected = False
 
         if connect:
-            self.connect()
+            await self.async_connect()
             connected = True
 
             if delay is not None:
-                time.sleep(delay)
+                await asyncio.sleep(delay)
 
         error_dict = {}
         if self.base_addr is None:
             for addr in self.base_addr_list:
                 error_dict[addr] = ''
                 try:
-                    data = self.read(addr, 3)
+                    data = await self.async_read(addr, 3)
                     if data:
                         if data[:4] == b'SunS':
                             self.base_addr = addr
@@ -263,7 +284,7 @@ class SunSpecModbusClientDevice(device.Device):
                     error_dict[addr] = str(e)
 
                 if delay is not None:
-                    time.sleep(delay)
+                    await asyncio.sleep(delay)
 
         error = 'Error scanning SunSpec base addresses. \n'
         for k, v in error_dict.items():
@@ -276,9 +297,7 @@ class SunSpecModbusClientDevice(device.Device):
 
             mid = 0
             while model_id != mb.SUNS_END_MODEL_ID:
-                # read model and model len separately due to some devices not supplying
-                # count for the end model id
-                model_len_data = self.read(addr + 1, 1)
+                model_len_data = await self.async_read(addr + 1, 1)
                 if model_len_data and len(model_len_data) == 2:
                     if progress is not None:
                         cont = progress('Scanning model %s' % model_id)
@@ -286,19 +305,17 @@ class SunSpecModbusClientDevice(device.Device):
                             raise SunSpecModbusClientError('Device scan terminated')
                     model_len = mb.data_to_u16(model_len_data)
 
-                    # read model data
-                    ### model_data = self.read(addr, model_len + 2)
-                    model_data = model_id_data + model_len_data
+                    model_data = await self.async_model_data(model_id, addr, model_id_data + model_len_data)
                     model = self.model_class(model_id=model_id, model_addr=addr, model_len=model_len, data=model_data,
                                              mb_device=self)
                     if full_model_read and model.model_def:
-                        model.read()
+                        await model.async_read()
                     model.mid = '%s_%s' % (self.did, mid)
                     mid += 1
                     self.add_model(model)
 
                     addr += model_len + 2
-                    model_id_data = self.read(addr, 1)
+                    model_id_data = await self.async_read(addr, 1)
                     if model_id_data and len(model_id_data) == 2:
                         model_id = mb.data_to_u16(model_id_data)
                     else:
@@ -307,145 +324,10 @@ class SunSpecModbusClientDevice(device.Device):
                     break
 
                 if delay is not None:
-                    time.sleep(delay)
+                    await asyncio.sleep(delay)
 
         else:
             raise SunSpecModbusClientError(error)
 
         if connected:
-            self.disconnect()
-
-
-class SunSpecModbusClientDeviceTCP(SunSpecModbusClientDevice):
-    def __init__(self, slave_id=1, ipaddr='127.0.0.1', ipport=502, timeout=None, ctx=None, trace_func=None,
-                 tls=False, cafile=None, certfile=None, keyfile=None, insecure_skip_tls_verify=False,
-                 max_count=modbus_client.REQ_COUNT_MAX, max_write_count=modbus_client.REQ_WRITE_COUNT_MAX,
-                 model_class=SunSpecModbusClientModel):
-        SunSpecModbusClientDevice.__init__(self, model_class=model_class)
-
-        self.slave_id = slave_id
-        self.ipaddr = ipaddr
-        self.ipport = ipport
-        self.timeout = timeout
-        self.ctx = ctx
-        self.socket = None
-        self.trace_func = trace_func
-        self.max_count = max_count
-        self.tls = tls
-        self.cafile = cafile
-        self.certfile = certfile
-        self.keyfile = keyfile
-        self.insecure_skip_tls_verify = insecure_skip_tls_verify
-        self.max_write_count = max_write_count
-
-        self.client = modbus_client.ModbusClientTCP(slave_id=slave_id, ipaddr=ipaddr, ipport=ipport, timeout=timeout,
-                                                    ctx=ctx, trace_func=trace_func,
-                                                    tls=tls, cafile=cafile, certfile=certfile, keyfile=keyfile,
-                                                    insecure_skip_tls_verify=insecure_skip_tls_verify,
-                                                    max_count=modbus_client.REQ_COUNT_MAX,
-                                                    max_write_count=modbus_client.REQ_WRITE_COUNT_MAX)
-
-        if self.client is None:
-            raise SunSpecModbusClientError('No modbus tcp client set for device')
-
-    def connect(self, timeout=None):
-        self.client.connect(timeout)
-
-    def disconnect(self):
-        self.client.disconnect()
-
-    def is_connected(self):
-        return self.client.is_connected()
-
-    def read(self, addr, count, op=modbus_client.FUNC_READ_HOLDING):
-        return self.client.read(addr, count, op)
-
-    def write(self, addr, data):
-        return self.client.write(addr, data)
-
-
-class SunSpecModbusClientDeviceRTU(SunSpecModbusClientDevice):
-    """Provides access to a Modbus RTU device.
-    Parameters:
-        slave_id :
-            Modbus slave id.
-        name :
-            Name of the serial port such as 'com4' or '/dev/ttyUSB0'.
-        baudrate :
-            Baud rate such as 9600 or 19200. Default is 9600 if not specified.
-        parity :
-            Parity. Possible values:
-                :const:`sunspec.core.modbus.client.PARITY_NONE`,
-                :const:`sunspec.core.modbus.client.PARITY_EVEN` Defaulted to
-                :const:`PARITY_NONE`.
-        timeout :
-            Modbus request timeout in seconds. Fractional seconds are permitted
-            such as .5.
-        ctx :
-            Context variable to be used by the object creator. Not used by the
-            modbus module.
-        trace_func :
-            Trace function to use for detailed logging. No detailed logging is
-            perform is a trace function is not supplied.
-        max_count :
-            Maximum register count for a single Modbus request.
-    Raises:
-        SunSpecModbusClientError: Raised for any general modbus client error.
-        SunSpecModbusClientTimeoutError: Raised for a modbus client request timeout.
-        SunSpecModbusClientException: Raised for an exception response to a modbus
-            client request.
-    """
-
-    def __init__(self, slave_id, name, baudrate=None, parity=None, timeout=None, ctx=None, trace_func=None,
-                 max_count=modbus_client.REQ_COUNT_MAX, max_write_count=modbus_client.REQ_WRITE_COUNT_MAX,
-                 model_class=SunSpecModbusClientModel):
-        # test if this super class init is needed
-        SunSpecModbusClientDevice.__init__(self, model_class=model_class)
-        self.slave_id = slave_id
-        self.name = name
-        self.client = None
-        self.ctx = ctx
-        self.trace_func = trace_func
-        self.max_count = max_count
-        self.max_write_count = max_write_count
-
-        self.client = modbus_client.modbus_rtu_client(name, baudrate, parity, timeout)
-        if self.client is None:
-            raise SunSpecModbusClientError('No modbus rtu client set for device')
-        self.client.add_device(self.slave_id, self)
-
-    def open(self):
-        self.client.open()
-
-    def close(self):
-        """Close the device. Called when device is no longer in use.
-        """
-
-        if self.client:
-            self.client.remove_device(self.slave_id)
-
-    def read(self, addr, count, op=modbus_client.FUNC_READ_HOLDING):
-        """Read Modbus device registers.
-        Parameters:
-            addr :
-                Starting Modbus address.
-            count :
-                Read length in Modbus registers.
-            op :
-                Modbus function code for request.
-        Returns:
-            Byte string containing register contents.
-        """
-
-        return self.client.read(self.slave_id, addr, count, op=op, max_count=self.max_count)
-
-    def write(self, addr, data):
-        """Write Modbus device registers.
-        Parameters:
-            addr :
-                Starting Modbus address.
-            count :
-                Byte string containing register contents.
-        """
-
-        return self.client.write(self.slave_id, addr, data, max_write_count=self.max_write_count)
+            await self.async_disconnect()

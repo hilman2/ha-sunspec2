@@ -2,6 +2,8 @@
 
 import logging
 from typing import Any
+from unittest.mock import AsyncMock
+from unittest.mock import MagicMock
 from unittest.mock import Mock
 from unittest.mock import PropertyMock
 from unittest.mock import patch
@@ -95,6 +97,27 @@ class MockFileClientDevice(modbus_client.FileClientDevice):
         for index in range(len(data) // 2):
             registers[addr + index] = int.from_bytes(data[index * 2 : index * 2 + 2], "big")
 
+    # The api client reads and writes through the async twins a device
+    # over modbus-connection has; a file answers at once.
+
+    async def async_connect(self):
+        return self.connect()
+
+    async def async_disconnect(self):
+        return None
+
+    async def async_read(self, addr, count):
+        return self.read(addr, count)
+
+    async def async_write(self, addr, data):
+        return self.write(addr, data)
+
+    async def async_read_unit(self, unit_id, addr, count):
+        return self.read_unit(unit_id, addr, count)
+
+    async def async_write_unit(self, unit_id, addr, data):
+        return self.write_unit(unit_id, addr, data)
+
 
 # This fixture is used to prevent HomeAssistant from attempting to create and dismiss persistent
 # notifications. These calls would fail without this fixture since the persistent_notification
@@ -165,7 +188,6 @@ def sunspec_client_mock():
     client.scan()
     with (
         patch("custom_components.sunspec2.SunSpecApiClient.modbus_connect", return_value=client),
-        patch("custom_components.sunspec2.SunSpecApiClient.check_port", return_value=True),
     ):
         yield
 
@@ -190,7 +212,6 @@ def sunspec_write_client_mock():
     client.scan()
     with (
         patch("custom_components.sunspec2.SunSpecApiClient.modbus_connect", return_value=client),
-        patch("custom_components.sunspec2.SunSpecApiClient.check_port", return_value=True),
     ):
         yield client
 
@@ -207,7 +228,6 @@ def sunspec_fronius_client_mock():
     client.scan()
     with (
         patch("custom_components.sunspec2.SunSpecApiClient.modbus_connect", return_value=client),
-        patch("custom_components.sunspec2.SunSpecApiClient.check_port", return_value=True),
     ):
         yield client
 
@@ -225,7 +245,6 @@ def sunspec_symo_hybrid_client_mock():
     client.scan()
     with (
         patch("custom_components.sunspec2.SunSpecApiClient.modbus_connect", return_value=client),
-        patch("custom_components.sunspec2.SunSpecApiClient.check_port", return_value=True),
     ):
         yield client
 
@@ -243,7 +262,6 @@ def sunspec_solaredge_client_mock():
     client.registers = home_hub_registers()
     with (
         patch("custom_components.sunspec2.SunSpecApiClient.modbus_connect", return_value=client),
-        patch("custom_components.sunspec2.SunSpecApiClient.check_port", return_value=True),
     ):
         yield client
 
@@ -261,7 +279,6 @@ def sunspec_sma_client_mock():
     client.unit_registers = {3: smart_energy_registers()}
     with (
         patch("custom_components.sunspec2.SunSpecApiClient.modbus_connect", return_value=client),
-        patch("custom_components.sunspec2.SunSpecApiClient.check_port", return_value=True),
     ):
         yield client
 
@@ -290,7 +307,6 @@ def sunspec_client_mock_connect_error():
     client = MockFileClientDevice("./tests/test_data/inverter.json")
     with (
         patch("custom_components.sunspec2.SunSpecApiClient.modbus_connect", return_value=client),
-        patch("custom_components.sunspec2.SunSpecApiClient.check_port", return_value=True),
         patch(
             "custom_components.sunspec2.SunSpecApiClient.async_get_models",
             side_effect=TransportError,
@@ -306,23 +322,23 @@ def sunspec_client_mock_not_connected():
     client.scan()
     with (
         patch("custom_components.sunspec2.SunSpecApiClient.modbus_connect", return_value=client),
-        patch("custom_components.sunspec2.SunSpecApiClient.check_port", return_value=True),
     ):
         yield
 
 
 @pytest.fixture(name="sunspec_modbus_client_mock")
 def sunspec_modbus_client_mock():
-    """Skip calls to get data from API."""
-    mock = Mock()
-    with (
-        patch(
-            "custom_components.sunspec2.pysunspec2.modbus.client.SunSpecModbusClientDeviceTCP",
-            return_value=mock,
-        ),
-        patch("custom_components.sunspec2.SunSpecApiClient.check_port", return_value=True),
-    ):
-        yield
+    """A unit device stub that connects, scans and reports no models."""
+    mock = MagicMock()
+    mock.async_connect = AsyncMock()
+    mock.async_disconnect = AsyncMock()
+    mock.async_scan = AsyncMock()
+    mock.async_read = AsyncMock(return_value=b"")
+    mock.is_connected.return_value = True
+    mock.models = {}
+    mock.base_addr = 40000
+    with patch("custom_components.sunspec2.api.SunSpecModbusClientDeviceUnit", return_value=mock):
+        yield mock
 
 
 # In this fixture, we are forcing calls to async_get_data to raise an Exception. This is useful
@@ -335,7 +351,6 @@ def error_get_device_info_fixture():
             "custom_components.sunspec2.SunSpecApiClient.async_get_device_info",
             side_effect=Exception,
         ),
-        patch("custom_components.sunspec2.SunSpecApiClient.check_port", return_value=True),
     ):
         yield
 
@@ -348,7 +363,6 @@ def timeout_get_device_info_fixture():
             "custom_components.sunspec2.SunSpecApiClient.async_get_device_info",
             side_effect=TransientError,
         ),
-        patch("custom_components.sunspec2.SunSpecApiClient.check_port", return_value=True),
     ):
         yield
 
@@ -377,7 +391,6 @@ def error_on_get_data():
     client.scan()
     with (
         patch("custom_components.sunspec2.SunSpecApiClient.modbus_connect", return_value=client),
-        patch("custom_components.sunspec2.SunSpecApiClient.check_port", return_value=True),
         patch(
             "custom_components.sunspec2.SunSpecApiClient.async_get_data",
             side_effect=TransportError,
@@ -394,8 +407,7 @@ def timeout_error_on_get_data():
     client = MockFileClientDevice("./tests/test_data/inverter.json")
     client.scan()
     with (
-        patch("custom_components.sunspec2.SunSpecApiClient.get_client", return_value=client),
-        patch("custom_components.sunspec2.SunSpecApiClient.check_port", return_value=True),
+        patch("custom_components.sunspec2.SunSpecApiClient.async_get_client", return_value=client),
         patch(
             "custom_components.sunspec2.SunSpecApiClient.async_get_data",
             side_effect=TransientError,
@@ -413,7 +425,6 @@ def connect_error_on_get_data():
     client.scan()
     with (
         patch("custom_components.sunspec2.SunSpecApiClient.modbus_connect", return_value=client),
-        patch("custom_components.sunspec2.SunSpecApiClient.check_port", return_value=True),
         patch(
             "custom_components.sunspec2.SunSpecApiClient.async_get_data",
             side_effect=TransportError,

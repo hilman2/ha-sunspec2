@@ -2,22 +2,24 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
-import socket
-import struct
-import threading
 import time
 from collections.abc import Awaitable
 from collections.abc import Callable
-from types import SimpleNamespace
 from typing import Any
+from typing import Literal
 
 from homeassistant.core import HomeAssistant
+from modbus_connection import ModbusSerialParams
+from modbus_connection import ModbusTcpParams
+from modbus_connection.tmodbus import ModbusConnection
 
 from .const import DEFAULT_BAUDRATE
 from .const import DEFAULT_SCAN_DELAY_SECONDS
 from .const import MAX_SCAN_DELAY_SECONDS
 from .const import MIN_SCAN_DELAY_SECONDS
+from .const import PARITY_EVEN
 from .const import PARITY_NONE
 from .const import TRANSPORT_RTU
 from .const import TRANSPORT_TCP
@@ -30,7 +32,6 @@ from .logger import get_adapter
 from .models import SunSpecModelWrapper
 from .pysunspec2 import mb
 from .pysunspec2.device import ModelError
-from .pysunspec2.modbus import client as modbus_client
 from .pysunspec2.modbus.client import SunSpecModbusClientError
 from .pysunspec2.modbus.client import SunSpecModbusClientException
 from .pysunspec2.modbus.client import SunSpecModbusClientTimeout
@@ -39,15 +40,16 @@ from .pysunspec2.modbus.modbus import ModbusClientConnectionClosed
 from .pysunspec2.modbus.modbus import ModbusClientError
 from .pysunspec2.modbus.modbus import ModbusClientException
 from .pysunspec2.modbus.modbus import ModbusClientTimeout
+from .pysunspec2.modbus.unit_device import SunSpecModbusClientDeviceUnit
 
 # The embedded pysunspec2 is untyped, so every object it hands back reaches
 # mypy as Any. The alias names which Any is meant: a connected
-# SunSpecModbusClientDevice, TCP or RTU. It buys no checking, only a name a
-# reader of a signature can look up.
+# SunSpecModbusClientDevice over a modbus-connection unit. It buys no
+# checking, only a name a reader of a signature can look up.
 type SunSpecClient = Any
 
-# Modbus TCP socket timeout (seconds). Used by pysunspec2 for both the
-# initial TCP connect and every subsequent register read on this client.
+# Modbus request timeout (seconds): how long modbus-connection waits for
+# the answer to one request, and for the connect in front of it.
 #
 # Was 120 historically, which is wildly too generous: when the inverter
 # silently dropped the link, every coordinator update would block the
@@ -63,20 +65,14 @@ type SunSpecClient = Any
 # flaky-network case much better than a long socket timeout ever did.
 TIMEOUT = 10
 
-# Connect timeout (seconds), separate from the read timeout above.
-#
-# Every successful connect measured against real hardware landed between
-# 0.08 s and 0.33 s. A connect that has not completed inside two seconds
-# is not slow, it is refused: the inverter has no free Modbus session and
-# is dropping the SYN rather than answering it. Waiting the full read
-# timeout for that verdict used to push a failing cycle past 25 seconds,
-# which at a 30 second poll interval leaves almost no room before the
-# next cycle starts on top of it.
-#
-# Note this has to be reset on the socket afterwards. pysunspec2 pins
-# whatever timeout connect() was given onto the socket with settimeout(),
-# so without the reset every register read would inherit the short one.
-CONNECT_TIMEOUT = 2
+# There is no separate connect timeout any more. The embedded TCP client
+# had one of 2 s, measured against real hardware where every successful
+# connect landed between 0.08 s and 0.33 s, so a connect still open after
+# two seconds was a refused one: the inverter had no free Modbus session
+# and dropped the SYN. modbus-connection hands its backend one timeout and
+# leaves tmodbus's own connect timeout at 10 s, so a refused connect now
+# costs TIMEOUT. If that shows up as a lost cycle after the nightly drop,
+# the fix is upstream: pass connect_timeout through ModbusConnection.
 
 # Initial-setup socket timeout (seconds). The very first
 # ``client.scan()`` after a fresh connect walks every SunSpec model
@@ -87,9 +83,9 @@ CONNECT_TIMEOUT = 2
 # and the diagnostics probe pass this longer timeout to the API client.
 SETUP_TIMEOUT = 60
 
-# Pause before every model instance read_model reads (seconds). Inherited
-# verbatim from cjne/ha-sunspec in the phase 0 baseline, where it paced
-# the request stream for inverters that answer slowly, and never
+# Pause before every model instance async_read_model reads (seconds).
+# Inherited verbatim from cjne/ha-sunspec in the phase 0 baseline, where
+# it paced the request stream for inverters that answer slowly, and never
 # re-examined since. A named constant so the test suite can switch it
 # off: the file-backed test client needs no pacing, and at 0.6 s per
 # model every test that sets the integration up paid two seconds for
@@ -198,9 +194,12 @@ class SunSpecApiClient:
         self._serial_port = serial_port
         self._baudrate = baudrate
         self._parity = parity
-        self._lock = threading.Lock()
         self._reconnect = False
         self._client: SunSpecClient | None = None
+        # The connection outlives the client. A close drops the link and
+        # the model objects; the next client connects on the same object,
+        # which modbus-connection reconnects on demand.
+        self._connection: ModbusConnection | None = None
         # Cached SunSpec layout: base address plus (model_id, addr, len)
         # per block. Survives close(), which since v0.22.0 only runs on
         # unload, on the failure path, and after a poll or a write when
@@ -239,57 +238,44 @@ class SunSpecApiClient:
             self._scan_delay,
         )
 
-    def get_client(self, config: dict[str, Any] | None = None) -> SunSpecClient:
+    async def async_get_client(self) -> SunSpecClient:
         """Return the active pysunspec2 client, building it on first use.
 
         On the explicit reconnect path (``reconnect_next()`` set
-        ``_reconnect=True`` after the previous cycle failed) we
-        force-disconnect the old client via :meth:`_force_disconnect`,
-        which sends a TCP RST so single-slot inverters free their slot
-        immediately instead of waiting on their own keep-alive timeout.
-        Otherwise the client that is already open is handed straight
-        back. Since v0.22.0 that is the steady state: one session
-        serves the 16+ ``read_model`` calls of a cycle and every cycle
-        after it, until a failure, an unload, or a close between polls
+        ``_reconnect=True`` after the previous cycle failed) the old
+        client's link is dropped first, so a single-slot inverter has
+        its slot back before the new client asks for it. Otherwise the
+        client that is already open is handed straight back. Since
+        v0.22.0 that is the steady state: one session serves the 16+
+        ``async_read_model`` calls of a cycle and every cycle after it,
+        until a failure, an unload, or a close between polls
         (CONF_RELEASE_SLOT, or two config entries behind one gateway)
         drops it - hence the conditional, not an unconditional rebuild
         on every entry.
-
-        The legacy ``config`` parameter is ignored - it predates Phase 4
-        and was used by the options flow to probe a different host. The
-        new probe path is :meth:`known_models`, which never forces a
-        connect. The argument is kept only because async_get_models still
-        passes it through; it can be removed in a later phase.
         """
         # Clear the flag whether or not there was a client to drop. It
-        # arrives both ways: _after_failed_cycle closes with force=True
-        # before setting it, so _client is already None there, while the
-        # in-cycle retry sets it on a session that is still up.
+        # arrives both ways: _after_failed_cycle closes before setting
+        # it, so _client is already None there, while the in-cycle retry
+        # sets it on a session that is still up.
         #
         # Until v0.22.0 there was never a client here, because every
         # cycle ended in close() and that set _client to None. So when
         # the flag was set by a failed cycle it used to survive into
-        # the next one, the first
-        # get_client() built a client with the flag still standing, and
-        # the SECOND get_client() of that same cycle tore that fresh
-        # client down and built another one. Every cycle following a
-        # failure therefore cost two full connects and two full model
-        # scans, on hardware that grants exactly one Modbus session at a
-        # time - which is how a single failed cycle turned into a run of
-        # them (#42, and the same signature in the maintainer's own log:
-        # "SO_LINGER=0 set" immediately followed by "TCP client connect"
-        # in the middle of a cycle).
+        # the next one, the first get_client() built a client with the
+        # flag still standing, and the SECOND get_client() of that same
+        # cycle tore that fresh client down and built another one.
+        # Every cycle following a failure therefore cost two full
+        # connects and two full model scans, on hardware that grants
+        # exactly one Modbus session at a time - which is how a single
+        # failed cycle turned into a run of them (#42).
         if self._reconnect:
             if self._client is not None:
-                self._force_disconnect()
+                await self._async_disconnect(self._client)
                 self._client = None
             self._reconnect = False
         if self._client is None:
-            self._client = self.modbus_connect()
+            self._client = await self.modbus_connect()
         return self._client
-
-    def async_get_client(self, config: dict[str, Any] | None = None) -> Awaitable[SunSpecClient]:
-        return self._hass.async_add_executor_job(self.get_client, config)
 
     def known_models(self) -> list[int]:
         """Return integer model IDs the active client has already discovered.
@@ -309,25 +295,35 @@ class SunSpecApiClient:
         with_model = SunSpecLoggerAdapter(
             self._log.logger, {**self._log.bound, "model_id": model_id}
         )
+        # The model layer raises the fork's SunSpec* classes for what it
+        # notices itself and lets the transport's ModbusClient* classes
+        # through as they are; both sides of each pair land in the same
+        # category. Subclasses before their bases: the timeout and the
+        # closed connection both derive from ModbusClientError.
         try:
             with_model.debug("Get data")
             return await self.read(model_id)
-        except SunSpecModbusClientTimeout as exc:
+        except (SunSpecModbusClientTimeout, ModbusClientTimeout) as exc:
             with_model.warning("Modbus read timeout")
             raise TransientError(f"Modbus read timeout for model {model_id}") from exc
         except ModbusClientConnectionClosed as exc:
-            # read_model already connected again once; a device that
-            # hangs up twice in a row is not answering this cycle.
+            # async_read_model already connected again once; a device
+            # that hangs up twice in a row is not answering this cycle.
             with_model.warning("Device closed the Modbus connection twice in a row")
             raise TransportError(
                 f"Device closed the Modbus connection while reading model {model_id}"
             ) from exc
-        except SunSpecModbusClientException as exc:
+        except (SunSpecModbusClientException, ModbusClientException) as exc:
             with_model.warning("Modbus exception while reading model")
             raise DeviceError(f"Modbus exception while reading model {model_id}: {exc}") from exc
+        except ModbusClientError as exc:
+            with_model.warning("Modbus transport error while reading model")
+            raise TransportError(
+                f"Modbus transport error while reading model {model_id}: {exc}"
+            ) from exc
 
     async def read(self, model_id: int) -> SunSpecModelWrapper:
-        return await self._hass.async_add_executor_job(self.read_model, model_id)
+        return await self.async_read_model(model_id)
 
     async def async_write_points(self, model_id: int, points: list[tuple[str, object]]) -> None:
         """Write one or more points on a SunSpec model as a single batch.
@@ -357,9 +353,8 @@ class SunSpecApiClient:
         - ``ModbusClientError`` and its subclasses come from the
           transport layer below the SunSpec client and are the ones
           raised when the device NAKs the write with a Modbus
-          exception code or the socket write fails.
-          ``SunSpecModbusClientDeviceTCP.write`` does not translate
-          them into the SunSpec hierarchy.
+          exception code or the link fails. The unit device raises
+          them as they are, not translated into the SunSpec hierarchy.
 
         Anything left uncaught here reaches the Number / Switch entity
         as a raw traceback in the UI, because their ``except
@@ -374,7 +369,7 @@ class SunSpecApiClient:
         with_model.debug("Write %s", ", ".join(f"{n} = {v!r}" for n, v in points))
         point_name = ", ".join(name for name, _ in points)
         try:
-            await self._hass.async_add_executor_job(self._write_points_blocking, model_id, points)
+            await self._async_write_points(model_id, points)
         except (SunSpecModbusClientTimeout, ModbusClientTimeout) as exc:
             with_model.warning("Modbus write timeout")
             raise TransientError(
@@ -421,10 +416,9 @@ class SunSpecApiClient:
             TransportError: The connection failed or was closed.
         """
         unit_id = self._unit_id + unit_id_offset if unit_id_offset else None
+        client = await self.async_get_client()
         try:
-            data = await self._hass.async_add_executor_job(
-                self._read_block_blocking, address, count, unit_id
-            )
+            data = await self._async_read_block(client, address, count, unit_id)
         except (SunSpecModbusClientTimeout, ModbusClientTimeout) as exc:
             raise TransientError(f"Modbus read timeout at register {address}") from exc
         except (SunSpecModbusClientException, ModbusClientException) as exc:
@@ -437,25 +431,31 @@ class SunSpecApiClient:
             )
         return bytes(data)
 
-    def _read_block_blocking(self, address: int, count: int, unit_id: int | None) -> bytes | None:
-        client = self.get_client()
+    async def _async_read_block(
+        self, client: SunSpecClient, address: int, count: int, unit_id: int | None
+    ) -> bytes | None:
         if unit_id is None:
-            data: bytes | None = client.read(address, count)
+            data: bytes | None = await client.async_read(address, count)
             return data
-        read_unit = getattr(client, "read_unit", None)
+        read_unit = getattr(client, "async_read_unit", None)
         if read_unit is not None:
-            other: bytes | None = read_unit(unit_id, address, count)
+            other: bytes | None = await read_unit(unit_id, address, count)
             return other
-        swapped: bytes | None = self._as_unit(client, unit_id, lambda: client.read(address, count))
+        swapped: bytes | None = await self._as_unit(
+            client, unit_id, lambda: client.async_read(address, count)
+        )
         return swapped
 
-    def _as_unit(self, client: SunSpecClient, unit_id: int, action: Callable[[], Any]) -> Any:
+    async def _as_unit(
+        self, client: SunSpecClient, unit_id: int, action: Callable[[], Awaitable[Any]]
+    ) -> Any:
         """Run ``action`` with the session's unit id swapped for ``unit_id``.
 
-        pysunspec2 binds the unit id to the device object and, for TCP,
-        to the transport underneath it; both carry it as ``slave_id``.
-        Swapping it for one request is safe because the coordinator
-        holds the gateway lock around every use of the session.
+        For a device that binds the unit id to the device object rather
+        than to the request, as the fork's own clients do through
+        ``slave_id``. Swapping it for one request is safe because the
+        coordinator holds the gateway lock around every use of the
+        session.
         """
         targets = [
             obj
@@ -466,7 +466,7 @@ class SunSpecApiClient:
         for obj in targets:
             obj.slave_id = unit_id
         try:
-            return action()
+            return await action()
         finally:
             for obj, value in zip(targets, saved, strict=True):
                 obj.slave_id = value
@@ -481,10 +481,9 @@ class SunSpecApiClient:
         """
         self._log.debug("Write %d registers at %d", len(data) // 2, address)
         unit_id = self._unit_id + unit_id_offset if unit_id_offset else None
+        client = await self.async_get_client()
         try:
-            await self._hass.async_add_executor_job(
-                self._write_block_blocking, address, data, unit_id
-            )
+            await self._async_write_block(client, address, data, unit_id)
         except (SunSpecModbusClientTimeout, ModbusClientTimeout) as exc:
             raise TransientError(f"Modbus write timeout at register {address}") from exc
         except (SunSpecModbusClientException, ModbusClientException) as exc:
@@ -492,19 +491,20 @@ class SunSpecApiClient:
         except (SunSpecModbusClientError, ModbusClientError, OSError) as exc:
             raise TransportError(f"Modbus write failed at register {address}: {exc}") from exc
 
-    def _write_block_blocking(self, address: int, data: bytes, unit_id: int | None) -> None:
-        client = self.get_client()
+    async def _async_write_block(
+        self, client: SunSpecClient, address: int, data: bytes, unit_id: int | None
+    ) -> None:
         if unit_id is None:
-            client.write(address, data)
+            await client.async_write(address, data)
             return
-        write_unit = getattr(client, "write_unit", None)
+        write_unit = getattr(client, "async_write_unit", None)
         if write_unit is not None:
-            write_unit(unit_id, address, data)
+            await write_unit(unit_id, address, data)
             return
-        self._as_unit(client, unit_id, lambda: client.write(address, data))
+        await self._as_unit(client, unit_id, lambda: client.async_write(address, data))
 
-    def _write_points_blocking(self, model_id: int, points: list[tuple[str, object]]) -> None:
-        client = self.get_client()
+    async def _async_write_points(self, model_id: int, points: list[tuple[str, object]]) -> None:
+        client = await self.async_get_client()
         models = client.models.get(model_id)
         if not models:
             names = ", ".join(name for name, _ in points)
@@ -550,7 +550,7 @@ class SunSpecApiClient:
         # has open. Read before setting cvalue, never after:
         # Group.read() ends in set_mb(dirty=False) and would discard a
         # pending value.
-        model.read()
+        await model.async_read()
         for point, value in resolved:
             point.cvalue = value
         # One flush for the whole batch, not one per point.
@@ -567,14 +567,14 @@ class SunSpecApiClient:
         # applies while still disabled. Borrowed from
         # milanhin/pv_curtailment, which does the same thing for the
         # same reason.
-        model.write()
+        await model.async_write()
 
     async def async_get_device_info(self) -> SunSpecModelWrapper:
         return await self.read(1)
 
-    async def async_get_models(self, config: dict[str, Any] | None = None) -> list[int]:
+    async def async_get_models(self) -> list[int]:
         self._log.debug("Fetching models")
-        client = await self.async_get_client(config)
+        client = await self.async_get_client()
         model_ids = sorted(list(filter(lambda m: type(m) is int, client.models.keys())))
         return model_ids
 
@@ -657,7 +657,7 @@ class SunSpecApiClient:
         )
         return True
 
-    def _scan_or_restore(self, client: SunSpecClient) -> None:
+    async def _async_scan_or_restore(self, client: SunSpecClient) -> None:
         """Give ``client`` its model objects, rescanning only when needed.
 
         pysunspec2 populates ``client.models`` exclusively inside
@@ -677,7 +677,7 @@ class SunSpecApiClient:
         :meth:`_validate_model_structure` instead of ``1 + 2n``, and
         skips the per-model pacing sleep completely.
         """
-        if self._restore_model_structure(client):
+        if await self._async_restore_model_structure(client):
             self._log.debug(
                 "Restored %d cached SunSpec models, skipping scan",
                 len(self._model_structure or []),
@@ -685,13 +685,13 @@ class SunSpecApiClient:
             return
         self._log.debug("Scanning SunSpec model tree")
         try:
-            client.scan(
+            await client.async_scan(
                 connect=False,
                 progress=progress,
                 full_model_read=False,
                 # 0 means "no pacing at all"; pysunspec2 only skips the
-                # sleep on None, and time.sleep(0) still yields the GIL
-                # inside the executor thread on every model.
+                # sleep on None, and asyncio.sleep(0) still hands the
+                # loop over on every model.
                 delay=self._scan_delay or None,
             )
         except (SunSpecModbusClientTimeout, ModbusClientTimeout, ModbusClientConnectionClosed):
@@ -721,7 +721,7 @@ class SunSpecApiClient:
             #
             # Prefer the last layout we know was good, if it still
             # validates against the device.
-            if self._restore_model_structure(client):
+            if await self._async_restore_model_structure(client):
                 self._log.warning(
                     "SunSpec scan stopped early (%s: %s). Continuing with the last known "
                     "good layout of %d model(s), which still validates against the device.",
@@ -804,7 +804,7 @@ class SunSpecApiClient:
         self._model_structure = structure
         self.structure_revision += 1
 
-    def _validate_model_structure(
+    async def _async_validate_model_structure(
         self, client: SunSpecClient, structure: list[tuple[int, int, int]]
     ) -> bool:
         """Re-read both ends of the cached chain. False means "rescan".
@@ -835,7 +835,7 @@ class SunSpecApiClient:
         own scan tolerates a chain that just stops answering.
         """
         try:
-            header = client.read(self._base_addr, 3)
+            header = await client.async_read(self._base_addr, 3)
         except Exception as err:  # noqa: BLE001 - any failure just means "scan"
             self._log.debug("Cached model structure could not be validated: %s", err)
             return False
@@ -848,7 +848,7 @@ class SunSpecApiClient:
 
         last_id, last_addr, last_len = structure[-1]
         try:
-            tail = client.read(last_addr, 2)
+            tail = await client.async_read(last_addr, 2)
         except Exception as err:  # noqa: BLE001 - any failure just means "scan"
             self._log.debug("Cached model chain tail could not be validated: %s", err)
             return False
@@ -869,7 +869,7 @@ class SunSpecApiClient:
             )
             return False
         try:
-            end = client.read(last_addr + 2 + last_len, 1)
+            end = await client.async_read(last_addr + 2 + last_len, 1)
         except Exception as err:  # noqa: BLE001 - device need not answer past the chain
             self._log.debug("No readable end marker behind the cached chain (%s), accepting", err)
             return True
@@ -881,7 +881,7 @@ class SunSpecApiClient:
             return False
         return True
 
-    def _restore_model_structure(self, client: SunSpecClient) -> bool:
+    async def _async_restore_model_structure(self, client: SunSpecClient) -> bool:
         """Rebuild ``client.models`` from the cache. False means "scan instead".
 
         Every failure path returns False rather than raising, so a cache
@@ -891,21 +891,28 @@ class SunSpecApiClient:
         structure = self._model_structure
         if not structure or self._base_addr is None:
             return False
-        if not self._validate_model_structure(client, structure):
+        if not await self._async_validate_model_structure(client, structure):
             return False
 
         client.base_addr = self._base_addr
         client.delete_models()
         try:
             for index, (model_id, model_addr, model_len) in enumerate(structure):
+                # scan() hands the constructor the raw id and length
+                # registers it just read; rebuilt from the cache those
+                # are the same two words, plus the registers up to the
+                # last group count that the constructor would otherwise
+                # read on its own, through the sync path an asyncio
+                # device cannot serve (see async_model_data).
+                data = mb.u16_to_data(model_id) + mb.u16_to_data(model_len)
+                more = getattr(client, "async_model_data", None)
+                if more is not None:
+                    data = await more(model_id, model_addr, data)
                 model = client.model_class(
                     model_id=model_id,
                     model_addr=model_addr,
                     model_len=model_len,
-                    # scan() hands the constructor the raw id and length
-                    # registers it just read; rebuilt from the cache
-                    # those are the same two words.
-                    data=mb.u16_to_data(model_id) + mb.u16_to_data(model_len),
+                    data=data,
                     mb_device=client,
                 )
                 model.mid = f"{client.did}_{index}"
@@ -917,328 +924,161 @@ class SunSpecApiClient:
             return False
         return True
 
-    def close(self, force: bool = False) -> None:
-        """Tear down the active client's socket and drop the reference.
+    async def async_close(self, force: bool = False) -> None:
+        """Drop the active client's link and the reference to it.
 
-        After ``close()`` the next ``get_client()`` builds a brand new
-        client.
+        After ``async_close()`` the next ``async_get_client()`` builds a
+        brand new client on the same connection, which connects again on
+        its first request.
 
-        ``force`` picks how the socket goes out. A normal close sends a
-        FIN and lets the inverter finish the conversation, which is what
-        an embedded TCP stack expects and handles best. ``force=True``
-        sets SO_LINGER 0 so the close is an RST, and that is reserved
-        for the paths where the session is already suspect: a failed
-        cycle, or a reload that has to get the slot back before the new
-        coordinator connects.
-
-        Until v0.22.0 every close was an RST, on the theory that it makes
-        a single-slot inverter release its slot faster. That theory was
-        built for a design that reconnected on every poll. Now that the
-        session is held open, an abort is only ever sent when something
-        has actually gone wrong.
+        ``force`` says the session is already suspect: a failed cycle,
+        or a reload that has to get the slot back before the new
+        coordinator connects. The embedded TCP client used it to send a
+        TCP RST instead of a FIN, on the theory that a single-slot
+        inverter releases its slot faster after an abort.
+        modbus-connection owns the socket and closes it with a FIN
+        either way, so today the flag only says so in the log. Measured
+        on a KACO Powador 7.8 TL3, a FIN is what the steady state has
+        always used; whether the failure path misses the RST is what
+        the pre-release on that inverter is for.
         """
         if self._client is None:
             return
-        if force:
-            self._force_disconnect()
-        else:
-            self._graceful_disconnect()
+        client = self._client
         self._client = None
+        if force:
+            self._log.debug("Dropping a suspect Modbus session")
+        await self._async_disconnect(client)
 
-    def _graceful_disconnect(self, client: SunSpecClient | None = None) -> None:
-        """Close with a FIN and let the peer tear the session down properly."""
-        if client is None:
-            client = self._client
-        if client is None:
+    async def async_shutdown(self) -> None:
+        """Close the client and the connection for good: the entry is unloading."""
+        await self.async_close(force=True)
+        connection = self._connection
+        self._connection = None
+        if connection is None:
             return
         try:
-            client.disconnect() if self._transport == TRANSPORT_TCP else client.close()
+            await connection.close()
         except Exception as exc:  # noqa: BLE001 - cleanup must not raise
-            self._log.debug("graceful disconnect raised %s, ignoring", exc)
+            self._log.debug("connection close raised %s, ignoring", exc)
 
-    def _force_disconnect(self, client: SunSpecClient | None = None) -> None:
-        """Tear down a client as aggressively as possible.
+    async def _async_disconnect(self, client: SunSpecClient) -> None:
+        """Drop a client's link. Best effort: cleanup must never raise.
 
-        Defaults to ``self._client``. Callers holding a client that is
-        not (yet) ``self._client`` pass it explicitly: the connect paths
-        only adopt their client on success, so on the failure path there
-        is a fully connected socket that neither this method nor
-        :meth:`close` could otherwise reach.
-
-        For TCP: sets SO_LINGER=(1, 0) on the underlying socket so the
-        kernel sends a TCP RST instead of a polite FIN. This makes
-        single-slot inverters (KACO Powador et al) free their slot
-        immediately instead of waiting on their own keepalive / 30s+
-        idle timeout, which would otherwise race the next reconnect
-        after a flaky-network blip.
-
-        For RTU: there is no socket and no FIN/RST distinction. We
-        just call ``client.close()`` which is pysunspec2's RTU-side
-        teardown method, equivalent in spirit to TCP's
-        ``disconnect()``.
-
-        Best-effort in both modes: any failure walking pysunspec2's
-        internals is swallowed. Cleanup must never raise from here.
+        Takes the client explicitly rather than ``self._client``: the
+        connect path only adopts its client on success, so on the
+        failure path there is a connected client that nothing else
+        could reach (#25).
         """
-        if client is None:
-            client = self._client
-        if client is None:
-            return
-
-        if self._transport == TRANSPORT_RTU:
-            # RTU lifecycle: client.close() releases the serial port.
-            # No socket-level tricks apply.
-            try:
-                client.close()
-            except Exception as exc:  # noqa: BLE001 - cleanup must not raise
-                self._log.debug("client.close raised %s, ignoring", exc)
-            return
-
-        # TCP path. pysunspec2 layout:
-        # SunSpecModbusClientDeviceTCP.client is a ModbusClientTCP
-        # whose .socket attribute is the raw Python socket. Both
-        # attributes can legitimately be missing on a half-built or
-        # already-closed client, hence the careful getattr chain.
-        raw_sock = None
         try:
-            raw_sock = getattr(getattr(client, "client", None), "socket", None)
+            await client.async_disconnect()
         except Exception as exc:  # noqa: BLE001 - cleanup must not raise
-            self._log.debug("could not reach raw socket: %s, ignoring", exc)
+            self._log.debug("client disconnect raised %s, ignoring", exc)
 
-        if raw_sock is not None:
-            try:
-                # struct linger { int l_onoff; int l_linger; }
-                # l_onoff=1, l_linger=0 => RST instead of FIN on close
-                raw_sock.setsockopt(
-                    socket.SOL_SOCKET,
-                    socket.SO_LINGER,
-                    struct.pack("ii", 1, 0),
+    def _params(self) -> ModbusTcpParams | ModbusSerialParams:
+        """What modbus-connection connects to, from the entry's transport."""
+        if self._transport == TRANSPORT_RTU:
+            if not self._serial_port:
+                raise TransportError(
+                    "Serial port is not configured but transport=rtu was requested"
                 )
-                self._log.debug("SO_LINGER=0 set, will RST on close")
-            except OSError as exc:
-                self._log.debug("setsockopt SO_LINGER failed: %s, ignoring", exc)
+            parity: Literal["N", "E"] = "E" if self._parity == PARITY_EVEN else "N"
+            return ModbusSerialParams(
+                device=self._serial_port, baudrate=self._baudrate, parity=parity
+            )
+        return ModbusTcpParams(host=self._host, port=self._port)
 
-        try:
-            client.disconnect()
-        except Exception as exc:  # noqa: BLE001 - cleanup must not raise
-            self._log.debug("client.disconnect raised %s, ignoring", exc)
+    def _get_connection(self) -> ModbusConnection:
+        """The connection object, built on first use. Constructing it does no I/O."""
+        if self._connection is None:
+            self._connection = ModbusConnection(self._params(), timeout=self._timeout)
+        return self._connection
 
-    def check_port(self) -> bool:
-        """Check if port is available.
+    async def modbus_connect(self) -> SunSpecClient:
+        """Build a fresh pysunspec2 client on the connection and give it its models.
 
-        No longer on the connect path. It opened a full TCP session of
-        its own and let the real client connect 100 ms behind it, and
-        on an inverter that grants exactly one Modbus slot that probe
-        cost the very connection it was meant to protect: the
-        double-connect suspicion from #25, confirmed in v0.22.0 at 8 of
-        12 cycles failing with it in front and 0 of 12 without (the
-        numbers and the log signature are in
-        :meth:`_modbus_connect_tcp`). The method itself stays for the
-        config flow, where no coordinator competes for the slot, but
-        nothing there calls it today, so in practice only the tests
-        reach it.
+        Returns the connected client on success or raises one of our
+        typed errors. The test fixtures patch this method to hand in a
+        file-backed client, which is why it is the seam and not
+        ``async_get_client``.
         """
-        with self._lock:
-            sock_timeout = float(3)
-            self._log.debug("Check_Port: opening socket with %ss timeout", sock_timeout)
-            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            # Per-socket, not socket.setdefaulttimeout(): that mutates
-            # process-global state, so our 3s leaked into every other
-            # integration in the same Home Assistant process that
-            # created a socket without setting its own timeout.
-            sock.settimeout(sock_timeout)
-            sock_res = sock.connect_ex((self._host, self._port))
-            is_open = sock_res == 0  # True if open, False if not
-            if is_open:
-                sock.shutdown(socket.SHUT_RDWR)
-                self._log.debug("Check_Port (SUCCESS): port open")
-            else:
-                self._log.debug("Check_Port (ERROR): port not available - error: %s", sock_res)
-            sock.close()
-            time.sleep(0.1)
-        return is_open
-
-    def modbus_connect(self, config: dict[str, Any] | None = None) -> SunSpecClient:
-        """Build a fresh pysunspec2 client and run its initial SunSpec scan.
-
-        Dispatches to TCP or RTU based on ``self._transport``. The
-        legacy ``config`` parameter is only honoured by the TCP path
-        (it predates the transport split). Returns the connected
-        client on success or raises one of our typed errors.
-        """
-        if self._transport == TRANSPORT_RTU:
-            return self._modbus_connect_rtu()
-        return self._modbus_connect_tcp(config)
-
-    def _modbus_connect_tcp(self, config: dict[str, Any] | None = None) -> SunSpecClient:
-        use_config = SimpleNamespace(
-            **(config or {"host": self._host, "port": self._port, "unit_id": self._unit_id})
+        endpoint = (
+            f"{self._serial_port} @ {self._baudrate} {self._parity}"
+            if self._transport == TRANSPORT_RTU
+            else f"{self._host}:{self._port}"
         )
-        self._log.debug("TCP client connect using timeout %s", self._timeout)
-        client = modbus_client.SunSpecModbusClientDeviceTCP(
-            slave_id=use_config.unit_id,
-            ipaddr=use_config.host,
-            ipport=use_config.port,
-            timeout=self._timeout,
+        self._log.debug(
+            "Connecting to %s unit id %s, timeout %ss", endpoint, self._unit_id, self._timeout
         )
+        client = SunSpecModbusClientDeviceUnit(self._get_connection(), slave_id=self._unit_id)
         self._wrap_capturing_read(client)
-        # No check_port() here any more.
+        # No probe connect in front of the real one. The old check_port
+        # opened a TCP session of its own and let the client connect
+        # 100 ms behind it; on an inverter that grants one Modbus
+        # session that is two connects for one slot, and the second
+        # loses: 8 of 12 cycles failed on a KACO Powador 7.8 TL3 with
+        # the probe in front, 0 of 12 without it.
         #
-        # It opened a full TCP session of its own, closed it with a FIN,
-        # slept 100 ms and let the real client connect straight after.
-        # On an inverter that grants exactly one Modbus session that is
-        # two connects competing for one slot, and the second one loses:
-        # measured against a KACO Powador 7.8 TL3, replaying this cycle
-        # every 30 s, the pattern is unmistakable -
-        #
-        #   check_port=0.20s open   connect=10.01s FAIL: timed out
-        #
-        # 8 of 12 cycles failed with check_port in front, 0 of 12 with
-        # it gone and nothing else changed. The device is not slow and
-        # not flaky: on its own each connect takes 0.1 s and the FIN
-        # close is harmless. It simply cannot serve the probe and the
-        # client at once, and a probe that costs the connection it was
-        # meant to protect is worse than no probe.
-        #
-        # What it bought was a faster, friendlier error when the device
-        # is off: "Inverter not active" after 3 s instead of "Connection
-        # error: timed out" after 10 s. The connect below raises the
-        # same TransportError either way, so nothing downstream changes.
-        # The method itself stays for the config flow, where there is no
-        # coordinator competing for the slot.
-        self._log.debug("Connecting to the inverter over Modbus TCP")
-        # Tear the client down on every failure path. Without this a
-        # connect that SUCCEEDS and a scan that then fails - which is
-        # exactly the shape reported in #25, where the socket survives
-        # long enough to be reset during the base-address walk - leaves
-        # a fully connected client behind that nothing can reach:
-        # get_client() only assigns self._client on success, so both
-        # close() and _force_disconnect() see None and do nothing. On a
-        # single-slot inverter that makes the failure sticky, because
-        # the next attempt genuinely does find the slot occupied, and
-        # the second error message describes our own leak rather than
-        # the original fault.
+        # Drop the client's link on every failure path. Without this a
+        # connect that SUCCEEDS and a scan that then fails - the shape
+        # reported in #25, where the socket survives long enough to be
+        # reset during the base-address walk - leaves a connected
+        # client behind that nothing can reach: async_get_client() only
+        # adopts the client on success. On a single-slot inverter that
+        # makes the failure sticky, because the next attempt genuinely
+        # finds the slot occupied, and the second error message
+        # describes our own leak rather than the original fault.
         handed_off = False
         try:
-            with self._lock:
-                client.connect(CONNECT_TIMEOUT)
-                # pysunspec2 pins the connect timeout onto the socket, so
-                # without this every register read would run on
-                # CONNECT_TIMEOUT too. Reads need the generous one.
-                raw = getattr(getattr(client, "client", None), "socket", None)
-                if raw is not None:
-                    raw.settimeout(self._timeout)
+            # Eager rather than on the first request, so a refused
+            # connect fails here with a transport error and not inside
+            # the scan as a protocol one.
+            await client.async_connect()
             if not client.is_connected():
-                raise TransportError(
-                    f"Failed to connect to {self._host}:{self._port} unit id {self._unit_id}"
-                )
+                raise TransportError(f"Failed to connect to {endpoint} unit id {self._unit_id}")
             self._log.debug("Client connected, perform initial scan")
-            self._scan_or_restore(client)
+            await self._async_scan_or_restore(client)
             handed_off = True
             return client
         except ModbusClientError as err:
             raise TransportError(
-                f"Modbus error while connecting to "
-                f"{use_config.host}:{use_config.port} unit id "
-                f"{use_config.unit_id}: {err}"
+                f"Modbus error while connecting to {endpoint} unit id {self._unit_id}: {err}"
             ) from err
         except SunSpecModbusClientError as err:
-            # Raised by client.scan() when no SunSpec base address is
-            # found, when the device responds without the SunSpec marker,
-            # or on read timeouts during the scan. Without this catch the
+            # Raised by the scan when no SunSpec base address is found,
+            # when the device responds without the SunSpec marker, or
+            # on read timeouts during the scan. Without this catch the
             # original message ("Unknown error", "data time out", etc.)
             # is hidden behind a generic "Unexpected error" further up
             # the stack and the user has nothing actionable to report.
             raise ProtocolError(
-                f"SunSpec scan failed for "
-                f"{use_config.host}:{use_config.port} unit id "
-                f"{use_config.unit_id}: {err}"
+                f"SunSpec scan failed for {endpoint} unit id {self._unit_id}: {err}"
             ) from err
         finally:
             if not handed_off:
-                self._force_disconnect(client)
-
-    def _modbus_connect_rtu(self) -> SunSpecClient:
-        """Build a Modbus RTU client over a serial port (RS-485).
-
-        Lifecycle is different from TCP: pysunspec2's RTU client uses
-        ``open()`` / ``close()`` instead of ``connect()`` / ``disconnect()``
-        and has no ``is_connected()``. There's also no socket-level
-        ``check_port()`` analogue - if the serial port doesn't exist
-        the constructor (or open()) raises immediately, which we
-        translate into a TransportError.
-        """
-        if not self._serial_port:
-            raise TransportError("Serial port is not configured but transport=rtu was requested")
-        self._log.debug(
-            "RTU client connect on %s @ %d %s, timeout=%s",
-            self._serial_port,
-            self._baudrate,
-            self._parity,
-            self._timeout,
-        )
-        try:
-            with self._lock:
-                client = modbus_client.SunSpecModbusClientDeviceRTU(
-                    slave_id=self._unit_id,
-                    name=self._serial_port,
-                    baudrate=self._baudrate,
-                    parity=self._parity,
-                    timeout=self._timeout,
-                )
-        except SunSpecModbusClientError as err:
-            raise TransportError(
-                f"Could not open serial port {self._serial_port} "
-                f"({self._baudrate} {self._parity}): {err}"
-            ) from err
-        except OSError as err:
-            raise TransportError(f"Serial port {self._serial_port} not available: {err}") from err
-        self._wrap_capturing_read(client)
-        # Same leak as the TCP path: open() can succeed and scan() fail,
-        # and the serial port would then stay claimed by a client that
-        # nothing holds a reference to.
-        handed_off = False
-        try:
-            with self._lock:
-                client.open()
-            self._log.debug("RTU port opened, perform initial scan")
-            self._scan_or_restore(client)
-            handed_off = True
-            return client
-        except ModbusClientError as err:
-            raise TransportError(
-                f"Modbus error on serial port {self._serial_port} unit id {self._unit_id}: {err}"
-            ) from err
-        except SunSpecModbusClientError as err:
-            raise ProtocolError(
-                f"SunSpec scan failed on serial port {self._serial_port} "
-                f"unit id {self._unit_id}: {err}"
-            ) from err
-        finally:
-            if not handed_off:
-                self._force_disconnect(client)
+                await self._async_disconnect(client)
 
     def _wrap_capturing_read(self, client: SunSpecClient) -> None:
-        """Wrap ``client.read`` so every byte landing on the wire is captured.
+        """Wrap ``client.async_read`` so every byte landing on the wire is captured.
 
         The diagnostics dump surfaces ``self._captured_reads`` so
         users can post a reproducible fixture in bug reports. Capped
         at 1000 entries to bound JSON size. No-op when capture is
-        disabled, called from both the TCP and RTU build paths.
+        disabled.
         """
         if not self._capture_enabled:
             return
-        original_read = client.read
+        original_read = client.async_read
 
         # Signature must stay compatible with the method it replaces.
-        # SunSpecModbusClientDeviceTCP.read takes a third positional
-        # ``op`` argument selecting the Modbus function code, and
-        # pysunspec2 passes it positionally from a few internal call
-        # sites. A two-parameter wrapper raises TypeError the moment
-        # one of those runs, but only while capture is enabled, which
-        # is exactly when a user is already trying to debug something.
-        def capturing_read(addr: int, count: int, *args: Any, **kwargs: Any) -> Any:
-            data = original_read(addr, count, *args, **kwargs)
+        # The unit device's async_read takes a third positional ``op``
+        # argument selecting the Modbus function code, and pysunspec2
+        # passes it positionally from a few internal call sites. A
+        # two-parameter wrapper raises TypeError the moment one of those
+        # runs, but only while capture is enabled, which is exactly when
+        # a user is already trying to debug something.
+        async def capturing_read(addr: int, count: int, *args: Any, **kwargs: Any) -> Any:
+            data = await original_read(addr, count, *args, **kwargs)
             if len(self._captured_reads) < 1000:
                 self._captured_reads.append(
                     {
@@ -1250,32 +1090,32 @@ class SunSpecApiClient:
                 )
             return data
 
-        client.read = capturing_read
+        client.async_read = capturing_read
 
-    def read_model(self, model_id: int) -> SunSpecModelWrapper:
+    async def async_read_model(self, model_id: int) -> SunSpecModelWrapper:
         try:
-            return self._read_model_once(model_id)
+            return await self._async_read_model_once(model_id)
         except ModbusClientConnectionClosed:
             # The device hung up mid-cycle. Some do that after every
             # request or after a short idle time (APsystems ECU-R,
             # cjne/ha-sunspec#170), and until now that cost the whole
             # cycle: the read failed, the coordinator tore the session
             # down, and only the next cycle connected again, so every
-            # second poll on such a device was a failure. The socket is
-            # already gone, so a polite close is all there is to do; the
-            # cached layout survives it and the rebuild costs three
-            # validating reads, not a scan. One attempt: a device that
-            # hangs up on the fresh session too is not answering.
+            # second poll on such a device was a failure. The link is
+            # already gone, so dropping the client is all there is to
+            # do; the cached layout survives it and the rebuild costs
+            # three validating reads, not a scan. One attempt: a device
+            # that hangs up on the fresh session too is not answering.
             self._log.info("Device closed the Modbus connection, connecting again")
-            self.close()
-            return self._read_model_once(model_id)
+            await self.async_close()
+            return await self._async_read_model_once(model_id)
 
-    def _read_model_once(self, model_id: int) -> SunSpecModelWrapper:
-        client = self.get_client()
+    async def _async_read_model_once(self, model_id: int) -> SunSpecModelWrapper:
+        client = await self.async_get_client()
         models = client.models[model_id]
         for model in models:
             if MODEL_READ_PACING_SECONDS:
-                time.sleep(MODEL_READ_PACING_SECONDS)
-            model.read()
+                await asyncio.sleep(MODEL_READ_PACING_SECONDS)
+            await model.async_read()
 
         return SunSpecModelWrapper(models)

@@ -45,11 +45,12 @@ rules:
   dependency-transparency:
     status: done
     comment: |
-      Single dependency pyserial, pinned to ==3.5 in the manifest,
-      available on PyPI under an open-source licence. The SunSpec
-      client itself is an embedded fork of pysunspec2 (Apache 2.0),
-      with its origin, version and every change recorded in
-      pysunspec2/__init__.py.
+      One dependency, modbus-connection with its tmodbus backend
+      (home-assistant-libs, Apache 2.0), the Modbus transport Home
+      Assistant's own integrations use, on PyPI within a version
+      range. The SunSpec client itself is an embedded fork of
+      pysunspec2 (Apache 2.0), with its origin, version and every
+      change recorded in pysunspec2/__init__.py.
   docs-actions:
     status: done
     comment: |

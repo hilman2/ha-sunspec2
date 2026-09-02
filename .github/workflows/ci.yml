@@ -69,7 +69,8 @@ jobs:
             "pytest-homeassistant-custom-component==${{ steps.ha.outputs.phcc }}" \
             pytest-mock \
             voluptuous-serialize \
-            "pyserial==3.5"
+            "modbus-connection[tmodbus]>=4.10.0,<5" \
+            "tmodbus>=0.6.1"
           pip install "pytest<9"
       - name: Run mypy
         # Paths, strictness and per-module exceptions all live in
@@ -131,15 +132,18 @@ jobs:
           # until 2026.9 dropped it, so it is named here rather than
           # relied on.
           #
-          # pyserial is the one runtime requirement in manifest.json: the
-          # embedded pysunspec2 fork imports it for Modbus RTU. Nothing
-          # else comes from PyPI for the integration itself.
+          # The runtime requirements of manifest.json: modbus-connection
+          # with its tmodbus backend, named twice because Home Assistant
+          # ignores a package's extras when it checks what is installed
+          # (home-assistant-libs/modbus-connection#182). Nothing else
+          # comes from PyPI for the integration itself.
           pip install \
             "homeassistant==${{ steps.ha.outputs.ha }}" \
             "pytest-homeassistant-custom-component==${{ steps.ha.outputs.phcc }}" \
             pytest-mock \
             voluptuous-serialize \
-            "pyserial==3.5"
+            "modbus-connection[tmodbus]>=4.10.0,<5" \
+            "tmodbus>=0.6.1"
           pip install "pytest<9"
       - name: Run tests
         # One worker per core; pytest-xdist comes with the HA test plugin.

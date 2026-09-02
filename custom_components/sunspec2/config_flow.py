@@ -464,7 +464,7 @@ class SunSpecFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
                     # Free the probe's Modbus slot before the reload
                     # builds the coordinator's own client, or a
                     # single-slot inverter refuses the new connection.
-                    self._close_probe_client()
+                    await self._close_probe_client()
                     return self.async_update_reload_and_abort(
                         entry,
                         data_updates={
@@ -582,7 +582,7 @@ class SunSpecFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
             _LOGGER.debug("Creating entry with data %s, options %s", self.init_info, options)
             # Hand the inverter's Modbus slot back before async_setup_entry
             # opens the coordinator's client against the same endpoint.
-            self._close_probe_client()
+            await self._close_probe_client()
             return self.async_create_entry(
                 title=f"{host}:{port}:{unit_id}",
                 data=self.init_info,
@@ -714,14 +714,14 @@ class SunSpecFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
         The probe client is closed before and after, so a single-slot
         inverter never sees two sessions from this flow at once.
         """
-        self._close_probe_client()
+        await self._close_probe_client()
         client = SunSpecApiClient(host, port, unit_id, self.hass, timeout=SETUP_TIMEOUT)
         try:
             await client.async_get_device_info()
         except Exception:  # noqa: BLE001 - a probe that fails is the answer
             return False
         finally:
-            client.close(force=True)
+            await client.async_shutdown()
         return True
 
     async def _test_connection_tcp(self, host: str, port: int, unit_id: int) -> bool:
@@ -737,7 +737,7 @@ class SunSpecFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
         envelope.
         """
         _LOGGER.debug(f"Test TCP connection to {host}:{port} unit id {unit_id}")
-        self._close_probe_client()
+        await self._close_probe_client()
         try:
             self.client = SunSpecApiClient(host, port, unit_id, self.hass, timeout=SETUP_TIMEOUT)
             self._device_info = await self.client.async_get_device_info()
@@ -766,7 +766,7 @@ class SunSpecFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
             parity,
             unit_id,
         )
-        self._close_probe_client()
+        await self._close_probe_client()
         try:
             self.client = SunSpecApiClient(
                 host=serial_port,
@@ -786,7 +786,7 @@ class SunSpecFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
             set_connection_error(self._errors, serial_port, baudrate, unit_id, err)
         return False
 
-    def _close_probe_client(self) -> None:
+    async def _close_probe_client(self) -> None:
         """Release the probe client's Modbus session, if one is open.
 
         The flow used to assign ``self.client`` on every probe attempt
@@ -807,7 +807,7 @@ class SunSpecFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
         if client is None:
             return
         try:
-            client.close()
+            await client.async_shutdown()
         except Exception as exc:  # noqa: BLE001 - cleanup must never raise
             _LOGGER.debug("Probe client close raised %s, ignoring", exc)
         self.client = None

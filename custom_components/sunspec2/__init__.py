@@ -507,15 +507,14 @@ async def async_unload_entry(hass: HomeAssistant, entry: SunSpec2ConfigEntry) ->
         # Without this, removing the integration leaves ghost issues
         # in Settings -> Repairs that the user can never clear.
         coordinator._clear_repair_issues(force=True)
-        # Close the TCP socket BEFORE we drop our references. KACO Powador
-        # (and likely other inverters) only allow one Modbus TCP connection
-        # at a time; without an explicit disconnect here a config entry
-        # reload would race the leftover socket against the freshly built
-        # one in async_setup_entry, and the new connect would time out.
-        # force=True: an unload is usually followed by a setup, and the
-        # new coordinator must not race a socket the old one left behind.
-        # This is one of the few places an RST is the right answer.
-        coordinator.api.close(force=True)
+        # Close the Modbus connection BEFORE we drop our references. KACO
+        # Powador (and likely other inverters) only allow one Modbus TCP
+        # connection at a time; without an explicit close here a config
+        # entry reload would race the leftover socket against the freshly
+        # built one in async_setup_entry, and the new connect would time
+        # out. An unload is usually followed by a setup, so the connection
+        # goes for good, not just the client on it.
+        await coordinator.api.async_shutdown()
         coordinator.unsub()
     else:
         # Do not claim success. Returning True here (which is what this
@@ -1044,7 +1043,7 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator[dict[int, SunSpecModelW
         # an in-cycle retry. Fail fast and let HA handle the retry via
         # ConfigEntryNotReady's exponential backoff.
         if self.data is None:
-            return self._after_failed_cycle(first_err)
+            return await self._after_failed_cycle(first_err)
 
         # Issue #52: this line fires once per poll, so on an inverter
         # that sleeps through the night it is the single loudest thing
@@ -1067,7 +1066,7 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator[dict[int, SunSpecModelW
             async with self._gateway_lock:
                 data = await self._run_one_update_cycle()
         except Exception as second_err:  # noqa: BLE001 - dispatched below
-            return self._after_failed_cycle(second_err)
+            return await self._after_failed_cycle(second_err)
         result = self._after_successful_cycle(data)
         await self._async_save_model_structure()
         return result
@@ -1172,7 +1171,7 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator[dict[int, SunSpecModelW
             # as a bogus TransportError in an unrelated config entry -
             # the hardest possible shape to diagnose.
             if self.release_slot_between_polls:
-                self.api.close()
+                await self.api.async_close()
             self._gateway_lock.release()
 
     @callback
@@ -1214,7 +1213,7 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator[dict[int, SunSpecModelW
             # See async_write_points_locked for why the session closes
             # under the lock where the slot is handed back.
             if self.release_slot_between_polls:
-                self.api.close()
+                await self.api.async_close()
             self._gateway_lock.release()
         self.raw_setpoints[(block.key, raw_field.name)] = value
         vendor = self.vendor
@@ -1339,7 +1338,7 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator[dict[int, SunSpecModelW
             # model list was computed against the old client.
             self.api.reconnect_next()
         if self.release_slot_between_polls:
-            self.api.close()
+            await self.api.async_close()
         return data
 
     async def _read_nameplate(self, all_models: set[int]) -> float | None:
@@ -1526,7 +1525,7 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator[dict[int, SunSpecModelW
             },
         )
 
-    def _after_failed_cycle(self, exc: BaseException) -> NoReturn:
+    async def _after_failed_cycle(self, exc: BaseException) -> NoReturn:
         """Record a failed cycle and raise UpdateFailed.
 
         Wraps unclassified exceptions as TransportError before recording
@@ -1555,7 +1554,7 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator[dict[int, SunSpecModelW
         # once. (Until v0.31.0 there was a second reason: a late answer
         # on this socket would have been read as the answer to the next
         # request. The embedded transport checks the transaction id now.)
-        self.api.close(force=True)
+        await self.api.async_close(force=True)
         self.api.reconnect_next()
         self.consecutive_failed_cycles += 1
         # HA's DataUpdateCoordinator._async_refresh stops dispatching

@@ -1368,6 +1368,7 @@ def _keepalive_coordinator(hass, options=None):
     api = MagicMock()
     api.async_get_models = AsyncMock(return_value=[1, 103])
     api.async_get_data = AsyncMock(return_value=MagicMock())
+    api.async_close = AsyncMock()
     api.last_scan_was_partial = False
     return config_entry, SunSpecDataUpdateCoordinator(hass, client=api, entry=config_entry)
 
@@ -1385,7 +1386,7 @@ async def test_cycle_keeps_the_session_open(hass):
 
     await coordinator._run_one_update_cycle()
 
-    coordinator.api.close.assert_not_called()
+    coordinator.api.async_close.assert_not_awaited()
 
 
 async def test_cycle_releases_the_slot_when_asked_to(hass):
@@ -1398,7 +1399,7 @@ async def test_cycle_releases_the_slot_when_asked_to(hass):
 
     await coordinator._run_one_update_cycle()
 
-    coordinator.api.close.assert_called_once()
+    coordinator.api.async_close.assert_awaited_once()
 
 
 async def test_a_shared_gateway_releases_the_slot_without_being_told(hass):
@@ -1418,7 +1419,7 @@ async def test_a_shared_gateway_releases_the_slot_without_being_told(hass):
     assert coordinator.release_slot_between_polls is True
 
     await coordinator._run_one_update_cycle()
-    coordinator.api.close.assert_called_once()
+    coordinator.api.async_close.assert_awaited_once()
 
 
 async def test_a_failed_cycle_drops_the_session_hard(hass):
@@ -1437,9 +1438,9 @@ async def test_a_failed_cycle_drops_the_session_hard(hass):
     # HA learns the cycle failed. What matters here is what it did on
     # the way out.
     with pytest.raises(UpdateFailed):
-        coordinator._after_failed_cycle(TransportError("boom"))
+        await coordinator._after_failed_cycle(TransportError("boom"))
 
-    coordinator.api.close.assert_called_once_with(force=True)
+    coordinator.api.async_close.assert_awaited_once_with(force=True)
     coordinator.api.reconnect_next.assert_called_once()
 
 
