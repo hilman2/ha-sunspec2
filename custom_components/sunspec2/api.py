@@ -32,6 +32,7 @@ from .logger import get_adapter
 from .models import SunSpecModelWrapper
 from .pysunspec2 import mb
 from .pysunspec2.device import ModelError
+from .pysunspec2.device import preload_model_defs
 from .pysunspec2.modbus.client import SunSpecModbusClientError
 from .pysunspec2.modbus.client import SunSpecModbusClientException
 from .pysunspec2.modbus.client import SunSpecModbusClientTimeout
@@ -1010,6 +1011,12 @@ class SunSpecApiClient:
         self._log.debug(
             "Connecting to %s unit id %s, timeout %ss", endpoint, self._unit_id, self._timeout
         )
+        # The model definitions are JSON files next to the fork, read on
+        # first use. The scan and the cache restore look them up on the
+        # event loop, and an open() there is what Home Assistant's
+        # blocking-call detector reports. Reading all of them once, from
+        # a thread, leaves nothing to open later.
+        await self._hass.async_add_executor_job(preload_model_defs)
         client = SunSpecModbusClientDeviceUnit(self._get_connection(), slave_id=self._unit_id)
         self._wrap_capturing_read(client)
         # No probe connect in front of the real one. The old check_port

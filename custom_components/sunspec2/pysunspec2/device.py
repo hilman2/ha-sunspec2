@@ -21,11 +21,42 @@ models_dir = os.path.join(this_dir, 'models')
 model_defs_path = ['.', models_dir]
 model_path_options = ['.', 'json', 'smdx']
 model_defs_cache = {}
+# ha-sunspec2: True once preload_model_defs has read every bundled
+# definition, after which get_model_def answers from the cache alone.
+model_defs_preloaded = False
 
 
 def clear_model_defs_cache():
-    global model_defs_cache
+    global model_defs_cache, model_defs_preloaded
     model_defs_cache = {}
+    model_defs_preloaded = False
+
+
+def preload_model_defs():
+    """Read every bundled model definition into the cache, once per process.
+
+    ha-sunspec2 addition. The integration calls this from a worker thread
+    before the first scan: get_model_def opens files, the scan and the
+    cache restore look definitions up on the event loop, and an open()
+    there is what Home Assistant's blocking-call detector reports. Once
+    preloaded, get_model_def answers a bundled model from the cache and
+    an unknown one with ModelDefinitionError without touching the disk.
+    A definition dropped into the current directory, which upstream looks
+    at first, is not found once preloaded.
+    """
+    global model_defs_preloaded
+    if model_defs_preloaded:
+        return
+    json_dir = os.path.join(models_dir, 'json')
+    for name in sorted(os.listdir(json_dir)):
+        if not name.startswith('model_') or not name.endswith('.json'):
+            continue
+        try:
+            model_id = int(name[len('model_'):-len('.json')])
+        except ValueError:
+            continue
+        get_model_def(model_id)
+    model_defs_preloaded = True
 
 
 def set_model_defs_path(path_list):
@@ -83,6 +114,8 @@ def get_model_def(model_id, mapping=True):
     global model_defs_cache
     if (model_id, mapping) in model_defs_cache:
         return model_defs_cache[(model_id, mapping)].copy()
+    if model_defs_preloaded:
+        raise mdef.ModelDefinitionError('Model definition not found for model %s' % model_id)
 
     model_def_file_json = mdef.to_json_filename(model_id)
     model_def_file_smdx = smdx.to_smdx_filename(model_id)
