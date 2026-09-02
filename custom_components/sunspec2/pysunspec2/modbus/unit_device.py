@@ -1,18 +1,18 @@
 # Added for ha-sunspec2: a SunSpec device over a modbus-connection unit. Origin and license in __init__.py.
 """A SunSpec Modbus client device that talks through a ``modbus_connection`` unit.
 
-The other device classes in ``client.py`` own a socket or a serial port
-and read it from whatever thread calls them. This one owns nothing: it
-is handed a ``ModbusConnection`` and asks its ``ModbusUnit`` for
-registers, awaiting every request on the event loop. The SunSpec model
-layer reaches it through the ``async_read`` and ``async_write`` twins
-that the groups and points in ``client.py`` gained for it; the sync
-``read`` and ``write`` raise, because there is no thread to block.
+Upstream's device classes owned a socket or a serial port and read it
+from whatever thread called them. This one owns nothing: it is handed
+a ``ModbusConnection`` and asks its ``ModbusUnit`` for registers,
+awaiting every request on the event loop. The SunSpec model layer
+reaches it through ``async_read`` and ``async_write`` on the groups and
+points in ``client.py``; the sync ``read`` and ``write`` raise, because
+there is no thread to block.
 
 Errors come back as the fork's own classes, so everything above this
 module keeps its exception handling: a Modbus exception response is a
 ``ModbusClientException`` with the same "Modbus exception N" text the
-TCP client produced, a timeout a ``ModbusClientTimeout``, a dropped
+old TCP client produced, a timeout a ``ModbusClientTimeout``, a dropped
 link a ``ModbusClientConnectionClosed``, and anything else the library
 raises a ``ModbusClientError``.
 """

@@ -255,10 +255,11 @@ diagnostics download.**
 Built on [`pysunspec2`][pysunspec2], the SunSpec Alliance reference
 client, hence the name. The integration carries its own fork of it in
 [`custom_components/sunspec2/pysunspec2/`][fork], and talks to the
-inverter through [`modbus-connection`][modbus-connection], the Modbus
-transport Home Assistant's own integrations use; `pyserial` is the
-fork's RS-485 client. Meets the Home Assistant **Gold** quality scale,
-documented rule by rule in [`quality_scale.yaml`][quality-scale].
+inverter, over TCP and over RS-485, through
+[`modbus-connection`][modbus-connection], the Modbus transport Home
+Assistant's own integrations use. Meets the Home Assistant **Gold**
+quality scale, documented rule by rule in
+[`quality_scale.yaml`][quality-scale].
 
 MIT licensed, see [`LICENSE`](LICENSE). The embedded pysunspec2 fork
 stays under its Apache 2.0 license, see the `LICENSE` file next to it.

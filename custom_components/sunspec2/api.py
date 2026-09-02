@@ -353,9 +353,8 @@ class SunSpecApiClient:
         - ``ModbusClientError`` and its subclasses come from the
           transport layer below the SunSpec client and are the ones
           raised when the device NAKs the write with a Modbus
-          exception code or the socket write fails.
-          ``SunSpecModbusClientDeviceTCP.write`` does not translate
-          them into the SunSpec hierarchy.
+          exception code or the link fails. The unit device raises
+          them as they are, not translated into the SunSpec hierarchy.
 
         Anything left uncaught here reaches the Number / Switch entity
         as a raw traceback in the UI, because their ``except

@@ -46,7 +46,8 @@ jobs:
             "pytest-homeassistant-custom-component==${{ steps.ha.outputs.phcc }}" \
             pytest-mock \
             voluptuous-serialize \
-            "pyserial==3.5"
+            "modbus-connection[tmodbus]>=4.10.0,<5" \
+            "tmodbus>=0.6.1"
           pip install "pytest<9"
 
       - name: Run tests

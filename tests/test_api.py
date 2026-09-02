@@ -549,18 +549,16 @@ async def test_restore_builds_real_pysunspec2_models(hass):
     definition does not resolve, model.read() later has nothing to
     decode registers with and every point comes back None.
     """
-    import custom_components.sunspec2.pysunspec2.modbus.client as real_client
+    client = SunSpecModbusClientDeviceUnit(FakeConnection(), slave_id=1)
 
-    client = real_client.SunSpecModbusClientDeviceTCP(slave_id=1, ipaddr="1.2.3.4")
-
-    def _read(addr, count):
+    async def _read(addr, count, op=None):
         if addr == 40000:
             return b"SunS" + mb.u16_to_data(103)
         if addr == 40002:
             return mb.u16_to_data(103) + mb.u16_to_data(50)
         return mb.u16_to_data(mb.SUNS_END_MODEL_ID)
 
-    client.read = Mock(side_effect=_read)
+    client.async_read = _read
 
     api = SunSpecApiClient(host="test", port=123, unit_id=1, hass=hass)
     api._base_addr = 40000
