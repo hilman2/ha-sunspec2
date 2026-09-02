@@ -22,6 +22,7 @@ from custom_components.sunspec2.const import CONF_SERIAL_PORT
 from custom_components.sunspec2.const import CONF_STANDBY_WHEN_IDLE
 from custom_components.sunspec2.const import CONF_TRANSPORT
 from custom_components.sunspec2.const import CONF_UNIT_ID
+from custom_components.sunspec2.const import DEFAULT_MODELS
 from custom_components.sunspec2.const import DOMAIN
 from custom_components.sunspec2.const import MIN_SCAN_INTERVAL_SECONDS
 from custom_components.sunspec2.const import PARITY_NONE
@@ -509,6 +510,23 @@ async def test_setup_settings_step_pre_selects_default_models(
     # DEFAULT_MODELS, so both must be pre-selected.
     assert "103" in models_default
     assert "160" in models_default
+
+
+def test_default_models_carries_both_halves_of_every_measurement_pair():
+    """Every integer measurement model in DEFAULT_MODELS has its float twin there too.
+
+    SunSpec defines the inverter and the meter blocks twice, integer
+    with a scale factor and float, ten model numbers apart. The list
+    arrived from cjne/ha-sunspec with the integer halves alone, so a
+    device reporting the float half showed no sensors from that block
+    until the user found the number in the options form and ticked it.
+    A Kostal PIKO IQ or Plenticore reports 113.
+    """
+    for integer_model in (101, 102, 103, 201, 202, 203, 204):
+        assert integer_model in DEFAULT_MODELS
+        assert integer_model + 10 in DEFAULT_MODELS, (
+            f"model {integer_model + 10} is the float twin of {integer_model}"
+        )
 
 
 async def test_setup_settings_step_rejects_empty_model_selection(
