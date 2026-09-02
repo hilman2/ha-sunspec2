@@ -606,6 +606,104 @@
           "idle": "Leerlauf",
           "power_saving": "Energiesparen"
         }
+      },
+      "home_consumption_pv": {
+        "name": "Hausverbrauch aus PV"
+      },
+      "home_consumption_battery": {
+        "name": "Hausverbrauch aus Batterie"
+      },
+      "home_consumption_grid": {
+        "name": "Hausverbrauch aus Netz"
+      },
+      "home_consumption_pv_total": {
+        "name": "Hausverbrauch aus PV, gesamt"
+      },
+      "home_consumption_battery_total": {
+        "name": "Hausverbrauch aus Batterie, gesamt"
+      },
+      "home_consumption_grid_total": {
+        "name": "Hausverbrauch aus Netz, gesamt"
+      },
+      "home_consumption_total": {
+        "name": "Hausverbrauch, gesamt"
+      },
+      "total_dc_power": {
+        "name": "DC-Leistung"
+      },
+      "energy_manager_state": {
+        "name": "Energiemanager",
+        "state": {
+          "idle": "Bereit",
+          "emergency_battery_charge": "Notladung der Batterie",
+          "winter_mode_step_1": "Wintermodus, Stufe 1",
+          "winter_mode_step_2": "Wintermodus, Stufe 2"
+        }
+      },
+      "controller_temperature": {
+        "name": "Temperatur der Steuerplatine"
+      },
+      "isolation_resistance": {
+        "name": "Isolationswiderstand"
+      },
+      "power_limit_evu": {
+        "name": "Leistungsbegrenzung des Netzbetreibers"
+      },
+      "energy_meter_type": {
+        "name": "Energiezähler",
+        "state": {
+          "sdm630": "SDM 630",
+          "b_control_em300lr": "B-control EM-300 LR",
+          "ksem": "KOSTAL Smart Energy Meter",
+          "kem_c": "KOSTAL Energy Meter, Serie C",
+          "kem_p": "KOSTAL Energy Meter, Serie P",
+          "kem_mp_p": "KOSTAL Energy Meter MP, Serie P",
+          "none": "Keiner"
+        }
+      },
+      "energy_to_grid": {
+        "name": "Ins Netz eingespeiste Energie"
+      },
+      "pssb_fuse_state": {
+        "name": "Sicherungsplatine der Strings",
+        "state": {
+          "fuse_fail": "Sicherung ausgefallen",
+          "fuse_ok": "Sicherung in Ordnung",
+          "unchecked": "Nicht geprüft"
+        }
+      },
+      "battery_ready": {
+        "name": "Bereit",
+        "state": {
+          "not_ready": "Nicht bereit",
+          "ready": "Bereit"
+        }
+      },
+      "battery_dc_charge_energy": {
+        "name": "Geladen, DC-seitig"
+      },
+      "battery_dc_discharge_energy": {
+        "name": "Entladen, DC-seitig"
+      },
+      "battery_ac_charge_energy": {
+        "name": "Geladen, AC-seitig"
+      },
+      "battery_ac_discharge_energy": {
+        "name": "Ins Netz entladen"
+      },
+      "battery_ac_charge_energy_grid": {
+        "name": "Aus dem Netz geladen"
+      },
+      "battery_work_capacity": {
+        "name": "Nutzbare Kapazität"
+      },
+      "battery_management_mode": {
+        "name": "Externe Steuerung",
+        "state": {
+          "none": "Aus",
+          "digital_io": "Digitale E/A",
+          "modbus": "Modbus"
+        }
       }
     }
   },

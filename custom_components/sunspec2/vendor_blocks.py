@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import Mapping
 from datetime import datetime
 from datetime import timedelta
 from typing import Any
@@ -144,8 +145,8 @@ class RawBlockEntity(SunSpecEntity):
             },
             name=f"{base} {self._device.name}" if base else self._device.name,
             manufacturer=_text(identity.get(self._device.manufacturer)),
-            model=_text(identity.get(self._device.model)),
-            serial_number=_text(identity.get(self._device.serial)),
+            model=_device_model(self._device, identity),
+            serial_number=_serial(identity.get(self._device.serial)),
         )
         if self._device.version is not None:
             info["sw_version"] = _text(identity.get(self._device.version))
@@ -417,6 +418,27 @@ class RawWriteCountSensor(SunSpecEntity, RestoreSensor):
 
 def _text(value: Any) -> str | None:
     return value if isinstance(value, str) and value else None
+
+
+def _device_model(device: RawDevice, identity: Mapping[str, Any]) -> str | None:
+    """The model to show for ``device``, from a name field or a numbered type."""
+    value = identity.get(device.model)
+    if device.model_options is not None and isinstance(value, int):
+        return device.model_options.get(value)
+    return _text(value)
+
+
+def _serial(value: Any) -> str | None:
+    """A serial number as text, for a vendor that reports it as a number.
+
+    Kostal keeps the battery's serial in a 32-bit integer register. A
+    manufacturer or a model reported as a number needs a table before
+    it means anything, which is what ``RawDevice.model_options`` is
+    for. A serial number does not: the number is what the sticker says.
+    """
+    if isinstance(value, int):
+        return str(value)
+    return _text(value)
 
 
 def _context(

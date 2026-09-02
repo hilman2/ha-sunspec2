@@ -204,6 +204,10 @@ class RawDevice:
             to exist at all. A SolarEdge battery slot has an identity
             block with strings even when no battery is there; the data
             block, gated on the rated energy, is what says there is one.
+        model_options (Mapping[int, str]|None): Names for a model field
+            the vendor numbers instead of spelling out. Kostal reports
+            which battery is fitted as a type number, and 0x0004 is the
+            BYD. None where the field holds the name itself.
     """
 
     key: str
@@ -214,6 +218,7 @@ class RawDevice:
     serial: str
     version: str | None = None
     requires: str | None = None
+    model_options: Mapping[int, str] | None = None
 
 
 @dataclass(frozen=True)
