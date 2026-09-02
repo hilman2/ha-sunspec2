@@ -239,6 +239,103 @@ class RawSensor:
 
 
 @dataclass(frozen=True)
+class RawNumber:
+    """A writable number over one field of a raw block.
+
+    Args:
+        block (str): The raw block.
+        field (str): The field in it; its kind decides the encoding.
+        key (str): The translation key.
+        min (float): Smallest value the entity offers.
+        max (float): Largest value.
+        step (float): The entity's step.
+        device (str): ``"inverter"`` or the key of a ``RawDevice``.
+        unit (str|None): Home Assistant unit string.
+        device_class (str|None): Home Assistant number device class value.
+        beta (bool): Only with the experimental export controls on.
+        icon (str|None): The icon.
+    """
+
+    block: str
+    field: str
+    key: str
+    min: float
+    max: float
+    step: float = 1.0
+    device: str = "inverter"
+    unit: str | None = None
+    device_class: str | None = None
+    beta: bool = False
+    icon: str | None = None
+
+
+@dataclass(frozen=True)
+class RawSelect:
+    """A writable choice over one field of a raw block.
+
+    Args:
+        block (str): The raw block.
+        field (str): The field in it.
+        key (str): The translation key.
+        options (Mapping[int, str]): Raw value to option name.
+        device (str): ``"inverter"`` or the key of a ``RawDevice``.
+        beta (bool): Only with the experimental export controls on.
+        read (Callable[[Any], Any]|None): Called as ``read(raw)`` with
+            the decoded field. Returns the raw value to look up in
+            ``options``, for a field that carries more than the choice.
+        write (Callable[[Any, int], int]|None): Called as
+            ``write(current, chosen)`` with the decoded field and the
+            raw value of the chosen option. Returns what to write, so
+            the other bits of the field survive.
+        icon (str|None): The icon.
+    """
+
+    block: str
+    field: str
+    key: str
+    options: Mapping[int, str]
+    device: str = "inverter"
+    beta: bool = False
+    read: Callable[[Any], Any] | None = None
+    write: Callable[[Any, int], int] | None = None
+    icon: str | None = None
+
+
+@dataclass(frozen=True)
+class RawKeepAlive:
+    """Fields to write again on a timer, behind a switch.
+
+    For a device that forgets a setting: a remote command that lapses
+    when its timeout runs out, a power limit that reverts on its own.
+    While the switch is on, the fields are written again every
+    ``interval_seconds`` with the value Home Assistant last wrote, or
+    the value the device shows if it never did.
+
+    Args:
+        key (str): The switch's translation key.
+        block (str): The raw block.
+        fields (tuple[str, ...]): The fields written, in this order.
+        interval_seconds (float): How often.
+        only_while (Callable[[Mapping[str, Any]], bool]|None): Called
+            as ``only_while(block_data)``. Returns whether the rewrite
+            applies now, for a command that only means anything in a
+            certain mode.
+        device (str): ``"inverter"`` or the key of a ``RawDevice``.
+        beta (bool): Only with the experimental export controls on.
+        icon (str|None): The icon.
+    """
+
+    key: str
+    block: str
+    fields: tuple[str, ...]
+    interval_seconds: float
+    only_while: Callable[[Mapping[str, Any]], bool] | None = None
+    device: str = "inverter"
+    beta: bool = False
+    icon: str | None = None
+
+
+@dataclass(frozen=True)
 class VendorProfile:
     """Everything the integration does differently for one manufacturer.
 
@@ -269,6 +366,12 @@ class VendorProfile:
             after the models. See ``raw_blocks.py``.
         raw_devices (tuple[RawDevice, ...]): Devices those blocks describe.
         raw_sensors (tuple[RawSensor, ...]): Sensors over those blocks.
+        raw_numbers (tuple[RawNumber, ...]): Writable numbers over them.
+        raw_selects (tuple[RawSelect, ...]): Writable choices over them.
+        raw_keepalives (tuple[RawKeepAlive, ...]): Fields rewritten on a
+            timer, each behind a switch.
+        volatile_registers (frozenset[int]): Addresses the device keeps
+            in RAM. Writes there are not counted as flash writes.
     """
 
     slug: str
@@ -281,6 +384,17 @@ class VendorProfile:
     raw_blocks: tuple[RawBlock, ...] = ()
     raw_devices: tuple[RawDevice, ...] = ()
     raw_sensors: tuple[RawSensor, ...] = ()
+    raw_numbers: tuple[RawNumber, ...] = ()
+    raw_selects: tuple[RawSelect, ...] = ()
+    raw_keepalives: tuple[RawKeepAlive, ...] = ()
+    volatile_registers: frozenset[int] = frozenset()
+
+    def raw_block(self, key: str) -> RawBlock | None:
+        """The raw block named ``key``, or None."""
+        for block in self.raw_blocks:
+            if block.key == key:
+                return block
+        return None
 
     def matches(self, manufacturer: str | None) -> bool:
         if not manufacturer:

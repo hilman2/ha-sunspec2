@@ -60,6 +60,7 @@ from .entity import SunSpecEntity
 from .errors import SunSpecError
 from .models import SunSpecModelWrapper
 from .storage_modes import storage_setpoint_numbers
+from .vendor_blocks import raw_block_numbers
 from .write_controls import PLATFORM_NUMBER
 from .write_controls import STORAGE_CONTROL_MODEL
 from .write_controls import WriteControlSpec
@@ -203,6 +204,8 @@ async def async_setup_entry(
     entities.extend(storage_setpoint_numbers(coordinator, entry, prefix))
     # The reserve and capacity of the scheduled discharge, same condition.
     entities.extend(discharge_plan_numbers(coordinator, entry, prefix))
+    # The vendor's registers outside the models, where a profile has them.
+    entities.extend(raw_block_numbers(coordinator, entry, prefix))
     async_add_devices(entities)
 
 

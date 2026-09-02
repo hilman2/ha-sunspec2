@@ -36,6 +36,7 @@ from .errors import SunSpecError
 from .models import SunSpecModelWrapper
 from .number import build_specs
 from .storage_modes import storage_mode_select
+from .vendor_blocks import raw_block_selects
 from .write_controls import PLATFORM_SELECT
 from .write_controls import WriteControlSpec
 from .write_controls import storage_bits_to_int
@@ -74,6 +75,8 @@ async def async_setup_entry(
     ]
     # The vendor's battery modes, where a profile defines them.
     entities.extend(storage_mode_select(coordinator, entry, prefix))
+    # The vendor's registers outside the models, where a profile has them.
+    entities.extend(raw_block_selects(coordinator, entry, prefix))
     async_add_devices(entities)
 
 
