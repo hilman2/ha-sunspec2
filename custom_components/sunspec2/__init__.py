@@ -1151,12 +1151,13 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator[dict[int, SunSpecModelW
             # cannot act on half of them. The pause between the steps
             # stays under the lock, so no poll or other write lands
             # inside the sequence.
+            rearm_default = self.vendor.rearm_by_default if self.vendor is not None else False
             steps = plan_write(
                 self.vendor,
                 model_id,
                 points,
                 self._point_reads_on,
-                self.entry.options.get(CONF_REARM_ON_CHANGE, False),
+                self.entry.options.get(CONF_REARM_ON_CHANGE, rearm_default),
             )
             for step in steps:
                 await self.api.async_write_points(model_id, step.points)
@@ -1287,12 +1288,24 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator[dict[int, SunSpecModelW
         # every cycle would be wasteful - the device info never
         # changes for a given physical inverter.
         if self.device_info is None:
-            self.device_info = await self.api.async_get_data(1)
-            try:
-                manufacturer = self.device_info.getValue("Mn")
-            except (KeyError, AttributeError):
-                manufacturer = None
-            self.vendor = profile_for(manufacturer if isinstance(manufacturer, str) else None)
+            info = await self.api.async_get_data(1)
+            self.device_info = info
+
+            def common_text(point: str) -> str:
+                try:
+                    value = info.getValue(point)
+                except (KeyError, AttributeError):
+                    return ""
+                return value if isinstance(value, str) else ""
+
+            # The manufacturer picks the vendor; model, option and
+            # version tell a vendor's generations apart.
+            self.vendor = profile_for(
+                common_text("Mn") or None,
+                common_text("Md"),
+                common_text("Opt"),
+                common_text("Vr"),
+            )
             if self.vendor is not None:
                 self._log.info("Vendor profile %s applies to this device", self.vendor.slug)
         # Only meaningful once model 1 has been read, and it is read on

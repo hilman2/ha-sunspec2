@@ -346,7 +346,7 @@ async def test_mode_select_refuses_a_mode_it_does_not_know(hass, sunspec_fronius
     ],
 )
 def test_module_role_reads_the_gen24_labels(label, role):
-    assert module_role(label) is role
+    assert module_role(label, "Symo GEN24 10.0 Plus") is role
 
 
 async def test_fronius_device_gets_battery_and_pv_sensors(hass, sunspec_fronius_client_mock):

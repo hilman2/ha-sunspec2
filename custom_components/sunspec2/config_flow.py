@@ -1000,7 +1000,10 @@ class SunSpecOptionsFlowHandler(config_entries.OptionsFlow):
                 default_models = default_enabled
 
             write_beta_enabled = self.config_entry.options.get(CONF_WRITE_BETA_ENABLED, False)
-            rearm_on_change = self.config_entry.options.get(CONF_REARM_ON_CHANGE, False)
+            vendor = getattr(self.coordinator, "vendor", None)
+            rearm_on_change = self.config_entry.options.get(
+                CONF_REARM_ON_CHANGE, vendor.rearm_by_default if vendor is not None else False
+            )
             schema: dict[Any, Any] = {
                 vol.Optional(CONF_PREFIX, default=prefix): str,
                 vol.Optional(CONF_SCAN_INTERVAL, default=scan_interval): _SCAN_INTERVAL_VALIDATOR,
@@ -1025,7 +1028,6 @@ class SunSpecOptionsFlowHandler(config_entries.OptionsFlow):
             }
             # The off/on cycle for a new export limit exists for a
             # vendor that needs one, so the field only shows up there.
-            vendor = getattr(self.coordinator, "vendor", None)
             if vendor is not None and vendor.enable_edge:
                 schema[vol.Optional(CONF_REARM_ON_CHANGE, default=rearm_on_change)] = bool
             # The web interface login, for a vendor whose web API the
