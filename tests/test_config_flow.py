@@ -24,9 +24,12 @@ from custom_components.sunspec2.const import CONF_TRANSPORT
 from custom_components.sunspec2.const import CONF_UNIT_ID
 from custom_components.sunspec2.const import DEFAULT_MODELS
 from custom_components.sunspec2.const import DOMAIN
+from custom_components.sunspec2.const import FLOAT_TWIN_OFFSET
+from custom_components.sunspec2.const import INTEGER_MEASUREMENT_MODELS
 from custom_components.sunspec2.const import MIN_SCAN_INTERVAL_SECONDS
 from custom_components.sunspec2.const import PARITY_NONE
 from custom_components.sunspec2.const import TRANSPORT_RTU
+from custom_components.sunspec2.const import default_models_for
 
 from . import MockSunSpecDataUpdateCoordinator
 from .const import MOCK_CONFIG
@@ -518,15 +521,37 @@ def test_default_models_carries_both_halves_of_every_measurement_pair():
     SunSpec defines the inverter and the meter blocks twice, integer
     with a scale factor and float, ten model numbers apart. The list
     arrived from cjne/ha-sunspec with the integer halves alone, so a
-    device reporting the float half showed no sensors from that block
-    until the user found the number in the options form and ticked it.
-    A Kostal PIKO IQ or Plenticore reports 113.
+    device serving only the float half showed no sensors from that
+    block until the user found the number in the options form.
     """
-    for integer_model in (101, 102, 103, 201, 202, 203, 204):
+    for integer_model in INTEGER_MEASUREMENT_MODELS:
         assert integer_model in DEFAULT_MODELS
-        assert integer_model + 10 in DEFAULT_MODELS, (
-            f"model {integer_model + 10} is the float twin of {integer_model}"
+        assert integer_model + FLOAT_TWIN_OFFSET in DEFAULT_MODELS, (
+            f"model {integer_model + FLOAT_TWIN_OFFSET} is the float twin of {integer_model}"
         )
+
+
+def test_default_models_for_ticks_the_float_half_only_where_the_integer_half_is_absent():
+    """A device serving both halves of a pair gets the integer half ticked, not both.
+
+    A Kostal PLENTICORE serves 103 and 113, and its meter 203 and 213.
+    Both halves carry the same readings, and the model id is part of
+    the entity's unique id, so ticking both would build every sensor
+    twice.
+    """
+    both_halves = default_models_for({1, 103, 113, 160, 203, 213, 802})
+    assert 103 in both_halves
+    assert 113 not in both_halves
+    assert 203 in both_halves
+    assert 213 not in both_halves
+    # Untouched: no integer twin present, and no pair at all.
+    assert both_halves >= {160, 802}
+
+    float_only = default_models_for({1, 113, 213, 802})
+    assert float_only >= {113, 213}
+
+    integer_only = default_models_for({1, 103, 203})
+    assert integer_only == {103, 203}
 
 
 async def test_setup_settings_step_rejects_empty_model_selection(

@@ -550,22 +550,22 @@ STANDBY_OPERATING_STATES = frozenset(OPERATING_STATE_LABELS)
 # always meant, so it is now what it measures.
 STALE_MODEL_TOLERANCE_SECONDS = 600
 
-# The models the config flow ticks for a new entry, and what an entry
-# with an empty selection falls back to. Measurement models only: the
+# Every model the config flow may tick, and what an entry with an
+# empty selection falls back to. Measurement models only: the
 # write-capable models reach the polled set through the coordinator's
 # separate write_model_filter, so a tick the user never made is never
 # rendered and never saved.
 #
-# Both halves of every measurement pair belong here. SunSpec defines
+# Both halves of every measurement pair are in here. SunSpec defines
 # the inverter and the meter blocks twice, once with integer values
 # and a scale factor and once as float: 101 to 103 against 111 to 113,
-# 201 to 204 against 211 to 214. A device implements whichever half
-# its firmware chose, and one device answering both has not been seen.
-# The list came over from cjne/ha-sunspec with the integer halves
-# alone, so until 2026.10 a float device arrived with its inverter or
-# meter block unticked and no sensors from it, and the user had to
-# find the model number in the options form to get any reading at all.
-# Kostal PIKO IQ and Plenticore report 113.
+# 201 to 204 against 211 to 214. The list came over from
+# cjne/ha-sunspec with the integer halves alone, so until 2026.10 a
+# device serving only the float half arrived with its inverter or
+# meter block unticked and no sensors from it.
+#
+# Which half a given device gets ticked is default_models_for()'s
+# decision rather than this set's, because a device may serve both.
 DEFAULT_MODELS = set(
     [
         101,
@@ -603,6 +603,37 @@ DEFAULT_MODELS = set(
         809,
     ]
 )
+
+#: A measurement model's float twin sits ten model numbers up: 103 is
+#: the three phase inverter as integers with a scale factor, 113 the
+#: same block as float.
+FLOAT_TWIN_OFFSET = 10
+
+#: The integer half of each measurement pair.
+INTEGER_MEASUREMENT_MODELS: frozenset[int] = frozenset({101, 102, 103, 201, 202, 203, 204})
+
+
+def default_models_for(available: set[int]) -> set[int]:
+    """The models to tick for a device reporting ``available``.
+
+    Args:
+        available (set[int]): The model ids found on the device.
+
+    Returns:
+        set[int]: Those of DEFAULT_MODELS the device has, minus the
+        float twin of every pair it serves both halves of.
+    """
+    # A Kostal PLENTICORE serves 103 and 113, and its meter 203 and
+    # 213. Ticking both halves would build a second entity for every
+    # reading, same value, different model number in its unique id.
+    # The integer half is the one that wins, because it is the half
+    # this integration ticked before 2026.10: an install that has been
+    # running keeps its entity ids and its recorder history when the
+    # user next saves the options form.
+    ticked = DEFAULT_MODELS & available
+    return ticked - {model + FLOAT_TWIN_OFFSET for model in INTEGER_MEASUREMENT_MODELS & available}
+
+
 # Defaults
 DEFAULT_NAME = DOMAIN
 
