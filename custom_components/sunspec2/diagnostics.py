@@ -79,6 +79,9 @@ async def async_get_config_entry_diagnostics(
         # battery mode can be matched to the recipe that wrote it.
         "vendor": vendor.slug if (vendor := getattr(coordinator, "vendor", None)) else None,
         "fronius_web": _web_dump(coordinator),
+        # The vendor's registers outside the models, as decoded on the
+        # last cycle. Absent blocks are absent here too.
+        "raw_blocks": dict(getattr(coordinator, "raw_blocks", {})),
         "model_filters": {
             "option_model_filter": sorted(getattr(coordinator, "option_model_filter", set()) or []),
             "write_model_filter": sorted(getattr(coordinator, "write_model_filter", set()) or []),

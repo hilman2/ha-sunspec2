@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 from typing import Any
 
@@ -115,6 +116,37 @@ class SunSpecEntity(CoordinatorEntity["SunSpecDataUpdateCoordinator"]):
         return device_info_for(
             self.config_entry, self._device_data, self.model_info, self._prefix, self._model_id
         )
+
+
+@dataclass(frozen=True)
+class Home:
+    """The SunSpec model device an entity from outside the models sits on.
+
+    Args:
+        device_info (SunSpecModelWrapper): Common model 1.
+        model_info (dict): The model's group definition.
+        model_id (int): The SunSpec model id.
+    """
+
+    device_info: SunSpecModelWrapper
+    model_info: dict[str, Any]
+    model_id: int
+
+
+def home_for(coordinator: SunSpecDataUpdateCoordinator, preferred: tuple[int, ...]) -> Home | None:
+    """The device to sit on: the first preferred model the device has, else its lowest model.
+
+    None before the first cycle, when there is no model to sit on yet.
+    """
+    if coordinator.device_info is None or not coordinator.data:
+        return None
+    candidates = [model_id for model_id in preferred if model_id in coordinator.data]
+    if not candidates:
+        candidates = sorted(model_id for model_id in coordinator.data if model_id != 1)
+    if not candidates:
+        return None
+    model_id = candidates[0]
+    return Home(coordinator.device_info, coordinator.data[model_id].getGroupMeta(), model_id)
 
 
 def device_info_for(

@@ -389,6 +389,94 @@
           "feed_in_point": "Feed-in point",
           "consumption_path": "Consumption path"
         }
+      },
+      "grid_status": {
+        "name": "Grid status",
+        "state": {
+          "on_grid": "On grid",
+          "off_grid": "Off grid"
+        }
+      },
+      "status_vendor4": {
+        "name": "Vendor status code"
+      },
+      "site_limit_mode": {
+        "name": "Site limit mode",
+        "state": {
+          "disabled": "Disabled",
+          "export_control_export_import_meter": "Export control (export/import meter)",
+          "export_control_consumption_meter": "Export control (consumption meter)",
+          "production_control": "Production control"
+        }
+      },
+      "site_limit": {
+        "name": "Site limit"
+      },
+      "storage_control_mode": {
+        "name": "Storage control mode",
+        "state": {
+          "disabled": "Disabled",
+          "maximize_self_consumption": "Maximize self-consumption",
+          "time_of_use": "Time of use",
+          "backup_only": "Backup only",
+          "remote_control": "Remote control"
+        }
+      },
+      "battery_state_of_energy": {
+        "name": "State of energy"
+      },
+      "battery_state_of_health": {
+        "name": "State of health"
+      },
+      "battery_temperature": {
+        "name": "Temperature"
+      },
+      "battery_temperature_max": {
+        "name": "Maximum temperature"
+      },
+      "battery_voltage": {
+        "name": "Voltage"
+      },
+      "battery_current": {
+        "name": "Current"
+      },
+      "battery_power": {
+        "name": "Power"
+      },
+      "battery_energy_discharged": {
+        "name": "Energy discharged"
+      },
+      "battery_energy_charged": {
+        "name": "Energy charged"
+      },
+      "battery_energy_available": {
+        "name": "Available energy"
+      },
+      "battery_energy_max": {
+        "name": "Maximum energy"
+      },
+      "battery_rated_energy": {
+        "name": "Rated energy"
+      },
+      "battery_max_charge_power": {
+        "name": "Maximum charge power"
+      },
+      "battery_max_discharge_power": {
+        "name": "Maximum discharge power"
+      },
+      "battery_status": {
+        "name": "Status",
+        "state": {
+          "off": "Off",
+          "standby": "Standby",
+          "init": "Initialising",
+          "charge": "Charging",
+          "discharge": "Discharging",
+          "fault": "Fault",
+          "preserve_charge": "Preserving charge",
+          "idle": "Idle",
+          "power_saving": "Power saving"
+        }
       }
     }
   },

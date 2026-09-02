@@ -403,6 +403,62 @@ class SunSpecApiClient:
                 f"Modbus exception while writing model {model_id} point {point_name}: {exc}"
             ) from exc
 
+    async def async_read_block(self, address: int, count: int) -> bytes:
+        """Read ``count`` holding registers at ``address`` over the live session.
+
+        For the registers a vendor keeps outside the SunSpec models,
+        see ``raw_blocks.py``. Same session, same lock discipline as
+        the model reads: the coordinator calls this inside its cycle.
+
+        Raises:
+            DeviceError: The device answered with a Modbus exception,
+                or with fewer registers than asked.
+            TransientError: No answer within the socket timeout.
+            TransportError: The connection failed or was closed.
+        """
+        try:
+            data = await self._hass.async_add_executor_job(
+                self._read_block_blocking, address, count
+            )
+        except (SunSpecModbusClientTimeout, ModbusClientTimeout) as exc:
+            raise TransientError(f"Modbus read timeout at register {address}") from exc
+        except (SunSpecModbusClientException, ModbusClientException) as exc:
+            raise DeviceError(f"Modbus exception reading register {address}: {exc}") from exc
+        except (SunSpecModbusClientError, ModbusClientError, OSError) as exc:
+            raise TransportError(f"Modbus read failed at register {address}: {exc}") from exc
+        if data is None or len(data) < count * 2:
+            raise DeviceError(
+                f"Register {address}: {0 if data is None else len(data) // 2} of {count} answered"
+            )
+        return bytes(data)
+
+    def _read_block_blocking(self, address: int, count: int) -> bytes | None:
+        client = self.get_client()
+        data: bytes | None = client.read(address, count)
+        return data
+
+    async def async_write_block(self, address: int, data: bytes) -> None:
+        """Write register bytes at ``address`` over the live session.
+
+        Raises:
+            TransientError: No answer within the socket timeout.
+            DeviceError: The device refused the write.
+            TransportError: The connection failed or was closed.
+        """
+        self._log.debug("Write %d registers at %d", len(data) // 2, address)
+        try:
+            await self._hass.async_add_executor_job(self._write_block_blocking, address, data)
+        except (SunSpecModbusClientTimeout, ModbusClientTimeout) as exc:
+            raise TransientError(f"Modbus write timeout at register {address}") from exc
+        except (SunSpecModbusClientException, ModbusClientException) as exc:
+            raise DeviceError(f"Modbus exception writing register {address}: {exc}") from exc
+        except (SunSpecModbusClientError, ModbusClientError, OSError) as exc:
+            raise TransportError(f"Modbus write failed at register {address}: {exc}") from exc
+
+    def _write_block_blocking(self, address: int, data: bytes) -> None:
+        client = self.get_client()
+        client.write(address, data)
+
     def _write_points_blocking(self, model_id: int, points: list[tuple[str, object]]) -> None:
         client = self.get_client()
         models = client.models.get(model_id)

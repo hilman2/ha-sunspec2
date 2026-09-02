@@ -29,27 +29,19 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from . import SunSpecDataUpdateCoordinator
 from . import get_sunspec_unique_id
 from .const import OPERATING_STATE_MODEL_IDS
+from .entity import Home
 from .entity import device_info_for
+from .entity import home_for
 from .fronius_web import CHARGE_FROM_AC
 from .fronius_web import CHARGE_FROM_GRID
 from .fronius_web import FroniusWebCoordinator
 from .fronius_web import FroniusWebData
 from .fronius_web import FroniusWebError
-from .models import SunSpecModelWrapper
 from .write_controls import STORAGE_CONTROL_MODEL
 
 _LOGGER: logging.Logger = logging.getLogger(__package__)
 
 METER_LOCATIONS: dict[int, str] = {0: "feed_in_point", 1: "consumption_path"}
-
-
-@dataclass(frozen=True)
-class _Home:
-    """The device an entity sits on."""
-
-    device_info: SunSpecModelWrapper
-    model_info: dict[str, Any]
-    model_id: int
 
 
 class FroniusWebEntity(CoordinatorEntity[FroniusWebCoordinator]):
@@ -61,7 +53,7 @@ class FroniusWebEntity(CoordinatorEntity[FroniusWebCoordinator]):
         self,
         web: FroniusWebCoordinator,
         config_entry: ConfigEntry,
-        home: _Home,
+        home: Home,
         prefix: str,
         key: str,
     ) -> None:
@@ -100,7 +92,7 @@ class WebTemperatureSensor(FroniusWebEntity, SensorEntity):
         self,
         web: FroniusWebCoordinator,
         config_entry: ConfigEntry,
-        home: _Home,
+        home: Home,
         prefix: str,
         key: str,
         read: Callable[[FroniusWebData], float | None],
@@ -205,7 +197,7 @@ class WebSwitch(FroniusWebEntity, SwitchEntity):
         self,
         web: FroniusWebCoordinator,
         config_entry: ConfigEntry,
-        home: _Home,
+        home: Home,
         prefix: str,
         spec: WebSwitchSpec,
     ) -> None:
@@ -244,28 +236,15 @@ class ModbusResetButton(FroniusWebEntity, ButtonEntity):
             raise HomeAssistantError(f"The inverter's web interface refused: {exc}") from exc
 
 
-def _home(coordinator: SunSpecDataUpdateCoordinator, preferred: tuple[int, ...]) -> _Home | None:
-    """The device to sit on: the first preferred model the device has, else its lowest model."""
-    if coordinator.device_info is None or not coordinator.data:
-        return None
-    candidates = [model_id for model_id in preferred if model_id in coordinator.data]
-    if not candidates:
-        candidates = sorted(model_id for model_id in coordinator.data if model_id != 1)
-    if not candidates:
-        return None
-    model_id = candidates[0]
-    return _Home(coordinator.device_info, coordinator.data[model_id].getGroupMeta(), model_id)
-
-
 def fronius_web_sensors(
     coordinator: SunSpecDataUpdateCoordinator, config_entry: ConfigEntry, prefix: str
 ) -> list[SensorEntity]:
     """The web sensors for this entry, or an empty list without a web login."""
     web = coordinator.web
-    inverter = _home(coordinator, OPERATING_STATE_MODEL_IDS)
+    inverter = home_for(coordinator, OPERATING_STATE_MODEL_IDS)
     if web is None or inverter is None:
         return []
-    battery = _home(coordinator, (STORAGE_CONTROL_MODEL,)) or inverter
+    battery = home_for(coordinator, (STORAGE_CONTROL_MODEL,)) or inverter
     return [
         WebTemperatureSensor(
             web,
@@ -293,10 +272,10 @@ def fronius_web_switches(
 ) -> list[SwitchEntity]:
     """The web switches for this entry, or an empty list without a web login."""
     web = coordinator.web
-    inverter = _home(coordinator, OPERATING_STATE_MODEL_IDS)
+    inverter = home_for(coordinator, OPERATING_STATE_MODEL_IDS)
     if web is None or inverter is None:
         return []
-    battery = _home(coordinator, (STORAGE_CONTROL_MODEL,)) or inverter
+    battery = home_for(coordinator, (STORAGE_CONTROL_MODEL,)) or inverter
     return [
         WebSwitch(
             web,
@@ -314,7 +293,7 @@ def fronius_web_buttons(
 ) -> list[ButtonEntity]:
     """The web buttons for this entry, or an empty list without a web login."""
     web = coordinator.web
-    inverter = _home(coordinator, OPERATING_STATE_MODEL_IDS)
+    inverter = home_for(coordinator, OPERATING_STATE_MODEL_IDS)
     if web is None or inverter is None:
         return []
     return [ModbusResetButton(web, config_entry, inverter, prefix, "reset_modbus_control")]

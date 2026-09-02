@@ -16,6 +16,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from dataclasses import field
 from enum import StrEnum
+from typing import Any
 
 
 class StorageMode(StrEnum):
@@ -129,6 +130,115 @@ class ModuleRole(StrEnum):
 
 
 @dataclass(frozen=True)
+class RawField:
+    """One value in a raw register block.
+
+    Args:
+        name (str): The key in the decoded block.
+        offset (int): Register offset from the block's start.
+        kind (str): ``"uint16"``, ``"int16"``, ``"uint32"``, ``"int32"``,
+            ``"float32"``, ``"uint64"`` or ``"string"``.
+        length (int): Registers, for ``"string"``. Ignored otherwise.
+    """
+
+    name: str
+    offset: int
+    kind: str
+    length: int = 1
+
+
+@dataclass(frozen=True)
+class RawBlock:
+    """A run of registers outside the SunSpec models, read in one request.
+
+    Args:
+        key (str): Names the block in ``coordinator.raw_blocks``.
+        address (int): The first register.
+        count (int): Registers to read.
+        fields (tuple[RawField, ...]): What the registers hold.
+        word_order (str): ``"big"`` or ``"little"``: which 16-bit word
+            of a 32- or 64-bit value comes first. SunSpec is big;
+            SolarEdge's own blocks are little.
+        gate (tuple[str, str]|None): ``(block key, field)`` of another
+            block. This block is read only while that field is a number
+            above zero: a battery slot whose nameplate says whether a
+            battery is there.
+    """
+
+    key: str
+    address: int
+    count: int
+    fields: tuple[RawField, ...]
+    word_order: str = "big"
+    gate: tuple[str, str] | None = None
+
+
+@dataclass(frozen=True)
+class RawDevice:
+    """A device the vendor adds next to the SunSpec model devices, a battery for instance.
+
+    Args:
+        key (str): Names the device; the entities on it carry it in
+            their unique id.
+        info_block (str): The raw block with the identity strings.
+        name (str): What follows the inverter's name in the device name.
+        manufacturer (str): Field of ``info_block`` with the manufacturer.
+        model (str): Field with the model.
+        serial (str): Field with the serial number.
+        version (str|None): Field with the firmware version, if any.
+        requires (str|None): A block that has to answer for the device
+            to exist at all. A SolarEdge battery slot has an identity
+            block with strings even when no battery is there; the data
+            block, gated on the rated energy, is what says there is one.
+    """
+
+    key: str
+    info_block: str
+    name: str
+    manufacturer: str
+    model: str
+    serial: str
+    version: str | None = None
+    requires: str | None = None
+
+
+@dataclass(frozen=True)
+class RawSensor:
+    """A sensor over one field of a raw block.
+
+    Args:
+        block (str): The raw block.
+        field (str): The field in it.
+        key (str): The translation key.
+        device (str): ``"inverter"`` for the inverter's own device, or
+            the key of a ``RawDevice``.
+        unit (str|None): Home Assistant unit string.
+        device_class (str|None): Home Assistant sensor device class value.
+        state_class (str|None): ``"measurement"``, ``"total_increasing"``
+            or None.
+        diagnostic (bool): Filed under Diagnostic on the device card.
+        options (Mapping[int, str]|None): For an enum: raw value to
+            option name. A value not in the map reads as None.
+        transform (Callable[[Any], Any]|None): Called as
+            ``transform(value)`` with the decoded value. Returns what
+            the sensor shows.
+        icon (str|None): The icon.
+    """
+
+    block: str
+    field: str
+    key: str
+    device: str = "inverter"
+    unit: str | None = None
+    device_class: str | None = None
+    state_class: str | None = None
+    diagnostic: bool = False
+    options: Mapping[int, str] | None = None
+    transform: Callable[[Any], Any] | None = None
+    icon: str | None = None
+
+
+@dataclass(frozen=True)
 class VendorProfile:
     """Everything the integration does differently for one manufacturer.
 
@@ -154,6 +264,11 @@ class VendorProfile:
         web_user (str|None): The local login of the device's web
             interface, when the integration speaks it (see
             ``fronius_web.py``). None for a vendor without one.
+        raw_blocks (tuple[RawBlock, ...]): Registers outside the SunSpec
+            models the vendor keeps device data in, read every cycle
+            after the models. See ``raw_blocks.py``.
+        raw_devices (tuple[RawDevice, ...]): Devices those blocks describe.
+        raw_sensors (tuple[RawSensor, ...]): Sensors over those blocks.
     """
 
     slug: str
@@ -163,6 +278,9 @@ class VendorProfile:
     enable_edge: Mapping[tuple[int, str], str] = field(default_factory=dict)
     enable_edge_settle_seconds: float = 1.0
     web_user: str | None = None
+    raw_blocks: tuple[RawBlock, ...] = ()
+    raw_devices: tuple[RawDevice, ...] = ()
+    raw_sensors: tuple[RawSensor, ...] = ()
 
     def matches(self, manufacturer: str | None) -> bool:
         if not manufacturer:

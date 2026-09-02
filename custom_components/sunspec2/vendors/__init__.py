@@ -5,8 +5,8 @@ entities that only make sense with the vendor's reading of a model, and
 hides generic ones that would write the same register in another unit.
 The profile is picked from ``Mn`` in common model 1 once per connection.
 
-Only Fronius so far. See ``profile.py`` for the shape, and the vendor
-modules for the knowledge and its sources.
+Fronius and SolarEdge so far. See ``profile.py`` for the shape, and
+the vendor modules for the knowledge and its sources.
 """
 
 from __future__ import annotations
@@ -16,8 +16,9 @@ from .profile import ModuleRole
 from .profile import VendorProfile
 from .profile import WriteStep
 from .profile import plan_write
+from .solaredge import SOLAREDGE
 
-PROFILES: tuple[VendorProfile, ...] = (FRONIUS,)
+PROFILES: tuple[VendorProfile, ...] = (FRONIUS, SOLAREDGE)
 
 
 def profile_for(manufacturer: str | None) -> VendorProfile | None:

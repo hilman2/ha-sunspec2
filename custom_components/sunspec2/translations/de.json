@@ -389,6 +389,94 @@
           "feed_in_point": "Einspeisepunkt",
           "consumption_path": "Verbrauchspfad"
         }
+      },
+      "grid_status": {
+        "name": "Netzstatus",
+        "state": {
+          "on_grid": "Am Netz",
+          "off_grid": "Netz getrennt"
+        }
+      },
+      "status_vendor4": {
+        "name": "Hersteller-Statuscode"
+      },
+      "site_limit_mode": {
+        "name": "Modus Anlagenlimit",
+        "state": {
+          "disabled": "Aus",
+          "export_control_export_import_meter": "Einspeisebegrenzung (Bezugs-/Einspeisezähler)",
+          "export_control_consumption_meter": "Einspeisebegrenzung (Verbrauchszähler)",
+          "production_control": "Erzeugungsbegrenzung"
+        }
+      },
+      "site_limit": {
+        "name": "Anlagenlimit"
+      },
+      "storage_control_mode": {
+        "name": "Speicher-Steuermodus",
+        "state": {
+          "disabled": "Aus",
+          "maximize_self_consumption": "Eigenverbrauch maximieren",
+          "time_of_use": "Zeitprofil",
+          "backup_only": "Nur Notstrom",
+          "remote_control": "Fernsteuerung"
+        }
+      },
+      "battery_state_of_energy": {
+        "name": "Ladestand"
+      },
+      "battery_state_of_health": {
+        "name": "Gesundheitszustand"
+      },
+      "battery_temperature": {
+        "name": "Temperatur"
+      },
+      "battery_temperature_max": {
+        "name": "Maximaltemperatur"
+      },
+      "battery_voltage": {
+        "name": "Spannung"
+      },
+      "battery_current": {
+        "name": "Strom"
+      },
+      "battery_power": {
+        "name": "Leistung"
+      },
+      "battery_energy_discharged": {
+        "name": "Entladene Energie"
+      },
+      "battery_energy_charged": {
+        "name": "Geladene Energie"
+      },
+      "battery_energy_available": {
+        "name": "Verfügbare Energie"
+      },
+      "battery_energy_max": {
+        "name": "Maximale Energie"
+      },
+      "battery_rated_energy": {
+        "name": "Nennenergie"
+      },
+      "battery_max_charge_power": {
+        "name": "Maximale Ladeleistung"
+      },
+      "battery_max_discharge_power": {
+        "name": "Maximale Entladeleistung"
+      },
+      "battery_status": {
+        "name": "Status",
+        "state": {
+          "off": "Aus",
+          "standby": "Bereitschaft",
+          "init": "Initialisierung",
+          "charge": "Lädt",
+          "discharge": "Entlädt",
+          "fault": "Fehler",
+          "preserve_charge": "Ladung halten",
+          "idle": "Leerlauf",
+          "power_saving": "Energiesparen"
+        }
       }
     }
   },

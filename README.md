@@ -128,7 +128,10 @@ and Tauro with a battery** additionally get a *Battery mode* menu, from
 watts, and a scheduled discharge that gives the battery's surplus back
 over night. With the password of the inverter's web page, temperatures,
 the smart meter's position and the grid charging flags come too. See
-**[docs/fronius.md](docs/fronius.md)**.
+**[docs/fronius.md](docs/fronius.md)**. **SolarEdge** keeps its battery
+outside SunSpec; the integration reads it from SolarEdge's own
+registers, one device per battery, where SolarEdge has enabled them.
+See **[docs/solaredge.md](docs/solaredge.md)**.
 
 **Export controls** are a beta and off by default: tick **"Enable
 experimental export controls (BETA)"** in the options for an export
