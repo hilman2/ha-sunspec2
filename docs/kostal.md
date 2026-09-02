@@ -12,6 +12,11 @@ MP G3. The registers and their meaning come from KOSTAL's interface
 description "MODBUS (TCP) & SunSpec, PIKO IQ / PLENTICORE with control
 information", revision 2.9.
 
+**Not the PIKO CI.** Kostal's commercial line has a register map of
+its own, so it gets the generic SunSpec entities and none of this
+page. Same for any other Kostal that does not report itself as a
+PLENTICORE or a PIKO IQ.
+
 ## Before it works
 
 1. Switch Modbus on in the inverter: *Settings -> Modbus / SunSpec
