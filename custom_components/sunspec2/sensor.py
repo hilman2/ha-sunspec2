@@ -277,6 +277,7 @@ async def async_setup_entry(
     # The role-named model 160 sensors subclass the sensors below, so
     # their module cannot be imported before this one is complete.
     from .dc_channels import dc_channel_sensors
+    from .fronius_web_entities import fronius_web_sensors
 
     coordinator = entry.runtime_data
     # Read the cached common-model (model 1) from the coordinator. The
@@ -345,6 +346,9 @@ async def async_setup_entry(
     # synchronously to add the initial set.
     entry.async_on_unload(coordinator.async_add_listener(_async_add_new_sensors))
     _async_add_new_sensors()
+    # Fed by the web interface's own coordinator, so not part of the
+    # Modbus re-detection above; the set is known at setup.
+    async_add_devices(fronius_web_sensors(coordinator, entry, prefix))
 
 
 class SunSpecSensor(SunSpecEntity, SensorEntity):

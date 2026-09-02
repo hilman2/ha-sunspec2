@@ -164,6 +164,21 @@ async def async_apply_storage_mode(
     setpoints = coordinator.storage_setpoints
     in_pct = resolve_rate(recipe.in_rate, setpoints, wchamax)
     out_pct = resolve_rate(recipe.out_rate, setpoints, wchamax)
+    if mode is StorageMode.CHARGE_FROM_GRID and coordinator.web is not None:
+        # ChaGriSet over Modbus is AND-linked with the grid charging
+        # flags in the inverter's web interface. With a web login the
+        # flags go on first; without one the docs tell the user to set
+        # them by hand. A refused flag is logged and the Modbus write
+        # still goes out: the mode is what the user asked for, and the
+        # inverter shows the result either way.
+        try:
+            await coordinator.web.async_allow_grid_charging()
+        except Exception as exc:  # noqa: BLE001 - the web side must not block the Modbus side
+            _LOGGER.warning(
+                "Could not enable grid charging in the inverter's web interface, "
+                "the battery may not charge from the grid: %s",
+                exc,
+            )
     # The rates first, in one frame (the two registers are adjacent),
     # the mode last. Mode first leaves the inverter acting on the
     # previous rates for a moment, and a window it cannot serve is

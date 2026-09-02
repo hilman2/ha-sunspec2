@@ -112,6 +112,8 @@ FRONIUS = VendorProfile(
     # (#17). The community integration cycles the enable around every
     # write; here the cycle is behind CONF_REARM_ON_CHANGE.
     enable_edge={(123, "WMaxLimPct"): "WMaxLim_Ena", (123, "OutPFSet"): "OutPFSet_Ena"},
+    # The web interface's local login, for what Modbus does not carry.
+    web_user="customer",
     storage=StorageModeProfile(
         modes=tuple(StorageMode),
         recipes=RECIPES,

@@ -112,34 +112,59 @@ class SunSpecEntity(CoordinatorEntity["SunSpecDataUpdateCoordinator"]):
         "<Md> (SunSpec <id>) by <manufacturer>" and which matches the
         "(<id>)" suffix in the options-flow model multi-select.
         """
-        try:
-            md = self._device_data.getValue("Md")
-        except (KeyError, AttributeError):
-            md = None
-        suffix = device_model_suffix(self._model_id, self.model_info)
-        base = self._prefix or md
-        device_name: str | None
-        if base and suffix:
-            device_name = f"{base} {suffix}"
-        else:
-            device_name = base or suffix
-        info = DeviceInfo(
-            # HA types identifiers as set[tuple[str, str]] and this is a
-            # three-tuple. The integration creates one device per SunSpec
-            # model, so the entry id alone does not identify a device, and
-            # the registry stores whatever tuple it is handed. These
-            # identifiers are already written on every installed system:
-            # narrowing them to two elements would orphan every existing
-            # device and take the user's history, automations and
-            # dashboards with it.
-            identifiers={
-                (DOMAIN, self.config_entry.entry_id, self.model_info["name"])  # type: ignore[arg-type]
-            },
-            name=device_name,
-            model=md,
-            sw_version=self._device_data.getValue("Vr"),
-            manufacturer=self._device_data.getValue("Mn"),
+        return device_info_for(
+            self.config_entry, self._device_data, self.model_info, self._prefix, self._model_id
         )
-        if self._model_id is not None:
-            info["model_id"] = f"SunSpec {self._model_id}"
-        return info
+
+
+def device_info_for(
+    config_entry: ConfigEntry,
+    device_data: SunSpecModelWrapper,
+    model_info: dict[str, Any],
+    prefix: str,
+    model_id: int | None,
+) -> DeviceInfo:
+    """The device registry payload for one SunSpec model of one entry.
+
+    Shared by every entity that sits on such a device, whichever
+    coordinator feeds it. See ``SunSpecEntity.device_info`` for how
+    the name is composed.
+
+    Args:
+        config_entry (ConfigEntry): The entry the device belongs to.
+        device_data (SunSpecModelWrapper): Common model 1.
+        model_info (dict): The model's group definition.
+        prefix (str): The user's device name, or "".
+        model_id (int|None): The SunSpec model id.
+    """
+    try:
+        md = device_data.getValue("Md")
+    except (KeyError, AttributeError):
+        md = None
+    suffix = device_model_suffix(model_id, model_info)
+    base = prefix or md
+    device_name: str | None
+    if base and suffix:
+        device_name = f"{base} {suffix}"
+    else:
+        device_name = base or suffix
+    info = DeviceInfo(
+        # HA types identifiers as set[tuple[str, str]] and this is a
+        # three-tuple. The integration creates one device per SunSpec
+        # model, so the entry id alone does not identify a device, and
+        # the registry stores whatever tuple it is handed. These
+        # identifiers are already written on every installed system:
+        # narrowing them to two elements would orphan every existing
+        # device and take the user's history, automations and
+        # dashboards with it.
+        identifiers={
+            (DOMAIN, config_entry.entry_id, model_info["name"])  # type: ignore[arg-type]
+        },
+        name=device_name,
+        model=md,
+        sw_version=device_data.getValue("Vr"),
+        manufacturer=device_data.getValue("Mn"),
+    )
+    if model_id is not None:
+        info["model_id"] = f"SunSpec {model_id}"
+    return info

@@ -103,9 +103,12 @@
           "write_beta_enabled": "Enable experimental export controls (BETA: export limit, power factor and grid connection from models 123 / 704, and the set_export_limit action). Off by default. Read the docs before enabling; writing to the wrong Modbus register can lock you out until a physical reset. The battery controls of model 124 do not need this.",
           "release_slot": "Release the Modbus connection between polls",
           "standby_when_idle": "Inverter powers down when idle (no repair notification while it is unreachable)",
-          "rearm_on_change": "Re-apply the export limit and power factor by switching them off and on when their value changes (Fronius)"
+          "rearm_on_change": "Re-apply the export limit and power factor by switching them off and on when their value changes (Fronius)",
+          "fronius_web_password": "Web interface password (Fronius, the local \"customer\" login)",
+          "fronius_web_forget": "Forget the stored web interface login"
         },
         "data_description": {
+          "fronius_web_password": "Unlocks what a GEN24 tells its own web page and not Modbus: temperatures, the battery's identity and cell temperature, where the smart meter sits, the grid charging flags, whether Modbus control is allowed, and a Modbus reset. The password is not stored; a hash of it that logs in to this inverter and nothing else is. Leave the field empty to keep the stored login.",
           "rearm_on_change": "A Fronius GEN24 takes a new export limit or power factor only when its enable switch goes from off to on. With this on, changing a value while its switch is on writes the switch off, the new value, and the switch on again, one second apart, so for that second the inverter runs without the limit. Off: the value is written on its own and the inverter keeps the old one until the switch is turned off and on, by you or by an automation.",
           "release_slot": "Off is recommended. The integration keeps one Modbus session open, which is what Modbus TCP is designed for and what inverters handle best. Turn this on only if another program outside Home Assistant has to read the same inverter and cannot go through a Modbus proxy. Taking turns on a single connection is unreliable, and many inverters refuse new connections when asked for one every few seconds.",
           "max_ac_power_kw": "Readings above this are discarded as implausible. Pre-filled from the inverter's own nameplate with 20% headroom, because inverters overshoot their continuous rating and DC power always reads above AC output. Do not lower it to the bare nameplate: the DC power and apparent power sensors would then read \"unknown\" for most of a sunny day. Clear the field to switch the filter off.",
@@ -115,7 +118,9 @@
     },
     "error": {
       "no_models_selected": "Select at least one SunSpec model. Saving an empty selection would stop the integration from polling the inverter and all sensors would disappear.",
-      "connection": "Cannot reach the inverter right now. Wait a moment and try again, or check the device is online."
+      "connection": "Cannot reach the inverter right now. Wait a moment and try again, or check the device is online.",
+      "web_auth_failed": "The inverter rejected that web interface password. It is the local \"customer\" login of the inverter's own web page, not the Solar.web account.",
+      "web_unreachable": "The inverter's web interface did not answer on port 80."
     }
   },
   "entity": {
@@ -221,6 +226,15 @@
       },
       "scheduled_discharge": {
         "name": "Scheduled discharge"
+      },
+      "battery_charge_from_grid": {
+        "name": "Battery charging from grid (web interface)"
+      },
+      "battery_charge_from_ac": {
+        "name": "Battery charging from AC (web interface)"
+      },
+      "modbus_control_allowed": {
+        "name": "Modbus control allowed"
       }
     },
     "time": {
@@ -229,6 +243,11 @@
       },
       "scheduled_discharge_end": {
         "name": "Scheduled discharge end"
+      }
+    },
+    "button": {
+      "reset_modbus_control": {
+        "name": "Reset Modbus control"
       }
     },
     "sensor": {
@@ -357,6 +376,19 @@
       },
       "pv_power": {
         "name": "PV power"
+      },
+      "inverter_temperature": {
+        "name": "Inverter temperature"
+      },
+      "battery_cell_temperature": {
+        "name": "Battery cell temperature"
+      },
+      "smart_meter_location": {
+        "name": "Smart meter location",
+        "state": {
+          "feed_in_point": "Feed-in point",
+          "consumption_path": "Consumption path"
+        }
       }
     }
   },

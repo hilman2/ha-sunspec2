@@ -25,7 +25,8 @@ On the inverter's web interface, *Communication -> Modbus*:
 4. For **Charge from grid** also enable *battery charging from DNO grid*
    under *Device configuration -> Components -> Battery*. The Modbus
    switch below is AND-linked with that setting and cannot turn grid
-   charging on by itself.
+   charging on by itself. With the web interface password entered
+   (see below), the integration sets it for you.
 5. Turn off any **scheduled charging** you set up in the web interface.
    Two controllers on one battery produce surprises.
 
@@ -151,10 +152,34 @@ charge never goes below the inverter's own minimum reserve.
 - **Meters** hang off the inverter under unit ID 200 (201, 202 for the
   next ones). Add them as further entries with the same IP and that
   unit ID; the integration takes turns on the connection by itself.
-- **What Modbus cannot do** on a GEN24: read temperatures, tell you
-  where the smart meter sits, or enable Modbus in the first place.
-  Those go through the inverter's web API, which this integration does
-  not use yet.
+- **What Modbus cannot do** on a GEN24, temperatures, the meter's
+  position, the grid charging flags, goes through the inverter's web
+  page. See the next section.
+
+## The web interface
+
+A GEN24 tells its own web page things it does not put into a
+register. With the password of that page, the integration reads them
+too. In the integration options, enter the **Web interface password**:
+the local `customer` login you use in the browser on the inverter's
+LAN address, not the Solar.web account. The password is not stored;
+what Home Assistant keeps is a hash of it that logs in to this inverter
+and nothing else. *Forget the stored web interface login* drops it.
+
+| Entity | What it does |
+|---|---|
+| Inverter temperature | Ambient temperature inside the inverter |
+| Battery cell temperature | With the battery's manufacturer, model and serial as attributes |
+| Smart meter location | Whether the primary meter sits at the feed-in point or in the consumption path. Every meter with its Modbus unit ID is in the attributes |
+| Battery charging from grid (web interface) | The flag `ChaGriSet` is AND-linked with. *Charge from grid* switches it on by itself while a login is stored |
+| Battery charging from AC (web interface) | Its companion flag; grid charging needs both |
+| Modbus control allowed | "Inverter control via Modbus" from the Modbus settings page |
+| Reset Modbus control | The web page's Modbus reset: clears every limit and mode set over Modbus |
+
+The web entities are polled once a minute over HTTP on the inverter's
+address. A web page that does not answer makes them unavailable and
+leaves the Modbus entities alone. A password that stops working shows
+up as the same, with the reason in the log.
 
 ## Reporting back
 

@@ -26,6 +26,7 @@ from . import get_sunspec_unique_id
 from .discharge_plan import discharge_plan_switch
 from .entity import SunSpecEntity
 from .errors import SunSpecError
+from .fronius_web_entities import fronius_web_switches
 from .models import SunSpecModelWrapper
 from .number import build_specs
 from .write_controls import PLATFORM_SWITCH
@@ -65,6 +66,8 @@ async def async_setup_entry(
     ]
     # The scheduled discharge, where the vendor's battery modes exist.
     entities.extend(discharge_plan_switch(coordinator, entry, prefix))
+    # The flags of the Fronius web interface, with a stored login.
+    entities.extend(fronius_web_switches(coordinator, entry, prefix))
     async_add_devices(entities)
 
 

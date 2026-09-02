@@ -151,6 +151,9 @@ class VendorProfile:
             point. Empty when the vendor applies a value as written.
         enable_edge_settle_seconds (float): The pause between writing
             such a value and raising its enable point again.
+        web_user (str|None): The local login of the device's web
+            interface, when the integration speaks it (see
+            ``fronius_web.py``). None for a vendor without one.
     """
 
     slug: str
@@ -159,6 +162,7 @@ class VendorProfile:
     module_role: Callable[[str], ModuleRole | None] | None = None
     enable_edge: Mapping[tuple[int, str], str] = field(default_factory=dict)
     enable_edge_settle_seconds: float = 1.0
+    web_user: str | None = None
 
     def matches(self, manufacturer: str | None) -> bool:
         if not manufacturer:

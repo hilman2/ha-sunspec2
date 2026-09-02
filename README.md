@@ -126,7 +126,9 @@ grid charging switch and the minimum reserve. **Fronius GEN24, Verto
 and Tauro with a battery** additionally get a *Battery mode* menu, from
 "Charge from grid" to "Block discharging", with the powers entered in
 watts, and a scheduled discharge that gives the battery's surplus back
-over night. See **[docs/fronius.md](docs/fronius.md)**.
+over night. With the password of the inverter's web page, temperatures,
+the smart meter's position and the grid charging flags come too. See
+**[docs/fronius.md](docs/fronius.md)**.
 
 **Export controls** are a beta and off by default: tick **"Enable
 experimental export controls (BETA)"** in the options for an export

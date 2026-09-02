@@ -22,6 +22,9 @@ from .api import SunSpecApiClient
 from .const import CONF_BAUDRATE
 from .const import CONF_CAPTURE_RAW
 from .const import CONF_ENABLED_MODELS
+from .const import CONF_FRONIUS_WEB_FORGET
+from .const import CONF_FRONIUS_WEB_PASSWORD
+from .const import CONF_FRONIUS_WEB_TOKEN
 from .const import CONF_HOST
 from .const import CONF_MAX_AC_POWER_KW
 from .const import CONF_PARITY
@@ -55,6 +58,9 @@ from .errors import DeviceError
 from .errors import ProtocolError
 from .errors import TransientError
 from .errors import TransportError
+from .fronius_web import FroniusWebAuthError
+from .fronius_web import FroniusWebError
+from .fronius_web import async_mint_token
 from .model_labels import sunspec_model_labels
 
 _LOGGER: logging.Logger = logging.getLogger(__package__)
@@ -64,6 +70,12 @@ _LOGGER: logging.Logger = logging.getLogger(__package__)
 # validator) is required so voluptuous_serialize can serialise the schema
 # when the frontend requests the options form - otherwise the POST to
 # config/config_entries/options/flow raises and the form never renders.
+# The web interface password is typed once and turned into the Digest
+# secret in the same step; the field never has a stored value to show.
+_PASSWORD_SELECTOR = selector.TextSelector(
+    selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD)
+)
+
 _MAX_AC_POWER_SELECTOR = selector.NumberSelector(
     selector.NumberSelectorConfig(
         min=0.1,
@@ -834,6 +846,12 @@ class SunSpecOptionsFlowHandler(config_entries.OptionsFlow):
             if not user_input.get(CONF_ENABLED_MODELS):
                 errors["base"] = "no_models_selected"
             else:
+                # The password goes no further than this method: it is
+                # turned into the Digest secret below and only that is
+                # stored. Popped before the update so it never lands in
+                # the options, not even by accident.
+                password = user_input.pop(CONF_FRONIUS_WEB_PASSWORD, "")
+                forget_web_login = user_input.pop(CONF_FRONIUS_WEB_FORGET, False)
                 self.options.update(user_input)
                 # The UI promises "leave it empty to disable filtering",
                 # and until #45 that promise was a no-op. An emptied
@@ -846,7 +864,22 @@ class SunSpecOptionsFlowHandler(config_entries.OptionsFlow):
                 # their legitimate readings. Delete explicitly.
                 if CONF_MAX_AC_POWER_KW not in user_input:
                     self.options.pop(CONF_MAX_AC_POWER_KW, None)
-                return await self._update_options()
+                if forget_web_login:
+                    self.options.pop(CONF_FRONIUS_WEB_TOKEN, None)
+                if password:
+                    host = str(
+                        self.settings.get(CONF_HOST) or self.config_entry.data.get(CONF_HOST)
+                    )
+                    try:
+                        token = await async_mint_token(self.hass, host, password)
+                    except FroniusWebAuthError:
+                        errors["base"] = "web_auth_failed"
+                    except FroniusWebError:
+                        errors["base"] = "web_unreachable"
+                    else:
+                        self.options[CONF_FRONIUS_WEB_TOKEN] = token.as_dict()
+                if not errors:
+                    return await self._update_options()
 
         prefix = self.config_entry.options.get(CONF_PREFIX, self.config_entry.data.get(CONF_PREFIX))
         scan_interval = self.config_entry.options.get(
@@ -955,6 +988,17 @@ class SunSpecOptionsFlowHandler(config_entries.OptionsFlow):
             vendor = getattr(self.coordinator, "vendor", None)
             if vendor is not None and vendor.enable_edge:
                 schema[vol.Optional(CONF_REARM_ON_CHANGE, default=rearm_on_change)] = bool
+            # The web interface login, for a vendor whose web API the
+            # integration speaks, on a TCP entry: the web page lives on
+            # the same address as the Modbus port.
+            if (
+                vendor is not None
+                and vendor.web_user
+                and self.config_entry.data.get(CONF_TRANSPORT, TRANSPORT_TCP) == TRANSPORT_TCP
+            ):
+                schema[vol.Optional(CONF_FRONIUS_WEB_PASSWORD)] = _PASSWORD_SELECTOR
+                if self.config_entry.options.get(CONF_FRONIUS_WEB_TOKEN):
+                    schema[vol.Optional(CONF_FRONIUS_WEB_FORGET, default=False)] = bool
             # Use suggested_value (not default) for the optional float so
             # the form field can stay genuinely empty - an empty value
             # disables the plausibility filter rather than coercing to 0.
@@ -991,7 +1035,10 @@ class SunSpecOptionsFlowHandler(config_entries.OptionsFlow):
             "Saving config entry with title %s, data: %s options %s",
             title,
             self.settings,
-            self.options,
+            {
+                key: "***" if key == CONF_FRONIUS_WEB_TOKEN else value
+                for key, value in self.options.items()
+            },
         )
         # Merge, do not replace. self.settings only ever holds what the host
         # form asked for: host, port and unit id. A serial entry keeps its

@@ -22,6 +22,7 @@ async def test_diagnostics_basic_shape(hass, sunspec_client_mock):
         "options",
         "detected_models",
         "vendor",
+        "fronius_web",
         "model_filters",
         "scanned_models",
         "latest_values",
