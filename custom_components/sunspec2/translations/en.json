@@ -197,6 +197,36 @@
       },
       "sma_power_setpoint": {
         "name": "External power setpoint"
+      },
+      "battery_min_soc": {
+        "name": "Minimum state of charge"
+      },
+      "battery_max_soc": {
+        "name": "Maximum state of charge"
+      },
+      "battery_max_charge_power_limit": {
+        "name": "Charge power limit"
+      },
+      "battery_max_discharge_power_limit": {
+        "name": "Discharge power limit"
+      },
+      "battery_dc_power_setpoint": {
+        "name": "DC power setpoint"
+      },
+      "battery_limitation_charge_power": {
+        "name": "Held charge power limit"
+      },
+      "battery_limitation_discharge_power": {
+        "name": "Held discharge power limit"
+      },
+      "battery_fallback_charge_power": {
+        "name": "Charge power after fallback"
+      },
+      "battery_fallback_discharge_power": {
+        "name": "Discharge power after fallback"
+      },
+      "battery_fallback_time": {
+        "name": "Time until fallback"
       }
     },
     "select": {
@@ -335,6 +365,9 @@
       },
       "sma_power_setpoint_keepalive": {
         "name": "Keep external power setpoint"
+      },
+      "battery_limitation_hold": {
+        "name": "Hold the power limits"
       }
     },
     "time": {

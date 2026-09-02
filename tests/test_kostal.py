@@ -7,20 +7,31 @@ the register images in tests/kostal_registers.py.
 from typing import cast
 
 from homeassistant.helpers import device_registry as dr
+from pytest_homeassistant_custom_component.common import async_fire_time_changed
 
 from custom_components.sunspec2 import get_sunspec_unique_id
+from custom_components.sunspec2.const import CONF_WRITE_BETA_ENABLED
 from custom_components.sunspec2.const import DOMAIN
 from custom_components.sunspec2.const import default_models_for
 from custom_components.sunspec2.raw_blocks import decode_block
+from custom_components.sunspec2.raw_blocks import decode_field
+from custom_components.sunspec2.vendor_blocks import RawBlockNumber
 from custom_components.sunspec2.vendor_blocks import RawBlockSensor
+from custom_components.sunspec2.vendor_blocks import RawKeepAliveSwitch
 from custom_components.sunspec2.vendors import profile_for
 from custom_components.sunspec2.vendors.kostal import KOSTAL
+from custom_components.sunspec2.vendors.kostal import LIMITATION_REASSERT_SECONDS
+from custom_components.sunspec2.vendors.kostal import MAX_BATTERY_POWER_W
 from custom_components.sunspec2.vendors.kostal import RAW_BLOCKS
 from custom_components.sunspec2.vendors.kostal import as_option
+from custom_components.sunspec2.vendors.profile import RawField
 
 from . import create_mock_sunspec_config_entry
 from . import setup_mock_sunspec_config_entry
+from .kostal_registers import at
+from .kostal_registers import f32
 from .kostal_registers import plenticore_registers
+from .kostal_registers import registers_written
 
 # ---------- the profile ------------------------------------------------------
 
@@ -87,6 +98,20 @@ def test_every_field_decodes_at_the_address_the_interface_description_gives():
         "management_mode": 0x02,
         "sensor_type": 0x03,
     }
+    assert decoded["battery_control"] == {
+        "dc_power_setpoint": 0.0,
+        "max_charge_power_limit": 7000.0,
+        "max_discharge_power_limit": 7000.0,
+        "min_soc": 5.0,
+        "max_soc": 100.0,
+    }
+    assert decoded["battery_limitation"] == {
+        "max_charge_power": 4000.0,
+        "max_discharge_power": 4000.0,
+        "fallback_charge_power": 7000.0,
+        "fallback_discharge_power": 7000.0,
+        "fallback_seconds": 30,
+    }
 
 
 def test_an_enum_kostal_puts_in_a_float_register_reaches_its_option_map():
@@ -141,6 +166,8 @@ async def test_a_plenticore_reads_every_block(hass, sunspec_kostal_client_mock):
         "battery_state",
         "battery_energy",
         "battery_limits",
+        "battery_control",
+        "battery_limitation",
     }
 
 
@@ -196,3 +223,132 @@ async def test_an_inverter_without_a_battery_gets_no_battery_entities(
     assert _device(hass, entry, "battery") is None
     # The inverter's own block is untouched by the gate.
     assert sensors[_uid(entry, "inverter", "home_consumption_pv")].native_value == 450.0
+
+
+# ---------- the controls ------------------------------------------------------
+
+
+def _controls(hass, platform, cls):
+    component = hass.data.get("entity_components", {}).get(platform)
+    return (
+        {e.translation_key: e for e in component.entities if isinstance(e, cls)}
+        if component
+        else {}
+    )
+
+
+async def _write_entry(hass, beta=False):
+    entry = create_mock_sunspec_config_entry(
+        hass, options={CONF_WRITE_BETA_ENABLED: True} if beta else {}
+    )
+    await setup_mock_sunspec_config_entry(hass, config_entry=entry)
+    return entry
+
+
+async def test_the_battery_bounds_exist_without_the_beta(hass, sunspec_kostal_client_mock):
+    """Bounding the battery is not driving it, so it needs no opt-in."""
+    await _write_entry(hass)
+    numbers = _controls(hass, "number", RawBlockNumber)
+    assert set(numbers) == {
+        "battery_min_soc",
+        "battery_max_soc",
+        "battery_max_charge_power_limit",
+        "battery_max_discharge_power_limit",
+        "battery_limitation_charge_power",
+        "battery_limitation_discharge_power",
+        "battery_fallback_charge_power",
+        "battery_fallback_discharge_power",
+        "battery_fallback_time",
+    }
+    assert numbers["battery_min_soc"].native_value == 5.0
+    assert numbers["battery_max_soc"].native_value == 100.0
+    assert numbers["battery_fallback_time"].native_value == 30
+    assert set(_controls(hass, "switch", RawKeepAliveSwitch)) == {"battery_limitation_hold"}
+
+
+async def test_the_dc_setpoint_stays_away_without_the_beta(hass, sunspec_kostal_client_mock):
+    """The one entity that drives the battery, and the one Kostal names no timeout for."""
+    await _write_entry(hass)
+    assert "battery_dc_power_setpoint" not in _controls(hass, "number", RawBlockNumber)
+
+
+async def test_the_dc_setpoint_appears_with_the_beta(hass, sunspec_kostal_client_mock):
+    await _write_entry(hass, beta=True)
+    setpoint = _controls(hass, "number", RawBlockNumber)["battery_dc_power_setpoint"]
+    assert setpoint.native_value == 0.0
+    # Negative charges, which is Kostal's sign convention.
+    assert setpoint.native_min_value == -MAX_BATTERY_POWER_W
+    assert setpoint.native_max_value == MAX_BATTERY_POWER_W
+
+
+async def test_setting_the_minimum_state_of_charge_writes_the_register(
+    hass, sunspec_kostal_client_mock
+):
+    """1042, float32 with the low word first."""
+    await _write_entry(hass)
+    number = _controls(hass, "number", RawBlockNumber)["battery_min_soc"]
+    await number.async_set_native_value(20.0)
+    await hass.async_block_till_done()
+
+    written = registers_written(sunspec_kostal_client_mock, 1042, 2)
+    assert decode_field(RawField("min_soc", 0, "float32"), written, "little") == 20.0
+
+
+async def test_an_inverter_below_the_limitation_firmware_gets_the_rest(
+    hass, sunspec_kostal_g1_client_mock
+):
+    """1280 is PLENTICORE G3 from SW 03.05; older inverters answer an exception there."""
+    entry = await _write_entry(hass)
+    assert "battery_limitation" not in entry.runtime_data.raw_blocks
+    numbers = _controls(hass, "number", RawBlockNumber)
+    assert set(numbers) == {
+        "battery_min_soc",
+        "battery_max_soc",
+        "battery_max_charge_power_limit",
+        "battery_max_discharge_power_limit",
+    }
+    assert not _controls(hass, "switch", RawKeepAliveSwitch)
+
+
+async def test_the_held_limits_are_written_again_before_the_inverter_falls_back(
+    hass, sunspec_kostal_client_mock, freezer
+):
+    """Stop writing 1280 and 1282 and the fallback pair takes over after 1288 seconds.
+
+    The rewrite has to come round sooner than the smallest fallback
+    time the inverter accepts, or a user who sets 30 seconds there
+    loses the limit between two rewrites.
+    """
+    assert LIMITATION_REASSERT_SECONDS < 30
+
+    await _write_entry(hass)
+    switch = _controls(hass, "switch", RawKeepAliveSwitch)["battery_limitation_hold"]
+    number = _controls(hass, "number", RawBlockNumber)["battery_limitation_charge_power"]
+    await number.async_set_native_value(2500.0)
+    await hass.async_block_till_done()
+
+    await switch.async_turn_on()
+    await hass.async_block_till_done()
+    assert switch.is_on
+
+    # As if the inverter had dropped back to its fallback on its own.
+    sunspec_kostal_client_mock.registers.update(at(1280, f32(0.0)))
+    freezer.tick(LIMITATION_REASSERT_SECONDS + 1)
+    async_fire_time_changed(hass)
+    # The interval fires the rewrite as a background task, which the
+    # plain block_till_done does not wait for.
+    await hass.async_block_till_done(wait_background_tasks=True)
+
+    written = registers_written(sunspec_kostal_client_mock, 1280, 2)
+    assert decode_field(RawField("held", 0, "float32"), written, "little") == 2500.0
+
+    # Switched off, the inverter is left to fall back.
+    await switch.async_turn_off()
+    await hass.async_block_till_done()
+    sunspec_kostal_client_mock.registers.update(at(1280, f32(0.0)))
+    freezer.tick(LIMITATION_REASSERT_SECONDS + 1)
+    async_fire_time_changed(hass)
+    await hass.async_block_till_done(wait_background_tasks=True)
+
+    written = registers_written(sunspec_kostal_client_mock, 1280, 2)
+    assert decode_field(RawField("held", 0, "float32"), written, "little") == 0.0

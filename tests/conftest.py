@@ -18,6 +18,7 @@ from custom_components.sunspec2.pysunspec2.modbus.modbus import ModbusClientExce
 from custom_components.sunspec2.pysunspec2.modbus.modbus import ModbusClientTimeout
 
 from .kostal_registers import no_battery_registers
+from .kostal_registers import plenticore_g1_registers
 from .kostal_registers import plenticore_registers
 from .sma_registers import smart_energy_registers
 from .solaredge_registers import home_hub_registers
@@ -279,6 +280,18 @@ def sunspec_kostal_client_mock():
     client = MockFileClientDevice("./tests/test_data/inverter_kostal.json")
     client.scan()
     client.registers = plenticore_registers()
+    with (
+        patch("custom_components.sunspec2.SunSpecApiClient.modbus_connect", return_value=client),
+    ):
+        yield client
+
+
+@pytest.fixture
+def sunspec_kostal_g1_client_mock():
+    """A Kostal below SW 03.05: no battery limitation block at 1280."""
+    client = MockFileClientDevice("./tests/test_data/inverter_kostal.json")
+    client.scan()
+    client.registers = plenticore_g1_registers()
     with (
         patch("custom_components.sunspec2.SunSpecApiClient.modbus_connect", return_value=client),
     ):

@@ -197,6 +197,36 @@
       },
       "sma_power_setpoint": {
         "name": "Externe Leistungsvorgabe"
+      },
+      "battery_min_soc": {
+        "name": "Minimaler Ladezustand"
+      },
+      "battery_max_soc": {
+        "name": "Maximaler Ladezustand"
+      },
+      "battery_max_charge_power_limit": {
+        "name": "Grenze der Ladeleistung"
+      },
+      "battery_max_discharge_power_limit": {
+        "name": "Grenze der Entladeleistung"
+      },
+      "battery_dc_power_setpoint": {
+        "name": "DC-Leistungssollwert"
+      },
+      "battery_limitation_charge_power": {
+        "name": "Gehaltene Grenze der Ladeleistung"
+      },
+      "battery_limitation_discharge_power": {
+        "name": "Gehaltene Grenze der Entladeleistung"
+      },
+      "battery_fallback_charge_power": {
+        "name": "Ladeleistung nach Rückfall"
+      },
+      "battery_fallback_discharge_power": {
+        "name": "Entladeleistung nach Rückfall"
+      },
+      "battery_fallback_time": {
+        "name": "Zeit bis zum Rückfall"
       }
     },
     "select": {
@@ -335,6 +365,9 @@
       },
       "sma_power_setpoint_keepalive": {
         "name": "Externe Leistungsvorgabe festhalten"
+      },
+      "battery_limitation_hold": {
+        "name": "Leistungsgrenzen halten"
       }
     },
     "time": {
