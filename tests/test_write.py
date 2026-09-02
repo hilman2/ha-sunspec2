@@ -128,6 +128,38 @@ async def test_write_enum_point_needs_no_scale_factor(hass):
     point.write.assert_not_called()
 
 
+def test_a_float_in_an_unscaled_register_breaks_the_encoder(hass):
+    """Characterisation test: the failure #57 hit, pinned against pysunspec2.
+
+    Home Assistant carries every Number's state as a float. A point with
+    a scale factor survives that, because ``set_value`` divides and
+    rounds; a point without one keeps the float until ``struct.pack``
+    refuses it. If a future pysunspec2 starts coercing on its own, this
+    goes red and the workaround can be reconsidered.
+    """
+    _api, model, _calls = _api_with_model(hass, 124, {})
+    point = model.points["InOutWRte_RvrtTms"]
+    assert point.sf_required is False
+    point.cvalue = 303.0
+
+    with pytest.raises(ModelError, match="required argument is not an integer"):
+        point.get_mb(computed=True)
+
+
+async def test_a_seconds_register_takes_a_float_from_a_number_entity(hass):
+    """#57: 303.0 goes into the register as 303, and a scaled point keeps its decimals."""
+    api, model, _calls = _api_with_model(hass, 124, {"InOutWRte_SF": -2})
+
+    await api._async_write_points(124, [("InOutWRte_RvrtTms", 303.0), ("OutWRte", 12.5)])
+
+    revert = model.points["InOutWRte_RvrtTms"]
+    assert revert.value == 303
+    assert isinstance(revert.value, int)
+    assert revert.get_mb(computed=True) == b"\x01\x2f"
+    # 12.5 % at a scale factor of -2 is 1250 in the register, not 12.
+    assert model.points["OutWRte"].value == 1250
+
+
 async def test_write_surfaces_unimplemented_scale_factor_as_device_error(hass):
     """A device that does not implement the SF must not leak a raw traceback.
 

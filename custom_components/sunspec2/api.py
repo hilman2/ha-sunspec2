@@ -31,6 +31,7 @@ from .logger import SunSpecLoggerAdapter
 from .logger import get_adapter
 from .models import SunSpecModelWrapper
 from .pysunspec2 import mb
+from .pysunspec2 import mdef
 from .pysunspec2.device import ModelError
 from .pysunspec2.device import preload_model_defs
 from .pysunspec2.modbus.client import SunSpecModbusClientError
@@ -504,6 +505,33 @@ class SunSpecApiClient:
             return
         await self._as_unit(client, unit_id, lambda: client.async_write(address, data))
 
+    @staticmethod
+    def _encodable(point: Any, value: object) -> object:
+        """``value`` as the point's Modbus encoder takes it: an integer point gets an int.
+
+        Home Assistant carries every Number's state as a float, so a
+        Number over a whole-number register hands this path 303.0 where
+        ``struct.pack`` wants 303. pysunspec2 rounds on its own for a
+        *scaled* point, dividing by the scale factor, so those are left
+        alone: 12.5 % with a scale factor of -1 has to stay 12.5.
+        A point without one takes the value as given and raised
+        "required argument is not an integer" on every seconds and
+        percent register that carries no scale factor, the Fronius
+        battery revert time in #57 among them.
+
+        Args:
+            point (Any): The pysunspec2 point being written.
+            value (object): What the caller wants in it.
+
+        Returns:
+            object: The value, rounded to an int where the register holds one.
+        """
+        if point.sf_required or not isinstance(value, float):
+            return value
+        if point.info is None or point.info.to_type is not mdef.to_int:
+            return value
+        return round(value)
+
     async def _async_write_points(self, model_id: int, points: list[tuple[str, object]]) -> None:
         client = await self.async_get_client()
         models = client.models.get(model_id)
@@ -553,7 +581,7 @@ class SunSpecApiClient:
         # pending value.
         await model.async_read()
         for point, value in resolved:
-            point.cvalue = value
+            point.cvalue = self._encodable(point, value)
         # One flush for the whole batch, not one per point.
         # ``Group.write_points`` only emits the points it finds dirty
         # and coalesces consecutive registers into a single frame, so

@@ -83,6 +83,9 @@ def _local(hour, minute=0, second=0):
 
 
 DISCHARGE_TO_GRID_450_W = [
+    # The device's own revert timer first, pointed at the end of the
+    # ten hour window, then the rates, then the mode (#57).
+    (124, [("InOutWRte_RvrtTms", 36000)]),
     (124, [("OutWRte", 100.0), ("InWRte", -9.0)]),
     (124, [("StorCtl_Mod", 1)]),
 ]
@@ -183,7 +186,8 @@ async def test_switched_on_inside_the_window_plans_what_is_left(
 
     assert planner.settings.enabled
     assert planner.planned_power_w == 1120.0
-    model_id, rates = write.call_args_list[0].args
+    assert write.call_args_list[0].args == (124, [("InOutWRte_RvrtTms", 14400)])
+    model_id, rates = write.call_args_list[1].args
     assert model_id == 124
     assert rates[0] == ("OutWRte", 100.0)
     assert rates[1][0] == "InWRte"
@@ -235,6 +239,103 @@ async def test_switched_off_outside_the_window_leaves_the_battery_alone(
         await switch.async_turn_off()
 
     write.assert_not_called()
+
+
+async def test_a_round_the_clock_window_caps_the_revert_timer(
+    hass, sunspec_fronius_client_mock, freezer
+):
+    """``InOutWRte_RvrtTms`` is a uint16 of seconds, so 24 hours do not fit in it."""
+    freezer.move_to(_local(23))
+    entry = await _entry(hass)
+    planner = entry.runtime_data.discharge_plan
+    planner.settings.capacity_kwh = 10.0
+    planner.settings.enabled = True
+    planner.async_set_window(start=time(23, 0), end=time(23, 0))
+
+    with patch.object(entry.runtime_data.api, "async_write_points") as write:
+        await planner.async_at_start()
+
+    assert write.call_args_list[0].args == (124, [("InOutWRte_RvrtTms", 65535)])
+
+
+async def test_a_device_that_keeps_its_own_short_timer_is_written_again(
+    hass, sunspec_fronius_client_mock, freezer
+):
+    """#57: the GEN24 that drops the rates after 300 s gets them again at 270.
+
+    The plan asks for a timer that covers the window. This is the net
+    under a device that answers with a shorter one anyway: the interval
+    is paced off what the device reports, not off what was asked for.
+    """
+    freezer.move_to(_local(23))
+    sunspec_fronius_client_mock.models[124][0].points["InOutWRte_RvrtTms"].value = 300
+    entry = await _entry(hass)
+    planner = entry.runtime_data.discharge_plan
+    planner.settings.capacity_kwh = 10.0
+    planner.settings.enabled = True
+
+    with patch.object(entry.runtime_data.api, "async_write_points") as write:
+        await planner.async_resume()
+        write.reset_mock()
+        async_fire_time_changed(hass, _local(23) + timedelta(seconds=271))
+        await hass.async_block_till_done(wait_background_tasks=True)
+
+    # Seven hours are left of the window at 23:00, and 4.5 kWh over
+    # seven hours is 640 W once floored to the vendor's 10 W step.
+    assert write.call_count == 3
+    assert write.call_args_list[0].args == (124, [("InOutWRte_RvrtTms", 25200)])
+    assert write.call_args_list[2].args == (124, [("StorCtl_Mod", 1)])
+    assert planner.planned_power_w == 640.0
+
+
+async def test_the_end_of_the_window_puts_the_revert_time_back(
+    hass, sunspec_fronius_client_mock, freezer
+):
+    """The plan borrows the register for the night, it does not keep it."""
+    freezer.move_to(_local(23))
+    entry = await _entry(hass)
+    planner = entry.runtime_data.discharge_plan
+    planner.settings.capacity_kwh = 10.0
+    planner.settings.enabled = True
+
+    with patch.object(entry.runtime_data.api, "async_write_points") as write:
+        await planner.async_resume()
+        write.reset_mock()
+        await planner.async_at_end()
+
+    assert [call.args for call in write.call_args_list] == [
+        *AUTOMATIC,
+        (124, [("InOutWRte_RvrtTms", 0)]),
+    ]
+
+
+async def test_reaching_the_reserve_hands_the_battery_back(
+    hass, sunspec_fronius_client_mock, freezer
+):
+    """Nothing left to give: the battery goes back to automatic then, not at the end.
+
+    Left in the forced mode it would idle there until the device's own
+    timer lapses, and with the timer set to the window that is hours.
+    """
+    freezer.move_to(_local(23))
+    entry = await _entry(hass)
+    planner = entry.runtime_data.discharge_plan
+    planner.settings.capacity_kwh = 10.0
+    planner.settings.enabled = True
+
+    with patch.object(entry.runtime_data.api, "async_write_points") as write:
+        await planner.async_resume()
+        # The fixture reports 55 % charge; a reserve above that is the
+        # battery having arrived at it.
+        planner.settings.reserve_pct = 90.0
+        write.reset_mock()
+        await planner.async_resume()
+
+    assert [call.args for call in write.call_args_list] == [
+        *AUTOMATIC,
+        (124, [("InOutWRte_RvrtTms", 0)]),
+    ]
+    assert planner.planned_power_w == 0.0
 
 
 async def test_the_window_is_set_through_the_time_entities(hass, sunspec_fronius_client_mock):
@@ -301,4 +402,4 @@ async def test_after_a_restart_inside_the_window_the_plan_resumes(
         await hass.async_block_till_done(wait_background_tasks=True)
 
     assert planner.planned_power_w == 1120.0
-    assert write.call_count == 2
+    assert write.call_count == 3
