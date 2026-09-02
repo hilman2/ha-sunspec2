@@ -1208,7 +1208,7 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator[dict[int, SunSpecModelW
                 f"gateway to become free; the inverter is busy, try again"
             ) from exc
         try:
-            await self.api.async_write_block(address, data)
+            await self.api.async_write_block(address, data, unit_id_offset=block.unit_id_offset)
         finally:
             # See async_write_points_locked for why the session closes
             # under the lock where the slot is handed back.

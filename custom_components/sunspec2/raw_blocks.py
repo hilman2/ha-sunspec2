@@ -68,7 +68,14 @@ def _join(words: tuple[int, ...], word_order: str) -> int:
 
 
 def decode_field(field: RawField, data: bytes, word_order: str) -> Any:
-    """The value of ``field`` in ``data``, or None for a not-implemented sentinel."""
+    """The value of ``field`` in ``data``, scaled, or None for a not-implemented sentinel."""
+    value = _decode_raw(field, data, word_order)
+    if value is None or field.kind == "string" or field.scale == 1.0:
+        return value
+    return value * field.scale
+
+
+def _decode_raw(field: RawField, data: bytes, word_order: str) -> Any:
     kind = field.kind
     if kind == "string":
         raw = data[field.offset * 2 : (field.offset + field.length) * 2]
@@ -157,6 +164,8 @@ class RawBlockReader:
         self._cycle += 1
         result: dict[str, dict[str, Any]] = {}
         for block in blocks:
+            if not block.readable:
+                continue
             probe = self._probes.setdefault(block.key, _Probe())
             if block.gate is not None:
                 gate_block, gate_field = block.gate
@@ -166,7 +175,9 @@ class RawBlockReader:
             if probe.skip_until is not None and self._cycle < probe.skip_until:
                 continue
             try:
-                data = await self._api.async_read_block(block.address, block.count)
+                data = await self._api.async_read_block(
+                    block.address, block.count, unit_id_offset=block.unit_id_offset
+                )
                 decoded = decode_block(block, data)
             except DeviceError as exc:
                 # A Modbus exception: the device does not serve these

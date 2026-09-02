@@ -139,12 +139,15 @@ class RawField:
         kind (str): ``"uint16"``, ``"int16"``, ``"uint32"``, ``"int32"``,
             ``"float32"``, ``"uint64"`` or ``"string"``.
         length (int): Registers, for ``"string"``. Ignored otherwise.
+        scale (float): What a decoded integer is multiplied by. SMA's
+            fixed-point registers carry a value in 0.001 A or 0.01 V.
     """
 
     name: str
     offset: int
     kind: str
     length: int = 1
+    scale: float = 1.0
 
 
 @dataclass(frozen=True)
@@ -163,6 +166,12 @@ class RawBlock:
             block. This block is read only while that field is a number
             above zero: a battery slot whose nameplate says whether a
             battery is there.
+        unit_id_offset (int): Added to the entry's unit id for this
+            block. SMA serves its own registers 123 unit ids below the
+            SunSpec ones.
+        readable (bool): False for a block of write-only setpoints
+            that reads back nothing useful. It is never polled; its
+            entities show what Home Assistant last wrote.
     """
 
     key: str
@@ -171,6 +180,8 @@ class RawBlock:
     fields: tuple[RawField, ...]
     word_order: str = "big"
     gate: tuple[str, str] | None = None
+    unit_id_offset: int = 0
+    readable: bool = True
 
 
 @dataclass(frozen=True)
@@ -320,6 +331,8 @@ class RawKeepAlive:
             as ``only_while(block_data)``. Returns whether the rewrite
             applies now, for a command that only means anything in a
             certain mode.
+        settle_seconds (float): The pause between the fields' writes.
+            SMA wants its control flag a moment before the setpoint.
         device (str): ``"inverter"`` or the key of a ``RawDevice``.
         beta (bool): Only with the experimental export controls on.
         icon (str|None): The icon.
@@ -330,6 +343,7 @@ class RawKeepAlive:
     fields: tuple[str, ...]
     interval_seconds: float
     only_while: Callable[[Mapping[str, Any]], bool] | None = None
+    settle_seconds: float = 0.0
     device: str = "inverter"
     beta: bool = False
     icon: str | None = None

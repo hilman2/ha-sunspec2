@@ -72,7 +72,8 @@
       "invalid_subnet": "The subnet is not valid CIDR notation, or it is too large to scan (use a /22 or smaller).",
       "no_candidates": "No hosts with Modbus TCP port 502 open were found in this subnet.",
       "no_models_selected": "Select at least one SunSpec model. Saving an empty selection would stop the integration from polling the inverter and all sensors would disappear.",
-      "unique_id_mismatch": "The inverter at this address reports a different serial number than the one you originally configured. Refusing to swap your sensor history onto a different device."
+      "unique_id_mismatch": "The inverter at this address reports a different serial number than the one you originally configured. Refusing to swap your sensor history onto a different device.",
+      "sma_unit_id": "The inverter answers SunSpec on unit ID 126, not on the one entered. SMA puts SunSpec at its own Modbus unit ID plus 123. The field has been set to 126; submit again."
     },
     "abort": {
       "already_configured": "This inverter is already configured.",
@@ -193,6 +194,9 @@
       },
       "active_power_limit": {
         "name": "Active power limit"
+      },
+      "sma_power_setpoint": {
+        "name": "External power setpoint"
       }
     },
     "select": {
@@ -283,6 +287,13 @@
           "total": "Total",
           "per_phase": "Per phase"
         }
+      },
+      "sma_power_control": {
+        "name": "External power control",
+        "state": {
+          "inactive": "Inactive",
+          "active": "Active"
+        }
       }
     },
     "switch": {
@@ -321,6 +332,9 @@
       },
       "active_power_limit_reassert": {
         "name": "Keep active power limit asserted"
+      },
+      "sma_power_setpoint_keepalive": {
+        "name": "Keep external power setpoint"
       }
     },
     "time": {
@@ -491,6 +505,51 @@
       },
       "register_writes": {
         "name": "Register writes"
+      },
+      "sma_device_class": {
+        "name": "Device class",
+        "state": {
+          "pv_inverter": "PV inverter",
+          "wind_inverter": "Wind inverter",
+          "battery_inverter": "Battery inverter",
+          "load": "Load",
+          "sensor": "Sensor",
+          "energy_meter": "Energy meter",
+          "communication": "Communication product"
+        }
+      },
+      "sma_device_type": {
+        "name": "Device type code"
+      },
+      "sma_operating_status": {
+        "name": "Operating status",
+        "state": {
+          "fault": "Fault",
+          "off": "Off",
+          "ok": "Ok",
+          "warning": "Warning"
+        }
+      },
+      "sma_active_power_mode": {
+        "name": "Active power operating mode",
+        "state": {
+          "off": "Off",
+          "watts": "Watts",
+          "percent": "Percent",
+          "external_setpoint": "External setpoint"
+        }
+      },
+      "sma_setpoint_timeout": {
+        "name": "External setpoint timeout"
+      },
+      "battery_state_of_charge": {
+        "name": "Battery state of charge"
+      },
+      "battery_capacity_pct": {
+        "name": "Battery capacity"
+      },
+      "battery_status_code": {
+        "name": "Battery status code"
       },
       "battery_state_of_energy": {
         "name": "State of energy"

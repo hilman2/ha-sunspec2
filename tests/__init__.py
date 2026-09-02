@@ -75,7 +75,7 @@ async def setup_mock_sunspec_config_entry(
     hass: HomeAssistant,
     data: dict[str, Any] | None = None,
     config_entry: ConfigEntry | None = None,
-    client: Mock | None = None,
+    client: SunSpecApiClient | Mock | None = None,
 ) -> ConfigEntry:
     """Add a mock sunspec config entry to hass."""
     config_entry = config_entry or create_mock_sunspec_config_entry(hass, data)
