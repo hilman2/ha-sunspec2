@@ -18,6 +18,10 @@
 > path leaves the event loop any more. Same entities, same options,
 > no migration. What changed underneath is in the
 > [release notes](https://github.com/hilman2/ha-sunspec2/releases/tag/v2026.10.0).
+> The nudge came from Home Assistant's founder: Paulus Schoutsen
+> ([@balloob](https://github.com/balloob)) answered our doubts about
+> core Modbus in [cjne/ha-sunspec#377](https://github.com/CJNE/ha-sunspec/issues/377#issuecomment-5504726265),
+> and 2026.10.0 followed a day later.
 
 Home Assistant integration for solar inverters, meters and batteries
 that speak **SunSpec Modbus**. Set up entirely in the UI: enter the IP
