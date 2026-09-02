@@ -278,7 +278,8 @@ async def test_the_start_trigger_fires_at_the_start_of_the_window(
 
     with patch.object(entry.runtime_data.api, "async_write_points") as write:
         async_fire_time_changed(hass, _local(20, 0, 1))
-        await hass.async_block_till_done()
+        # Time triggers run their job as a background task.
+        await hass.async_block_till_done(wait_background_tasks=True)
 
     assert planner.planned_power_w == 450.0
     assert [call.args for call in write.call_args_list] == DISCHARGE_TO_GRID_450_W
@@ -297,7 +298,7 @@ async def test_after_a_restart_inside_the_window_the_plan_resumes(
 
     with patch.object(entry.runtime_data.api, "async_write_points") as write:
         async_fire_time_changed(hass, _local(2) + timedelta(seconds=11))
-        await hass.async_block_till_done()
+        await hass.async_block_till_done(wait_background_tasks=True)
 
     assert planner.planned_power_w == 1120.0
     assert write.call_count == 2

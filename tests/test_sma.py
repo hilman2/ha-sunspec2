@@ -148,7 +148,9 @@ async def test_the_keepalive_writes_the_flag_then_the_setpoint_while_active(
     with patch("custom_components.sunspec2.vendor_blocks.asyncio.sleep"):
         freezer.tick(SETPOINT_KEEPALIVE_SECONDS + 1)
         async_fire_time_changed(hass)
-        await hass.async_block_till_done()
+        # The interval fires the rewrite as a background task, which
+        # the plain block_till_done does not wait for.
+        await hass.async_block_till_done(wait_background_tasks=True)
     assert unit_3[address(40149) + 1] == 0xF448
 
     # Handed back: the rewrite stays quiet.
@@ -157,7 +159,7 @@ async def test_the_keepalive_writes_the_flag_then_the_setpoint_while_active(
     with patch("custom_components.sunspec2.vendor_blocks.asyncio.sleep"):
         freezer.tick(SETPOINT_KEEPALIVE_SECONDS + 1)
         async_fire_time_changed(hass)
-        await hass.async_block_till_done()
+        await hass.async_block_till_done(wait_background_tasks=True)
     assert unit_3[address(40149) + 1] == 0
     assert entry.runtime_data.raw_write_count == 0
 
