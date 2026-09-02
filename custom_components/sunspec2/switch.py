@@ -29,6 +29,7 @@ from .errors import SunSpecError
 from .fronius_web_entities import fronius_web_switches
 from .models import SunSpecModelWrapper
 from .number import build_specs
+from .vendor_blocks import raw_keepalive_switches
 from .write_controls import PLATFORM_SWITCH
 from .write_controls import WriteControlSpec
 
@@ -68,6 +69,8 @@ async def async_setup_entry(
     entities.extend(discharge_plan_switch(coordinator, entry, prefix))
     # The flags of the Fronius web interface, with a stored login.
     entities.extend(fronius_web_switches(coordinator, entry, prefix))
+    # The vendor's timed rewrites, where a profile has them.
+    entities.extend(raw_keepalive_switches(coordinator, entry, prefix))
     async_add_devices(entities)
 
 

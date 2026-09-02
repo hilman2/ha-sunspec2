@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections import deque
+from collections.abc import Callable
 from datetime import datetime
 from datetime import timedelta
 from typing import TYPE_CHECKING
@@ -22,6 +23,7 @@ from homeassistant.components.persistent_notification import (
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.core import ServiceCall
+from homeassistant.core import callback
 from homeassistant.core_config import Config
 from homeassistant.exceptions import ConfigEntryNotReady
 from homeassistant.exceptions import HomeAssistantError
@@ -88,9 +90,12 @@ from .migration import find_blocking_cjne_entries
 from .migration import migrate_from_cjne_sync
 from .models import SunSpecModelWrapper
 from .raw_blocks import RawBlockReader
+from .raw_blocks import encode_value
 from .vendors import VendorProfile
 from .vendors import plan_write
 from .vendors import profile_for
+from .vendors.profile import RawBlock
+from .vendors.profile import RawField
 
 if TYPE_CHECKING:
     # Typing only: discharge_plan imports the coordinator from here.
@@ -618,6 +623,14 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator[dict[int, SunSpecModelW
         # The registers a vendor keeps outside the SunSpec models,
         # decoded, keyed by the profile's block key. See raw_blocks.py.
         self.raw_blocks: dict[str, dict[str, Any]] = {}
+        # What Home Assistant last wrote to a raw field, keyed
+        # (block, field), for the timed rewrites in vendor_blocks.py.
+        self.raw_setpoints: dict[tuple[str, str], Any] = {}
+        # Writes to the vendor's persistent registers, for the flash
+        # wear counter. The sensor restores it across restarts.
+        self.raw_write_count = 0
+        self._raw_write_listeners: list[Callable[[], None]] = []
+        self._flash_warned = False
         # Which platforms async_setup_entry actually forwarded. Recorded
         # there and read back by async_unload_entry, because the set
         # depends on the write-beta option and the option may have been
@@ -1160,6 +1173,64 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator[dict[int, SunSpecModelW
             if self.release_slot_between_polls:
                 self.api.close()
             self._gateway_lock.release()
+
+    @callback
+    def async_add_raw_write_listener(self, listener: Callable[[], None]) -> Callable[[], None]:
+        """Call ``listener`` after every counted raw write; returns the remover."""
+        self._raw_write_listeners.append(listener)
+
+        def _remove() -> None:
+            self._raw_write_listeners.remove(listener)
+
+        return _remove
+
+    async def async_write_raw_locked(
+        self, block: RawBlock, raw_field: RawField, value: float | int
+    ) -> None:
+        """Write one field of a vendor's raw block while holding the gateway lock.
+
+        The raw counterpart of ``async_write_points_locked``: same lock,
+        same session rules, one register run per call. The write is
+        remembered in ``raw_setpoints`` for the timed rewrites and
+        counted unless the profile calls the register volatile.
+
+        Raises:
+            SunSpecError: The write failed; see ``api.async_write_block``.
+        """
+        data = encode_value(raw_field.kind, value, block.word_order)
+        address = block.address + raw_field.offset
+        try:
+            async with asyncio.timeout(WRITE_LOCK_TIMEOUT_SECONDS):
+                await self._gateway_lock.acquire()
+        except TimeoutError as exc:
+            raise TransientError(
+                f"Timed out after {WRITE_LOCK_TIMEOUT_SECONDS}s waiting for the Modbus "
+                f"gateway to become free; the inverter is busy, try again"
+            ) from exc
+        try:
+            await self.api.async_write_block(address, data)
+        finally:
+            # See async_write_points_locked for why the session closes
+            # under the lock where the slot is handed back.
+            if self.release_slot_between_polls:
+                self.api.close()
+            self._gateway_lock.release()
+        self.raw_setpoints[(block.key, raw_field.name)] = value
+        vendor = self.vendor
+        if vendor is not None and address in vendor.volatile_registers:
+            return
+        self.raw_write_count += 1
+        if not self._flash_warned:
+            # Once per run, at the first persistent write. The vendor
+            # says periodic changes wear the flash; the count sensor is
+            # how a user sees what their automation does.
+            self._log.warning(
+                "Writing the inverter's persistent registers. The manufacturer warns that "
+                "periodic changes wear its flash memory; the 'Register writes' sensor counts them"
+            )
+            self._flash_warned = True
+        for listener in list(self._raw_write_listeners):
+            listener()
 
     async def _run_one_update_cycle(self) -> dict[int, SunSpecModelWrapper]:
         """Single read attempt over the live session. Caller holds the gateway lock.

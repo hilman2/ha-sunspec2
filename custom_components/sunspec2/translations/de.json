@@ -172,6 +172,27 @@
       },
       "battery_capacity_kwh": {
         "name": "Batteriekapazität"
+      },
+      "storage_ac_charge_limit": {
+        "name": "Speicher AC-Ladelimit"
+      },
+      "storage_backup_reserve": {
+        "name": "Speicher Notstromreserve"
+      },
+      "storage_command_timeout": {
+        "name": "Speicher Kommando-Timeout"
+      },
+      "storage_charge_limit": {
+        "name": "Speicher Ladelimit"
+      },
+      "storage_discharge_limit": {
+        "name": "Speicher Entladelimit"
+      },
+      "site_limit": {
+        "name": "Anlagenlimit"
+      },
+      "active_power_limit": {
+        "name": "Wirkleistungslimit"
       }
     },
     "select": {
@@ -202,6 +223,65 @@
         "state": {
           "w_max_pct": "Prozent vom Maximum",
           "watts": "Watt"
+        }
+      },
+      "storage_control_mode": {
+        "name": "Speicher-Steuermodus",
+        "state": {
+          "disabled": "Aus",
+          "maximize_self_consumption": "Eigenverbrauch maximieren",
+          "time_of_use": "Zeitprofil",
+          "backup_only": "Nur Notstrom",
+          "remote_control": "Fernsteuerung"
+        }
+      },
+      "storage_ac_charge_policy": {
+        "name": "Speicher AC-Laderegel",
+        "state": {
+          "disabled": "Aus",
+          "always_allowed": "Immer erlaubt",
+          "fixed_energy_limit": "Festes Energielimit",
+          "percent_of_production": "Prozent der Erzeugung"
+        }
+      },
+      "storage_default_mode": {
+        "name": "Speicher Standardmodus",
+        "state": {
+          "solar_power_only": "Nur Solarstrom",
+          "charge_from_clipped_solar": "Aus abgeregeltem Solarstrom laden",
+          "charge_from_solar": "Aus Solarstrom laden",
+          "charge_from_solar_and_grid": "Aus Solarstrom und Netz laden",
+          "discharge_to_maximize_export": "Entladen für maximale Einspeisung",
+          "discharge_to_minimize_import": "Entladen für minimalen Bezug",
+          "maximize_self_consumption": "Eigenverbrauch maximieren"
+        }
+      },
+      "storage_command_mode": {
+        "name": "Speicher Kommandomodus",
+        "state": {
+          "solar_power_only": "Nur Solarstrom",
+          "charge_from_clipped_solar": "Aus abgeregeltem Solarstrom laden",
+          "charge_from_solar": "Aus Solarstrom laden",
+          "charge_from_solar_and_grid": "Aus Solarstrom und Netz laden",
+          "discharge_to_maximize_export": "Entladen für maximale Einspeisung",
+          "discharge_to_minimize_import": "Entladen für minimalen Bezug",
+          "maximize_self_consumption": "Eigenverbrauch maximieren"
+        }
+      },
+      "site_limit_mode": {
+        "name": "Modus Anlagenlimit",
+        "state": {
+          "disabled": "Aus",
+          "export_control_export_import_meter": "Einspeisebegrenzung (Bezugs-/Einspeisezähler)",
+          "export_control_consumption_meter": "Einspeisebegrenzung (Verbrauchszähler)",
+          "production_control": "Erzeugungsbegrenzung"
+        }
+      },
+      "site_limit_scope": {
+        "name": "Bezug des Anlagenlimits",
+        "state": {
+          "total": "Gesamt",
+          "per_phase": "Je Phase"
         }
       }
     },
@@ -235,6 +315,12 @@
       },
       "modbus_control_allowed": {
         "name": "Modbus-Steuerung erlaubt"
+      },
+      "storage_command_rearm": {
+        "name": "Speicherkommando erneuern"
+      },
+      "active_power_limit_reassert": {
+        "name": "Wirkleistungslimit festhalten"
       }
     },
     "time": {
@@ -400,27 +486,11 @@
       "status_vendor4": {
         "name": "Hersteller-Statuscode"
       },
-      "site_limit_mode": {
-        "name": "Modus Anlagenlimit",
-        "state": {
-          "disabled": "Aus",
-          "export_control_export_import_meter": "Einspeisebegrenzung (Bezugs-/Einspeisezähler)",
-          "export_control_consumption_meter": "Einspeisebegrenzung (Verbrauchszähler)",
-          "production_control": "Erzeugungsbegrenzung"
-        }
+      "rrcr_state": {
+        "name": "RRCR-Eingangszustand"
       },
-      "site_limit": {
-        "name": "Anlagenlimit"
-      },
-      "storage_control_mode": {
-        "name": "Speicher-Steuermodus",
-        "state": {
-          "disabled": "Aus",
-          "maximize_self_consumption": "Eigenverbrauch maximieren",
-          "time_of_use": "Zeitprofil",
-          "backup_only": "Nur Notstrom",
-          "remote_control": "Fernsteuerung"
-        }
+      "register_writes": {
+        "name": "Registerschreibvorgänge"
       },
       "battery_state_of_energy": {
         "name": "Ladestand"

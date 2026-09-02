@@ -11,8 +11,10 @@ from unittest.mock import Mock
 
 import pytest
 from homeassistant.helpers import device_registry as dr
+from pytest_homeassistant_custom_component.common import async_fire_time_changed
 
 from custom_components.sunspec2 import get_sunspec_unique_id
+from custom_components.sunspec2.const import CONF_WRITE_BETA_ENABLED
 from custom_components.sunspec2.const import DOMAIN
 from custom_components.sunspec2.errors import DeviceError
 from custom_components.sunspec2.errors import TransientError
@@ -22,11 +24,16 @@ from custom_components.sunspec2.raw_blocks import RawBlockReader
 from custom_components.sunspec2.raw_blocks import decode_block
 from custom_components.sunspec2.raw_blocks import decode_field
 from custom_components.sunspec2.raw_blocks import encode_value
+from custom_components.sunspec2.vendor_blocks import RawBlockNumber
+from custom_components.sunspec2.vendor_blocks import RawBlockSelect
 from custom_components.sunspec2.vendor_blocks import RawBlockSensor
+from custom_components.sunspec2.vendor_blocks import RawKeepAliveSwitch
+from custom_components.sunspec2.vendor_blocks import RawWriteCountSensor
 from custom_components.sunspec2.vendors import profile_for
 from custom_components.sunspec2.vendors.profile import RawBlock
 from custom_components.sunspec2.vendors.profile import RawField
 from custom_components.sunspec2.vendors.solaredge import BATTERY_BASE
+from custom_components.sunspec2.vendors.solaredge import REMOTE_COMMAND_REARM_SECONDS
 from custom_components.sunspec2.vendors.solaredge import SOLAREDGE
 from custom_components.sunspec2.vendors.solaredge import site_limit_mode
 from custom_components.sunspec2.vendors.solaredge import status_vendor4
@@ -209,6 +216,7 @@ async def test_a_home_hub_gets_its_battery_as_a_device(hass, sunspec_solaredge_c
         "battery_1_info",
         "battery_1",
         "battery_2_info",
+        "power_control",
     }
     sensors = _sensors(hass)
 
@@ -235,15 +243,7 @@ async def test_the_inverter_device_gets_grid_status_and_the_vendor_code(
     sensors = _sensors(hass)
     assert sensors[_uid(entry, "grid_status", "grid_status")].native_value == "on_grid"
     assert sensors[_uid(entry, "status_vendor4", "status_vendor4")].native_value == "18xBF"
-    assert sensors[_uid(entry, "site_limit", "site_limit")].native_value == 5000.0
-    assert (
-        sensors[_uid(entry, "site_limit", "mode")].native_value
-        == "export_control_export_import_meter"
-    )
-    assert (
-        sensors[_uid(entry, "storage_control", "control_mode")].native_value
-        == "maximize_self_consumption"
-    )
+    assert sensors[_uid(entry, "power_control", "rrcr_state")].native_value == 0
     # On the inverter's own device, not on a battery.
     grid = sensors[_uid(entry, "grid_status", "grid_status")]
     assert (DOMAIN, entry.entry_id, "inverter_three_phase") in grid.device_info["identifiers"]
@@ -299,6 +299,158 @@ async def test_a_device_without_the_feature_set_still_has_the_inverter(
     assert coordinator.raw_blocks == {}
     assert _sensors(hass) == {}
     assert coordinator.data[103] is not None
+
+
+# ---------- the controls ------------------------------------------------------
+
+
+def _controls(hass, platform, cls):
+    component = hass.data.get("entity_components", {}).get(platform)
+    return (
+        {e.translation_key: e for e in component.entities if isinstance(e, cls)}
+        if component
+        else {}
+    )
+
+
+async def _write_entry(hass, beta=False):
+    entry = create_mock_sunspec_config_entry(
+        hass, options={CONF_WRITE_BETA_ENABLED: True} if beta else {}
+    )
+    await setup_mock_sunspec_config_entry(hass, config_entry=entry)
+    return entry
+
+
+async def test_the_storage_controls_exist_without_the_beta(hass, sunspec_solaredge_client_mock):
+    await _write_entry(hass)
+    selects = _controls(hass, "select", RawBlockSelect)
+    numbers = _controls(hass, "number", RawBlockNumber)
+    switches = _controls(hass, "switch", RawKeepAliveSwitch)
+    assert set(selects) == {
+        "storage_control_mode",
+        "storage_ac_charge_policy",
+        "storage_default_mode",
+        "storage_command_mode",
+    }
+    assert set(numbers) == {
+        "storage_ac_charge_limit",
+        "storage_backup_reserve",
+        "storage_command_timeout",
+        "storage_charge_limit",
+        "storage_discharge_limit",
+    }
+    assert set(switches) == {"storage_command_rearm"}
+    assert selects["storage_control_mode"].current_option == "maximize_self_consumption"
+    assert selects["storage_command_mode"].current_option == "maximize_self_consumption"
+    assert numbers["storage_command_timeout"].native_value == 3600.0
+    assert numbers["storage_backup_reserve"].native_value == 10.0
+
+
+async def test_the_export_controls_need_the_beta(hass, sunspec_solaredge_client_mock):
+    await _write_entry(hass, beta=True)
+    assert {"site_limit_mode", "site_limit_scope"} <= set(_controls(hass, "select", RawBlockSelect))
+    numbers = _controls(hass, "number", RawBlockNumber)
+    assert {"site_limit", "active_power_limit"} <= set(numbers)
+    assert numbers["site_limit"].native_value == 5000.0
+    assert numbers["active_power_limit"].native_value == 100.0
+    assert "active_power_limit_reassert" in _controls(hass, "switch", RawKeepAliveSwitch)
+
+
+async def test_a_select_writes_the_register_and_reads_it_back(hass, sunspec_solaredge_client_mock):
+    """Remote control is E004 = 4; the register image is the inverter, so the read-back is real."""
+    await _write_entry(hass)
+    select = _controls(hass, "select", RawBlockSelect)["storage_control_mode"]
+
+    await select.async_select_option("remote_control")
+    await hass.async_block_till_done()
+
+    assert sunspec_solaredge_client_mock.registers[0xE004] == 4
+    assert select.current_option == "remote_control"
+
+
+async def test_a_number_writes_in_the_inverters_word_order(hass, sunspec_solaredge_client_mock):
+    """The timeout is a uint32 at E00B; 900 lands as 0x0384 in the first register."""
+    await _write_entry(hass)
+    number = _controls(hass, "number", RawBlockNumber)["storage_command_timeout"]
+
+    await number.async_set_native_value(900)
+    await hass.async_block_till_done()
+
+    assert sunspec_solaredge_client_mock.registers[0xE00B] == 0x0384
+    assert sunspec_solaredge_client_mock.registers[0xE00C] == 0
+    assert number.native_value == 900.0
+
+
+async def test_the_site_limit_mode_keeps_the_other_bits(hass, sunspec_solaredge_client_mock):
+    """Bit 10 says external production is present; choosing a mode must not clear it."""
+    sunspec_solaredge_client_mock.registers[0xE000] = 1 | (1 << 10)
+    await _write_entry(hass, beta=True)
+    select = _controls(hass, "select", RawBlockSelect)["site_limit_mode"]
+    assert select.current_option == "export_control_export_import_meter"
+
+    await select.async_select_option("production_control")
+    await hass.async_block_till_done()
+
+    assert sunspec_solaredge_client_mock.registers[0xE000] == 4 | (1 << 10)
+    assert select.current_option == "production_control"
+
+
+async def test_persistent_writes_are_counted_and_volatile_ones_are_not(
+    hass, sunspec_solaredge_client_mock, caplog
+):
+    entry = await _write_entry(hass, beta=True)
+    numbers = _controls(hass, "number", RawBlockNumber)
+    counter = next(iter(_controls(hass, "sensor", RawWriteCountSensor).values()))
+    assert counter.native_value == 0
+
+    await numbers["storage_charge_limit"].async_set_native_value(4000)
+    await numbers["active_power_limit"].async_set_native_value(80)
+    await hass.async_block_till_done()
+
+    assert entry.runtime_data.raw_write_count == 1
+    assert counter.native_value == 1
+    assert "flash" in caplog.text
+    assert sunspec_solaredge_client_mock.registers[0xF001] == 80
+
+
+async def test_the_rearm_switch_writes_the_command_again_while_remote(
+    hass, sunspec_solaredge_client_mock, freezer
+):
+    await _write_entry(hass)
+    selects = _controls(hass, "select", RawBlockSelect)
+    numbers = _controls(hass, "number", RawBlockNumber)
+    rearm = _controls(hass, "switch", RawKeepAliveSwitch)["storage_command_rearm"]
+
+    await selects["storage_control_mode"].async_select_option("remote_control")
+    await numbers["storage_command_timeout"].async_set_native_value(3600)
+    await selects["storage_command_mode"].async_select_option("charge_from_solar_and_grid")
+    await hass.async_block_till_done()
+    registers = sunspec_solaredge_client_mock.registers
+    # The inverter forgets: the nightly restart puts the default back.
+    registers[0xE00D] = 7
+    registers[0xE00B] = 0
+    await rearm.async_turn_on()
+    await hass.async_block_till_done()
+    assert rearm.is_on
+    assert registers[0xE00D] == 3 and registers[0xE00B] == 0x0E10
+
+    registers[0xE00D] = 7
+    freezer.tick(REMOTE_COMMAND_REARM_SECONDS + 1)
+    async_fire_time_changed(hass)
+    await hass.async_block_till_done()
+    assert registers[0xE00D] == 3
+
+    # Out of remote control the rewrite stays quiet.
+    await selects["storage_control_mode"].async_select_option("maximize_self_consumption")
+    await hass.async_block_till_done()
+    registers[0xE00D] = 7
+    freezer.tick(REMOTE_COMMAND_REARM_SECONDS + 1)
+    async_fire_time_changed(hass)
+    await hass.async_block_till_done()
+    assert registers[0xE00D] == 7
+
+    await rearm.async_turn_off()
+    assert not rearm.is_on
 
 
 async def test_other_vendors_read_no_raw_blocks(hass, sunspec_fronius_client_mock):

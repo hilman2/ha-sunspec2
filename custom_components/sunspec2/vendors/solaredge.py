@@ -35,6 +35,9 @@ from typing import Any
 from .profile import RawBlock
 from .profile import RawDevice
 from .profile import RawField
+from .profile import RawKeepAlive
+from .profile import RawNumber
+from .profile import RawSelect
 from .profile import RawSensor
 from .profile import VendorProfile
 
@@ -74,6 +77,48 @@ STORAGE_CONTROL_MODES: dict[int, str] = {
     3: "backup_only",
     4: "remote_control",
 }
+
+#: The value of the remote control's command and default mode
+#: registers. 6 does not exist.
+REMOTE_MODES: dict[int, str] = {
+    0: "solar_power_only",
+    1: "charge_from_clipped_solar",
+    2: "charge_from_solar",
+    3: "charge_from_solar_and_grid",
+    4: "discharge_to_maximize_export",
+    5: "discharge_to_minimize_import",
+    7: "maximize_self_consumption",
+}
+
+AC_CHARGE_POLICIES: dict[int, str] = {
+    0: "disabled",
+    1: "always_allowed",
+    2: "fixed_energy_limit",
+    3: "percent_of_production",
+}
+
+SITE_LIMIT_SCOPES: dict[int, str] = {0: "total", 1: "per_phase"}
+
+REMOTE_CONTROL = 4
+
+#: How often the remote command is written again while its switch is
+#: on. The community's users settled on 15 minutes with an hour of
+#: timeout; more often "chokes the modbus".
+REMOTE_COMMAND_REARM_SECONDS = 900.0
+
+#: How often the active power limit is written again while its switch
+#: is on. Firmware has been seen to revert it after ten seconds.
+ACTIVE_POWER_LIMIT_REASSERT_SECONDS = 10.0
+
+
+def _keep_site_limit_bits(current: Any, chosen: int) -> int:
+    """The chosen limit mode in bits 0 to 2, the other bits as they are."""
+    other = (current & ~0b111) if isinstance(current, int) else 0
+    return other | chosen
+
+
+def _remote_control_active(data: Any) -> bool:
+    return isinstance(data, dict) and data.get("control_mode") == REMOTE_CONTROL
 
 
 def site_limit_mode(value: Any) -> str | None:
@@ -299,6 +344,19 @@ RAW_BLOCKS: tuple[RawBlock, ...] = (
             RawField("discharge_limit", 12, "float32"),
         ),
     ),
+    # The global dynamic power control: the RRCR input state and the
+    # two setpoints the inverter keeps in RAM and applies at once.
+    RawBlock(
+        key="power_control",
+        address=0xF000,
+        count=4,
+        word_order=LITTLE,
+        fields=(
+            RawField("rrcr_state", 0, "uint16"),
+            RawField("active_power_limit", 1, "uint16"),
+            RawField("cos_phi", 2, "float32"),
+        ),
+    ),
     *(block for slot in BATTERY_BASE for block in _battery_blocks(slot)),
 )
 
@@ -334,34 +392,172 @@ RAW_SENSORS: tuple[RawSensor, ...] = (
         icon="mdi:alert-circle-outline",
     ),
     RawSensor(
-        block="site_limit",
-        field="mode",
-        key="site_limit_mode",
-        device_class="enum",
-        options=SITE_LIMIT_MODES,
-        transform=lambda value: value & 0b111 if isinstance(value, int) else None,
+        block="power_control",
+        field="rrcr_state",
+        key="rrcr_state",
         diagnostic=True,
-        icon="mdi:transmission-tower-export",
+        icon="mdi:electric-switch",
     ),
-    RawSensor(
-        block="site_limit",
-        field="site_limit",
-        key="site_limit",
-        unit="W",
-        device_class="power",
-        diagnostic=True,
-        icon="mdi:transmission-tower-export",
-    ),
-    RawSensor(
+    *(sensor for slot in BATTERY_BASE for sensor in _battery_sensors(slot)),
+)
+
+# The storage control block, as the Power Control Protocol note lays
+# it out. The remote control's default mode, command, timeout and
+# limits only mean anything while the control mode is "remote
+# control"; the entities stay, the inverter ignores them otherwise.
+# The community's users found the order that works: control mode
+# first, then the timeout, the command, then the limits, and that
+# the inverter falls back to the default mode when the timeout runs
+# out or when it restarts at night, which is what the rearm switch
+# is for.
+RAW_SELECTS: tuple[RawSelect, ...] = (
+    RawSelect(
         block="storage_control",
         field="control_mode",
         key="storage_control_mode",
-        device_class="enum",
         options=STORAGE_CONTROL_MODES,
-        diagnostic=True,
         icon="mdi:battery-sync",
     ),
-    *(sensor for slot in BATTERY_BASE for sensor in _battery_sensors(slot)),
+    RawSelect(
+        block="storage_control",
+        field="ac_charge_policy",
+        key="storage_ac_charge_policy",
+        options=AC_CHARGE_POLICIES,
+        icon="mdi:transmission-tower-import",
+    ),
+    RawSelect(
+        block="storage_control",
+        field="default_mode",
+        key="storage_default_mode",
+        options=REMOTE_MODES,
+        icon="mdi:battery-clock",
+    ),
+    RawSelect(
+        block="storage_control",
+        field="command_mode",
+        key="storage_command_mode",
+        options=REMOTE_MODES,
+        icon="mdi:battery-arrow-up-outline",
+    ),
+    # The site limit: which meter the limit is measured against, and
+    # whether it applies to the total or to each phase. Bits 10 and
+    # 11 of the mode register (external production, negative limit)
+    # are left as they are.
+    RawSelect(
+        block="site_limit",
+        field="mode",
+        key="site_limit_mode",
+        options=SITE_LIMIT_MODES,
+        read=lambda value: value & 0b111 if isinstance(value, int) else None,
+        write=_keep_site_limit_bits,
+        beta=True,
+        icon="mdi:transmission-tower-export",
+    ),
+    RawSelect(
+        block="site_limit",
+        field="limit_mode",
+        key="site_limit_scope",
+        options=SITE_LIMIT_SCOPES,
+        beta=True,
+        icon="mdi:transmission-tower-export",
+    ),
+)
+
+RAW_NUMBERS: tuple[RawNumber, ...] = (
+    RawNumber(
+        block="storage_control",
+        field="ac_charge_limit",
+        key="storage_ac_charge_limit",
+        min=0,
+        max=100000,
+        step=0.1,
+        icon="mdi:transmission-tower-import",
+    ),
+    RawNumber(
+        block="storage_control",
+        field="backup_reserve",
+        key="storage_backup_reserve",
+        min=0,
+        max=100,
+        step=1,
+        unit="%",
+        icon="mdi:battery-lock",
+    ),
+    RawNumber(
+        block="storage_control",
+        field="command_timeout",
+        key="storage_command_timeout",
+        min=0,
+        max=86400,
+        step=60,
+        unit="s",
+        device_class="duration",
+        icon="mdi:timer-sand",
+    ),
+    RawNumber(
+        block="storage_control",
+        field="charge_limit",
+        key="storage_charge_limit",
+        min=0,
+        max=100000,
+        step=100,
+        unit="W",
+        device_class="power",
+        icon="mdi:battery-charging-medium",
+    ),
+    RawNumber(
+        block="storage_control",
+        field="discharge_limit",
+        key="storage_discharge_limit",
+        min=0,
+        max=100000,
+        step=100,
+        unit="W",
+        device_class="power",
+        icon="mdi:battery-arrow-down",
+    ),
+    RawNumber(
+        block="site_limit",
+        field="site_limit",
+        key="site_limit",
+        min=0,
+        max=1000000,
+        step=10,
+        unit="W",
+        device_class="power",
+        beta=True,
+        icon="mdi:transmission-tower-export",
+    ),
+    RawNumber(
+        block="power_control",
+        field="active_power_limit",
+        key="active_power_limit",
+        min=0,
+        max=100,
+        step=1,
+        unit="%",
+        beta=True,
+        icon="mdi:speedometer-slow",
+    ),
+)
+
+RAW_KEEPALIVES: tuple[RawKeepAlive, ...] = (
+    RawKeepAlive(
+        key="storage_command_rearm",
+        block="storage_control",
+        fields=("command_timeout", "command_mode"),
+        interval_seconds=REMOTE_COMMAND_REARM_SECONDS,
+        only_while=_remote_control_active,
+        icon="mdi:battery-sync-outline",
+    ),
+    RawKeepAlive(
+        key="active_power_limit_reassert",
+        block="power_control",
+        fields=("active_power_limit",),
+        interval_seconds=ACTIVE_POWER_LIMIT_REASSERT_SECONDS,
+        beta=True,
+        icon="mdi:refresh-auto",
+    ),
 )
 
 SOLAREDGE = VendorProfile(
@@ -372,4 +568,10 @@ SOLAREDGE = VendorProfile(
     raw_blocks=RAW_BLOCKS,
     raw_devices=RAW_DEVICES,
     raw_sensors=RAW_SENSORS,
+    raw_numbers=RAW_NUMBERS,
+    raw_selects=RAW_SELECTS,
+    raw_keepalives=RAW_KEEPALIVES,
+    # The two dynamic setpoints live in RAM; everything else the
+    # profile writes is presumed to land in flash.
+    volatile_registers=frozenset({0xF001, 0xF002}),
 )

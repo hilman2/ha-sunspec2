@@ -74,6 +74,8 @@ def home_hub_registers():
     registers.update(at(40113, u32(0)))
     registers.update(at(40119, u32_big(0x180000BF)))
     registers.update(at(0xE000, u16(1) + u16(0) + f32(5000.0)))
+    # RRCR inputs all off, active power limit 100 %, cos phi 1.0.
+    registers.update(at(0xF000, u16(0) + u16(100) + f32(1.0)))
     registers.update(
         at(
             0xE004,

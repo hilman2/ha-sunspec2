@@ -172,6 +172,27 @@
       },
       "battery_capacity_kwh": {
         "name": "Battery capacity"
+      },
+      "storage_ac_charge_limit": {
+        "name": "Storage AC charge limit"
+      },
+      "storage_backup_reserve": {
+        "name": "Storage backup reserve"
+      },
+      "storage_command_timeout": {
+        "name": "Storage command timeout"
+      },
+      "storage_charge_limit": {
+        "name": "Storage charge limit"
+      },
+      "storage_discharge_limit": {
+        "name": "Storage discharge limit"
+      },
+      "site_limit": {
+        "name": "Site limit"
+      },
+      "active_power_limit": {
+        "name": "Active power limit"
       }
     },
     "select": {
@@ -202,6 +223,65 @@
         "state": {
           "w_max_pct": "Percent of maximum",
           "watts": "Watts"
+        }
+      },
+      "storage_control_mode": {
+        "name": "Storage control mode",
+        "state": {
+          "disabled": "Disabled",
+          "maximize_self_consumption": "Maximize self-consumption",
+          "time_of_use": "Time of use",
+          "backup_only": "Backup only",
+          "remote_control": "Remote control"
+        }
+      },
+      "storage_ac_charge_policy": {
+        "name": "Storage AC charge policy",
+        "state": {
+          "disabled": "Disabled",
+          "always_allowed": "Always allowed",
+          "fixed_energy_limit": "Fixed energy limit",
+          "percent_of_production": "Percent of production"
+        }
+      },
+      "storage_default_mode": {
+        "name": "Storage default mode",
+        "state": {
+          "solar_power_only": "Solar power only",
+          "charge_from_clipped_solar": "Charge from clipped solar",
+          "charge_from_solar": "Charge from solar",
+          "charge_from_solar_and_grid": "Charge from solar and grid",
+          "discharge_to_maximize_export": "Discharge to maximize export",
+          "discharge_to_minimize_import": "Discharge to minimize import",
+          "maximize_self_consumption": "Maximize self-consumption"
+        }
+      },
+      "storage_command_mode": {
+        "name": "Storage command mode",
+        "state": {
+          "solar_power_only": "Solar power only",
+          "charge_from_clipped_solar": "Charge from clipped solar",
+          "charge_from_solar": "Charge from solar",
+          "charge_from_solar_and_grid": "Charge from solar and grid",
+          "discharge_to_maximize_export": "Discharge to maximize export",
+          "discharge_to_minimize_import": "Discharge to minimize import",
+          "maximize_self_consumption": "Maximize self-consumption"
+        }
+      },
+      "site_limit_mode": {
+        "name": "Site limit mode",
+        "state": {
+          "disabled": "Disabled",
+          "export_control_export_import_meter": "Export control (export/import meter)",
+          "export_control_consumption_meter": "Export control (consumption meter)",
+          "production_control": "Production control"
+        }
+      },
+      "site_limit_scope": {
+        "name": "Site limit scope",
+        "state": {
+          "total": "Total",
+          "per_phase": "Per phase"
         }
       }
     },
@@ -235,6 +315,12 @@
       },
       "modbus_control_allowed": {
         "name": "Modbus control allowed"
+      },
+      "storage_command_rearm": {
+        "name": "Re-arm storage command"
+      },
+      "active_power_limit_reassert": {
+        "name": "Keep active power limit asserted"
       }
     },
     "time": {
@@ -400,27 +486,11 @@
       "status_vendor4": {
         "name": "Vendor status code"
       },
-      "site_limit_mode": {
-        "name": "Site limit mode",
-        "state": {
-          "disabled": "Disabled",
-          "export_control_export_import_meter": "Export control (export/import meter)",
-          "export_control_consumption_meter": "Export control (consumption meter)",
-          "production_control": "Production control"
-        }
+      "rrcr_state": {
+        "name": "RRCR input state"
       },
-      "site_limit": {
-        "name": "Site limit"
-      },
-      "storage_control_mode": {
-        "name": "Storage control mode",
-        "state": {
-          "disabled": "Disabled",
-          "maximize_self_consumption": "Maximize self-consumption",
-          "time_of_use": "Time of use",
-          "backup_only": "Backup only",
-          "remote_control": "Remote control"
-        }
+      "register_writes": {
+        "name": "Register writes"
       },
       "battery_state_of_energy": {
         "name": "State of energy"
