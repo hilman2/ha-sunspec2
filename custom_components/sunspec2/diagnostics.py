@@ -12,6 +12,7 @@ unit_id are kept (they are non-sensitive and we need them to triage).
 from __future__ import annotations
 
 import dataclasses
+import importlib.metadata
 from typing import Any
 
 from homeassistant.components.diagnostics import async_redact_data
@@ -114,9 +115,21 @@ async def async_get_config_entry_diagnostics(
             # The embedded fork's upstream base, so a bug report says which
             # pysunspec2 behaviour the reporter was running on.
             "pysunspec2": PYSUNSPEC2_VERSION,
+            # The Modbus transport underneath it. Home Assistant installs
+            # whatever satisfies the manifest's range, so the version a
+            # reporter runs is not ours to know without asking.
+            "modbus_connection": _package_version("modbus-connection"),
+            "tmodbus": _package_version("tmodbus"),
             "sunspec2_integration": VERSION,
         },
     }
+
+
+def _package_version(name: str) -> str | None:
+    try:
+        return importlib.metadata.version(name)
+    except importlib.metadata.PackageNotFoundError:
+        return None
 
 
 def _plausibility_filter_dump(

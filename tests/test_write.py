@@ -15,6 +15,7 @@ Modbus client subclasses add, so the helper below grafts those on as the
 seam where the wire would be.
 """
 
+from unittest.mock import AsyncMock
 from unittest.mock import Mock
 from unittest.mock import patch
 
@@ -53,11 +54,15 @@ def _api_with_model(hass, model_id, sf_on_read):
         for name, value in sf_on_read.items():
             model.points[name].value = value
 
+    async def _async_read():
+        _read()
+
     model.read = _read
-    # The flush is one model.write() for the whole batch as of v0.20.0,
-    # not one point.write() per point. Both are stubbed so a test can
-    # assert which one the code actually reaches for.
-    model.write = Mock()
+    model.async_read = _async_read
+    # The flush is one model.async_write() for the whole batch as of
+    # v0.20.0, not one point.write() per point. Both are stubbed so a
+    # test can assert which one the code actually reaches for.
+    model.async_write = AsyncMock()
     for point in model.points.values():
         point.write = Mock()
 
@@ -79,7 +84,7 @@ async def test_write_reads_the_model_before_encoding(hass):
     point = model.points["WMaxLimPct"]
     assert point.sf_value is None, "precondition: scale factor starts unread"
 
-    api._write_points_blocking(123, [("WMaxLimPct", 50)])
+    await api._async_write_points(123, [("WMaxLimPct", 50)])
 
     assert calls["read"] == 1
     # 50 % at SF -2 encodes to raw 5000. Getting the raw register value
@@ -87,7 +92,7 @@ async def test_write_reads_the_model_before_encoding(hass):
     # send 50 and set the inverter to 0.5 %.
     assert point.value == 5000
     assert point.cvalue == 50.0
-    model.write.assert_called_once_with()
+    model.async_write.assert_awaited_once_with()
     point.write.assert_not_called()
 
 
@@ -116,10 +121,10 @@ async def test_write_enum_point_needs_no_scale_factor(hass):
     point = model.points["WMaxLim_Ena"]
     assert point.sf_required is False
 
-    api._write_points_blocking(123, [("WMaxLim_Ena", 1)])
+    await api._async_write_points(123, [("WMaxLim_Ena", 1)])
 
     assert point.value == 1
-    model.write.assert_called_once_with()
+    model.async_write.assert_awaited_once_with()
     point.write.assert_not_called()
 
 
@@ -166,7 +171,7 @@ async def test_write_translates_pysunspec2_exceptions(hass, raised, expected):
     api = SunSpecApiClient(host="test", port=502, unit_id=1, hass=hass)
 
     with (
-        patch.object(SunSpecApiClient, "_write_points_blocking", side_effect=raised),
+        patch.object(SunSpecApiClient, "_async_write_points", side_effect=raised),
         pytest.raises(expected),
     ):
         await api.async_write_points(123, [("WMaxLimPct", 50)])
@@ -201,9 +206,9 @@ async def test_batch_write_flushes_once_for_all_points(hass):
     """
     api, model, calls = _api_with_model(hass, 123, {"WMaxLimPct_SF": 0})
 
-    api._write_points_blocking(123, [("WMaxLimPct", 50), ("WMaxLim_Ena", 1)])
+    await api._async_write_points(123, [("WMaxLimPct", 50), ("WMaxLim_Ena", 1)])
 
     assert calls["read"] == 1
-    model.write.assert_called_once_with()
+    model.async_write.assert_awaited_once_with()
     assert model.points["WMaxLimPct"].cvalue == 50
     assert model.points["WMaxLim_Ena"].value == 1

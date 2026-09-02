@@ -1,5 +1,6 @@
 """Tests for the SunSpec 2 diagnostics platform."""
 
+from unittest.mock import AsyncMock
 from unittest.mock import Mock
 from unittest.mock import patch
 
@@ -159,21 +160,20 @@ async def test_capture_wraps_client_read(hass):
     api = SunSpecApiClient(host="test", port=123, unit_id=1, hass=hass, capture_enabled=True)
 
     fake_client = Mock()
-    fake_client.read.return_value = b"\x12\x34\x56\x78"
+    fake_client.async_read = AsyncMock(return_value=b"\x12\x34\x56\x78")
+    fake_client.async_connect = AsyncMock()
+    fake_client.async_scan = AsyncMock()
     fake_client.is_connected.return_value = True
+    fake_client.models = {}
 
-    with (
-        patch(
-            "custom_components.sunspec2.pysunspec2.modbus.client.SunSpecModbusClientDeviceTCP",
-            return_value=fake_client,
-        ),
-        patch.object(SunSpecApiClient, "check_port", return_value=True),
+    with patch(
+        "custom_components.sunspec2.api.SunSpecModbusClientDeviceUnit", return_value=fake_client
     ):
-        client = api.modbus_connect()
+        client = await api.modbus_connect()
 
-    # The wrap replaced client.read with our capturing version. The Mock's
-    # original read is still called underneath, so the bytes propagate.
-    result = client.read(40000, 3)
+    # The wrap replaced client.async_read with our capturing version. The
+    # Mock's original read is still called underneath, so the bytes propagate.
+    result = await client.async_read(40000, 3)
 
     assert result == b"\x12\x34\x56\x78"
     assert len(api._captured_reads) == 1
@@ -211,13 +211,13 @@ async def test_close_calls_disconnect_on_active_client(hass):
     next reconnect after a config-entry reload.
     """
     api = SunSpecApiClient(host="test", port=502, unit_id=1, hass=hass)
-    fake_active_client = Mock()
+    fake_active_client = Mock(async_disconnect=AsyncMock())
     api._client = fake_active_client
 
-    api.close()
+    await api.async_close()
 
-    fake_active_client.disconnect.assert_called_once_with()
-    # Reference is dropped so the next get_client() builds a fresh client.
+    fake_active_client.async_disconnect.assert_awaited_once_with()
+    # Reference is dropped so the next async_get_client() builds a fresh client.
     assert api._client is None
 
 
@@ -226,7 +226,7 @@ async def test_close_is_a_noop_when_no_client(hass):
     api = SunSpecApiClient(host="test", port=502, unit_id=1, hass=hass)
     assert api._client is None
 
-    api.close()  # must not raise
+    await api.async_close()  # must not raise
 
     assert api._client is None
 
@@ -234,13 +234,12 @@ async def test_close_is_a_noop_when_no_client(hass):
 async def test_close_swallows_disconnect_errors(hass):
     """Cleanup must not propagate exceptions from the underlying client."""
     api = SunSpecApiClient(host="test", port=502, unit_id=1, hass=hass)
-    fake_active_client = Mock()
-    fake_active_client.disconnect.side_effect = OSError("socket already gone")
+    fake_active_client = Mock(async_disconnect=AsyncMock(side_effect=OSError("link gone")))
     api._client = fake_active_client
 
-    api.close()  # must not raise
+    await api.async_close()  # must not raise
 
-    fake_active_client.disconnect.assert_called_once_with()
+    fake_active_client.async_disconnect.assert_awaited_once_with()
     # Reference is still dropped even if disconnect() blew up.
     assert api._client is None
 
@@ -286,17 +285,17 @@ async def test_write_point_blocking_resolves_and_writes(hass):
 
     fake_point = Mock()
     fake_point.cvalue = None
-    fake_model = Mock()
+    fake_model = Mock(async_read=AsyncMock(), async_write=AsyncMock())
     fake_model.points = {"WMaxLimPct": fake_point}
     fake_client = Mock()
     fake_client.models = {123: [fake_model]}
     api._client = fake_client
 
-    api._write_points_blocking(123, [("WMaxLimPct", 50)])
+    await api._async_write_points(123, [("WMaxLimPct", 50)])
 
-    fake_model.read.assert_called_once_with()
+    fake_model.async_read.assert_awaited_once_with()
     assert fake_point.cvalue == 50
-    fake_model.write.assert_called_once_with()
+    fake_model.async_write.assert_awaited_once_with()
     fake_point.write.assert_not_called()
 
 
@@ -310,7 +309,7 @@ async def test_write_point_blocking_raises_when_model_missing(hass):
     api._client = fake_client
 
     with pytest.raises(DeviceError, match="Model 123 not present"):
-        api._write_points_blocking(123, [("WMaxLimPct", 50)])
+        await api._async_write_points(123, [("WMaxLimPct", 50)])
 
 
 async def test_write_point_blocking_raises_when_point_missing(hass):
@@ -325,4 +324,4 @@ async def test_write_point_blocking_raises_when_point_missing(hass):
     api._client = fake_client
 
     with pytest.raises(DeviceError, match="Point WMaxLimPct not present"):
-        api._write_points_blocking(123, [("WMaxLimPct", 50)])
+        await api._async_write_points(123, [("WMaxLimPct", 50)])

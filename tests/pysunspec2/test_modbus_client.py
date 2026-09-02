@@ -813,8 +813,12 @@ class TestSunSpecModbusClientModel:
         assert d_rtu.common[0].get_text() == expected_output
 
     def test_read(self, monkeypatch):
-        d_rtu = client.SunSpecModbusClientDeviceRTU(slave_id=1, name="COM2")
+        # The mock port has to be in place before the device opens the
+        # port. In one process the earlier tests had already put it there
+        # and left a client for "COM2" in the fork's per-port registry;
+        # under xdist this test can be the first in its worker.
         monkeypatch.setattr(serial, 'Serial', MockPort.mock_port)
+        d_rtu = client.SunSpecModbusClientDeviceRTU(slave_id=1, name="COM2")
 
         rtu_buffer = [b'\x01\x83\x02\xc0\xf1',
                       b'\x01\x03\x06Su',

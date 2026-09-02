@@ -32,6 +32,13 @@ Changes against upstream:
 * A peer that closes the TCP connection raises
   ``ModbusClientConnectionClosed`` and the dead socket is dropped;
   upstream reported it as a response timeout (v2026.9.1).
+* Points, groups, models and devices have ``async_read``, ``async_write``
+  and ``async_scan`` twins that await the device, and
+  ``modbus/unit_device.py`` is a device over a ``modbus_connection``
+  unit, Home Assistant's asyncio Modbus transport. The integration
+  polls through that; the sync TCP and RTU clients stay for the
+  upstream tests and for anyone who needs a thread-based client
+  (v2026.10.0).
 
 Why a fork rather than the pip package: the integration works around the
 transport layer in several places (a Modbus TCP transaction id that is
