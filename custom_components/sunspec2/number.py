@@ -55,6 +55,7 @@ from . import get_sunspec_unique_id
 from .const import CONF_WRITE_BETA_ENABLED
 from .const import EXPORT_LIMIT_DEFAULT_STEP_PCT
 from .const import EXPORT_LIMIT_MIN_STEP_PCT
+from .discharge_plan import discharge_plan_numbers
 from .entity import SunSpecEntity
 from .errors import SunSpecError
 from .models import SunSpecModelWrapper
@@ -200,6 +201,8 @@ async def async_setup_entry(
     # The watt setpoints of the vendor's battery modes, where a profile
     # defines them.
     entities.extend(storage_setpoint_numbers(coordinator, entry, prefix))
+    # The reserve and capacity of the scheduled discharge, same condition.
+    entities.extend(discharge_plan_numbers(coordinator, entry, prefix))
     async_add_devices(entities)
 
 

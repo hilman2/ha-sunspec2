@@ -97,6 +97,33 @@ what they carry. They need no write beta.
 The generic *Module n* sensors stay: same registers, numbered instead
 of named. The per-string energies are on those.
 
+## Giving energy back over night
+
+For a battery that is paid to deliver at night: a plan that discharges
+what the battery holds above a reserve to the grid, at a steady power,
+between two times of day. The entities sit on the battery device and
+need the write beta, like the modes.
+
+| Entity | What it does |
+|---|---|
+| Scheduled discharge | The plan. On, it runs every day. Switched off inside the window, it hands the battery back |
+| Scheduled discharge start | When the window opens. Default 20:00 |
+| Scheduled discharge end | When it closes. Default 06:00 |
+| Scheduled discharge reserve | State of charge the plan leaves in the battery, in percent. Default 10 |
+| Battery capacity | The battery's usable energy in kWh, pre-filled from the nameplate model where the inverter has one. The plan cannot turn a state of charge into watts without it |
+
+At the start of the window the plan reads the state of charge, takes
+the energy above the reserve, spreads it over the window and selects
+*Discharge to grid* with that power. A 60 kWh battery at 80 % with a
+10 % reserve and a window from 20:00 to 06:00 gives 42 kWh over ten
+hours, 4200 W. At the end of the window the plan selects *Automatic*.
+Switched on inside the window, or started inside it after a restart,
+the plan covers what is left of the window. The switch's attributes
+show the power the last plan asked for.
+
+The power never exceeds the battery's own maximum, and the state of
+charge never goes below the inverter's own minimum reserve.
+
 ## Things to know
 
 - **Grid charging is capped by the inverter.** Users of the community

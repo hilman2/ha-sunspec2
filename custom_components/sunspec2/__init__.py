@@ -12,6 +12,7 @@ import logging
 from collections import deque
 from datetime import datetime
 from datetime import timedelta
+from typing import TYPE_CHECKING
 from typing import Any
 from typing import NoReturn
 
@@ -87,6 +88,10 @@ from .models import SunSpecModelWrapper
 from .vendors import VendorProfile
 from .vendors import plan_write
 from .vendors import profile_for
+
+if TYPE_CHECKING:
+    # Typing only: discharge_plan imports the coordinator from here.
+    from .discharge_plan import DischargePlanner
 from .write_controls import export_limit_points
 
 SCAN_INTERVAL = timedelta(seconds=30)
@@ -576,6 +581,9 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator[dict[int, SunSpecModelW
         # Number entities because the Select reads all four at once and
         # the registers can hold only what the current mode uses.
         self.storage_setpoints: dict[str, float] = {}
+        # The scheduled discharge, built by the first of its entities
+        # and shared by the rest. See discharge_plan.py.
+        self.discharge_plan: DischargePlanner | None = None
         # Which platforms async_setup_entry actually forwarded. Recorded
         # there and read back by async_unload_entry, because the set
         # depends on the write-beta option and the option may have been

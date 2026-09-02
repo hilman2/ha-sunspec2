@@ -136,32 +136,47 @@ class StorageModeSelect(SunSpecEntity, SelectEntity):
     async def async_select_option(self, option: str) -> None:
         try:
             mode = StorageMode(option)
-            recipe = self._profile.recipes[mode]
+            self._profile.recipes[mode]
         except (ValueError, KeyError) as exc:
             raise HomeAssistantError(f"{option} is not a battery mode this device offers") from exc
-        wrapper = self.coordinator.data.get(STORAGE_CONTROL_MODEL)
-        wchamax = wchamax_of(wrapper) if wrapper is not None else None
-        if wchamax is None:
-            raise HomeAssistantError("The inverter reports no battery (WChaMax is 0)")
-        setpoints = self.coordinator.storage_setpoints
-        in_pct = resolve_rate(recipe.in_rate, setpoints, wchamax)
-        out_pct = resolve_rate(recipe.out_rate, setpoints, wchamax)
-        # The rates first, in one frame (the two registers are adjacent),
-        # the mode last. Mode first leaves the inverter acting on the
-        # previous rates for a moment, and a window it cannot serve is
-        # refused with Modbus exception 3 (callifo/fronius_modbus#126).
         try:
-            await self.coordinator.async_write_points_locked(
-                STORAGE_CONTROL_MODEL, [("OutWRte", out_pct), ("InWRte", in_pct)]
-            )
-            await self.coordinator.async_write_points_locked(
-                STORAGE_CONTROL_MODEL, [("StorCtl_Mod", recipe.ctl_mod)]
-            )
+            await async_apply_storage_mode(self.coordinator, self._profile, mode)
         except SunSpecError as exc:
             raise HomeAssistantError(f"Failed to set battery mode {option}: {exc}") from exc
-        # Outside the lock: the refresh debouncer runs inline and
-        # asyncio.Lock is not reentrant.
-        await self.coordinator.async_request_refresh()
+
+
+async def async_apply_storage_mode(
+    coordinator: SunSpecDataUpdateCoordinator,
+    profile: StorageModeProfile,
+    mode: StorageMode,
+) -> None:
+    """Put the battery into ``mode``, with the watt setpoints the coordinator holds.
+
+    Raises:
+        HomeAssistantError: The device reports no battery.
+        SunSpecError: A write failed.
+    """
+    recipe = profile.recipes[mode]
+    wrapper = coordinator.data.get(STORAGE_CONTROL_MODEL)
+    wchamax = wchamax_of(wrapper) if wrapper is not None else None
+    if wchamax is None:
+        raise HomeAssistantError("The inverter reports no battery (WChaMax is 0)")
+    setpoints = coordinator.storage_setpoints
+    in_pct = resolve_rate(recipe.in_rate, setpoints, wchamax)
+    out_pct = resolve_rate(recipe.out_rate, setpoints, wchamax)
+    # The rates first, in one frame (the two registers are adjacent),
+    # the mode last. Mode first leaves the inverter acting on the
+    # previous rates for a moment, and a window it cannot serve is
+    # refused with Modbus exception 3 (callifo/fronius_modbus#126).
+    await coordinator.async_write_points_locked(
+        STORAGE_CONTROL_MODEL, [("OutWRte", out_pct), ("InWRte", in_pct)]
+    )
+    await coordinator.async_write_points_locked(
+        STORAGE_CONTROL_MODEL, [("StorCtl_Mod", recipe.ctl_mod)]
+    )
+    # Outside the lock: the refresh debouncer runs inline and
+    # asyncio.Lock is not reentrant.
+    await coordinator.async_request_refresh()
 
 
 class StorageSetpointNumber(SunSpecEntity, RestoreNumber):

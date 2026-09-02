@@ -161,6 +161,12 @@
       },
       "battery_grid_discharge_power_w": {
         "name": "Battery grid discharge power"
+      },
+      "scheduled_discharge_reserve_pct": {
+        "name": "Scheduled discharge reserve"
+      },
+      "battery_capacity_kwh": {
+        "name": "Battery capacity"
       }
     },
     "select": {
@@ -212,6 +218,17 @@
       },
       "battery_grid_charging": {
         "name": "Battery charging from grid allowed"
+      },
+      "scheduled_discharge": {
+        "name": "Scheduled discharge"
+      }
+    },
+    "time": {
+      "scheduled_discharge_start": {
+        "name": "Scheduled discharge start"
+      },
+      "scheduled_discharge_end": {
+        "name": "Scheduled discharge end"
       }
     },
     "sensor": {

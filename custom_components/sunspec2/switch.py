@@ -24,6 +24,7 @@ from . import SunSpec2ConfigEntry
 from . import SunSpecDataUpdateCoordinator
 from . import get_sunspec_unique_id
 from .const import CONF_WRITE_BETA_ENABLED
+from .discharge_plan import discharge_plan_switch
 from .entity import SunSpecEntity
 from .errors import SunSpecError
 from .models import SunSpecModelWrapper
@@ -54,19 +55,21 @@ async def async_setup_entry(
     if device_info is None:
         return
 
-    async_add_devices(
-        [
-            SunSpecWriteSwitch(
-                coordinator=coordinator,
-                config_entry=entry,
-                device_info=device_info,
-                model_info=wrapper.getGroupMeta(),
-                prefix=entry.options.get("prefix", ""),
-                spec=spec,
-            )
-            for spec, wrapper in build_specs(coordinator, PLATFORM_SWITCH)
-        ]
-    )
+    prefix = entry.options.get("prefix", "")
+    entities: list[SwitchEntity] = [
+        SunSpecWriteSwitch(
+            coordinator=coordinator,
+            config_entry=entry,
+            device_info=device_info,
+            model_info=wrapper.getGroupMeta(),
+            prefix=prefix,
+            spec=spec,
+        )
+        for spec, wrapper in build_specs(coordinator, PLATFORM_SWITCH)
+    ]
+    # The scheduled discharge, where the vendor's battery modes exist.
+    entities.extend(discharge_plan_switch(coordinator, entry, prefix))
+    async_add_devices(entities)
 
 
 class SunSpecWriteSwitch(SunSpecEntity, SwitchEntity):
