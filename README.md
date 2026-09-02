@@ -145,7 +145,10 @@ registers, one device per battery, where SolarEdge has enabled them.
 See **[docs/solaredge.md](docs/solaredge.md)**. **Kostal Plenticore and
 PIKO IQ** get the house consumption split into roof, battery and grid,
 and the battery as a device named after its type, with the temperature
-and the energy counters SunSpec's storage model leaves out. See
+and the energy counters SunSpec's storage model leaves out, plus the
+state of charge bounds and the power limits. A **G3** additionally
+holds a power limit against the inverter's fallback watchdog, so a
+Home Assistant that goes down hands the battery back on its own. See
 **[docs/kostal.md](docs/kostal.md)**.
 
 **Export controls** are a beta and off by default: tick **"Enable

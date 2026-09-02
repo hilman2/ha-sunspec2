@@ -74,16 +74,55 @@ An inverter without a battery gets none of the battery entities: the
 inverter reports battery type 0, and the blocks behind it are never
 read.
 
-## Things to know
+## Steering the battery
 
-**Steering the battery is not in yet.** Kostal has registers for it,
-charge and discharge setpoints, power limits and a minimum and maximum
-state of charge. The *External management* sensor on the battery
-device says whether the inverter would take them: it reads "Modbus"
-once external battery management is set to Modbus in the inverter's
-own menu, "Digital I/O" for the contact input, and "Off" otherwise.
-That setting is read-only over Modbus, so it has to be made in the
-inverter itself.
+Four controls sit on the battery device from the start, because they
+bound what the battery does rather than drive it:
+
+| Control | What it does |
+|---|---|
+| Minimum state of charge | How much the battery keeps back |
+| Maximum state of charge | How full it is allowed to get |
+| Charge power limit | Caps charging, in watts |
+| Discharge power limit | Caps discharging |
+
+**The DC power setpoint** is the one that actually drives the battery,
+and it is behind **"Enable experimental export controls (BETA)"** in
+the options. Negative charges, positive discharges, which is Kostal's
+convention and the opposite of the generic battery controls. Two
+things to know before using it: the inverter only acts on it while
+*External management* reads "Modbus", and Kostal names no timeout for
+this register, so a value written here is one the inverter keeps. An
+automation that sets it and then stops leaves the battery where it put
+it.
+
+*External management* is read-only over Modbus. Set it in the
+inverter itself, under the external battery management setting, or the
+setpoint is read back and ignored.
+
+### Holding a limit on a G3
+
+PLENTICORE G3 from SW 03.05 has a second pair of power limits with a
+watchdog behind them, and the integration offers them as *Held charge
+power limit* and *Held discharge power limit* with a **Hold the power
+limits** switch.
+
+The watchdog is the point. Once written, those two registers have to
+be written again and again; stop, and after *Time until fallback* the
+inverter falls back to *Charge power after fallback* and *Discharge
+power after fallback*. The switch is what does the rewriting, every 20
+seconds, which is under the 30 second minimum the inverter accepts for
+the fallback time.
+
+That makes this the safe way to cap the battery from an automation. A
+Home Assistant that goes down, or a switch turned off, hands the
+battery back to the inverter within the fallback time instead of
+leaving a limit behind.
+
+An older PLENTICORE answers a Modbus exception at these registers, and
+neither the four entities nor the switch appear.
+
+## Things to know
 
 **The energy counters are lifetime totals** and go into the Energy
 dashboard as they are.

@@ -91,6 +91,26 @@ BATTERY_ENERGY = (
     + f32(6400000.0)  # 1064 total energy AC-side to grid
 )
 
+#: 1034 to 1045, the writable end of the external battery management.
+#: 1036 is the relative setpoint, which the block does not decode.
+BATTERY_CONTROL = (
+    f32(0.0)  # 1034 DC power setpoint, nothing asked for
+    + bytes(4)  # 1036
+    + f32(7000.0)  # 1038 charge power limit
+    + f32(7000.0)  # 1040 discharge power limit
+    + f32(5.0)  # 1042 minimum SoC
+    + f32(100.0)  # 1044 maximum SoC
+)
+
+#: 1280 to 1289, the G3 battery limitation with its fallback watchdog.
+BATTERY_LIMITATION = (
+    f32(4000.0)  # 1280 held charge power limit
+    + f32(4000.0)  # 1282 held discharge power limit
+    + f32(7000.0)  # 1284 charge power after fallback
+    + f32(7000.0)  # 1286 discharge power after fallback
+    + u32(30)  # 1288 time until fallback
+)
+
 #: 1068 to 1083, the read-only end of the external battery management.
 BATTERY_LIMITS = (
     f32(10240.0)  # 1068 work capacity
@@ -105,11 +125,24 @@ BATTERY_LIMITS = (
 
 
 def plenticore_registers():
-    """Every Kostal register the profile reads, with a BYD battery fitted."""
+    """Every Kostal register the profile reads, with a BYD battery fitted.
+
+    A G3, so the battery limitation block at 1280 answers. On an older
+    PLENTICORE it does not, which is what plenticore_g1_registers()
+    stands for.
+    """
+    registers = plenticore_g1_registers()
+    registers.update(at(1280, BATTERY_LIMITATION))
+    return registers
+
+
+def plenticore_g1_registers():
+    """The same inverter below SW 03.05: everything but the battery limitation."""
     registers = {}
     registers.update(at(98, INVERTER))
     registers.update(at(202, BATTERY_STATE))
     registers.update(at(512, BATTERY_INFO))
+    registers.update(at(1034, BATTERY_CONTROL))
     registers.update(at(1046, BATTERY_ENERGY))
     registers.update(at(1068, BATTERY_LIMITS))
     return registers
@@ -122,3 +155,8 @@ def no_battery_registers():
     info = BATTERY_INFO[:-4] + u16(0x0000) + bytes(2)
     registers.update(at(512, info))
     return registers
+
+
+def registers_written(client, address, count):
+    """What the test client holds at ``address``, as the profile would decode it."""
+    return b"".join(int(client.registers[address + i]).to_bytes(2, "big") for i in range(count))

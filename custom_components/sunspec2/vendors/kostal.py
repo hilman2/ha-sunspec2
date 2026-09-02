@@ -32,6 +32,8 @@ from typing import Any
 from .profile import RawBlock
 from .profile import RawDevice
 from .profile import RawField
+from .profile import RawKeepAlive
+from .profile import RawNumber
 from .profile import RawSensor
 from .profile import VendorProfile
 
@@ -82,6 +84,18 @@ BATTERY_MANAGEMENT_MODES: dict[int, str] = {
     0x01: "digital_io",
     0x02: "modbus",
 }
+
+#: Ceiling of the watt entities, well above any inverter Kostal builds
+#: for a house. The battery reports what it actually takes in 1076 and
+#: 1078, which the two sensors of that name show, but a RawNumber's
+#: range is fixed at import and cannot follow it.
+MAX_BATTERY_POWER_W = 20000
+
+#: How often the G3 battery limitation is written again while its
+#: switch is on. Under the 30 seconds that is the smallest fallback
+#: time the inverter accepts in 1288, so the limit holds whatever the
+#: user set there.
+LIMITATION_REASSERT_SECONDS = 20.0
 
 #: Register 1082, the energy meter the inverter is paired with.
 SENSOR_TYPES: dict[int, str] = {
@@ -176,6 +190,42 @@ RAW_BLOCKS: tuple[RawBlock, ...] = (
             RawField("ac_discharge_energy", 6, "float32"),
             RawField("ac_charge_energy_grid", 8, "float32"),
             RawField("energy_to_grid", 18, "float32"),
+        ),
+    ),
+    # 1034 to 1045, the writable end of the external battery
+    # management. The inverter only acts on the setpoint while its own
+    # menu has external battery management set to Modbus, which is
+    # what the management_mode sensor below reports; the two SoC
+    # bounds and the two power limits apply either way.
+    RawBlock(
+        key="battery_control",
+        address=1034,
+        count=12,
+        word_order=LITTLE,
+        gate=("battery_info", "battery_type"),
+        fields=(
+            RawField("dc_power_setpoint", 0, "float32"),
+            RawField("max_charge_power_limit", 4, "float32"),
+            RawField("max_discharge_power_limit", 6, "float32"),
+            RawField("min_soc", 8, "float32"),
+            RawField("max_soc", 10, "float32"),
+        ),
+    ),
+    # 1280 to 1289, PLENTICORE G3 from SW 03.05 only. Older inverters
+    # answer a Modbus exception here and the block is marked absent,
+    # which is why the limits above and these are not one block.
+    RawBlock(
+        key="battery_limitation",
+        address=1280,
+        count=10,
+        word_order=LITTLE,
+        gate=("battery_info", "battery_type"),
+        fields=(
+            RawField("max_charge_power", 0, "float32"),
+            RawField("max_discharge_power", 2, "float32"),
+            RawField("fallback_charge_power", 4, "float32"),
+            RawField("fallback_discharge_power", 6, "float32"),
+            RawField("fallback_seconds", 8, "uint32"),
         ),
     ),
     # 1068 to 1083, the read-only end of the external battery
@@ -453,6 +503,126 @@ RAW_SENSORS: tuple[RawSensor, ...] = (
     ),
 )
 
+
+def _control(field: str, key: str, **kwargs: Any) -> RawNumber:
+    return RawNumber(block="battery_control", field=field, key=key, device="battery", **kwargs)
+
+
+def _limitation(field: str, key: str, **kwargs: Any) -> RawNumber:
+    return RawNumber(block="battery_limitation", field=field, key=key, device="battery", **kwargs)
+
+
+RAW_NUMBERS: tuple[RawNumber, ...] = (
+    # The pair a user reaches for first: how much of the battery to
+    # keep back, and how full to let it get.
+    _control("min_soc", "battery_min_soc", min=0, max=100, unit="%", icon="mdi:battery-low"),
+    _control("max_soc", "battery_max_soc", min=0, max=100, unit="%", icon="mdi:battery-high"),
+    _control(
+        "max_charge_power_limit",
+        "battery_max_charge_power_limit",
+        min=0,
+        max=MAX_BATTERY_POWER_W,
+        step=100,
+        unit="W",
+        device_class="power",
+        icon="mdi:battery-arrow-up",
+    ),
+    _control(
+        "max_discharge_power_limit",
+        "battery_max_discharge_power_limit",
+        min=0,
+        max=MAX_BATTERY_POWER_W,
+        step=100,
+        unit="W",
+        device_class="power",
+        icon="mdi:battery-arrow-down",
+    ),
+    # Behind the beta, and the only entity here that drives the battery
+    # rather than bounding it. Kostal names no timeout for this
+    # register, so a value written here is one the inverter keeps: an
+    # automation that sets it and stops leaves the battery where it
+    # put it. Negative charges, positive discharges, which is Kostal's
+    # sign convention and the opposite of model 124's.
+    _control(
+        "dc_power_setpoint",
+        "battery_dc_power_setpoint",
+        min=-MAX_BATTERY_POWER_W,
+        max=MAX_BATTERY_POWER_W,
+        step=100,
+        unit="W",
+        device_class="power",
+        beta=True,
+        icon="mdi:battery-charging-medium",
+    ),
+    _limitation(
+        "max_charge_power",
+        "battery_limitation_charge_power",
+        min=0,
+        max=MAX_BATTERY_POWER_W,
+        step=100,
+        unit="W",
+        device_class="power",
+        icon="mdi:battery-arrow-up-outline",
+    ),
+    _limitation(
+        "max_discharge_power",
+        "battery_limitation_discharge_power",
+        min=0,
+        max=MAX_BATTERY_POWER_W,
+        step=100,
+        unit="W",
+        device_class="power",
+        icon="mdi:battery-arrow-down-outline",
+    ),
+    _limitation(
+        "fallback_charge_power",
+        "battery_fallback_charge_power",
+        min=0,
+        max=MAX_BATTERY_POWER_W,
+        step=100,
+        unit="W",
+        device_class="power",
+        icon="mdi:battery-alert-variant-outline",
+    ),
+    _limitation(
+        "fallback_discharge_power",
+        "battery_fallback_discharge_power",
+        min=0,
+        max=MAX_BATTERY_POWER_W,
+        step=100,
+        unit="W",
+        device_class="power",
+        icon="mdi:battery-alert-variant-outline",
+    ),
+    # The inverter's own range. Below 30 it refuses the write.
+    _limitation(
+        "fallback_seconds",
+        "battery_fallback_time",
+        min=30,
+        max=10800,
+        step=10,
+        unit="s",
+        icon="mdi:timer-sand",
+    ),
+)
+
+RAW_KEEPALIVES: tuple[RawKeepAlive, ...] = (
+    # Kostal requires the two limitation registers to be written again
+    # and again once they have been written at all: stop, and after
+    # the fallback time the fallback pair takes over. That makes the
+    # switch part of the feature rather than a convenience, and it is
+    # also what makes the feature safe. A Home Assistant that goes
+    # down hands the battery back to the inverter on its own.
+    RawKeepAlive(
+        key="battery_limitation_hold",
+        block="battery_limitation",
+        fields=("max_charge_power", "max_discharge_power"),
+        interval_seconds=LIMITATION_REASSERT_SECONDS,
+        device="battery",
+        icon="mdi:battery-sync-outline",
+    ),
+)
+
 KOSTAL = VendorProfile(
     slug="kostal",
     # The inverters report "KOSTAL"; the prefix match covers whatever
@@ -461,4 +631,12 @@ KOSTAL = VendorProfile(
     raw_blocks=RAW_BLOCKS,
     raw_devices=RAW_DEVICES,
     raw_sensors=RAW_SENSORS,
+    raw_numbers=RAW_NUMBERS,
+    raw_keepalives=RAW_KEEPALIVES,
+    # 1280 to 1289 are the registers Kostal asks to be written on a
+    # timer, so they cannot be the flash-backed kind; nothing would
+    # survive a limit rewritten every twenty seconds. The rest of the
+    # profile's writes are counted as flash writes, which is the
+    # cautious reading where the document says nothing.
+    volatile_registers=frozenset(range(1280, 1290)),
 )
