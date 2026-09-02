@@ -67,11 +67,15 @@ async def test_number_entities_appear_with_beta_on(hass, sunspec_write_client_mo
 
 
 async def test_beta_off_does_not_poll_model_123(hass, sunspec_write_client_mock):
-    """Without the beta flag we must not poll 123 behind the user's back."""
+    """Without the beta flag we must not poll 123 behind the user's back.
+
+    The battery block is the exception: its controls are not behind
+    the beta, so it is in the filter for every device.
+    """
     entry = await _setup_write_entry(hass, beta=False)
     coordinator = entry.runtime_data
 
-    assert coordinator.write_model_filter == set()
+    assert coordinator.write_model_filter == {124}
     assert 123 not in coordinator.data
 
 

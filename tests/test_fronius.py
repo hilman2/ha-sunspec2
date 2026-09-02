@@ -20,6 +20,7 @@ from custom_components.sunspec2.const import DOMAIN
 from custom_components.sunspec2.dc_channels import DcChannelEnergySensor
 from custom_components.sunspec2.dc_channels import DcChannelSensor
 from custom_components.sunspec2.dc_channels import PvPowerSensor
+from custom_components.sunspec2.discharge_plan import DischargePlanSwitch
 from custom_components.sunspec2.storage_modes import StorageModeSelect
 from custom_components.sunspec2.storage_modes import StorageSetpointNumber
 from custom_components.sunspec2.vendors import profile_for
@@ -223,6 +224,34 @@ async def test_generic_percent_entities_ship_disabled_on_fronius(hass, sunspec_f
     assert disabled_by("select", "StorCtl_Mod") is er.RegistryEntryDisabler.INTEGRATION
     # A register the profile does not take over stays as it was.
     assert disabled_by("number", "WChaMax") is None
+
+
+async def test_the_battery_entities_need_no_beta(hass, sunspec_fronius_client_mock):
+    """The battery block is not experimental; the export limit still is."""
+    entry = create_mock_sunspec_config_entry(hass, data=MOCK_CONFIG_WRITE)
+    await setup_mock_sunspec_config_entry(hass, config_entry=entry)
+    registry = er.async_get(hass)
+
+    assert len(_entities(hass, "select", StorageModeSelect)) == 1
+    assert len(_entities(hass, "number", StorageSetpointNumber)) == 4
+    assert len(_entities(hass, "switch", DischargePlanSwitch)) == 1
+    # The generic model 124 controls too.
+    assert (
+        registry.async_get_entity_id(
+            "number", DOMAIN, get_sunspec_unique_id(entry.entry_id, "WChaMax", 124, 0)
+        )
+        is not None
+    )
+    # The export limit of model 123 stays behind the beta, and 123 is
+    # not even polled without it.
+    assert (
+        registry.async_get_entity_id(
+            "number", DOMAIN, get_sunspec_unique_id(entry.entry_id, "WMaxLimPct", 123, 0)
+        )
+        is None
+    )
+    assert 123 not in entry.runtime_data.data
+    assert 124 in entry.runtime_data.data
 
 
 async def test_non_fronius_device_gets_no_battery_modes(hass, sunspec_write_client_mock):

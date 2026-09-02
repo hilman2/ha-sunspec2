@@ -100,7 +100,7 @@
           "models_enabled": "Enabled models",
           "capture_raw_registers": "Capture raw modbus bytes for diagnostics",
           "max_ac_power_kw": "Peak AC power of the inverter (kW, optional)",
-          "write_beta_enabled": "Enable experimental write controls (BETA - inverter Number / Switch entities and the set_export_limit service action). Off by default. Read the README before enabling - writing to the wrong Modbus register on an inverter can lock you out until a physical reset.",
+          "write_beta_enabled": "Enable experimental export controls (BETA: export limit, power factor and grid connection from models 123 / 704, and the set_export_limit action). Off by default. Read the docs before enabling; writing to the wrong Modbus register can lock you out until a physical reset. The battery controls of model 124 do not need this.",
           "release_slot": "Release the Modbus connection between polls",
           "standby_when_idle": "Inverter powers down when idle (no repair notification while it is unreachable)",
           "rearm_on_change": "Re-apply the export limit and power factor by switching them off and on when their value changes (Fronius)"

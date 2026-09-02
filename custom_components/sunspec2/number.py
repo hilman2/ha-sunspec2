@@ -61,6 +61,7 @@ from .errors import SunSpecError
 from .models import SunSpecModelWrapper
 from .storage_modes import storage_setpoint_numbers
 from .write_controls import PLATFORM_NUMBER
+from .write_controls import STORAGE_CONTROL_MODEL
 from .write_controls import WriteControlSpec
 from .write_controls import active_specs_for_platform
 
@@ -137,11 +138,17 @@ def build_specs(
     """Yield (spec, wrapper) for every control this device can support.
 
     Shared by the number, switch and select platforms so the three
-    cannot drift on which models they consider present.
+    cannot drift on which models they consider present. The battery
+    controls of model 124 come for any device that has the block; the
+    export and grid controls of 123 and 704 only while the write beta
+    is on.
     """
     vendor = coordinator.vendor
     hidden = vendor.storage.hidden_points if vendor and vendor.storage else frozenset()
+    write_beta = coordinator.entry.options.get(CONF_WRITE_BETA_ENABLED, False)
     for spec in active_specs_for_platform(coordinator.detected_models, platform):
+        if spec.model_id != STORAGE_CONTROL_MODEL and not write_beta:
+            continue
         if spec.unique_key in hidden:
             # The vendor profile writes this register through its own
             # entities, in watts. The generic percent entity stays
@@ -151,14 +158,13 @@ def build_specs(
         model_wrapper = (coordinator.data or {}).get(spec.model_id)
         if model_wrapper is None:
             # Unreachable in the normal path since v0.14.0: the
-            # coordinator adds every write-capable model to the polled
-            # set whenever the beta flag is on. If it trips again
-            # something new is broken, and silently returning is what
-            # made this class of bug invisible for three releases.
+            # coordinator adds every model it builds controls for to
+            # the polled set. If it trips again something new is
+            # broken, and silently returning is what made this class
+            # of bug invisible for three releases.
             getattr(coordinator, "_log", _LOGGER).warning(
-                "Write beta is on and model %s was detected, but it is not in the "
-                "polled data, so no write entities will be created for it. "
-                "write_model_filter=%s",
+                "Model %s was detected, but it is not in the polled data, so no "
+                "write entities will be created for it. write_model_filter=%s",
                 spec.model_id,
                 getattr(coordinator, "write_model_filter", None),
             )
@@ -173,14 +179,8 @@ async def async_setup_entry(
     entry: SunSpec2ConfigEntry,
     async_add_devices: AddEntitiesCallback,
 ) -> None:
-    """Set up the experimental write Number entities, gated by the beta flag."""
+    """Set up the write Number entities the device and the options allow."""
     coordinator = entry.runtime_data
-    if not entry.options.get(CONF_WRITE_BETA_ENABLED, False):
-        # Beta flag is off - do not expose any write entities. The user
-        # can still enable them later via the options flow, which
-        # triggers a config-entry reload and a fresh setup.
-        return
-
     device_info = coordinator.device_info
     if device_info is None:
         return

@@ -29,9 +29,9 @@ On the inverter's web interface, *Communication -> Modbus*:
 5. Turn off any **scheduled charging** you set up in the web interface.
    Two controllers on one battery produce surprises.
 
-Then tick **Enable experimental write controls (BETA)** in the
-integration options. The battery entities appear when the inverter
-reports a battery, that is when `WChaMax` is above zero.
+The battery entities appear when the inverter reports a battery, that
+is when `WChaMax` is above zero. Nothing to tick in the integration
+options: only the export limit is behind the beta switch there.
 
 Modbus commands lose against **IO control** and **dynamic power
 reduction** where those are given priority in the inverter's settings.
@@ -84,7 +84,7 @@ is reset in the web interface.
 The inverter reports its battery as two DC channels in the multiple
 MPPT model (160), next to the PV strings, and labels them `ST CHA` and
 `ST DISCHA`. The integration reads the labels and adds sensors named by
-what they carry. They need no write beta.
+what they carry.
 
 | Sensor | What it shows |
 |---|---|
@@ -101,8 +101,8 @@ of named. The per-string energies are on those.
 
 For a battery that is paid to deliver at night: a plan that discharges
 what the battery holds above a reserve to the grid, at a steady power,
-between two times of day. The entities sit on the battery device and
-need the write beta, like the modes.
+between two times of day. The entities sit on the battery device, next
+to the modes.
 
 | Entity | What it does |
 |---|---|
