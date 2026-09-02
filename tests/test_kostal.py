@@ -36,10 +36,19 @@ from .kostal_registers import registers_written
 # ---------- the profile ------------------------------------------------------
 
 
-def test_the_manufacturer_string_picks_the_profile():
-    assert profile_for("KOSTAL") is KOSTAL
-    assert profile_for("KOSTAL Solar Electric GmbH") is KOSTAL
-    assert profile_for("SolarEdge ") is not KOSTAL
+def test_the_model_name_decides_which_kostal_gets_the_profile():
+    """The PIKO CI has an interface description of its own, and #52 has one."""
+    assert profile_for("KOSTAL", "PLENTICORE plus 10") is KOSTAL
+    assert profile_for("KOSTAL", "PLENTICORE G3 10") is KOSTAL
+    assert profile_for("KOSTAL", "PLENTICORE BI 10") is KOSTAL
+    assert profile_for("KOSTAL Solar Electric GmbH", "PIKO IQ 7") is KOSTAL
+
+    assert profile_for("KOSTAL", "PIKO CI 50") is None
+    # A Kostal that names itself something nobody has checked keeps
+    # the generic entities rather than a profile built for another map.
+    assert profile_for("KOSTAL", "PIKO 15") is None
+    assert profile_for("KOSTAL", "") is None
+    assert profile_for("SolarEdge ", "SE10K-RWS48BNN4") is not KOSTAL
 
 
 def test_every_field_decodes_at_the_address_the_interface_description_gives():

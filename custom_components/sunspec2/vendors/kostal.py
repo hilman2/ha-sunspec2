@@ -18,6 +18,11 @@ SunSpec device would use and which this module does not follow. A
 device switched to ABCD reads its own registers as nonsense while its
 SunSpec models stay correct, because SunSpec fixes the order itself.
 
+The PIKO CI, Kostal's commercial line, is not this profile: it has an
+interface description of its own, and matching it here would read its
+registers as though they were a Plenticore's. See
+``identifies_plenticore``.
+
 Sources: KOSTAL's "Interface description MODBUS (TCP) & SunSpec, PIKO
 IQ / PLENTICORE with control information", revision 2.9 of 17.07.2026,
 valid from PIKO/PLENTICORE G1 UI 01.30.12092, PLENTICORE G2 SW
@@ -107,6 +112,21 @@ SENSOR_TYPES: dict[int, str] = {
     0x06: "kem_mp_p",
     0xFF: "none",
 }
+
+
+def identifies_plenticore(model: str, option: str, version: str) -> bool:
+    """Whether ``Md`` names a device the interface description in the docstring covers.
+
+    Kostal documents its commercial line, the PIKO CI, in a register
+    map of its own, and a PIKO CI 50 is a device this tracker has seen
+    (#52). Matching on the manufacturer alone would hand it this
+    profile and read its registers as though they were a Plenticore's,
+    which is how a sensor comes to show a confident wrong number. Any
+    Kostal that does not name itself here is left to the generic
+    SunSpec entities until someone checks its document.
+    """
+    name = model.strip().upper()
+    return name.startswith("PLENTICORE") or name.startswith("PIKO IQ")
 
 
 def as_option(value: Any) -> Any:
@@ -626,8 +646,10 @@ RAW_KEEPALIVES: tuple[RawKeepAlive, ...] = (
 KOSTAL = VendorProfile(
     slug="kostal",
     # The inverters report "KOSTAL"; the prefix match covers whatever
-    # a firmware appends to it.
+    # a firmware appends to it. Which of them this profile is for is
+    # then decided on the model name, see identifies_plenticore.
     manufacturer_prefixes=("KOSTAL",),
+    identifies=identifies_plenticore,
     raw_blocks=RAW_BLOCKS,
     raw_devices=RAW_DEVICES,
     raw_sensors=RAW_SENSORS,
