@@ -2,7 +2,8 @@
 
 A Fronius hybrid inverter with a battery gets a **Battery mode** menu
 and four power fields in watts on top of the generic controls described
-in [write-controls.md](write-controls.md). This page is about those.
+in [write-controls.md](write-controls.md), and sensors that say what
+the battery and the PV strings are doing. This page is about those.
 The integration recognises the inverter by the manufacturer name it
 reports, nothing to configure.
 
@@ -77,6 +78,24 @@ To get back to normal operation select **Automatic**. That is also the
 answer when the battery seems stuck in a forced charge: the inverter
 keeps the last written mode until it is told otherwise or its control
 is reset in the web interface.
+
+## What the battery and the strings are doing
+
+The inverter reports its battery as two DC channels in the multiple
+MPPT model (160), next to the PV strings, and labels them `ST CHA` and
+`ST DISCHA`. The integration reads the labels and adds sensors named by
+what they carry. They need no write beta.
+
+| Sensor | What it shows |
+|---|---|
+| Battery charge power | Watts going into the battery |
+| Battery discharge power | Watts coming out of the battery |
+| Battery charged energy | Lifetime energy into the battery. The Energy Dashboard's "energy going in to the battery" |
+| Battery discharged energy | Lifetime energy out of the battery. The dashboard's "energy coming out of the battery" |
+| PV power | The PV strings' DC power, summed |
+
+The generic *Module n* sensors stay: same registers, numbered instead
+of named. The per-string energies are on those.
 
 ## Things to know
 

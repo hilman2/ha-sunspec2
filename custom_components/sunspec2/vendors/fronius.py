@@ -33,6 +33,7 @@ therefore go out first, in one frame, and the mode last.
 
 from __future__ import annotations
 
+from .profile import ModuleRole
 from .profile import Rate
 from .profile import Recipe
 from .profile import StorageMode
@@ -81,9 +82,30 @@ def infer_mode(ctl_mod: int, in_pct: float, out_pct: float) -> StorageMode | Non
     return StorageMode.BLOCK_DISCHARGING if out_pct == 0 else StorageMode.DISCHARGE_LIMIT
 
 
+def module_role(id_str: str) -> ModuleRole | None:
+    """What a GEN24 reports under a model 160 module label.
+
+    "MPPT 1" and "MPPT 2" are the PV strings. "ST CHA" and "ST DISCHA"
+    are the battery, as two channels: the charge channel carries power
+    while the battery takes energy, the discharge channel while it gives
+    energy, and each keeps its own lifetime counter in ``DCWH``. The
+    labels are what the community integration keys on; the manual lists
+    the modules without naming them.
+    """
+    label = id_str.strip().upper()
+    if label.startswith("MPPT"):
+        return ModuleRole.PV
+    if label == "ST CHA":
+        return ModuleRole.BATTERY_CHARGE
+    if label == "ST DISCHA":
+        return ModuleRole.BATTERY_DISCHARGE
+    return None
+
+
 FRONIUS = VendorProfile(
     slug="fronius",
     manufacturer_prefixes=("Fronius",),
+    module_role=module_role,
     storage=StorageModeProfile(
         modes=tuple(StorageMode),
         recipes=RECIPES,

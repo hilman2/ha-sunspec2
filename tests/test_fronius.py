@@ -15,11 +15,16 @@ from homeassistant.helpers import entity_registry as er
 from custom_components.sunspec2 import get_sunspec_unique_id
 from custom_components.sunspec2.const import CONF_WRITE_BETA_ENABLED
 from custom_components.sunspec2.const import DOMAIN
+from custom_components.sunspec2.dc_channels import DcChannelEnergySensor
+from custom_components.sunspec2.dc_channels import DcChannelSensor
+from custom_components.sunspec2.dc_channels import PvPowerSensor
 from custom_components.sunspec2.storage_modes import StorageModeSelect
 from custom_components.sunspec2.storage_modes import StorageSetpointNumber
 from custom_components.sunspec2.vendors import profile_for
 from custom_components.sunspec2.vendors.fronius import FRONIUS
 from custom_components.sunspec2.vendors.fronius import infer_mode
+from custom_components.sunspec2.vendors.fronius import module_role
+from custom_components.sunspec2.vendors.profile import ModuleRole
 from custom_components.sunspec2.vendors.profile import Rate
 from custom_components.sunspec2.vendors.profile import StorageMode
 from custom_components.sunspec2.vendors.profile import resolve_rate
@@ -290,3 +295,83 @@ async def test_mode_select_refuses_a_mode_it_does_not_know(hass, sunspec_fronius
     select = _entities(hass, "select", StorageModeSelect)[0]
     with pytest.raises(HomeAssistantError):
         await select.async_select_option("turbo")
+
+
+# ---------- the battery and PV channels of model 160 ------------------------
+
+
+@pytest.mark.parametrize(
+    "label, role",
+    [
+        ("MPPT 1", ModuleRole.PV),
+        ("MPPT 2", ModuleRole.PV),
+        ("ST CHA", ModuleRole.BATTERY_CHARGE),
+        ("ST DISCHA", ModuleRole.BATTERY_DISCHARGE),
+        ("Battery", None),
+        ("", None),
+    ],
+)
+def test_module_role_reads_the_gen24_labels(label, role):
+    assert module_role(label) is role
+
+
+async def test_fronius_device_gets_battery_and_pv_sensors(hass, sunspec_fronius_client_mock):
+    """The fixture: MPPT 1 at 900 W, MPPT 2 at 920 W, ST CHA idle, ST DISCHA at 2000 W."""
+    entry = create_mock_sunspec_config_entry(hass, data=MOCK_CONFIG_WRITE)
+    await setup_mock_sunspec_config_entry(hass, config_entry=entry)
+
+    by_key = {s.translation_key: s for s in _entities(hass, "sensor", DcChannelSensor)}
+    assert set(by_key) == {
+        "battery_charge_power",
+        "battery_discharge_power",
+        "battery_charged_energy",
+        "battery_discharged_energy",
+    }
+    assert by_key["battery_charge_power"].native_value == 0
+    assert by_key["battery_discharge_power"].native_value == 2000
+    assert isinstance(by_key["battery_charged_energy"], DcChannelEnergySensor)
+    assert by_key["battery_charged_energy"].native_value == 3
+    assert by_key["battery_discharged_energy"].native_value == 4
+    assert by_key["battery_discharge_power"].extra_state_attributes["module_label"] == "ST DISCHA"
+
+    pv = _entities(hass, "sensor", PvPowerSensor)
+    assert len(pv) == 1
+    assert pv[0].native_value == 1820
+    assert pv[0].extra_state_attributes["modules"] == [0, 1]
+
+
+async def test_channel_sensors_are_keyed_by_role_and_named_by_it(hass, sunspec_fronius_client_mock):
+    """The generic "Module 3" sensor keeps its id; the role sensor has its own and a name of its own."""
+    entry = create_mock_sunspec_config_entry(hass, data=MOCK_CONFIG_WRITE)
+    await setup_mock_sunspec_config_entry(hass, config_entry=entry)
+    registry = er.async_get(hass)
+
+    generic_id = registry.async_get_entity_id(
+        "sensor", DOMAIN, get_sunspec_unique_id(entry.entry_id, "module:3:DCW", 160, 0)
+    )
+    role_id = registry.async_get_entity_id(
+        "sensor", DOMAIN, get_sunspec_unique_id(entry.entry_id, "battery_discharge:DCW", 160, 0)
+    )
+    assert generic_id is not None
+    assert role_id is not None
+    assert role_id != generic_id
+
+    state = hass.states.get(role_id)
+    assert state is not None
+    assert state.name.endswith("Battery discharge power")
+    assert state.state == "2000"
+    pv_id = registry.async_get_entity_id(
+        "sensor", DOMAIN, get_sunspec_unique_id(entry.entry_id, "pv:DCW", 160, 0)
+    )
+    assert pv_id is not None
+    pv_state = hass.states.get(pv_id)
+    assert pv_state is not None
+    assert pv_state.name.endswith("PV power")
+    assert float(pv_state.state) == 1820
+
+
+async def test_non_fronius_device_gets_no_channel_sensors(hass, sunspec_write_client_mock):
+    entry = create_mock_sunspec_config_entry(hass, data=MOCK_CONFIG_WRITE)
+    await setup_mock_sunspec_config_entry(hass, config_entry=entry)
+    assert _entities(hass, "sensor", DcChannelSensor) == []
+    assert _entities(hass, "sensor", PvPowerSensor) == []
