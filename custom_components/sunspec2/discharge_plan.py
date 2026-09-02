@@ -67,6 +67,23 @@ NAMEPLATE_MODEL = 120
 #: other platforms, and this is long enough for all of them.
 STARTUP_GRACE_SECONDS = 10.0
 
+#: Fraction of the device's own revert timeout after which the plan
+#: writes its mode again. The timer itself is set to the length of the
+#: window, so this is the net under a device that clamped it to
+#: something shorter, and the margin only has to cover a busy event
+#: loop and a poll in flight: 30 s of the 300 a GEN24 came with. Not
+#: half of it. A missed write costs one interval of discharge, and the
+#: tick after it plans again.
+REFRESH_FRACTION = 0.9
+
+#: Floor under that interval, whatever timeout the device reports.
+MIN_REFRESH_SECONDS = 30.0
+
+#: Largest value ``InOutWRte_RvrtTms`` holds: it is a uint16 of seconds,
+#: 18 h 12 min. Longer windows keep the device's timer at the ceiling
+#: and rely on the periodic re-write for the rest.
+MAX_REVERT_SECONDS = 65535
+
 
 def window_hours(start: time, end: time) -> float:
     """The length of the window, wrapping past midnight; a full day when both are equal."""
@@ -124,6 +141,24 @@ def state_of_charge_pct(wrapper: SunSpecModelWrapper) -> float | None:
     return None
 
 
+def revert_timeout_seconds(wrapper: SunSpecModelWrapper) -> float | None:
+    """``InOutWRte_RvrtTms`` of model 124, or None where the device does not report it.
+
+    The point is the dead-man switch of the battery rates: the inverter
+    honours them for that many seconds and then goes back to what it did
+    before. Zero means it holds them until told otherwise, and is a
+    value like any other here; None is a device that does not implement
+    the point at all.
+    """
+    try:
+        value = wrapper.getValue("InOutWRte_RvrtTms")
+    except (KeyError, AttributeError):
+        return None
+    if isinstance(value, (int, float)) and not isinstance(value, bool) and value >= 0:
+        return float(value)
+    return None
+
+
 def nameplate_capacity_kwh(coordinator: SunSpecDataUpdateCoordinator) -> float | None:
     """The storage energy rating from model 120, in kWh, or None when there is none."""
     wrapper = (coordinator.data or {}).get(NAMEPLATE_MODEL)
@@ -164,6 +199,11 @@ class DischargePlanner:
         self.planned_power_w: float | None = None
         self._unsub_window: list[CALLBACK_TYPE] = []
         self._unsub_startup: CALLBACK_TYPE | None = None
+        self._unsub_refresh: CALLBACK_TYPE | None = None
+        #: What ``InOutWRte_RvrtTms`` held before the plan took it over,
+        #: put back at the end of the window.
+        self._prior_revert_seconds: float | None = None
+        self._revert_owned = False
         self._listeners: list[Callable[[], None]] = []
         self._capacity_warned = False
         self._track_window()
@@ -178,6 +218,7 @@ class DischargePlanner:
         if self._unsub_startup is not None:
             self._unsub_startup()
             self._unsub_startup = None
+        self._cancel_refresh()
 
     @callback
     def async_add_listener(self, listener: Callable[[], None]) -> CALLBACK_TYPE:
@@ -230,6 +271,7 @@ class DischargePlanner:
     async def async_disable(self) -> None:
         """Switch the plan off; inside the window, hand the battery back."""
         self.settings.enabled = False
+        self._cancel_refresh()
         if self._inside_window_now():
             await self._set_automatic()
 
@@ -298,6 +340,7 @@ class DischargePlanner:
         power = planned_power_w(
             soc, self.settings.reserve_pct, capacity, hours, wchamax, profile.grid_power_step_w
         )
+        was_discharging = bool(self.planned_power_w)
         self.planned_power_w = power
         self._notify()
         if power < profile.grid_power_step_w:
@@ -307,22 +350,114 @@ class DischargePlanner:
                 soc,
                 self.settings.reserve_pct,
             )
+            if was_discharging:
+                # The battery reached the reserve before the window was
+                # over. Hand it back rather than leave it in a forced
+                # mode that nothing writes again.
+                await self._set_automatic()
             return
         self.coordinator.storage_setpoints[Rate.GRID_DISCHARGE.value] = power
+        await self._arm_revert_timer(wrapper, hours)
         try:
             await async_apply_storage_mode(self.coordinator, profile, StorageMode.DISCHARGE_TO_GRID)
         except (SunSpecError, HomeAssistantError) as exc:
             _LOGGER.error("Scheduled discharge: could not start discharging: %s", exc)
+        else:
+            _LOGGER.info(
+                "Scheduled discharge: %.0f W for %.1f h, from %.0f %% down to the %.0f %% reserve",
+                power,
+                hours,
+                soc,
+                self.settings.reserve_pct,
+            )
+        # Armed whether or not that write landed: it has to be repeated
+        # before the device's revert timer lapses, and a link that was
+        # down for this one may be back for the next.
+        self._schedule_refresh()
+
+    async def _arm_revert_timer(self, wrapper: SunSpecModelWrapper, hours: float) -> None:
+        """Point the device's own revert timer at the end of the window.
+
+        The battery rates are a dead-man switch: the inverter drops them
+        after ``InOutWRte_RvrtTms`` seconds. A GEN24 ships with 300 of
+        them, which is what ended #57's discharge after five minutes.
+        Set to the length of the window, the switch does what the plan
+        wants of it: with Home Assistant gone, the battery stops at the
+        end of the window rather than five minutes in or never.
+
+        Best effort, and not the only line of defence. A device that
+        refuses the write or clamps it back to a shorter timeout keeps
+        what it has, and the periodic re-write, paced off the value the
+        device reports back, carries the discharge either way.
+        """
+        if not self._revert_owned:
+            self._prior_revert_seconds = revert_timeout_seconds(wrapper)
+            self._revert_owned = True
+        seconds = max(1, min(MAX_REVERT_SECONDS, int(hours * 3600)))
+        try:
+            await self.coordinator.async_write_points_locked(
+                STORAGE_CONTROL_MODEL, [("InOutWRte_RvrtTms", seconds)]
+            )
+        except (SunSpecError, HomeAssistantError) as exc:
+            _LOGGER.warning(
+                "Scheduled discharge: could not set the battery rate revert time to %d s, "
+                "the discharge falls back on being written again periodically: %s",
+                seconds,
+                exc,
+            )
+
+    async def _release_revert_timer(self) -> None:
+        """Put ``InOutWRte_RvrtTms`` back to what it held before the plan ran."""
+        if not self._revert_owned:
             return
-        _LOGGER.info(
-            "Scheduled discharge: %.0f W for %.1f h, from %.0f %% down to the %.0f %% reserve",
-            power,
-            hours,
-            soc,
-            self.settings.reserve_pct,
-        )
+        prior = self._prior_revert_seconds
+        self._revert_owned = False
+        self._prior_revert_seconds = None
+        if prior is None:
+            return
+        try:
+            await self.coordinator.async_write_points_locked(
+                STORAGE_CONTROL_MODEL, [("InOutWRte_RvrtTms", int(prior))]
+            )
+        except (SunSpecError, HomeAssistantError) as exc:
+            _LOGGER.warning(
+                "Scheduled discharge: could not restore the battery rate revert time to %d s: %s",
+                int(prior),
+                exc,
+            )
+
+    def _schedule_refresh(self) -> None:
+        """Arm the next write, on a device that reverts a battery rate on its own.
+
+        Paced off what the device reports now, not off what the plan
+        asked for: an inverter that clamped the timer to its own maximum
+        is written again before that shorter one lapses.
+        """
+        self._cancel_refresh()
+        wrapper = (self.coordinator.data or {}).get(STORAGE_CONTROL_MODEL)
+        timeout = revert_timeout_seconds(wrapper) if wrapper is not None else None
+        if not timeout:
+            return
+        interval = max(MIN_REFRESH_SECONDS, timeout * REFRESH_FRACTION)
+
+        async def _refresh(_now: datetime) -> None:
+            self._unsub_refresh = None
+            # Through async_resume: it checks the window again and
+            # plans for what is left of it, so a battery that gave more
+            # than planned, to the house for instance, still lands on
+            # the reserve at the end rather than below it.
+            await self.async_resume()
+
+        self._unsub_refresh = async_call_later(self.hass, interval, _refresh)
+
+    @callback
+    def _cancel_refresh(self) -> None:
+        if self._unsub_refresh is not None:
+            self._unsub_refresh()
+            self._unsub_refresh = None
 
     async def _set_automatic(self) -> None:
+        self._cancel_refresh()
         ready = storage_profile_ready(self.coordinator)
         if ready is None:
             return
@@ -332,6 +467,10 @@ class DischargePlanner:
         except (SunSpecError, HomeAssistantError) as exc:
             _LOGGER.error("Scheduled discharge: could not hand the battery back: %s", exc)
             return
+        # After the mode, not before: the timer only matters while a
+        # rate is in force, and the short one the device came with must
+        # not lapse between the two writes.
+        await self._release_revert_timer()
         self.planned_power_w = 0.0
         self._notify()
 

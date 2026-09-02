@@ -128,6 +128,16 @@ show the power the last plan asked for.
 The power never exceeds the battery's own maximum, and the state of
 charge never goes below the inverter's own minimum reserve.
 
+While the plan runs it owns *Battery rate revert time*, the inverter's
+dead-man switch for the battery rates. A GEN24 leaves the factory with
+300 seconds in it and stops discharging after them. The plan sets it to
+the length of the window, so a Home Assistant that dies at 20:05 leaves
+a battery that stops at 06:00 rather than one that stops at once or not
+at all, writes the mode again before the timer lapses, and puts the old
+value back at the end. What that timer is and the other ways to live
+with it are in
+[write-controls.md](write-controls.md#the-revert-timer-and-how-not-to-get-caught-by-it).
+
 ## Things to know
 
 - **Grid charging is capped by the inverter.** Users of the community

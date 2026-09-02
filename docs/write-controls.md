@@ -36,7 +36,7 @@ from whichever of the two supported blocks the device has.
 | Battery discharge rate | Number, 0 to 100 % | 124 `OutWRte` | Discharge power as a percentage of the maximum |
 | Battery max charge power | Number, watts | 124 `WChaMax` | The ceiling those two percentages refer to |
 | Battery control mode | Select | 124 `StorCtl_Mod` | Off, charge only, discharge only, both |
-| Battery rate revert time | Number, seconds | 124 `InOutWRte_RvrtTms` | Same lapse behaviour as the export limit's revert time |
+| Battery rate revert time | Number, seconds | 124 `InOutWRte_RvrtTms` | Same lapse behaviour as the export limit's revert time. A running scheduled discharge sets it to the length of its window, see [fronius.md](fronius.md#giving-energy-back-over-night) |
 | Battery minimum reserve | Number, 0 to 100 % | 124 `MinRsvPct` | Charge to hold back, for example for backup power. Disabled by default |
 | Power factor setpoint | Number, -1 to 1 | 123 `OutPFSet` | Cos-phi setpoint for reactive power |
 | Power factor enabled | Switch | 123 `OutPFSet_Ena` | The setpoint only applies while this is on |
