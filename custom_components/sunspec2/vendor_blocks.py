@@ -16,6 +16,7 @@ their automation is doing on that.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import datetime
 from datetime import timedelta
@@ -82,6 +83,12 @@ class RawBlockEntity(SunSpecEntity):
         self._block = block
         self._field = field
         self._device = device
+        vendor = coordinator.vendor
+        raw_block = vendor.raw_block(block) if vendor is not None else None
+        # A block of write-only setpoints is never polled; its entities
+        # are available whenever the profile is, and show what Home
+        # Assistant last wrote.
+        self._write_only = raw_block is not None and not raw_block.readable
         self._attr_translation_key = key
         self._attr_unique_id = get_sunspec_unique_id(
             config_entry.entry_id, f"raw:{block}:{field if field is not None else key}", 0, 0
@@ -89,13 +96,18 @@ class RawBlockEntity(SunSpecEntity):
 
     @property
     def available(self) -> bool:
-        return super().available and self._block in self.coordinator.raw_blocks
+        return super().available and (
+            self._write_only or self._block in self.coordinator.raw_blocks
+        )
 
     def _raw(self) -> Any:
-        """The field as decoded on the last cycle, None when absent."""
+        """The field as decoded on the last cycle, else what Home Assistant last wrote, else None."""
         if self._field is None:
             return None
-        return self.coordinator.raw_blocks.get(self._block, {}).get(self._field)
+        value = self.coordinator.raw_blocks.get(self._block, {}).get(self._field)
+        if value is None:
+            return self.coordinator.raw_setpoints.get((self._block, self._field))
+        return value
 
     async def _write(self, value: float | int) -> None:
         """Write the field and read the block back."""
@@ -319,26 +331,41 @@ class RawKeepAliveSwitch(RawBlockEntity, SwitchEntity, RestoreEntity):
             self._unsub = None
 
     async def _rewrite(self, now: datetime | None) -> None:
-        data = self.coordinator.raw_blocks.get(self._spec.block)
-        if data is None:
-            return
-        if self._spec.only_while is not None and not self._spec.only_while(data):
-            return
         vendor = self.coordinator.vendor
         block = vendor.raw_block(self._spec.block) if vendor is not None else None
         if block is None:
             return
-        fields = {f.name: f for f in block.fields}
+        data = self.coordinator.raw_blocks.get(self._spec.block)
+        if data is None:
+            if block.readable:
+                return
+            data = {}
+        # The device's view with Home Assistant's own writes on top:
+        # what the condition and the rewrite go by. A write-only block
+        # has nothing but the writes.
+        view: dict[str, Any] = dict(data)
         for name in self._spec.fields:
-            value = self.coordinator.raw_setpoints.get((self._spec.block, name), data.get(name))
+            written = self.coordinator.raw_setpoints.get((self._spec.block, name))
+            if written is not None:
+                view[name] = written
+        if self._spec.only_while is not None and not self._spec.only_while(view):
+            return
+        fields = {f.name: f for f in block.fields}
+        first = True
+        for name in self._spec.fields:
+            value = view.get(name)
             if value is None or name not in fields:
                 continue
+            if not first and self._spec.settle_seconds > 0:
+                await asyncio.sleep(self._spec.settle_seconds)
+            first = False
             try:
                 await self.coordinator.async_write_raw_locked(block, fields[name], value)
             except SunSpecError as exc:
                 _LOGGER.warning("Rewrite of %s.%s failed: %s", self._spec.block, name, exc)
                 return
-        await self.coordinator.async_request_refresh()
+        if block.readable:
+            await self.coordinator.async_request_refresh()
 
 
 class RawWriteCountSensor(SunSpecEntity, RestoreSensor):
@@ -404,6 +431,16 @@ def _context(
     return vendor, home, {device.key: device for device in vendor.raw_devices}
 
 
+def _block_answers(
+    coordinator: SunSpecDataUpdateCoordinator, vendor: VendorProfile, key: str
+) -> bool:
+    """Whether entities over block ``key`` can be built: it answered, or it is write-only."""
+    if key in coordinator.raw_blocks:
+        return True
+    block = vendor.raw_block(key)
+    return block is not None and not block.readable
+
+
 def _device_for(
     coordinator: SunSpecDataUpdateCoordinator,
     devices: dict[str, RawDevice],
@@ -463,7 +500,9 @@ def raw_block_numbers(
     vendor, home, devices = context
     numbers: list[NumberEntity] = []
     for spec in vendor.raw_numbers:
-        if spec.block not in coordinator.raw_blocks or not _writable(config_entry, spec.beta):
+        if not _block_answers(coordinator, vendor, spec.block) or not _writable(
+            config_entry, spec.beta
+        ):
             continue
         buildable, device = _device_for(coordinator, devices, spec.device, spec.key)
         if buildable:
@@ -481,7 +520,9 @@ def raw_block_selects(
     vendor, home, devices = context
     selects: list[SelectEntity] = []
     for spec in vendor.raw_selects:
-        if spec.block not in coordinator.raw_blocks or not _writable(config_entry, spec.beta):
+        if not _block_answers(coordinator, vendor, spec.block) or not _writable(
+            config_entry, spec.beta
+        ):
             continue
         buildable, device = _device_for(coordinator, devices, spec.device, spec.key)
         if buildable:
@@ -499,7 +540,9 @@ def raw_keepalive_switches(
     vendor, home, devices = context
     switches: list[SwitchEntity] = []
     for spec in vendor.raw_keepalives:
-        if spec.block not in coordinator.raw_blocks or not _writable(config_entry, spec.beta):
+        if not _block_answers(coordinator, vendor, spec.block) or not _writable(
+            config_entry, spec.beta
+        ):
             continue
         buildable, device = _device_for(coordinator, devices, spec.device, spec.key)
         if buildable:

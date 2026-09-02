@@ -62,6 +62,10 @@ from .fronius_web import FroniusWebAuthError
 from .fronius_web import FroniusWebError
 from .fronius_web import async_mint_token
 from .model_labels import sunspec_model_labels
+from .vendors.sma import SUNSPEC_UNIT_ID as SMA_SUNSPEC_UNIT_ID
+
+#: SMA Solar Technology's MAC prefix, the one DHCP discovery matches on.
+SMA_OUI = "0015bb"
 
 _LOGGER: logging.Logger = logging.getLogger(__package__)
 
@@ -211,6 +215,7 @@ class SunSpecFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
         # The manual step uses this as the default for the host field so
         # the user just needs to confirm port and unit ID.
         self._discovered_host: str | None = None
+        self._discovered_unit_id: int | None = None
         # Cached scan result so async_step_scan_results can render the
         # picker without re-scanning.
         self._scan_results: list[SunSpecCandidate] = []
@@ -245,6 +250,11 @@ class SunSpecFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
                 return self.async_abort(reason="already_configured")
 
         self._discovered_host = host
+        # An SMA answers SunSpec 123 unit ids above its own, 126 from
+        # the factory; a form that says 1 costs the user a round trip.
+        mac = discovery_info.macaddress.replace(":", "").lower()
+        if mac.startswith(SMA_OUI) or discovery_info.hostname.lower().startswith("sma"):
+            self._discovered_unit_id = SMA_SUNSPEC_UNIT_ID
         return await self.async_step_manual()
 
     def _get_unique_id(self, host: str, port: int, unit_id: int) -> str:
@@ -313,6 +323,20 @@ class SunSpecFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
                     CONF_UNIT_ID: unit_id,
                 }
                 return await self.async_step_settings()
+
+            # The device is there but not SunSpec under this unit id.
+            # An SMA answers SunSpec 123 unit ids above its own, and
+            # this is the mistake every SMA owner makes once (cjne
+            # #18, #135, #269). Try 126 and, if it answers, say so
+            # with the form already corrected.
+            device_answered = self._errors.get("base") in ("device_error", "connection")
+            if (
+                unit_id != SMA_SUNSPEC_UNIT_ID
+                and device_answered
+                and await self._answers_sunspec(host, port, SMA_SUNSPEC_UNIT_ID)
+            ):
+                self._errors = {"base": "sma_unit_id"}
+                user_input = {**user_input, CONF_UNIT_ID: SMA_SUNSPEC_UNIT_ID}
 
             return await self._show_config_form(user_input)
 
@@ -577,7 +601,7 @@ class SunSpecFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
         defaults = user_input or {
             CONF_HOST: self._discovered_host or "",
             CONF_PORT: 502,
-            CONF_UNIT_ID: 1,
+            CONF_UNIT_ID: self._discovered_unit_id or 1,
         }
         return self.async_show_form(
             step_id="manual",
@@ -683,6 +707,22 @@ class SunSpecFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
             if isinstance(value, (int, float)) and value > 0:
                 return float(value) / 1000.0
         return None
+
+    async def _answers_sunspec(self, host: str, port: int, unit_id: int) -> bool:
+        """Whether a one-shot probe finds common model 1 under ``unit_id``.
+
+        The probe client is closed before and after, so a single-slot
+        inverter never sees two sessions from this flow at once.
+        """
+        self._close_probe_client()
+        client = SunSpecApiClient(host, port, unit_id, self.hass, timeout=SETUP_TIMEOUT)
+        try:
+            await client.async_get_device_info()
+        except Exception:  # noqa: BLE001 - a probe that fails is the answer
+            return False
+        finally:
+            client.close(force=True)
+        return True
 
     async def _test_connection_tcp(self, host: str, port: int, unit_id: int) -> bool:
         """Probe a Modbus TCP inverter and cache its common-block info.

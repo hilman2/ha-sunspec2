@@ -15,6 +15,7 @@ from custom_components.sunspec2.errors import TransportError
 from custom_components.sunspec2.pysunspec2.modbus.modbus import ModbusClientException
 from custom_components.sunspec2.pysunspec2.modbus.modbus import ModbusClientTimeout
 
+from .sma_registers import smart_energy_registers
 from .solaredge_registers import home_hub_registers
 
 pytest_plugins = "pytest_homeassistant_custom_component"
@@ -43,6 +44,11 @@ class MockFileClientDevice(modbus_client.FileClientDevice):
         super().__init__(*args, **kwargs)
         self.registers: dict[int, int] = {}
         self.hang: set[int] = set()
+        # Registers of other units on the same connection, keyed by
+        # unit id, for a vendor that keeps its own profile under
+        # another id. Writes there are accepted at any address, like
+        # a write-only setpoint register.
+        self.unit_registers: dict[int, dict[int, int]] = {}
 
     def is_connected(self):
         return True
@@ -74,6 +80,20 @@ class MockFileClientDevice(modbus_client.FileClientDevice):
         for index in range(len(data) // 2):
             self.registers[addr + index] = int.from_bytes(data[index * 2 : index * 2 + 2], "big")
         return None
+
+    def read_unit(self, unit_id, addr, count):
+        registers = self.unit_registers.get(unit_id, {})
+        if addr in self.hang:
+            raise ModbusClientTimeout("Response timeout")
+        addresses = range(addr, addr + count)
+        if any(address not in registers for address in addresses):
+            raise ModbusClientException("Modbus exception 2")
+        return b"".join(registers[address].to_bytes(2, "big") for address in addresses)
+
+    def write_unit(self, unit_id, addr, data):
+        registers = self.unit_registers.setdefault(unit_id, {})
+        for index in range(len(data) // 2):
+            registers[addr + index] = int.from_bytes(data[index * 2 : index * 2 + 2], "big")
 
 
 # This fixture is used to prevent HomeAssistant from attempting to create and dismiss persistent
@@ -203,6 +223,24 @@ def sunspec_solaredge_client_mock():
     client = MockFileClientDevice("./tests/test_data/inverter_solaredge.json")
     client.scan()
     client.registers = home_hub_registers()
+    with (
+        patch("custom_components.sunspec2.SunSpecApiClient.modbus_connect", return_value=client),
+        patch("custom_components.sunspec2.SunSpecApiClient.check_port", return_value=True),
+    ):
+        yield client
+
+
+@pytest.fixture
+def sunspec_sma_client_mock():
+    """An SMA Tripower Smart Energy: models 1 and 103 on unit 126, SMA's own registers on 3.
+
+    See tests/sma_registers.py for what the registers hold. The api
+    client has to be built with unit id 126 for the offset of -123 to
+    land on unit 3; tests/test_sma.py does that.
+    """
+    client = MockFileClientDevice("./tests/test_data/inverter_sma.json")
+    client.scan()
+    client.unit_registers = {3: smart_energy_registers()}
     with (
         patch("custom_components.sunspec2.SunSpecApiClient.modbus_connect", return_value=client),
         patch("custom_components.sunspec2.SunSpecApiClient.check_port", return_value=True),

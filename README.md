@@ -36,7 +36,7 @@ If the manual mentions "SunSpec Modbus", yes. That covers most brands:
 
 **KACO** Powador, blueplanet . **SolarEdge** SE, HD-Wave, Energy Hub .
 **Fronius** Symo, Primo, Galvo, GEN24 . **SMA** Sunny Boy, Tripower
-(enable the Speedwire Modbus profile first) . **Kostal** Plenticore,
+(SunSpec answers on unit ID 126, see [docs/sma.md](docs/sma.md)) . **Kostal** Plenticore,
 Piko . **Sungrow** SG, SH . **GoodWe** XS, DT, ET . **ABB / FIMER /
 Power-One** Aurora, Trio, UNO, REACT . **Delta** Solivia, RPI .
 **SunPower** . **Chint Power Systems**

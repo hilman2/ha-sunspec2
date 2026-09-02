@@ -72,7 +72,8 @@
       "invalid_subnet": "Das Subnetz ist keine gültige CIDR-Notation, oder es ist zu groß zum Scannen (max. /22).",
       "no_candidates": "In diesem Subnetz wurden keine Hosts mit offenem Modbus-TCP-Port 502 gefunden.",
       "no_models_selected": "Wähle mindestens ein SunSpec-Modell aus. Eine leere Auswahl zu speichern würde dazu führen, dass die Integration den Wechselrichter nicht mehr abfragt und alle Sensoren verschwinden.",
-      "unique_id_mismatch": "Der Wechselrichter unter dieser Adresse meldet eine andere Seriennummer als der ursprünglich konfigurierte. Die Sensor-Historie wird nicht auf ein fremdes Gerät umgehängt."
+      "unique_id_mismatch": "Der Wechselrichter unter dieser Adresse meldet eine andere Seriennummer als der ursprünglich konfigurierte. Die Sensor-Historie wird nicht auf ein fremdes Gerät umgehängt.",
+      "sma_unit_id": "Der Wechselrichter antwortet auf SunSpec unter Unit-ID 126, nicht unter der eingegebenen. SMA legt SunSpec auf die eigene Modbus-Unit-ID plus 123. Das Feld steht jetzt auf 126; noch einmal absenden."
     },
     "abort": {
       "already_configured": "Dieser Wechselrichter ist bereits konfiguriert.",
@@ -193,6 +194,9 @@
       },
       "active_power_limit": {
         "name": "Wirkleistungslimit"
+      },
+      "sma_power_setpoint": {
+        "name": "Externe Leistungsvorgabe"
       }
     },
     "select": {
@@ -283,6 +287,13 @@
           "total": "Gesamt",
           "per_phase": "Je Phase"
         }
+      },
+      "sma_power_control": {
+        "name": "Externe Leistungssteuerung",
+        "state": {
+          "inactive": "Inaktiv",
+          "active": "Aktiv"
+        }
       }
     },
     "switch": {
@@ -321,6 +332,9 @@
       },
       "active_power_limit_reassert": {
         "name": "Wirkleistungslimit festhalten"
+      },
+      "sma_power_setpoint_keepalive": {
+        "name": "Externe Leistungsvorgabe festhalten"
       }
     },
     "time": {
@@ -491,6 +505,51 @@
       },
       "register_writes": {
         "name": "Registerschreibvorgänge"
+      },
+      "sma_device_class": {
+        "name": "Geräteklasse",
+        "state": {
+          "pv_inverter": "PV-Wechselrichter",
+          "wind_inverter": "Wind-Wechselrichter",
+          "battery_inverter": "Batterie-Wechselrichter",
+          "load": "Verbraucher",
+          "sensor": "Sensor",
+          "energy_meter": "Energiezähler",
+          "communication": "Kommunikationsprodukt"
+        }
+      },
+      "sma_device_type": {
+        "name": "Gerätetyp-Code"
+      },
+      "sma_operating_status": {
+        "name": "Betriebsstatus",
+        "state": {
+          "fault": "Störung",
+          "off": "Aus",
+          "ok": "Ok",
+          "warning": "Warnung"
+        }
+      },
+      "sma_active_power_mode": {
+        "name": "Betriebsart Wirkleistung",
+        "state": {
+          "off": "Aus",
+          "watts": "Watt",
+          "percent": "Prozent",
+          "external_setpoint": "Externe Vorgabe"
+        }
+      },
+      "sma_setpoint_timeout": {
+        "name": "Timeout externe Vorgabe"
+      },
+      "battery_state_of_charge": {
+        "name": "Batterie-Ladestand"
+      },
+      "battery_capacity_pct": {
+        "name": "Batteriekapazität"
+      },
+      "battery_status_code": {
+        "name": "Batterie-Statuscode"
       },
       "battery_state_of_energy": {
         "name": "Ladestand"

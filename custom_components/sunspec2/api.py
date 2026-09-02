@@ -8,6 +8,7 @@ import struct
 import threading
 import time
 from collections.abc import Awaitable
+from collections.abc import Callable
 from types import SimpleNamespace
 from typing import Any
 
@@ -403,12 +404,15 @@ class SunSpecApiClient:
                 f"Modbus exception while writing model {model_id} point {point_name}: {exc}"
             ) from exc
 
-    async def async_read_block(self, address: int, count: int) -> bytes:
+    async def async_read_block(self, address: int, count: int, unit_id_offset: int = 0) -> bytes:
         """Read ``count`` holding registers at ``address`` over the live session.
 
         For the registers a vendor keeps outside the SunSpec models,
         see ``raw_blocks.py``. Same session, same lock discipline as
         the model reads: the coordinator calls this inside its cycle.
+        ``unit_id_offset`` asks another unit on the same connection,
+        the entry's unit id plus the offset: SMA keeps its own
+        registers 123 unit ids below the SunSpec ones.
 
         Raises:
             DeviceError: The device answered with a Modbus exception,
@@ -416,9 +420,10 @@ class SunSpecApiClient:
             TransientError: No answer within the socket timeout.
             TransportError: The connection failed or was closed.
         """
+        unit_id = self._unit_id + unit_id_offset if unit_id_offset else None
         try:
             data = await self._hass.async_add_executor_job(
-                self._read_block_blocking, address, count
+                self._read_block_blocking, address, count, unit_id
             )
         except (SunSpecModbusClientTimeout, ModbusClientTimeout) as exc:
             raise TransientError(f"Modbus read timeout at register {address}") from exc
@@ -432,12 +437,41 @@ class SunSpecApiClient:
             )
         return bytes(data)
 
-    def _read_block_blocking(self, address: int, count: int) -> bytes | None:
+    def _read_block_blocking(self, address: int, count: int, unit_id: int | None) -> bytes | None:
         client = self.get_client()
-        data: bytes | None = client.read(address, count)
-        return data
+        if unit_id is None:
+            data: bytes | None = client.read(address, count)
+            return data
+        read_unit = getattr(client, "read_unit", None)
+        if read_unit is not None:
+            other: bytes | None = read_unit(unit_id, address, count)
+            return other
+        swapped: bytes | None = self._as_unit(client, unit_id, lambda: client.read(address, count))
+        return swapped
 
-    async def async_write_block(self, address: int, data: bytes) -> None:
+    def _as_unit(self, client: SunSpecClient, unit_id: int, action: Callable[[], Any]) -> Any:
+        """Run ``action`` with the session's unit id swapped for ``unit_id``.
+
+        pysunspec2 binds the unit id to the device object and, for TCP,
+        to the transport underneath it; both carry it as ``slave_id``.
+        Swapping it for one request is safe because the coordinator
+        holds the gateway lock around every use of the session.
+        """
+        targets = [
+            obj
+            for obj in (client, getattr(client, "client", None))
+            if obj is not None and hasattr(obj, "slave_id")
+        ]
+        saved = [obj.slave_id for obj in targets]
+        for obj in targets:
+            obj.slave_id = unit_id
+        try:
+            return action()
+        finally:
+            for obj, value in zip(targets, saved, strict=True):
+                obj.slave_id = value
+
+    async def async_write_block(self, address: int, data: bytes, unit_id_offset: int = 0) -> None:
         """Write register bytes at ``address`` over the live session.
 
         Raises:
@@ -446,8 +480,11 @@ class SunSpecApiClient:
             TransportError: The connection failed or was closed.
         """
         self._log.debug("Write %d registers at %d", len(data) // 2, address)
+        unit_id = self._unit_id + unit_id_offset if unit_id_offset else None
         try:
-            await self._hass.async_add_executor_job(self._write_block_blocking, address, data)
+            await self._hass.async_add_executor_job(
+                self._write_block_blocking, address, data, unit_id
+            )
         except (SunSpecModbusClientTimeout, ModbusClientTimeout) as exc:
             raise TransientError(f"Modbus write timeout at register {address}") from exc
         except (SunSpecModbusClientException, ModbusClientException) as exc:
@@ -455,9 +492,16 @@ class SunSpecApiClient:
         except (SunSpecModbusClientError, ModbusClientError, OSError) as exc:
             raise TransportError(f"Modbus write failed at register {address}: {exc}") from exc
 
-    def _write_block_blocking(self, address: int, data: bytes) -> None:
+    def _write_block_blocking(self, address: int, data: bytes, unit_id: int | None) -> None:
         client = self.get_client()
-        client.write(address, data)
+        if unit_id is None:
+            client.write(address, data)
+            return
+        write_unit = getattr(client, "write_unit", None)
+        if write_unit is not None:
+            write_unit(unit_id, address, data)
+            return
+        self._as_unit(client, unit_id, lambda: client.write(address, data))
 
     def _write_points_blocking(self, model_id: int, points: list[tuple[str, object]]) -> None:
         client = self.get_client()
