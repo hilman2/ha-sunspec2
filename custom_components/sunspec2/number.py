@@ -37,6 +37,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Iterator
+from dataclasses import replace
 from typing import Any
 
 from homeassistant.components.number import NumberEntity
@@ -57,6 +58,7 @@ from .const import EXPORT_LIMIT_MIN_STEP_PCT
 from .entity import SunSpecEntity
 from .errors import SunSpecError
 from .models import SunSpecModelWrapper
+from .storage_modes import storage_setpoint_numbers
 from .write_controls import PLATFORM_NUMBER
 from .write_controls import WriteControlSpec
 from .write_controls import active_specs_for_platform
@@ -136,7 +138,15 @@ def build_specs(
     Shared by the number, switch and select platforms so the three
     cannot drift on which models they consider present.
     """
+    vendor = coordinator.vendor
+    hidden = vendor.storage.hidden_points if vendor and vendor.storage else frozenset()
     for spec in active_specs_for_platform(coordinator.detected_models, platform):
+        if spec.unique_key in hidden:
+            # The vendor profile writes this register through its own
+            # entities, in watts. The generic percent entity stays
+            # available for whoever wants it, but disabled, so the two
+            # cannot disagree by default.
+            spec = replace(spec, enabled_by_default=False)
         model_wrapper = (coordinator.data or {}).get(spec.model_id)
         if model_wrapper is None:
             # Unreachable in the normal path since v0.14.0: the
@@ -174,20 +184,23 @@ async def async_setup_entry(
     if device_info is None:
         return
 
-    async_add_devices(
-        [
-            SunSpecWriteNumber(
-                coordinator=coordinator,
-                config_entry=entry,
-                device_info=device_info,
-                model_info=wrapper.getGroupMeta(),
-                prefix=entry.options.get("prefix", ""),
-                spec=spec,
-                model_wrapper=wrapper,
-            )
-            for spec, wrapper in build_specs(coordinator, PLATFORM_NUMBER)
-        ]
-    )
+    prefix = entry.options.get("prefix", "")
+    entities: list[NumberEntity] = [
+        SunSpecWriteNumber(
+            coordinator=coordinator,
+            config_entry=entry,
+            device_info=device_info,
+            model_info=wrapper.getGroupMeta(),
+            prefix=prefix,
+            spec=spec,
+            model_wrapper=wrapper,
+        )
+        for spec, wrapper in build_specs(coordinator, PLATFORM_NUMBER)
+    ]
+    # The watt setpoints of the vendor's battery modes, where a profile
+    # defines them.
+    entities.extend(storage_setpoint_numbers(coordinator, entry, prefix))
+    async_add_devices(entities)
 
 
 class SunSpecWriteNumber(SunSpecEntity, NumberEntity):

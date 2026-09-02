@@ -321,7 +321,43 @@ _MODEL_124: tuple[WriteControlSpec, ...] = (
         # ships disabled and stays out of the way of the daily controls.
         enabled_by_default=False,
     ),
+    WriteControlSpec(
+        model_id=124,
+        point_name="ChaGriSet",
+        platform=PLATFORM_SWITCH,
+        translation_key="battery_grid_charging",
+        icon="mdi:transmission-tower-import",
+        # An enum16, PV = 0 and GRID = 1: whether the battery may take
+        # energy from the grid at all. On Fronius it is AND-linked with
+        # the same setting in the inverter's web interface, so on alone
+        # does nothing there (docs/fronius.md).
+        on_value=1,
+        off_value=0,
+    ),
 )
+
+
+def storage_bits_to_int(symbols: list[str]) -> int:
+    """Fold a decoded ``StorCtl_Mod`` bitfield back into its raw integer.
+
+    pysunspec2 hands back the names of the set bits rather than the
+    value. Bit 0 is charge, bit 1 is discharge.
+
+    Matched by prefix and case-insensitively on purpose:
+    model_124.json spells the second symbol "DiSCHARGE", and a device
+    is free to report either the spec's spelling or its own. Checking
+    the discharge prefix first matters, because "DISCHARGE" also starts
+    with the letters of "CHARGE" under a naive substring test.
+    """
+    raw = 0
+    for name in symbols:
+        upper = name.upper()
+        if upper.startswith("DISCHA"):
+            raw |= 2
+        elif upper.startswith("CHA"):
+            raw |= 1
+    return raw
+
 
 _SPECS_BY_MODEL: dict[int, tuple[WriteControlSpec, ...]] = {
     123: _MODEL_123,

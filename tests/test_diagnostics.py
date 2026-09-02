@@ -21,6 +21,7 @@ async def test_diagnostics_basic_shape(hass, sunspec_client_mock):
         "config",
         "options",
         "detected_models",
+        "vendor",
         "model_filters",
         "scanned_models",
         "latest_values",

@@ -138,6 +138,23 @@ def sunspec_write_client_mock():
         yield client
 
 
+@pytest.fixture
+def sunspec_fronius_client_mock():
+    """A Fronius GEN24 with a battery: model 1 says Fronius, 124 has WChaMax 5000.
+
+    Model 160 carries the four modules a GEN24 with storage reports,
+    two MPPT strings and the "ST CHA" / "ST DISCHA" battery channels,
+    and 124 the scale factors the GEN24 uses (rates in 0.01 %).
+    """
+    client = MockFileClientDevice("./tests/test_data/inverter_fronius.json")
+    client.scan()
+    with (
+        patch("custom_components.sunspec2.SunSpecApiClient.modbus_connect", return_value=client),
+        patch("custom_components.sunspec2.SunSpecApiClient.check_port", return_value=True),
+    ):
+        yield client
+
+
 @pytest.fixture(autouse=True)
 def clear_gateway_locks():
     """Drop the class-level per-gateway locks between tests.

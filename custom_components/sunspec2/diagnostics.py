@@ -72,6 +72,9 @@ async def async_get_config_entry_diagnostics(
         # detected_models is the raw scan result and is the field to
         # look at when the question is "does this device have model N".
         "detected_models": sorted(getattr(coordinator, "detected_models", set()) or []),
+        # Which vendor profile (vendors/) applied, so a report about a
+        # battery mode can be matched to the recipe that wrote it.
+        "vendor": vendor.slug if (vendor := getattr(coordinator, "vendor", None)) else None,
         "model_filters": {
             "option_model_filter": sorted(getattr(coordinator, "option_model_filter", set()) or []),
             "write_model_filter": sorted(getattr(coordinator, "write_model_filter", set()) or []),

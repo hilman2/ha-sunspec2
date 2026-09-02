@@ -132,6 +132,11 @@ setpoint; and the grid connection switch. Plus a
 every entity with the register behind it, the revert timer and how not
 to get caught by it, and which blocks are deliberately left alone.
 
+**Fronius GEN24, Verto and Tauro with a battery** additionally get a
+*Battery mode* menu, from "Charge from grid" to "Block discharging",
+with the powers entered in watts. See
+**[docs/fronius.md](docs/fronius.md)**.
+
 Nobody has confirmed these writes against real hardware yet, which is
 why they are a beta. If you run them, please
 [open an issue](https://github.com/hilman2/ha-sunspec2/issues) with your
