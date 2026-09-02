@@ -116,6 +116,17 @@ class StorageModeProfile:
         return frozenset({recipe.in_rate, recipe.out_rate}) & frozenset(SETPOINT_RATES)
 
 
+class ModuleRole(StrEnum):
+    """What a model 160 module carries, where the vendor's label says so.
+
+    The values double as the unique id keys of the role-named sensors.
+    """
+
+    PV = "pv"
+    BATTERY_CHARGE = "battery_charge"
+    BATTERY_DISCHARGE = "battery_discharge"
+
+
 @dataclass(frozen=True)
 class VendorProfile:
     """Everything the integration does differently for one manufacturer.
@@ -128,11 +139,17 @@ class VendorProfile:
             name ("Fronius", "Fronius International GmbH").
         storage (StorageModeProfile|None): The battery mode vocabulary,
             when the vendor has one.
+        module_role (Callable[[str], ModuleRole|None]|None): Called as
+            ``module_role(id_str)`` with the ``IDStr`` label of a model
+            160 module. Returns what the module carries, or None for a
+            label the vendor does not use that way. None when the vendor
+            does not label its modules.
     """
 
     slug: str
     manufacturer_prefixes: tuple[str, ...]
     storage: StorageModeProfile | None = None
+    module_role: Callable[[str], ModuleRole | None] | None = None
 
     def matches(self, manufacturer: str | None) -> bool:
         if not manufacturer:

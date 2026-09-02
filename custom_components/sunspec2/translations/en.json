@@ -323,6 +323,21 @@
       },
       "voltage_reference": {
         "name": "Voltage reference"
+      },
+      "battery_charge_power": {
+        "name": "Battery charge power"
+      },
+      "battery_discharge_power": {
+        "name": "Battery discharge power"
+      },
+      "battery_charged_energy": {
+        "name": "Battery charged energy"
+      },
+      "battery_discharged_energy": {
+        "name": "Battery discharged energy"
+      },
+      "pv_power": {
+        "name": "PV power"
       }
     }
   },

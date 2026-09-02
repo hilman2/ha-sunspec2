@@ -323,6 +323,21 @@
       },
       "voltage_reference": {
         "name": "Referenzspannung"
+      },
+      "battery_charge_power": {
+        "name": "Batterie-Ladeleistung"
+      },
+      "battery_discharge_power": {
+        "name": "Batterie-Entladeleistung"
+      },
+      "battery_charged_energy": {
+        "name": "Batterie-Ladeenergie"
+      },
+      "battery_discharged_energy": {
+        "name": "Batterie-Entladeenergie"
+      },
+      "pv_power": {
+        "name": "PV-Leistung"
       }
     }
   },

@@ -274,6 +274,10 @@ async def async_setup_entry(
     the user can decide via the device-info page whether to delete
     the device.
     """
+    # The role-named model 160 sensors subclass the sensors below, so
+    # their module cannot be imported before this one is complete.
+    from .dc_channels import dc_channel_sensors
+
     coordinator = entry.runtime_data
     # Read the cached common-model (model 1) from the coordinator. The
     # coordinator populates this during its locked update cycle, so we
@@ -290,7 +294,7 @@ async def async_setup_entry(
         """Walk coordinator.data and add any sensor we haven't seen yet."""
         if coordinator.data is None:
             return
-        new_sensors: list[SunSpecSensor] = []
+        new_sensors: list[SensorEntity] = []
         for model_id, model_wrapper in coordinator.data.items():
             for key in model_wrapper.getKeys():
                 if is_excluded_sensor_point(model_id, key):
@@ -320,6 +324,14 @@ async def async_setup_entry(
                         new_sensors.append(SunSpecEnergySensor(coordinator, entry, data))
                     else:
                         new_sensors.append(SunSpecSensor(coordinator, entry, data))
+        mppt_wrapper = coordinator.data.get(160)
+        if mppt_wrapper is not None and device_info is not None:
+            for sensor in dc_channel_sensors(coordinator, entry, device_info, mppt_wrapper, prefix):
+                role_uid = sensor.unique_id
+                if role_uid is None or role_uid in known_unique_ids:
+                    continue
+                known_unique_ids.add(role_uid)
+                new_sensors.append(sensor)
         if new_sensors:
             _LOGGER.debug(
                 "Adding %d sensor(s) (total tracked: %d)",
