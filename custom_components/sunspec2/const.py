@@ -82,6 +82,13 @@ DEFAULT_BAUDRATE = 9600
 # README carries a clear "EXPERIMENTAL" disclaimer.
 CONF_WRITE_BETA_ENABLED = "write_beta_enabled"
 
+# Opt-in for the off/on cycle a vendor needs before it takes a new
+# value for an export limit or power factor (Fronius, see
+# vendors/fronius.py). Off by default: the cycle leaves the inverter
+# unlimited for a second, which is not something to do behind the
+# user's back (#17).
+CONF_REARM_ON_CHANGE = "rearm_on_change"
+
 # Standard SunSpec model that exposes the immediate-control points
 # we expose as writable Number / Switch entities. The integration
 # only registers write entities when this model is part of

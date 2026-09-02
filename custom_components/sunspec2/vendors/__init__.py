@@ -14,6 +14,8 @@ from __future__ import annotations
 from .fronius import FRONIUS
 from .profile import ModuleRole
 from .profile import VendorProfile
+from .profile import WriteStep
+from .profile import plan_write
 
 PROFILES: tuple[VendorProfile, ...] = (FRONIUS,)
 
@@ -26,4 +28,4 @@ def profile_for(manufacturer: str | None) -> VendorProfile | None:
     return None
 
 
-__all__ = ["PROFILES", "ModuleRole", "VendorProfile", "profile_for"]
+__all__ = ["PROFILES", "ModuleRole", "VendorProfile", "WriteStep", "plan_write", "profile_for"]

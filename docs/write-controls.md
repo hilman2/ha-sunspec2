@@ -21,7 +21,7 @@ from whichever of the two supported blocks the device has.
 
 | Entity | Type | SunSpec point | What it does |
 |---|---|---|---|
-| Export limit | Number, 0 to 200 % | 123 `WMaxLimPct` / 704 `WMaxLimPct` | Caps AC output to N % of nameplate. 0 for no export. Above 100 is allowed because some firmware uses 110 to mean "no limit" |
+| Export limit | Number, 0 to 200 % | 123 `WMaxLimPct` / 704 `WMaxLimPct` | Caps AC output to N % of nameplate. 0 for no export. Above 100 is allowed because some firmware uses 110 to mean "no limit". A Fronius needs the switch off and on for a new value, see [fronius.md](fronius.md) |
 | Export limit enabled | Switch | 123 `WMaxLim_Ena` / 704 `WMaxLimPctEna` | The limit only applies while this is on |
 | Export limit revert time | Number, seconds | 123 `WMaxLimPct_RvrtTms` / 704 `WMaxLimPctRvrtTms` | How long the inverter honours the limit before reverting on its own. See below |
 | Export limit revert value | Number, 0 to 200 % | 704 `WMaxLimPctRvrt` | The percentage it falls back to when the timer expires. Disabled by default |
