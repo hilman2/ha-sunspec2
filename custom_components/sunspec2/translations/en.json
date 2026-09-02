@@ -606,6 +606,104 @@
           "idle": "Idle",
           "power_saving": "Power saving"
         }
+      },
+      "home_consumption_pv": {
+        "name": "House consumption from PV"
+      },
+      "home_consumption_battery": {
+        "name": "House consumption from battery"
+      },
+      "home_consumption_grid": {
+        "name": "House consumption from grid"
+      },
+      "home_consumption_pv_total": {
+        "name": "House consumption from PV, total"
+      },
+      "home_consumption_battery_total": {
+        "name": "House consumption from battery, total"
+      },
+      "home_consumption_grid_total": {
+        "name": "House consumption from grid, total"
+      },
+      "home_consumption_total": {
+        "name": "House consumption, total"
+      },
+      "total_dc_power": {
+        "name": "DC power"
+      },
+      "energy_manager_state": {
+        "name": "Energy manager",
+        "state": {
+          "idle": "Idle",
+          "emergency_battery_charge": "Emergency battery charge",
+          "winter_mode_step_1": "Winter mode, step 1",
+          "winter_mode_step_2": "Winter mode, step 2"
+        }
+      },
+      "controller_temperature": {
+        "name": "Controller board temperature"
+      },
+      "isolation_resistance": {
+        "name": "Insulation resistance"
+      },
+      "power_limit_evu": {
+        "name": "Grid operator power limit"
+      },
+      "energy_meter_type": {
+        "name": "Energy meter",
+        "state": {
+          "sdm630": "SDM 630",
+          "b_control_em300lr": "B-control EM-300 LR",
+          "ksem": "KOSTAL Smart Energy Meter",
+          "kem_c": "KOSTAL Energy Meter, series C",
+          "kem_p": "KOSTAL Energy Meter, series P",
+          "kem_mp_p": "KOSTAL Energy Meter MP, series P",
+          "none": "None"
+        }
+      },
+      "energy_to_grid": {
+        "name": "Energy fed into the grid"
+      },
+      "pssb_fuse_state": {
+        "name": "String fuse board",
+        "state": {
+          "fuse_fail": "Fuse failed",
+          "fuse_ok": "Fuse OK",
+          "unchecked": "Unchecked"
+        }
+      },
+      "battery_ready": {
+        "name": "Ready",
+        "state": {
+          "not_ready": "Not ready",
+          "ready": "Ready"
+        }
+      },
+      "battery_dc_charge_energy": {
+        "name": "Charged, DC side"
+      },
+      "battery_dc_discharge_energy": {
+        "name": "Discharged, DC side"
+      },
+      "battery_ac_charge_energy": {
+        "name": "Charged, AC side"
+      },
+      "battery_ac_discharge_energy": {
+        "name": "Discharged to grid"
+      },
+      "battery_ac_charge_energy_grid": {
+        "name": "Charged from grid"
+      },
+      "battery_work_capacity": {
+        "name": "Work capacity"
+      },
+      "battery_management_mode": {
+        "name": "External management",
+        "state": {
+          "none": "Off",
+          "digital_io": "Digital I/O",
+          "modbus": "Modbus"
+        }
       }
     }
   },

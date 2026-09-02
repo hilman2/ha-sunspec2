@@ -45,7 +45,8 @@ If the manual mentions "SunSpec Modbus", yes. That covers most brands:
 **KACO** Powador, blueplanet . **SolarEdge** SE, HD-Wave, Energy Hub .
 **Fronius** Symo, Primo, Galvo, GEN24 . **SMA** Sunny Boy, Tripower
 (SunSpec answers on unit ID 126, see [docs/sma.md](docs/sma.md)) . **Kostal** Plenticore,
-Piko . **Sungrow** SG, SH . **GoodWe** XS, DT, ET . **ABB / FIMER /
+Piko (port 1502 and unit ID 71, see [docs/kostal.md](docs/kostal.md)) .
+**Sungrow** SG, SH . **GoodWe** XS, DT, ET . **ABB / FIMER /
 Power-One** Aurora, Trio, UNO, REACT . **Delta** Solivia, RPI .
 **SunPower** . **Chint Power Systems**
 
@@ -141,7 +142,11 @@ and Galvo**, and the **Symo Hybrid** with its battery, are in
 **[docs/fronius-symo.md](docs/fronius-symo.md)**. **SolarEdge** keeps its battery
 outside SunSpec; the integration reads it from SolarEdge's own
 registers, one device per battery, where SolarEdge has enabled them.
-See **[docs/solaredge.md](docs/solaredge.md)**.
+See **[docs/solaredge.md](docs/solaredge.md)**. **Kostal Plenticore and
+PIKO IQ** get the house consumption split into roof, battery and grid,
+and the battery as a device named after its type, with the temperature
+and the energy counters SunSpec's storage model leaves out. See
+**[docs/kostal.md](docs/kostal.md)**.
 
 **Export controls** are a beta and off by default: tick **"Enable
 experimental export controls (BETA)"** in the options for an export

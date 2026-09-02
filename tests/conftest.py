@@ -17,6 +17,8 @@ from custom_components.sunspec2.errors import TransportError
 from custom_components.sunspec2.pysunspec2.modbus.modbus import ModbusClientException
 from custom_components.sunspec2.pysunspec2.modbus.modbus import ModbusClientTimeout
 
+from .kostal_registers import no_battery_registers
+from .kostal_registers import plenticore_registers
 from .sma_registers import smart_energy_registers
 from .solaredge_registers import home_hub_registers
 
@@ -260,6 +262,35 @@ def sunspec_solaredge_client_mock():
     client = MockFileClientDevice("./tests/test_data/inverter_solaredge.json")
     client.scan()
     client.registers = home_hub_registers()
+    with (
+        patch("custom_components.sunspec2.SunSpecApiClient.modbus_connect", return_value=client),
+    ):
+        yield client
+
+
+@pytest.fixture
+def sunspec_kostal_client_mock():
+    """A Kostal PLENTICORE plus with a BYD battery.
+
+    Models 1, 103, 113 and 802, so the device serves both halves of
+    the inverter pair the way Kostal's interface description says it
+    does, plus Kostal's own registers from tests/kostal_registers.py.
+    """
+    client = MockFileClientDevice("./tests/test_data/inverter_kostal.json")
+    client.scan()
+    client.registers = plenticore_registers()
+    with (
+        patch("custom_components.sunspec2.SunSpecApiClient.modbus_connect", return_value=client),
+    ):
+        yield client
+
+
+@pytest.fixture
+def sunspec_kostal_no_battery_client_mock():
+    """The same inverter with no battery: register 588 reads 0."""
+    client = MockFileClientDevice("./tests/test_data/inverter_kostal.json")
+    client.scan()
+    client.registers = no_battery_registers()
     with (
         patch("custom_components.sunspec2.SunSpecApiClient.modbus_connect", return_value=client),
     ):
