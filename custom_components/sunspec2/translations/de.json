@@ -147,6 +147,18 @@
       },
       "battery_min_reserve": {
         "name": "Batterie-Mindestreserve"
+      },
+      "battery_pv_charge_limit_w": {
+        "name": "Batterie PV-Ladelimit"
+      },
+      "battery_discharge_limit_w": {
+        "name": "Batterie Entladelimit"
+      },
+      "battery_grid_charge_power_w": {
+        "name": "Batterie Netzladeleistung"
+      },
+      "battery_grid_discharge_power_w": {
+        "name": "Batterie Netzentladeleistung"
       }
     },
     "select": {
@@ -157,6 +169,19 @@
           "charge": "Nur laden",
           "discharge": "Nur entladen",
           "both": "Laden und entladen"
+        }
+      },
+      "battery_mode": {
+        "name": "Batterie-Betriebsart",
+        "state": {
+          "auto": "Automatisch",
+          "pv_charge_limit": "PV-Ladelimit",
+          "discharge_limit": "Entladelimit",
+          "charge_and_discharge_limit": "PV-Lade- und Entladelimit",
+          "charge_from_grid": "Aus dem Netz laden",
+          "discharge_to_grid": "Ins Netz entladen",
+          "block_discharging": "Entladen sperren",
+          "block_charging": "Laden sperren"
         }
       },
       "active_power_setpoint_mode": {
@@ -182,6 +207,9 @@
       },
       "export_limit_revert_enabled": {
         "name": "Einspeiselimit bleibt nach Ruecksprung aktiv"
+      },
+      "battery_grid_charging": {
+        "name": "Batterieladen aus dem Netz erlaubt"
       }
     },
     "sensor": {

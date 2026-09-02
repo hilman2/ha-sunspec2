@@ -147,6 +147,18 @@
       },
       "battery_min_reserve": {
         "name": "Battery minimum reserve"
+      },
+      "battery_pv_charge_limit_w": {
+        "name": "Battery PV charge limit"
+      },
+      "battery_discharge_limit_w": {
+        "name": "Battery discharge limit"
+      },
+      "battery_grid_charge_power_w": {
+        "name": "Battery grid charge power"
+      },
+      "battery_grid_discharge_power_w": {
+        "name": "Battery grid discharge power"
       }
     },
     "select": {
@@ -157,6 +169,19 @@
           "charge": "Charge only",
           "discharge": "Discharge only",
           "both": "Charge and discharge"
+        }
+      },
+      "battery_mode": {
+        "name": "Battery mode",
+        "state": {
+          "auto": "Automatic",
+          "pv_charge_limit": "PV charge limit",
+          "discharge_limit": "Discharge limit",
+          "charge_and_discharge_limit": "PV charge and discharge limit",
+          "charge_from_grid": "Charge from grid",
+          "discharge_to_grid": "Discharge to grid",
+          "block_discharging": "Block discharging",
+          "block_charging": "Block charging"
         }
       },
       "active_power_setpoint_mode": {
@@ -182,6 +207,9 @@
       },
       "export_limit_revert_enabled": {
         "name": "Export limit stays on after revert"
+      },
+      "battery_grid_charging": {
+        "name": "Battery charging from grid allowed"
       }
     },
     "sensor": {

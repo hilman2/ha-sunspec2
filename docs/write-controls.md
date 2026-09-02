@@ -42,6 +42,9 @@ from whichever of the two supported blocks the device has.
 The battery rates are percentages of `WChaMax`, not watts. An
 automation that wants 4200 W has to compute `4200 / WChaMax * 100`, and
 should read `WChaMax` from its own entity rather than hardcode it.
+On a Fronius the integration does that for you: see
+[docs/fronius.md](fronius.md) for the *Battery mode* menu and the watt
+fields that replace the two percent rates there.
 
 There is also a **`sunspec2.set_export_limit`** service action taking
 `config_entry_id`, `percent` and an optional `enable`, so an automation

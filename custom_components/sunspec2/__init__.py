@@ -83,6 +83,8 @@ from .migration import cleanup_superseded_control_entities
 from .migration import find_blocking_cjne_entries
 from .migration import migrate_from_cjne_sync
 from .models import SunSpecModelWrapper
+from .vendors import VendorProfile
+from .vendors import profile_for
 from .write_controls import export_limit_points
 
 SCAN_INTERVAL = timedelta(seconds=30)
@@ -563,6 +565,15 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator[dict[int, SunSpecModelW
         # connect grabs the slot, the second hits the 60s Home Assistant
         # setup timeout instead of returning.
         self.device_info: SunSpecModelWrapper | None = None
+        # What the manufacturer string in model 1 says about the device,
+        # beyond SunSpec: None until model 1 has been read, and None for
+        # a manufacturer without a profile. See vendors/.
+        self.vendor: VendorProfile | None = None
+        # The watt values the vendor's battery mode recipes fill in,
+        # keyed by vendors.profile.Rate. Kept here rather than on the
+        # Number entities because the Select reads all four at once and
+        # the registers can hold only what the current mode uses.
+        self.storage_setpoints: dict[str, float] = {}
         # Which platforms async_setup_entry actually forwarded. Recorded
         # there and read back by async_unload_entry, because the set
         # depends on the write-beta option and the option may have been
@@ -1133,6 +1144,13 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator[dict[int, SunSpecModelW
         # changes for a given physical inverter.
         if self.device_info is None:
             self.device_info = await self.api.async_get_data(1)
+            try:
+                manufacturer = self.device_info.getValue("Mn")
+            except (KeyError, AttributeError):
+                manufacturer = None
+            self.vendor = profile_for(manufacturer if isinstance(manufacturer, str) else None)
+            if self.vendor is not None:
+                self._log.info("Vendor profile %s applies to this device", self.vendor.slug)
         # Only meaningful once model 1 has been read, and it is read on
         # the first cycle, so this lands exactly where it can act.
         rescan_after_cycle = await self._check_device_identity()

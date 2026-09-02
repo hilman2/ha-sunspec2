@@ -36,34 +36,18 @@ from .entity import SunSpecEntity
 from .errors import SunSpecError
 from .models import SunSpecModelWrapper
 from .number import build_specs
+from .storage_modes import storage_mode_select
 from .write_controls import PLATFORM_SELECT
 from .write_controls import WriteControlSpec
+from .write_controls import storage_bits_to_int
 
 _LOGGER: logging.Logger = logging.getLogger(__package__)
 
 PARALLEL_UPDATES = 0
 
-
-def storage_bits_to_int(symbols: list[str]) -> int:
-    """Fold a decoded ``StorCtl_Mod`` bitfield back into its raw integer.
-
-    pysunspec2 hands back the names of the set bits rather than the
-    value. Bit 0 is charge, bit 1 is discharge.
-
-    Matched by prefix and case-insensitively on purpose:
-    model_124.json spells the second symbol "DiSCHARGE", and a device
-    is free to report either the spec's spelling or its own. Checking
-    the discharge prefix first matters, because "DISCHARGE" also starts
-    with the letters of "CHARGE" under a naive substring test.
-    """
-    raw = 0
-    for name in symbols:
-        upper = name.upper()
-        if upper.startswith("DISCHA"):
-            raw |= 2
-        elif upper.startswith("CHA"):
-            raw |= 1
-    return raw
+# Re-exported: the decoder moved to write_controls so the storage mode
+# entities can share it without importing this platform module.
+__all__ = ["SunSpecWriteSelect", "async_setup_entry", "storage_bits_to_int"]
 
 
 async def async_setup_entry(
@@ -80,19 +64,21 @@ async def async_setup_entry(
     if device_info is None:
         return
 
-    async_add_devices(
-        [
-            SunSpecWriteSelect(
-                coordinator=coordinator,
-                config_entry=entry,
-                device_info=device_info,
-                model_info=wrapper.getGroupMeta(),
-                prefix=entry.options.get("prefix", ""),
-                spec=spec,
-            )
-            for spec, wrapper in build_specs(coordinator, PLATFORM_SELECT)
-        ]
-    )
+    prefix = entry.options.get("prefix", "")
+    entities: list[SelectEntity] = [
+        SunSpecWriteSelect(
+            coordinator=coordinator,
+            config_entry=entry,
+            device_info=device_info,
+            model_info=wrapper.getGroupMeta(),
+            prefix=prefix,
+            spec=spec,
+        )
+        for spec, wrapper in build_specs(coordinator, PLATFORM_SELECT)
+    ]
+    # The vendor's battery modes, where a profile defines them.
+    entities.extend(storage_mode_select(coordinator, entry, prefix))
+    async_add_devices(entities)
 
 
 class SunSpecWriteSelect(SunSpecEntity, SelectEntity):

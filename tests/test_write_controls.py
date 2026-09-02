@@ -118,7 +118,8 @@ def test_storage_control_mode_is_a_single_select_not_two_switches():
     # HA rejects a translation key that is not [a-z0-9-_]+, and hassfest
     # catches it only in CI, so assert it where it is cheap to see.
     assert all(key.islower() for key in mode[0].options)
-    assert switches == []
+    # The one switch model 124 does have is ChaGriSet, a plain enum.
+    assert [spec.point_name for spec in switches] == ["ChaGriSet"]
 
 
 def test_battery_rate_points_are_numbers():
