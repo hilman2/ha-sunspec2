@@ -106,6 +106,12 @@ FRONIUS = VendorProfile(
     slug="fronius",
     manufacturer_prefixes=("Fronius",),
     module_role=module_role,
+    # A GEN24 on firmware 1.41 takes a new export limit only when its
+    # enable register goes from 0 to 1; with the enable on, the new
+    # value sits in the register and the inverter runs on the old one
+    # (#17). The community integration cycles the enable around every
+    # write; here the cycle is behind CONF_REARM_ON_CHANGE.
+    enable_edge={(123, "WMaxLimPct"): "WMaxLim_Ena", (123, "OutPFSet"): "OutPFSet_Ena"},
     storage=StorageModeProfile(
         modes=tuple(StorageMode),
         recipes=RECIPES,

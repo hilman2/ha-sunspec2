@@ -14,6 +14,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from collections.abc import Mapping
 from dataclasses import dataclass
+from dataclasses import field
 from enum import StrEnum
 
 
@@ -144,18 +145,96 @@ class VendorProfile:
             160 module. Returns what the module carries, or None for a
             label the vendor does not use that way. None when the vendor
             does not label its modules.
+        enable_edge (Mapping[tuple[int, str], str]): Points the device
+            takes a new value for only on the rising edge of an enable
+            point, keyed ``(model_id, point)``, mapped to that enable
+            point. Empty when the vendor applies a value as written.
+        enable_edge_settle_seconds (float): The pause between writing
+            such a value and raising its enable point again.
     """
 
     slug: str
     manufacturer_prefixes: tuple[str, ...]
     storage: StorageModeProfile | None = None
     module_role: Callable[[str], ModuleRole | None] | None = None
+    enable_edge: Mapping[tuple[int, str], str] = field(default_factory=dict)
+    enable_edge_settle_seconds: float = 1.0
 
     def matches(self, manufacturer: str | None) -> bool:
         if not manufacturer:
             return False
         name = manufacturer.strip().lower()
         return any(name.startswith(prefix.lower()) for prefix in self.manufacturer_prefixes)
+
+
+@dataclass(frozen=True)
+class WriteStep:
+    """One Modbus write of a sequence, and the pause after it.
+
+    Args:
+        points (list[tuple[str, object]]): The points written together.
+        settle_seconds (float): How long to wait after this write before
+            the next step. 0 for no wait.
+    """
+
+    points: list[tuple[str, object]]
+    settle_seconds: float = 0.0
+
+
+def plan_write(
+    profile: VendorProfile | None,
+    model_id: int,
+    points: list[tuple[str, object]],
+    is_on: Callable[[int, str], bool],
+    rearm: bool,
+) -> list[WriteStep]:
+    """The write steps for ``points``, with the enable edge where the vendor needs one.
+
+    Args:
+        profile (VendorProfile|None): The device's profile, or None.
+        model_id (int): The model the points belong to.
+        points (list[tuple[str, object]]): Point names and values, as
+            the caller wants them written.
+        is_on (Callable[[int, str], bool]): Called as
+            ``is_on(model_id, point)`` with an enable point. Returns
+            whether the device last reported it on.
+        rearm (bool): Whether the user opted into the off/on cycle.
+
+    Returns:
+        list[WriteStep]: One step with the points as given, or three:
+        the enable off, the values, the enable on again.
+    """
+    plain = [WriteStep(points)]
+    if profile is None or not rearm or not profile.enable_edge:
+        return plain
+    requested = dict(points)
+    enables: list[str] = []
+    for name, _ in points:
+        enable = profile.enable_edge.get((model_id, name))
+        if enable is not None and enable not in enables:
+            enables.append(enable)
+    # The cycle is for an enable that is on after this write, whether
+    # the write says so or it is on already and the write leaves it
+    # alone. An enable the write turns off needs no edge, and one that
+    # is off now and goes on with this write gets its edge from the
+    # write itself, the value going out first.
+    ends_on: list[str] = []
+    for enable in enables:
+        if enable in requested:
+            if requested[enable]:
+                ends_on.append(enable)
+        elif is_on(model_id, enable):
+            ends_on.append(enable)
+    off: list[tuple[str, object]] = [(enable, 0) for enable in ends_on if is_on(model_id, enable)]
+    if not off:
+        return plain
+    values = [(name, value) for name, value in points if name not in ends_on]
+    on: list[tuple[str, object]] = [(enable, 1) for enable in ends_on]
+    return [
+        WriteStep(off),
+        WriteStep(values, profile.enable_edge_settle_seconds),
+        WriteStep(on),
+    ]
 
 
 def watts_to_pct(watts: float, wchamax: float) -> float:

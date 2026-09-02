@@ -27,6 +27,7 @@ from .const import CONF_MAX_AC_POWER_KW
 from .const import CONF_PARITY
 from .const import CONF_PORT
 from .const import CONF_PREFIX
+from .const import CONF_REARM_ON_CHANGE
 from .const import CONF_RELEASE_SLOT
 from .const import CONF_SCAN_DELAY
 from .const import CONF_SCAN_INTERVAL
@@ -926,6 +927,7 @@ class SunSpecOptionsFlowHandler(config_entries.OptionsFlow):
                 default_models = default_enabled
 
             write_beta_enabled = self.config_entry.options.get(CONF_WRITE_BETA_ENABLED, False)
+            rearm_on_change = self.config_entry.options.get(CONF_REARM_ON_CHANGE, False)
             schema: dict[Any, Any] = {
                 vol.Optional(CONF_PREFIX, default=prefix): str,
                 vol.Optional(CONF_SCAN_INTERVAL, default=scan_interval): _SCAN_INTERVAL_VALIDATOR,
@@ -948,6 +950,11 @@ class SunSpecOptionsFlowHandler(config_entries.OptionsFlow):
                 # the matching SunSpec model 123 entities.
                 vol.Optional(CONF_WRITE_BETA_ENABLED, default=write_beta_enabled): bool,
             }
+            # The off/on cycle for a new export limit exists for a
+            # vendor that needs one, so the field only shows up there.
+            vendor = getattr(self.coordinator, "vendor", None)
+            if vendor is not None and vendor.enable_edge:
+                schema[vol.Optional(CONF_REARM_ON_CHANGE, default=rearm_on_change)] = bool
             # Use suggested_value (not default) for the optional float so
             # the form field can stay genuinely empty - an empty value
             # disables the plausibility filter rather than coercing to 0.

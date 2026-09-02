@@ -109,6 +109,18 @@ of named. The per-string energies are on those.
   state of charge the inverter reserves, and Solar.web shows
   "Energy-saving mode" once it is set. A reserve below 5 % is ignored
   by the inverter.
+- **A new export limit needs the switch off and on.** The GEN24 takes
+  a new *Export limit* or *Power factor* only when its enable switch
+  goes from off to on. With the switch on, the new value sits in the
+  register and the inverter runs on the old one; Home Assistant shows
+  the new value and the exported watts are the only witness. The
+  integration option *Re-apply the export limit and power factor by
+  switching them off and on when their value changes* does the cycle
+  for you: switch off, the value, a second later switch on. It is off
+  by default because for that second the inverter runs without the
+  limit. Without it, toggle *Export limit enabled* after a change, or
+  call `sunspec2.set_export_limit` with `enable: true` and tell us
+  whether your firmware applies the value on that write alone.
 - **Meters** hang off the inverter under unit ID 200 (201, 202 for the
   next ones). Add them as further entries with the same IP and that
   unit ID; the integration takes turns on the connection by itself.

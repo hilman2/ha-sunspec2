@@ -6,6 +6,7 @@ WChaMax = 3300 W as the manual assumes. The entity tests run against
 tests/test_data/inverter_fronius.json, a GEN24 with a 5 kW battery.
 """
 
+from dataclasses import replace
 from unittest.mock import patch
 
 import pytest
@@ -13,6 +14,7 @@ from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import entity_registry as er
 
 from custom_components.sunspec2 import get_sunspec_unique_id
+from custom_components.sunspec2.const import CONF_REARM_ON_CHANGE
 from custom_components.sunspec2.const import CONF_WRITE_BETA_ENABLED
 from custom_components.sunspec2.const import DOMAIN
 from custom_components.sunspec2.dc_channels import DcChannelEnergySensor
@@ -27,10 +29,13 @@ from custom_components.sunspec2.vendors.fronius import module_role
 from custom_components.sunspec2.vendors.profile import ModuleRole
 from custom_components.sunspec2.vendors.profile import Rate
 from custom_components.sunspec2.vendors.profile import StorageMode
+from custom_components.sunspec2.vendors.profile import WriteStep
+from custom_components.sunspec2.vendors.profile import plan_write
 from custom_components.sunspec2.vendors.profile import resolve_rate
 
 from . import create_mock_sunspec_config_entry
 from . import setup_mock_sunspec_config_entry
+from .const import MOCK_CONFIG_STEP_1
 from .const import MOCK_CONFIG_WRITE
 
 # ---------- profile lookup --------------------------------------------------
@@ -375,3 +380,113 @@ async def test_non_fronius_device_gets_no_channel_sensors(hass, sunspec_write_cl
     await setup_mock_sunspec_config_entry(hass, config_entry=entry)
     assert _entities(hass, "sensor", DcChannelSensor) == []
     assert _entities(hass, "sensor", PvPowerSensor) == []
+
+
+# ---------- the enable edge of the export limit -----------------------------
+
+
+def _limit_on(model_id, point):
+    """The device as the fixture has it: the export limit on, the power factor off."""
+    return point == "WMaxLim_Ena"
+
+
+def test_a_write_stays_plain_without_the_option_or_a_profile():
+    steps = plan_write(FRONIUS, 123, [("WMaxLimPct", 60.0)], _limit_on, rearm=False)
+    assert steps == [WriteStep([("WMaxLimPct", 60.0)])]
+    assert plan_write(None, 123, [("WMaxLimPct", 60.0)], _limit_on, rearm=True) == steps
+
+
+def test_a_new_limit_with_the_enable_on_goes_out_between_off_and_on():
+    steps = plan_write(FRONIUS, 123, [("WMaxLimPct", 60.0)], _limit_on, rearm=True)
+    assert steps == [
+        WriteStep([("WMaxLim_Ena", 0)]),
+        WriteStep([("WMaxLimPct", 60.0)], 1.0),
+        WriteStep([("WMaxLim_Ena", 1)]),
+    ]
+
+
+def test_the_action_asking_for_enable_is_cycled_the_same_way():
+    points: list[tuple[str, object]] = [("WMaxLimPct", 60.0), ("WMaxLim_Ena", 1)]
+    steps = plan_write(FRONIUS, 123, points, _limit_on, rearm=True)
+    assert steps == [
+        WriteStep([("WMaxLim_Ena", 0)]),
+        WriteStep([("WMaxLimPct", 60.0)], 1.0),
+        WriteStep([("WMaxLim_Ena", 1)]),
+    ]
+
+
+@pytest.mark.parametrize(
+    "points",
+    [
+        # The power factor's enable is off: the value waits for the switch.
+        [("OutPFSet", 0.95)],
+        # The write turns the enable off: nothing to re-arm.
+        [("WMaxLimPct", 60.0), ("WMaxLim_Ena", 0)],
+        # The switch alone is not a value the edge is for.
+        [("WMaxLim_Ena", 1)],
+        # A point the vendor applies as written.
+        [("WMaxLimPct_RvrtTms", 120)],
+    ],
+)
+def test_writes_that_need_no_edge_stay_plain(points):
+    assert plan_write(FRONIUS, 123, points, _limit_on, rearm=True) == [WriteStep(points)]
+
+
+async def _set_export_limit(hass, entry, percent):
+    """Set the model 123 export limit Number and return the api writes it caused."""
+    registry = er.async_get(hass)
+    entity_id = registry.async_get_entity_id(
+        "number", DOMAIN, get_sunspec_unique_id(entry.entry_id, "WMaxLimPct", 123, 0)
+    )
+    assert entity_id is not None
+    with patch.object(entry.runtime_data.api, "async_write_points") as write:
+        await hass.services.async_call(
+            "number", "set_value", {"entity_id": entity_id, "value": percent}, blocking=True
+        )
+    return [call.args for call in write.call_args_list]
+
+
+async def test_the_number_cycles_the_enable_with_the_option_on(hass, sunspec_fronius_client_mock):
+    """The fixture has the limit on at 100 %; a new value goes out between off and on."""
+    entry = create_mock_sunspec_config_entry(hass, data=MOCK_CONFIG_WRITE)
+    hass.config_entries.async_update_entry(
+        entry, options={CONF_WRITE_BETA_ENABLED: True, CONF_REARM_ON_CHANGE: True}
+    )
+    await setup_mock_sunspec_config_entry(hass, config_entry=entry)
+    # No second of waiting in a test.
+    entry.runtime_data.vendor = replace(FRONIUS, enable_edge_settle_seconds=0.0)
+
+    assert await _set_export_limit(hass, entry, 60) == [
+        (123, [("WMaxLim_Ena", 0)]),
+        (123, [("WMaxLimPct", 60.0)]),
+        (123, [("WMaxLim_Ena", 1)]),
+    ]
+
+
+async def test_the_number_writes_the_value_alone_without_the_option(
+    hass, sunspec_fronius_client_mock
+):
+    entry = await _fronius_entry(hass)
+    assert await _set_export_limit(hass, entry, 60) == [(123, [("WMaxLimPct", 60.0)])]
+
+
+async def _model_option_fields(hass, entry):
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    assert result["step_id"] == "host_options"
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], user_input=MOCK_CONFIG_STEP_1
+    )
+    assert result["step_id"] == "model_options"
+    return {key.schema for key in result["data_schema"].schema}
+
+
+async def test_the_option_is_offered_on_a_fronius(hass, sunspec_fronius_client_mock):
+    entry = await _fronius_entry(hass)
+    assert CONF_REARM_ON_CHANGE in await _model_option_fields(hass, entry)
+
+
+async def test_the_option_is_not_offered_on_a_device_that_applies_as_written(
+    hass, sunspec_write_client_mock
+):
+    entry = await _fronius_entry(hass)
+    assert CONF_REARM_ON_CHANGE not in await _model_option_fields(hass, entry)

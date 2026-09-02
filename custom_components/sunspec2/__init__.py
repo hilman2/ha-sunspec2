@@ -39,6 +39,7 @@ from .const import CONF_ENABLED_MODELS
 from .const import CONF_HOST
 from .const import CONF_PARITY
 from .const import CONF_PORT
+from .const import CONF_REARM_ON_CHANGE
 from .const import CONF_RELEASE_SLOT
 from .const import CONF_SCAN_DELAY
 from .const import CONF_SCAN_INTERVAL
@@ -84,6 +85,7 @@ from .migration import find_blocking_cjne_entries
 from .migration import migrate_from_cjne_sync
 from .models import SunSpecModelWrapper
 from .vendors import VendorProfile
+from .vendors import plan_write
 from .vendors import profile_for
 from .write_controls import export_limit_points
 
@@ -1013,6 +1015,18 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator[dict[int, SunSpecModelW
         await self._async_save_model_structure()
         return result
 
+    def _point_reads_on(self, model_id: int, point: str) -> bool:
+        """Whether the last poll reported an enable point as on."""
+        if self.data is None:
+            return False
+        wrapper = self.data.get(model_id)
+        if wrapper is None:
+            return False
+        try:
+            return bool(wrapper.getValue(point) == 1)
+        except KeyError:
+            return False
+
     async def async_write_points_locked(
         self, model_id: int, points: list[tuple[str, object]]
     ) -> None:
@@ -1072,10 +1086,25 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator[dict[int, SunSpecModelW
                 f"gateway to become free; the inverter is busy, try again"
             ) from exc
         try:
-            # One batch, not one call per point: the API layer flushes
-            # them together so adjacent registers go out in a single
-            # Modbus frame and the inverter cannot act on half of them.
-            await self.api.async_write_points(model_id, points)
+            # One step for everyone but a vendor that takes a new value
+            # only on the rising edge of its enable register; then three
+            # (see plan_write). Each step is one batch, not one call per
+            # point: the API layer flushes a batch together so adjacent
+            # registers go out in a single Modbus frame and the inverter
+            # cannot act on half of them. The pause between the steps
+            # stays under the lock, so no poll or other write lands
+            # inside the sequence.
+            steps = plan_write(
+                self.vendor,
+                model_id,
+                points,
+                self._point_reads_on,
+                self.entry.options.get(CONF_REARM_ON_CHANGE, False),
+            )
+            for step in steps:
+                await self.api.async_write_points(model_id, step.points)
+                if step.settle_seconds > 0:
+                    await asyncio.sleep(step.settle_seconds)
         finally:
             # Whoever opens a session under the lock closes it under the
             # lock. Leaving the socket open past the release would let
