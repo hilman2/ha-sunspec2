@@ -1,0 +1,46 @@
+{
+  "name": "solaredge",
+  "models": [
+    {
+      "ID": 1,
+      "Mn": "SolarEdge ",
+      "Md": "SE10K-RWS48BNN4",
+      "Opt": "",
+      "Vr": "0004.0024.0025",
+      "SN": "7E123456",
+      "DA": 1,
+      "Pad": 0
+    },
+    {
+      "ID": 103,
+      "L": null,
+      "A": 20,
+      "AphA": 7,
+      "AphB": 7,
+      "AphC": 6,
+      "PPVphAB": 233,
+      "PPVphBC": 231,
+      "PPVphCA": 232,
+      "PhVphA": 232,
+      "PhVphB": 232,
+      "PhVphC": 232,
+      "W": 800,
+      "Hz": 50,
+      "VA": 800,
+      "VAr": 800,
+      "PF": 100,
+      "WH": 100000,
+      "DCA": 22,
+      "DCV": 500,
+      "DCW": 900,
+      "TmpCab": 45,
+      "St": 4,
+      "StVnd": 4,
+      "Evt1": 3
+    },
+    {
+      "ID": 65535,
+      "L": 0
+    }
+  ]
+}

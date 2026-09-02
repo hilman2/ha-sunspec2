@@ -12,6 +12,10 @@ import custom_components.sunspec2.pysunspec2.file.client as modbus_client
 from custom_components.sunspec2.api import SunSpecApiClient
 from custom_components.sunspec2.errors import TransientError
 from custom_components.sunspec2.errors import TransportError
+from custom_components.sunspec2.pysunspec2.modbus.modbus import ModbusClientException
+from custom_components.sunspec2.pysunspec2.modbus.modbus import ModbusClientTimeout
+
+from .solaredge_registers import home_hub_registers
 
 pytest_plugins = "pytest_homeassistant_custom_component"
 _LOGGER: logging.Logger = logging.getLogger(__package__)
@@ -26,6 +30,20 @@ class MockFileClientDeviceNotConnected(modbus_client.FileClientDevice):
 
 
 class MockFileClientDevice(modbus_client.FileClientDevice):
+    """The file-backed device, plus registers outside the models.
+
+    ``registers`` maps a register address to its 16-bit value, for the
+    raw blocks a vendor profile reads; a block with an address missing
+    from it answers Modbus exception 2, like an inverter without the
+    feature. An address in ``hang`` answers nothing, like a SolarEdge
+    on recent firmware.
+    """
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.registers: dict[int, int] = {}
+        self.hang: set[int] = set()
+
     def is_connected(self):
         return True
 
@@ -37,6 +55,25 @@ class MockFileClientDevice(modbus_client.FileClientDevice):
 
     def connect(self):
         return True
+
+    def read(self, addr=None, count=None):
+        if addr is None:
+            return super().read()
+        if addr in self.hang:
+            raise ModbusClientTimeout("Response timeout")
+        addresses = range(addr, addr + count)
+        if any(address not in self.registers for address in addresses):
+            raise ModbusClientException("Modbus exception 2")
+        return b"".join(self.registers[address].to_bytes(2, "big") for address in addresses)
+
+    def write(self, addr=None, data=None):
+        if addr is None:
+            return super().write()
+        if addr not in self.registers:
+            raise ModbusClientException("Modbus exception 2")
+        for index in range(len(data) // 2):
+            self.registers[addr + index] = int.from_bytes(data[index * 2 : index * 2 + 2], "big")
+        return None
 
 
 # This fixture is used to prevent HomeAssistant from attempting to create and dismiss persistent
@@ -148,6 +185,24 @@ def sunspec_fronius_client_mock():
     """
     client = MockFileClientDevice("./tests/test_data/inverter_fronius.json")
     client.scan()
+    with (
+        patch("custom_components.sunspec2.SunSpecApiClient.modbus_connect", return_value=client),
+        patch("custom_components.sunspec2.SunSpecApiClient.check_port", return_value=True),
+    ):
+        yield client
+
+
+@pytest.fixture
+def sunspec_solaredge_client_mock():
+    """A SolarEdge Home Hub: models 1 and 103, and SolarEdge's own registers.
+
+    See tests/solaredge_registers.py for what the registers hold. The
+    battery in slot 1 is real, slot 2 is the phantom firmware 4.18
+    shows, slot 3 answers a Modbus exception.
+    """
+    client = MockFileClientDevice("./tests/test_data/inverter_solaredge.json")
+    client.scan()
+    client.registers = home_hub_registers()
     with (
         patch("custom_components.sunspec2.SunSpecApiClient.modbus_connect", return_value=client),
         patch("custom_components.sunspec2.SunSpecApiClient.check_port", return_value=True),

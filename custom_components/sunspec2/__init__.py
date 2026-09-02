@@ -87,6 +87,7 @@ from .migration import cleanup_superseded_control_entities
 from .migration import find_blocking_cjne_entries
 from .migration import migrate_from_cjne_sync
 from .models import SunSpecModelWrapper
+from .raw_blocks import RawBlockReader
 from .vendors import VendorProfile
 from .vendors import plan_write
 from .vendors import profile_for
@@ -614,6 +615,9 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator[dict[int, SunSpecModelW
         # The vendor's web interface, when the profile has one and the
         # user entered its password. See fronius_web.py.
         self.web: FroniusWebCoordinator | None = None
+        # The registers a vendor keeps outside the SunSpec models,
+        # decoded, keyed by the profile's block key. See raw_blocks.py.
+        self.raw_blocks: dict[str, dict[str, Any]] = {}
         # Which platforms async_setup_entry actually forwarded. Recorded
         # there and read back by async_unload_entry, because the set
         # depends on the write-beta option and the option may have been
@@ -649,6 +653,7 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator[dict[int, SunSpecModelW
             entry.data[CONF_PORT],
             entry.data[CONF_UNIT_ID],
         )
+        self._raw_reader = RawBlockReader(client, self._log)
         # Phase-3 per-category buffers. The dict shape ({category: deque})
         # is the contract that diagnostics.py reads. Categories come from
         # errors.CATEGORIES so adding a new category there auto-creates a
@@ -1238,6 +1243,10 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator[dict[int, SunSpecModelW
 
         for model_id in model_ids:
             data[model_id] = await self.api.async_get_data(model_id)
+        # After the models, on the same session: what the vendor keeps
+        # outside them. A block that fails never fails the cycle.
+        if self.vendor is not None and self.vendor.raw_blocks:
+            self.raw_blocks = await self._raw_reader.async_read(self.vendor.raw_blocks)
         if rescan_after_cycle:
             # Firmware changed: hand this cycle's data back as read, and
             # let the NEXT connect walk the model tree again. Flagging it

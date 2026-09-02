@@ -278,6 +278,7 @@ async def async_setup_entry(
     # their module cannot be imported before this one is complete.
     from .dc_channels import dc_channel_sensors
     from .fronius_web_entities import fronius_web_sensors
+    from .vendor_blocks import raw_block_sensors
 
     coordinator = entry.runtime_data
     # Read the cached common-model (model 1) from the coordinator. The
@@ -326,13 +327,20 @@ async def async_setup_entry(
                     else:
                         new_sensors.append(SunSpecSensor(coordinator, entry, data))
         mppt_wrapper = coordinator.data.get(160)
+        vendor_sensors: list[SensorEntity] = []
         if mppt_wrapper is not None and device_info is not None:
-            for sensor in dc_channel_sensors(coordinator, entry, device_info, mppt_wrapper, prefix):
-                role_uid = sensor.unique_id
-                if role_uid is None or role_uid in known_unique_ids:
-                    continue
-                known_unique_ids.add(role_uid)
-                new_sensors.append(sensor)
+            vendor_sensors.extend(
+                dc_channel_sensors(coordinator, entry, device_info, mppt_wrapper, prefix)
+            )
+        # The vendor's registers outside the models. A block can start
+        # answering later, so this runs on every cycle like the models.
+        vendor_sensors.extend(raw_block_sensors(coordinator, entry, prefix))
+        for sensor in vendor_sensors:
+            role_uid = sensor.unique_id
+            if role_uid is None or role_uid in known_unique_ids:
+                continue
+            known_unique_ids.add(role_uid)
+            new_sensors.append(sensor)
         if new_sensors:
             _LOGGER.debug(
                 "Adding %d sensor(s) (total tracked: %d)",
