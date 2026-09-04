@@ -11,7 +11,8 @@ At the start of the window the planner reads the state of charge from
 model 124, takes the energy above the reserve, spreads it over the
 window, and puts the battery into the vendor's "discharge to grid"
 mode with that power. At the end of the window it sets the mode back
-to automatic. Switched on inside the window, or started inside it
+to automatic, and before that if a poll shows the battery already down
+at the reserve. Switched on inside the window, or started inside it
 after a restart, it plans for what is left of it.
 
 Built where the battery modes are: a vendor with a storage profile and
@@ -200,6 +201,7 @@ class DischargePlanner:
         self._unsub_window: list[CALLBACK_TYPE] = []
         self._unsub_startup: CALLBACK_TYPE | None = None
         self._unsub_refresh: CALLBACK_TYPE | None = None
+        self._unsub_poll: CALLBACK_TYPE | None = None
         #: What ``InOutWRte_RvrtTms`` held before the plan took it over,
         #: put back at the end of the window.
         self._prior_revert_seconds: float | None = None
@@ -218,7 +220,7 @@ class DischargePlanner:
         if self._unsub_startup is not None:
             self._unsub_startup()
             self._unsub_startup = None
-        self._cancel_refresh()
+        self._stop_watching()
 
     @callback
     def async_add_listener(self, listener: Callable[[], None]) -> CALLBACK_TYPE:
@@ -271,7 +273,7 @@ class DischargePlanner:
     async def async_disable(self) -> None:
         """Switch the plan off; inside the window, hand the battery back."""
         self.settings.enabled = False
-        self._cancel_refresh()
+        self._stop_watching()
         if self._inside_window_now():
             await self._set_automatic()
 
@@ -370,10 +372,10 @@ class DischargePlanner:
                 soc,
                 self.settings.reserve_pct,
             )
-        # Armed whether or not that write landed: it has to be repeated
-        # before the device's revert timer lapses, and a link that was
-        # down for this one may be back for the next.
-        self._schedule_refresh()
+        # Armed whether or not that write landed: the reserve has to be
+        # watched either way, and a link that was down for this write
+        # may be back for the next.
+        self._watch_discharge()
 
     async def _arm_revert_timer(self, wrapper: SunSpecModelWrapper, hours: float) -> None:
         """Point the device's own revert timer at the end of the window.
@@ -426,14 +428,24 @@ class DischargePlanner:
                 exc,
             )
 
-    def _schedule_refresh(self) -> None:
-        """Arm the next write, on a device that reverts a battery rate on its own.
+    def _watch_discharge(self) -> None:
+        """Watch the running discharge: every poll, and the device's own timer.
 
-        Paced off what the device reports now, not off what the plan
-        asked for: an inverter that clamped the timer to its own maximum
-        is written again before that shorter one lapses.
+        The polls carry the state of charge already, so they are what
+        the plan watches the reserve with. They cost nothing and they
+        are the only thing here quick enough: the power is an estimate
+        built on a capacity a user typed, over a battery the house
+        draws on as well, and being wrong about it by an hour at four
+        kilowatts is most of a battery.
+
+        The timer is the other half, and only where the device has one:
+        an inverter that drops a battery rate after so many seconds is
+        written again before it does. Paced off what the device reports
+        now, not off what the plan asked for, so one that clamped the
+        timer to its own maximum is still covered.
         """
-        self._cancel_refresh()
+        self._stop_watching()
+        self._unsub_poll = self.coordinator.async_add_listener(self._on_poll)
         wrapper = (self.coordinator.data or {}).get(STORAGE_CONTROL_MODEL)
         timeout = revert_timeout_seconds(wrapper) if wrapper is not None else None
         if not timeout:
@@ -451,13 +463,48 @@ class DischargePlanner:
         self._unsub_refresh = async_call_later(self.hass, interval, _refresh)
 
     @callback
-    def _cancel_refresh(self) -> None:
+    def _on_poll(self) -> None:
+        """Hand the battery back as soon as a poll shows it down at the reserve.
+
+        Until this, the reserve was only ever a divisor: the plan aimed
+        at it when it worked out the power, and nothing looked again to
+        see whether the battery had arrived early. It does arrive
+        early, because the house discharges the same battery, and the
+        plan then held a forced discharge below the reserve for the
+        rest of the window.
+        """
+        if not self.settings.enabled or not self.planned_power_w:
+            return
+        ready = storage_profile_ready(self.coordinator)
+        if ready is None:
+            return
+        soc = state_of_charge_pct(ready[1])
+        if soc is None or soc > self.settings.reserve_pct:
+            return
+        _LOGGER.info(
+            "Scheduled discharge: the battery is down to %.0f %%, at the %.0f %% reserve, "
+            "handing it back before the end of the window",
+            soc,
+            self.settings.reserve_pct,
+        )
+        # Before the task rather than in it: the next poll must not find
+        # a plan that still looks like it is discharging and stop it twice.
+        self._stop_watching()
+        self.planned_power_w = 0.0
+        self.hass.async_create_task(self._set_automatic())
+
+    @callback
+    def _stop_watching(self) -> None:
+        """Stop watching: the poll listener and the periodic write both go."""
         if self._unsub_refresh is not None:
             self._unsub_refresh()
             self._unsub_refresh = None
+        if self._unsub_poll is not None:
+            self._unsub_poll()
+            self._unsub_poll = None
 
     async def _set_automatic(self) -> None:
-        self._cancel_refresh()
+        self._stop_watching()
         ready = storage_profile_ready(self.coordinator)
         if ready is None:
             return

@@ -338,6 +338,87 @@ async def test_reaching_the_reserve_hands_the_battery_back(
     assert planner.planned_power_w == 0.0
 
 
+async def _discharging_at_23(hass, client_mock):
+    """A plan running mid-window, ready for a poll to interrupt it.
+
+    Seven hours are left at 23:00 and the fixture's 10 kWh battery is at
+    55 %, so the plan asks for 640 W. The fixture reports no revert
+    timer, which is the point: nothing re-plans through the window on
+    this device, so the polls are the only thing watching the reserve.
+    """
+    entry = await _entry(hass)
+    planner = entry.runtime_data.discharge_plan
+    planner.settings.capacity_kwh = 10.0
+    planner.settings.enabled = True
+    await planner.async_resume()
+    assert planner.planned_power_w == 640.0
+    return entry, planner
+
+
+def _report_charge(client_mock, pct):
+    """Have the device report a state of charge; the fixture scales by 10^-2."""
+    client_mock.models[124][0].points["ChaState"].value = int(pct * 100)
+
+
+async def test_a_poll_at_the_reserve_hands_the_battery_back(
+    hass, sunspec_fronius_client_mock, freezer
+):
+    """The battery arrives at the reserve early, because the house drains it too.
+
+    Before this the reserve was only a divisor in the power the plan
+    worked out at the start. A battery that got there sooner than the
+    arithmetic expected stayed in a forced discharge below it until the
+    end of the window.
+    """
+    freezer.move_to(_local(23))
+    entry, planner = await _discharging_at_23(hass, sunspec_fronius_client_mock)
+
+    with patch.object(entry.runtime_data.api, "async_write_points") as write:
+        _report_charge(sunspec_fronius_client_mock, 10.0)
+        entry.runtime_data.async_update_listeners()
+        await hass.async_block_till_done(wait_background_tasks=True)
+
+    assert planner.planned_power_w == 0.0
+    assert [call.args for call in write.call_args_list] == [
+        *AUTOMATIC,
+        (124, [("InOutWRte_RvrtTms", 0)]),
+    ]
+
+
+async def test_a_poll_above_the_reserve_leaves_the_discharge_running(
+    hass, sunspec_fronius_client_mock, freezer
+):
+    """The watch is for the reserve, not an excuse to rewrite the rate every poll."""
+    freezer.move_to(_local(23))
+    entry, planner = await _discharging_at_23(hass, sunspec_fronius_client_mock)
+
+    with patch.object(entry.runtime_data.api, "async_write_points") as write:
+        _report_charge(sunspec_fronius_client_mock, 40.0)
+        entry.runtime_data.async_update_listeners()
+        await hass.async_block_till_done(wait_background_tasks=True)
+
+    write.assert_not_called()
+    assert planner.planned_power_w == 640.0
+
+
+async def test_the_polls_after_the_reserve_hand_nothing_back_twice(
+    hass, sunspec_fronius_client_mock, freezer
+):
+    """Handed back once. The polls keep coming and must not keep writing."""
+    freezer.move_to(_local(23))
+    entry, planner = await _discharging_at_23(hass, sunspec_fronius_client_mock)
+    _report_charge(sunspec_fronius_client_mock, 10.0)
+    entry.runtime_data.async_update_listeners()
+    await hass.async_block_till_done(wait_background_tasks=True)
+
+    with patch.object(entry.runtime_data.api, "async_write_points") as write:
+        entry.runtime_data.async_update_listeners()
+        entry.runtime_data.async_update_listeners()
+        await hass.async_block_till_done(wait_background_tasks=True)
+
+    write.assert_not_called()
+
+
 async def test_the_window_is_set_through_the_time_entities(hass, sunspec_fronius_client_mock):
     entry = await _entry(hass)
     planner = entry.runtime_data.discharge_plan
