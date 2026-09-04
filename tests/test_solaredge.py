@@ -201,7 +201,7 @@ def _uid(entry, block, field):
 def _device(hass, entry, key):
     """The device registry entry of a vendor-added device, found by its three-part identifier."""
     identifier = cast(tuple[str, str], (DOMAIN, entry.entry_id, f"raw:{key}"))
-    return dr.async_get(hass).async_get_device(identifiers={identifier})
+    return dr.async_get(hass).async_get_device_by_identifier(identifier, entry.entry_id)
 
 
 async def test_a_home_hub_gets_its_battery_as_a_device(hass, sunspec_solaredge_client_mock):

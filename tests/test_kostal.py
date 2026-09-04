@@ -162,7 +162,7 @@ def _uid(entry, block, field):
 
 def _device(hass, entry, key):
     identifier = cast(tuple[str, str], (DOMAIN, entry.entry_id, f"raw:{key}"))
-    return dr.async_get(hass).async_get_device(identifiers={identifier})
+    return dr.async_get(hass).async_get_device_by_identifier(identifier, entry.entry_id)
 
 
 async def test_a_plenticore_reads_every_block(hass, sunspec_kostal_client_mock):
