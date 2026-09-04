@@ -128,6 +128,13 @@ show the power the last plan asked for.
 The power never exceeds the battery's own maximum, and the state of
 charge never goes below the inverter's own minimum reserve.
 
+The power is worked out once and then held: a steady discharge is the
+point. What is *not* held is the reserve, because the house discharges
+the same battery and the arithmetic cannot know how much it will take.
+The plan reads the state of charge on every poll and selects
+*Automatic* the moment the battery is down at the reserve, whether or
+not the window is over.
+
 While the plan runs it owns *Battery rate revert time*, the inverter's
 dead-man switch for the battery rates. A GEN24 leaves the factory with
 300 seconds in it and stops discharging after them. The plan sets it to
