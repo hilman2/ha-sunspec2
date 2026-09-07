@@ -169,7 +169,7 @@
         "name": "Battery grid discharge power"
       },
       "scheduled_discharge_reserve_pct": {
-        "name": "Scheduled discharge reserve"
+        "name": "Battery plan target"
       },
       "battery_capacity_kwh": {
         "name": "Battery capacity"
@@ -324,6 +324,13 @@
           "inactive": "Inactive",
           "active": "Active"
         }
+      },
+      "battery_plan_direction": {
+        "name": "Battery plan direction",
+        "state": {
+          "charge": "Charge",
+          "discharge": "Discharge"
+        }
       }
     },
     "switch": {
@@ -346,7 +353,7 @@
         "name": "Battery charging from grid allowed"
       },
       "scheduled_discharge": {
-        "name": "Scheduled discharge"
+        "name": "Battery plan"
       },
       "battery_charge_from_grid": {
         "name": "Battery charging from grid (web interface)"
@@ -372,10 +379,10 @@
     },
     "time": {
       "scheduled_discharge_start": {
-        "name": "Scheduled discharge start"
+        "name": "Battery plan start"
       },
       "scheduled_discharge_end": {
-        "name": "Scheduled discharge end"
+        "name": "Battery plan end"
       }
     },
     "button": {
@@ -774,6 +781,35 @@
     "stale_model": {
       "title": "SunSpec model {model_id} has gone missing",
       "description": "The inverter at {host}:{port} (unit ID {unit_id}) was previously exposing SunSpec model {model_id}, but it has now been missing from every scan for {missing_minutes} minutes.\n\nThis usually means the inverter dropped the model permanently (firmware update, vendor reconfiguration, or the underlying hardware module was disconnected). The associated sensors are still in your entity registry but will stay on their last good value.\n\nIf you no longer need them, open the device-info page for the affected device and use the trash-can icon to remove the device. The matching entities will be cleaned up automatically.\n\nIf the model comes back on its own, this Repairs issue will clear automatically on the next successful read."
+    }
+  },
+  "services": {
+    "set_battery_plan": {
+      "name": "Set battery plan",
+      "description": "Update plan settings together. Changes apply on the next successful poll; disabling stops the plan immediately.",
+      "fields": {
+        "config_entry_id": {
+          "name": "SunSpec device"
+        },
+        "direction": {
+          "name": "Direction"
+        },
+        "start": {
+          "name": "Start"
+        },
+        "end": {
+          "name": "End"
+        },
+        "target_pct": {
+          "name": "Target state of charge"
+        },
+        "capacity_kwh": {
+          "name": "Battery capacity"
+        },
+        "enabled": {
+          "name": "Enabled"
+        }
+      }
     }
   }
 }

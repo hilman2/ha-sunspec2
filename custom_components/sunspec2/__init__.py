@@ -98,8 +98,8 @@ from .vendors.profile import RawBlock
 from .vendors.profile import RawField
 
 if TYPE_CHECKING:
-    # Typing only: discharge_plan imports the coordinator from here.
-    from .discharge_plan import DischargePlanner
+    # Typing only: battery_plan imports the coordinator from here.
+    from .battery_plan import BatteryPlanner
 from .write_controls import STORAGE_CONTROL_MODEL
 from .write_controls import export_limit_points
 
@@ -613,9 +613,9 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator[dict[int, SunSpecModelW
         # Number entities because the Select reads all four at once and
         # the registers can hold only what the current mode uses.
         self.storage_setpoints: dict[str, float] = {}
-        # The scheduled discharge, built by the first of its entities
-        # and shared by the rest. See discharge_plan.py.
-        self.discharge_plan: DischargePlanner | None = None
+        # The battery plan, built by the first of its entities
+        # and shared by the rest. See battery_plan.py.
+        self.battery_plan: BatteryPlanner | None = None
         # The vendor's web interface, when the profile has one and the
         # user entered its password. See fronius_web.py.
         self.web: FroniusWebCoordinator | None = None

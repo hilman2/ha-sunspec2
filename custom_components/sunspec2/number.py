@@ -52,10 +52,10 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from . import SunSpec2ConfigEntry
 from . import SunSpecDataUpdateCoordinator
 from . import get_sunspec_unique_id
+from .battery_plan import battery_plan_numbers
 from .const import CONF_WRITE_BETA_ENABLED
 from .const import EXPORT_LIMIT_DEFAULT_STEP_PCT
 from .const import EXPORT_LIMIT_MIN_STEP_PCT
-from .discharge_plan import discharge_plan_numbers
 from .entity import SunSpecEntity
 from .errors import SunSpecError
 from .models import SunSpecModelWrapper
@@ -203,7 +203,7 @@ async def async_setup_entry(
     # defines them.
     entities.extend(storage_setpoint_numbers(coordinator, entry, prefix))
     # The reserve and capacity of the scheduled discharge, same condition.
-    entities.extend(discharge_plan_numbers(coordinator, entry, prefix))
+    entities.extend(battery_plan_numbers(coordinator, entry, prefix))
     # The vendor's registers outside the models, where a profile has them.
     entities.extend(raw_block_numbers(coordinator, entry, prefix))
     async_add_devices(entities)
