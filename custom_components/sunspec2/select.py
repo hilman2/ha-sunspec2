@@ -31,6 +31,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from . import SunSpec2ConfigEntry
 from . import SunSpecDataUpdateCoordinator
 from . import get_sunspec_unique_id
+from .battery_plan import battery_plan_direction
 from .entity import SunSpecEntity
 from .errors import SunSpecError
 from .models import SunSpecModelWrapper
@@ -75,6 +76,7 @@ async def async_setup_entry(
     ]
     # The vendor's battery modes, where a profile defines them.
     entities.extend(storage_mode_select(coordinator, entry, prefix))
+    entities.extend(battery_plan_direction(coordinator, entry, prefix))
     # The vendor's registers outside the models, where a profile has them.
     entities.extend(raw_block_selects(coordinator, entry, prefix))
     async_add_devices(entities)

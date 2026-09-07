@@ -169,7 +169,7 @@
         "name": "Batterie Netzentladeleistung"
       },
       "scheduled_discharge_reserve_pct": {
-        "name": "Geplante Entladung Reserve"
+        "name": "Batterieplan Zielladestand"
       },
       "battery_capacity_kwh": {
         "name": "Batteriekapazität"
@@ -324,6 +324,13 @@
           "inactive": "Inaktiv",
           "active": "Aktiv"
         }
+      },
+      "battery_plan_direction": {
+        "name": "Batterieplan Richtung",
+        "state": {
+          "charge": "Laden",
+          "discharge": "Entladen"
+        }
       }
     },
     "switch": {
@@ -346,7 +353,7 @@
         "name": "Batterieladen aus dem Netz erlaubt"
       },
       "scheduled_discharge": {
-        "name": "Geplante Entladung"
+        "name": "Batterieplan"
       },
       "battery_charge_from_grid": {
         "name": "Batterieladen aus dem Netz (Weboberfläche)"
@@ -372,10 +379,10 @@
     },
     "time": {
       "scheduled_discharge_start": {
-        "name": "Geplante Entladung Beginn"
+        "name": "Batterieplan Beginn"
       },
       "scheduled_discharge_end": {
-        "name": "Geplante Entladung Ende"
+        "name": "Batterieplan Ende"
       }
     },
     "button": {
@@ -774,6 +781,35 @@
     "stale_model": {
       "title": "SunSpec-Modell {model_id} fehlt",
       "description": "Der Wechselrichter unter {host}:{port} (Unit-ID {unit_id}) hat zuvor SunSpec-Modell {model_id} ausgeliefert, aber seit {missing_minutes} Minuten taucht es in keinem Scan mehr auf.\n\nMeistens bedeutet das, dass der Wechselrichter das Modell dauerhaft entfernt hat (Firmware-Update, Hersteller-Rekonfiguration oder ein zugehöriges Hardware-Modul wurde abgeklemmt). Die zugehörigen Sensoren bleiben in der Entity-Registry und behalten ihren letzten guten Wert.\n\nWenn du sie nicht mehr brauchst, öffne die Geräte-Info-Seite für das betroffene Gerät und entferne es per Mülleimer-Icon. Die zugehörigen Entities werden automatisch aufgeräumt.\n\nKommt das Modell von selbst zurück, wird dieser Repairs-Eintrag beim nächsten erfolgreichen Lesen automatisch gelöscht."
+    }
+  },
+  "services": {
+    "set_battery_plan": {
+      "name": "Batterieplan einstellen",
+      "description": "Planwerte gemeinsam ändern. Änderungen gelten ab dem nächsten erfolgreichen Poll; Ausschalten beendet den Plan sofort.",
+      "fields": {
+        "config_entry_id": {
+          "name": "SunSpec-Gerät"
+        },
+        "direction": {
+          "name": "Richtung"
+        },
+        "start": {
+          "name": "Beginn"
+        },
+        "end": {
+          "name": "Ende"
+        },
+        "target_pct": {
+          "name": "Zielladestand"
+        },
+        "capacity_kwh": {
+          "name": "Batteriekapazität"
+        },
+        "enabled": {
+          "name": "Aktiviert"
+        }
+      }
     }
   }
 }

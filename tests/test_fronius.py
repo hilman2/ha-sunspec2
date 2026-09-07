@@ -14,13 +14,13 @@ from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import entity_registry as er
 
 from custom_components.sunspec2 import get_sunspec_unique_id
+from custom_components.sunspec2.battery_plan import BatteryPlanSwitch
 from custom_components.sunspec2.const import CONF_REARM_ON_CHANGE
 from custom_components.sunspec2.const import CONF_WRITE_BETA_ENABLED
 from custom_components.sunspec2.const import DOMAIN
 from custom_components.sunspec2.dc_channels import DcChannelEnergySensor
 from custom_components.sunspec2.dc_channels import DcChannelSensor
 from custom_components.sunspec2.dc_channels import PvPowerSensor
-from custom_components.sunspec2.discharge_plan import DischargePlanSwitch
 from custom_components.sunspec2.storage_modes import StorageModeSelect
 from custom_components.sunspec2.storage_modes import StorageSetpointNumber
 from custom_components.sunspec2.vendors import profile_for
@@ -234,7 +234,7 @@ async def test_the_battery_entities_need_no_beta(hass, sunspec_fronius_client_mo
 
     assert len(_entities(hass, "select", StorageModeSelect)) == 1
     assert len(_entities(hass, "number", StorageSetpointNumber)) == 4
-    assert len(_entities(hass, "switch", DischargePlanSwitch)) == 1
+    assert len(_entities(hass, "switch", BatteryPlanSwitch)) == 1
     # The generic model 124 controls too.
     assert (
         registry.async_get_entity_id(

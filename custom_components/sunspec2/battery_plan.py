@@ -1,26 +1,14 @@
-"""A scheduled discharge: the battery gives what it holds above a reserve back over a window.
+"""Charge or discharge a battery towards a target over a daily time window.
 
-#57: a GEN24 owner in an energy cooperative wants the battery to
-deliver its charge above a reserve to the grid overnight, at a steady
-power, without writing the automation. This module is that automation,
-as entities on the battery device: a switch for the plan, the start
-and end of the window, the state of charge to keep, and the battery's
-capacity for the arithmetic.
-
-At the start of the window the planner reads the state of charge from
-model 124, takes the energy above the reserve, spreads it over the
-window, and puts the battery into the vendor's "discharge to grid"
-mode with that power. At the end of the window it sets the mode back
-to automatic, and before that if a poll shows the battery already down
-at the reserve. Switched on inside the window, or started inside it
-after a restart, it plans for what is left of it.
-
-Built where the battery modes are: a vendor with a storage profile and
-a WChaMax above zero.
+The plan uses the vendor's storage modes and checks the target on each
+successful poll. Configuration changes take effect on the next poll;
+otherwise power stays constant until the device's revert timer needs
+refreshing. Existing scheduled-discharge entity IDs remain unchanged.
 """
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import math
 from collections.abc import Callable
@@ -28,10 +16,12 @@ from dataclasses import dataclass
 from datetime import datetime
 from datetime import time
 from datetime import timedelta
+from enum import StrEnum
 from typing import Any
 
 from homeassistant.components.number import NumberMode
 from homeassistant.components.number import RestoreNumber
+from homeassistant.components.select import SelectEntity
 from homeassistant.components.switch import SwitchEntity
 from homeassistant.components.time import TimeEntity
 from homeassistant.config_entries import ConfigEntry
@@ -86,6 +76,13 @@ MIN_REFRESH_SECONDS = 30.0
 MAX_REVERT_SECONDS = 65535
 
 
+class PlanDirection(StrEnum):
+    """The requested battery energy flow."""
+
+    CHARGE = "charge"
+    DISCHARGE = "discharge"
+
+
 def window_hours(start: time, end: time) -> float:
     """The length of the window, wrapping past midnight; a full day when both are equal."""
     minutes = (end.hour * 60 + end.minute) - (start.hour * 60 + start.minute)
@@ -104,28 +101,34 @@ def hours_until(now: datetime, end: time) -> float:
 
 def in_window(at: time, start: time, end: time) -> bool:
     """Whether the time of day ``at`` lies in the window, wrapping past midnight."""
-    if start <= end:
+    if start == end:
+        return True
+    if start < end:
         return start <= at < end
     return at >= start or at < end
 
 
 def planned_power_w(
     soc_pct: float,
-    reserve_pct: float,
+    target_pct: float,
     capacity_kwh: float,
     hours: float,
     wchamax_w: float,
     step_w: float,
+    direction: PlanDirection = PlanDirection.DISCHARGE,
 ) -> float:
-    """The steady power that empties the battery down to the reserve over ``hours``.
+    """Return the steady power towards the target over ``hours``.
 
     Capped at the battery's WChaMax and rounded down to the vendor's
     step, so the battery never gives more than planned.
     """
     if hours <= 0 or capacity_kwh <= 0:
         return 0.0
-    energy_kwh = max(0.0, (soc_pct - reserve_pct) / 100.0 * capacity_kwh)
-    power = min(energy_kwh * 1000.0 / hours, wchamax_w)
+    difference = soc_pct - target_pct
+    if direction is PlanDirection.CHARGE:
+        difference = -difference
+    energy_wh = max(0.0, difference * capacity_kwh * 10.0)
+    power = min(energy_wh / hours, wchamax_w)
     if step_w > 0:
         power = math.floor(power / step_w) * step_w
     return float(power)
@@ -175,33 +178,38 @@ def nameplate_capacity_kwh(coordinator: SunSpecDataUpdateCoordinator) -> float |
 
 
 @dataclass
-class DischargePlanSettings:
+class BatteryPlanSettings:
     """What the entities set, restored by each of them across restarts."""
 
     enabled: bool = False
+    direction: PlanDirection = PlanDirection.DISCHARGE
     start: time = time(20, 0)
     end: time = time(6, 0)
-    reserve_pct: float = 10.0
+    target_pct: float = 10.0
     capacity_kwh: float | None = None
 
 
-class DischargePlanner:
+class BatteryPlanner:
     """Runs the plan: the window's triggers and the writes they cause.
 
-    One per config entry, held on the coordinator, shared by the five
+    One per config entry, held on the coordinator, shared by the plan's
     entities. ``async_stop`` goes on the entry's unload.
     """
 
     def __init__(self, hass: HomeAssistant, coordinator: SunSpecDataUpdateCoordinator) -> None:
         self.hass = hass
         self.coordinator = coordinator
-        self.settings = DischargePlanSettings()
+        self.settings = BatteryPlanSettings()
         #: The power the last plan asked for, None before the first plan.
         self.planned_power_w: float | None = None
         self._unsub_window: list[CALLBACK_TYPE] = []
         self._unsub_startup: CALLBACK_TYPE | None = None
         self._unsub_refresh: CALLBACK_TYPE | None = None
-        self._unsub_poll: CALLBACK_TYPE | None = None
+        self._unsub_poll = self.coordinator.async_add_listener(self._on_poll)
+        self._update_lock = asyncio.Lock()
+        self._poll_task: asyncio.Task[None] | None = None
+        self._settings_changed = False
+        self._stopped = False
         #: What ``InOutWRte_RvrtTms`` held before the plan took it over,
         #: put back at the end of the window.
         self._prior_revert_seconds: float | None = None
@@ -214,6 +222,10 @@ class DischargePlanner:
 
     @callback
     def async_stop(self) -> None:
+        self._stopped = True
+        self._unsub_poll()
+        if self._poll_task is not None:
+            self._poll_task.cancel()
         for unsub in self._unsub_window:
             unsub()
         self._unsub_window = []
@@ -264,6 +276,60 @@ class DischargePlanner:
         if end is not None:
             self.settings.end = end
         self._track_window()
+        self.async_settings_changed()
+
+    @callback
+    def async_settings_changed(self) -> None:
+        """Publish configuration changes and apply them on the next successful poll."""
+        self._settings_changed = True
+        self._notify()
+
+    @callback
+    def async_set_direction(self, direction: PlanDirection) -> None:
+        """Select a direction supported by this battery, effective on the next poll."""
+        self._validate_direction(direction)
+        self.settings.direction = direction
+        self.async_settings_changed()
+
+    def _validate_direction(self, direction: PlanDirection) -> None:
+        ready = storage_profile_ready(self.coordinator)
+        mode = (
+            StorageMode.CHARGE_FROM_GRID
+            if direction is PlanDirection.CHARGE
+            else StorageMode.DISCHARGE_TO_GRID
+        )
+        if ready is None or mode not in ready[0].modes:
+            raise HomeAssistantError(f"The battery does not support {direction.value}")
+
+    async def async_configure(
+        self,
+        *,
+        direction: PlanDirection | None = None,
+        start: time | None = None,
+        end: time | None = None,
+        target_pct: float | None = None,
+        capacity_kwh: float | None = None,
+        enabled: bool | None = None,
+    ) -> None:
+        """Set validated plan fields together; omitted fields keep their values.
+
+        Changes are applied on the next successful poll. Disabling stops
+        the plan immediately and restores automatic operation.
+        """
+        # Validate the vendor-dependent field before mutating anything.
+        # There is no await until all fields and entity states agree.
+        if direction is not None:
+            self._validate_direction(direction)
+            self.settings.direction = direction
+        if target_pct is not None:
+            self.settings.target_pct = target_pct
+        if capacity_kwh is not None:
+            self.settings.capacity_kwh = capacity_kwh
+        if enabled is not None:
+            self.settings.enabled = enabled
+        self.async_set_window(start, end)
+        if enabled is False:
+            await self.async_disable()
 
     async def async_enable(self) -> None:
         """Switch the plan on; inside the window, plan for what is left of it."""
@@ -273,9 +339,10 @@ class DischargePlanner:
     async def async_disable(self) -> None:
         """Switch the plan off; inside the window, hand the battery back."""
         self.settings.enabled = False
-        self._stop_watching()
-        if self._inside_window_now():
-            await self._set_automatic()
+        async with self._update_lock:
+            self._stop_watching()
+            if self._revert_owned or self._inside_window_now():
+                await self._set_automatic()
 
     @callback
     def async_check_after_restore(self) -> None:
@@ -291,15 +358,23 @@ class DischargePlanner:
 
     async def async_resume(self) -> None:
         """Plan for the rest of the window, if the plan is on and the window is open."""
-        if not self.settings.enabled or not self._inside_window_now():
-            return
-        await self._apply(hours_until(dt_util.now(), self.settings.end))
+        async with self._update_lock:
+            if self._stopped or not self.settings.enabled:
+                return
+            self._settings_changed = False
+            if not self._inside_window_now():
+                if self._revert_owned:
+                    await self._set_automatic()
+                return
+            await self._apply(hours_until(dt_util.now(), self.settings.end))
 
     async def async_at_start(self) -> None:
         """The start of the window: plan the whole of it."""
-        if not self.settings.enabled:
-            return
-        await self._apply(window_hours(self.settings.start, self.settings.end))
+        async with self._update_lock:
+            if self._stopped or not self.settings.enabled:
+                return
+            self._settings_changed = False
+            await self._apply(window_hours(self.settings.start, self.settings.end))
 
     async def async_at_end(self) -> None:
         """The end of the window: the battery goes back to automatic.
@@ -308,9 +383,13 @@ class DischargePlanner:
         the window, which forgets what was planned, does not leave the
         battery discharging past the end.
         """
-        if not self.settings.enabled:
-            return
-        await self._set_automatic()
+        async with self._update_lock:
+            if self._stopped or not self.settings.enabled:
+                return
+            # Equal times describe a full day, so only the start trigger
+            # owns this boundary. An end trigger must not undo that start.
+            if self.settings.start != self.settings.end:
+                await self._set_automatic()
 
     # ----- the plan itself -------------------------------------------------
 
@@ -318,64 +397,87 @@ class DischargePlanner:
         return in_window(dt_util.now().time(), self.settings.start, self.settings.end)
 
     async def _apply(self, hours: float) -> None:
+        if not self.coordinator.last_update_success or self.coordinator.consecutive_failed_cycles:
+            self._settings_changed = True
+            return
         ready = storage_profile_ready(self.coordinator)
         if ready is None:
-            _LOGGER.warning("Scheduled discharge: the device reports no battery, nothing planned")
+            _LOGGER.warning("Battery plan: the device reports no battery, nothing planned")
             return
         profile, wrapper = ready
+        direction = self.settings.direction
+        mode = (
+            StorageMode.CHARGE_FROM_GRID
+            if direction is PlanDirection.CHARGE
+            else StorageMode.DISCHARGE_TO_GRID
+        )
+        if mode not in profile.modes:
+            raise HomeAssistantError(f"The battery does not support {direction.value}")
         soc = state_of_charge_pct(wrapper)
         capacity = self.settings.capacity_kwh
         wchamax = wchamax_of(wrapper)
         if capacity is None or capacity <= 0:
             if not self._capacity_warned:
                 _LOGGER.warning(
-                    "Scheduled discharge: set the battery capacity entity first, "
+                    "Battery plan: set the battery capacity entity first, "
                     "the plan cannot turn a state of charge into watts without it"
                 )
-                self._capacity_warned = True
+            self._capacity_warned = True
+            if self._revert_owned:
+                await self._set_automatic()
+            self._settings_changed = True
             return
         if soc is None or wchamax is None:
-            _LOGGER.warning(
-                "Scheduled discharge: no state of charge from the device, nothing planned"
-            )
+            _LOGGER.warning("Battery plan: no state of charge from the device, nothing planned")
+            if self._revert_owned:
+                await self._set_automatic()
+            self._settings_changed = True
             return
         power = planned_power_w(
-            soc, self.settings.reserve_pct, capacity, hours, wchamax, profile.grid_power_step_w
+            soc,
+            self.settings.target_pct,
+            capacity,
+            hours,
+            wchamax,
+            profile.grid_power_step_w,
+            direction,
         )
-        was_discharging = bool(self.planned_power_w)
+        was_running = bool(self.planned_power_w)
         self.planned_power_w = power
         self._notify()
-        if power < profile.grid_power_step_w:
+        if power <= 0 or power < profile.grid_power_step_w:
             _LOGGER.info(
-                "Scheduled discharge: %.0f %% charge is not above the %.0f %% reserve, "
-                "nothing planned",
+                "Battery plan: %.0f %% charge has reached the %.0f %% target, nothing planned",
                 soc,
-                self.settings.reserve_pct,
+                self.settings.target_pct,
             )
-            if was_discharging:
-                # The battery reached the reserve before the window was
+            if was_running:
+                # The battery reached the target before the window was
                 # over. Hand it back rather than leave it in a forced
                 # mode that nothing writes again.
                 await self._set_automatic()
             return
-        self.coordinator.storage_setpoints[Rate.GRID_DISCHARGE.value] = power
+        rate = Rate.GRID_CHARGE if direction is PlanDirection.CHARGE else Rate.GRID_DISCHARGE
+        self.coordinator.storage_setpoints[rate.value] = power
         await self._arm_revert_timer(wrapper, hours)
         try:
-            await async_apply_storage_mode(self.coordinator, profile, StorageMode.DISCHARGE_TO_GRID)
+            await async_apply_storage_mode(self.coordinator, profile, mode)
         except (SunSpecError, HomeAssistantError) as exc:
-            _LOGGER.error("Scheduled discharge: could not start discharging: %s", exc)
+            _LOGGER.error("Battery plan: could not apply the plan: %s", exc)
+            self._settings_changed = True
         else:
             _LOGGER.info(
-                "Scheduled discharge: %.0f W for %.1f h, from %.0f %% down to the %.0f %% reserve",
+                "Battery plan (%s): %.0f W for %.1f h, from %.0f %% towards %.0f %%",
+                direction.value,
                 power,
                 hours,
                 soc,
-                self.settings.reserve_pct,
+                self.settings.target_pct,
             )
-        # Armed whether or not that write landed: the reserve has to be
+        # Armed whether or not that write landed: the target has to be
         # watched either way, and a link that was down for this write
         # may be back for the next.
-        self._watch_discharge()
+        self._watch_plan()
 
     async def _arm_revert_timer(self, wrapper: SunSpecModelWrapper, hours: float) -> None:
         """Point the device's own revert timer at the end of the window.
@@ -390,7 +492,7 @@ class DischargePlanner:
         Best effort, and not the only line of defence. A device that
         refuses the write or clamps it back to a shorter timeout keeps
         what it has, and the periodic re-write, paced off the value the
-        device reports back, carries the discharge either way.
+        device reports back, carries the plan either way.
         """
         if not self._revert_owned:
             self._prior_revert_seconds = revert_timeout_seconds(wrapper)
@@ -402,7 +504,7 @@ class DischargePlanner:
             )
         except (SunSpecError, HomeAssistantError) as exc:
             _LOGGER.warning(
-                "Scheduled discharge: could not set the battery rate revert time to %d s, "
+                "Battery plan: could not set the battery rate revert time to %d s, "
                 "the discharge falls back on being written again periodically: %s",
                 seconds,
                 exc,
@@ -423,85 +525,83 @@ class DischargePlanner:
             )
         except (SunSpecError, HomeAssistantError) as exc:
             _LOGGER.warning(
-                "Scheduled discharge: could not restore the battery rate revert time to %d s: %s",
+                "Battery plan: could not restore the battery rate revert time to %d s: %s",
                 int(prior),
                 exc,
             )
 
-    def _watch_discharge(self) -> None:
-        """Watch the running discharge: every poll, and the device's own timer.
-
-        The polls carry the state of charge already, so they are what
-        the plan watches the reserve with. They cost nothing and they
-        are the only thing here quick enough: the power is an estimate
-        built on a capacity a user typed, over a battery the house
-        draws on as well, and being wrong about it by an hour at four
-        kilowatts is most of a battery.
-
-        The timer is the other half, and only where the device has one:
-        an inverter that drops a battery rate after so many seconds is
-        written again before it does. Paced off what the device reports
-        now, not off what the plan asked for, so one that clamped the
-        timer to its own maximum is still covered.
-        """
+    def _watch_plan(self) -> None:
+        """Refresh the plan before the inverter's battery rate timer expires."""
         self._stop_watching()
-        self._unsub_poll = self.coordinator.async_add_listener(self._on_poll)
         wrapper = (self.coordinator.data or {}).get(STORAGE_CONTROL_MODEL)
         timeout = revert_timeout_seconds(wrapper) if wrapper is not None else None
         if not timeout:
             return
+        # Use the timer reported by the device: it may have clamped the
+        # requested duration to a shorter timeout such as the GEN24's 300 s.
         interval = max(MIN_REFRESH_SECONDS, timeout * REFRESH_FRACTION)
 
         async def _refresh(_now: datetime) -> None:
             self._unsub_refresh = None
-            # Through async_resume: it checks the window again and
-            # plans for what is left of it, so a battery that gave more
-            # than planned, to the house for instance, still lands on
-            # the reserve at the end rather than below it.
+            # Account for PV and household use when refreshing the rate,
+            # so the remaining energy is spread over the remaining time.
             await self.async_resume()
 
         self._unsub_refresh = async_call_later(self.hass, interval, _refresh)
 
     @callback
     def _on_poll(self) -> None:
-        """Hand the battery back as soon as a poll shows it down at the reserve.
-
-        Until this, the reserve was only ever a divisor: the plan aimed
-        at it when it worked out the power, and nothing looked again to
-        see whether the battery had arrived early. It does arrive
-        early, because the house discharges the same battery, and the
-        plan then held a forced discharge below the reserve for the
-        rest of the window.
-        """
-        if not self.settings.enabled or not self.planned_power_w:
+        """Apply pending settings or stop at the target using a successful poll."""
+        if (
+            self._stopped
+            or not self.settings.enabled
+            or self._unsub_startup is not None
+            or not self.coordinator.last_update_success
+            or self.coordinator.consecutive_failed_cycles
+            or self._update_lock.locked()
+            or (self._poll_task is not None and not self._poll_task.done())
+        ):
+            return
+        if self._settings_changed:
+            self._poll_task = self.hass.async_create_task(self.async_resume())
+            return
+        if not self.planned_power_w:
             return
         ready = storage_profile_ready(self.coordinator)
         if ready is None:
             return
         soc = state_of_charge_pct(ready[1])
-        if soc is None or soc > self.settings.reserve_pct:
+        if soc is None:
+            return
+        if self.settings.direction is PlanDirection.CHARGE:
+            reached = soc >= self.settings.target_pct
+        else:
+            reached = soc <= self.settings.target_pct
+        if not reached:
             return
         _LOGGER.info(
-            "Scheduled discharge: the battery is down to %.0f %%, at the %.0f %% reserve, "
+            "Battery plan: the battery is at %.0f %%, target %.0f %%, "
             "handing it back before the end of the window",
             soc,
-            self.settings.reserve_pct,
+            self.settings.target_pct,
         )
         # Before the task rather than in it: the next poll must not find
-        # a plan that still looks like it is discharging and stop it twice.
+        # a plan that still looks active and stop it twice.
         self._stop_watching()
         self.planned_power_w = 0.0
-        self.hass.async_create_task(self._set_automatic())
+        self._poll_task = self.hass.async_create_task(self._stop_at_target())
+
+    async def _stop_at_target(self) -> None:
+        async with self._update_lock:
+            if not self._stopped:
+                await self._set_automatic()
 
     @callback
     def _stop_watching(self) -> None:
-        """Stop watching: the poll listener and the periodic write both go."""
+        """Cancel the periodic rate refresh; polls still watch for changed settings."""
         if self._unsub_refresh is not None:
             self._unsub_refresh()
             self._unsub_refresh = None
-        if self._unsub_poll is not None:
-            self._unsub_poll()
-            self._unsub_poll = None
 
     async def _set_automatic(self) -> None:
         self._stop_watching()
@@ -512,7 +612,7 @@ class DischargePlanner:
         try:
             await async_apply_storage_mode(self.coordinator, profile, StorageMode.AUTO)
         except (SunSpecError, HomeAssistantError) as exc:
-            _LOGGER.error("Scheduled discharge: could not hand the battery back: %s", exc)
+            _LOGGER.error("Battery plan: could not hand the battery back: %s", exc)
             return
         # After the mode, not before: the timer only matters while a
         # rate is in force, and the short one the device came with must
@@ -524,16 +624,16 @@ class DischargePlanner:
 
 def planner_for(
     coordinator: SunSpecDataUpdateCoordinator, config_entry: ConfigEntry
-) -> DischargePlanner:
+) -> BatteryPlanner:
     """The entry's planner, built on first use and stopped when the entry unloads."""
-    if coordinator.discharge_plan is None:
-        coordinator.discharge_plan = DischargePlanner(coordinator.hass, coordinator)
-        config_entry.async_on_unload(coordinator.discharge_plan.async_stop)
-    return coordinator.discharge_plan
+    if coordinator.battery_plan is None:
+        coordinator.battery_plan = BatteryPlanner(coordinator.hass, coordinator)
+        config_entry.async_on_unload(coordinator.battery_plan.async_stop)
+    return coordinator.battery_plan
 
 
 class _PlanEntity(SunSpecEntity):
-    """What the five entities share: the planner and a unique id under model 124."""
+    """The planner and a unique id under model 124 shared by the plan entities."""
 
     _attr_entity_category = EntityCategory.CONFIG
 
@@ -544,7 +644,7 @@ class _PlanEntity(SunSpecEntity):
         device_info: SunSpecModelWrapper,
         model_info: dict[str, Any],
         prefix: str,
-        planner: DischargePlanner,
+        planner: BatteryPlanner,
         key: str,
     ) -> None:
         super().__init__(
@@ -561,8 +661,12 @@ class _PlanEntity(SunSpecEntity):
             config_entry.entry_id, key, STORAGE_CONTROL_MODEL, 0
         )
 
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        self.async_on_remove(self._planner.async_add_listener(self.async_write_ha_state))
 
-class DischargePlanSwitch(_PlanEntity, SwitchEntity, RestoreEntity):
+
+class BatteryPlanSwitch(_PlanEntity, SwitchEntity, RestoreEntity):
     """The plan itself. Its attributes show what the last plan asked for."""
 
     _attr_icon = "mdi:battery-clock"
@@ -581,7 +685,6 @@ class DischargePlanSwitch(_PlanEntity, SwitchEntity, RestoreEntity):
 
     async def async_added_to_hass(self) -> None:
         await super().async_added_to_hass()
-        self.async_on_remove(self._planner.async_add_listener(self.async_write_ha_state))
         last = await self.async_get_last_state()
         if last is not None and last.state == "on":
             self._planner.settings.enabled = True
@@ -596,7 +699,27 @@ class DischargePlanSwitch(_PlanEntity, SwitchEntity, RestoreEntity):
         self.async_write_ha_state()
 
 
-class DischargePlanTime(_PlanEntity, TimeEntity, RestoreEntity):
+class BatteryPlanDirection(_PlanEntity, SelectEntity, RestoreEntity):
+    """Choose whether the plan charges or discharges the battery."""
+
+    _attr_icon = "mdi:battery-sync"
+    _attr_options = [direction.value for direction in PlanDirection]
+
+    @property
+    def current_option(self) -> str:
+        return self._planner.settings.direction.value
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        last = await self.async_get_last_state()
+        if last is not None and last.state in PlanDirection:
+            self._planner.settings.direction = PlanDirection(last.state)
+
+    async def async_select_option(self, option: str) -> None:
+        self._planner.async_set_direction(PlanDirection(option))
+
+
+class BatteryPlanTime(_PlanEntity, TimeEntity, RestoreEntity):
     """The start or the end of the window."""
 
     _attr_icon = "mdi:clock-outline"
@@ -608,7 +731,7 @@ class DischargePlanTime(_PlanEntity, TimeEntity, RestoreEntity):
         device_info: SunSpecModelWrapper,
         model_info: dict[str, Any],
         prefix: str,
-        planner: DischargePlanner,
+        planner: BatteryPlanner,
         which: str,
     ) -> None:
         super().__init__(
@@ -643,8 +766,8 @@ class DischargePlanTime(_PlanEntity, TimeEntity, RestoreEntity):
         self.async_write_ha_state()
 
 
-class DischargePlanReserveNumber(_PlanEntity, RestoreNumber):
-    """The state of charge the plan leaves in the battery."""
+class BatteryPlanTargetNumber(_PlanEntity, RestoreNumber):
+    """The state of charge at which the requested charge or discharge stops."""
 
     _attr_icon = "mdi:battery-low"
     _attr_mode = NumberMode.BOX
@@ -655,20 +778,20 @@ class DischargePlanReserveNumber(_PlanEntity, RestoreNumber):
 
     @property
     def native_value(self) -> float:
-        return self._planner.settings.reserve_pct
+        return self._planner.settings.target_pct
 
     async def async_added_to_hass(self) -> None:
         await super().async_added_to_hass()
         last = await self.async_get_last_number_data()
         if last is not None and last.native_value is not None:
-            self._planner.settings.reserve_pct = float(last.native_value)
+            self._planner.settings.target_pct = float(last.native_value)
 
     async def async_set_native_value(self, value: float) -> None:
-        self._planner.settings.reserve_pct = float(value)
-        self.async_write_ha_state()
+        self._planner.settings.target_pct = float(value)
+        self._planner.async_settings_changed()
 
 
-class DischargePlanCapacityNumber(_PlanEntity, RestoreNumber):
+class BatteryPlanCapacityNumber(_PlanEntity, RestoreNumber):
     """The battery's usable capacity, what turns a state of charge into watts.
 
     Pre-filled from the nameplate model where the device has one;
@@ -696,12 +819,12 @@ class DischargePlanCapacityNumber(_PlanEntity, RestoreNumber):
 
     async def async_set_native_value(self, value: float) -> None:
         self._planner.settings.capacity_kwh = float(value) if value > 0 else None
-        self.async_write_ha_state()
+        self._planner.async_settings_changed()
 
 
 def _plan_context(
     coordinator: SunSpecDataUpdateCoordinator, config_entry: ConfigEntry, prefix: str
-) -> tuple[SunSpecModelWrapper, dict[str, Any], DischargePlanner] | None:
+) -> tuple[SunSpecModelWrapper, dict[str, Any], BatteryPlanner] | None:
     ready = storage_profile_ready(coordinator)
     if ready is None or coordinator.device_info is None:
         return None
@@ -709,16 +832,16 @@ def _plan_context(
     return coordinator.device_info, wrapper.getGroupMeta(), planner_for(coordinator, config_entry)
 
 
-def discharge_plan_switch(
+def battery_plan_switch(
     coordinator: SunSpecDataUpdateCoordinator, config_entry: ConfigEntry, prefix: str
-) -> list[DischargePlanSwitch]:
+) -> list[BatteryPlanSwitch]:
     """The plan's switch for this entry, or an empty list when the plan does not apply."""
     context = _plan_context(coordinator, config_entry, prefix)
     if context is None:
         return []
     device_info, model_info, planner = context
     return [
-        DischargePlanSwitch(
+        BatteryPlanSwitch(
             coordinator,
             config_entry,
             device_info,
@@ -730,32 +853,53 @@ def discharge_plan_switch(
     ]
 
 
-def discharge_plan_times(
+def battery_plan_direction(
     coordinator: SunSpecDataUpdateCoordinator, config_entry: ConfigEntry, prefix: str
-) -> list[DischargePlanTime]:
+) -> list[BatteryPlanDirection]:
+    """Return the plan direction selector where battery modes are supported."""
+    context = _plan_context(coordinator, config_entry, prefix)
+    if context is None:
+        return []
+    device_info, model_info, planner = context
+    return [
+        BatteryPlanDirection(
+            coordinator,
+            config_entry,
+            device_info,
+            model_info,
+            prefix,
+            planner,
+            "battery_plan_direction",
+        )
+    ]
+
+
+def battery_plan_times(
+    coordinator: SunSpecDataUpdateCoordinator, config_entry: ConfigEntry, prefix: str
+) -> list[BatteryPlanTime]:
     """The window's start and end for this entry, or an empty list."""
     context = _plan_context(coordinator, config_entry, prefix)
     if context is None:
         return []
     device_info, model_info, planner = context
     return [
-        DischargePlanTime(
+        BatteryPlanTime(
             coordinator, config_entry, device_info, model_info, prefix, planner, which=which
         )
         for which in ("start", "end")
     ]
 
 
-def discharge_plan_numbers(
+def battery_plan_numbers(
     coordinator: SunSpecDataUpdateCoordinator, config_entry: ConfigEntry, prefix: str
 ) -> list[RestoreNumber]:
-    """The reserve and the capacity for this entry, or an empty list."""
+    """The target and capacity for this entry, or an empty list."""
     context = _plan_context(coordinator, config_entry, prefix)
     if context is None:
         return []
     device_info, model_info, planner = context
     return [
-        DischargePlanReserveNumber(
+        BatteryPlanTargetNumber(
             coordinator,
             config_entry,
             device_info,
@@ -764,7 +908,7 @@ def discharge_plan_numbers(
             planner,
             "scheduled_discharge_reserve_pct",
         ),
-        DischargePlanCapacityNumber(
+        BatteryPlanCapacityNumber(
             coordinator,
             config_entry,
             device_info,

@@ -101,26 +101,28 @@ what they carry.
 The generic *Module n* sensors stay: same registers, numbered instead
 of named. The per-string energies are on those.
 
-## Giving energy back over night
+<a id="giving-energy-back-over-night"></a>
 
-For a battery that is paid to deliver at night: a plan that discharges
-what the battery holds above a reserve to the grid, at a steady power,
-between two times of day. The entities sit on the battery device, next
-to the modes.
+## Charging or discharging on a schedule
+
+Use the battery plan to charge from the grid or discharge to the grid
+towards a chosen state of charge between two times of day. Its entities
+sit on the battery device, next to the modes.
 
 | Entity | What it does |
 |---|---|
-| Scheduled discharge | The plan. On, it runs every day. Switched off inside the window, it hands the battery back |
-| Scheduled discharge start | When the window opens. Default 20:00 |
-| Scheduled discharge end | When it closes. Default 06:00 |
-| Scheduled discharge reserve | State of charge the plan leaves in the battery, in percent. Default 10 |
+| Battery plan | Runs every day while enabled. Switching it off ends the active plan |
+| Battery plan direction | Charge or discharge. Default discharge |
+| Battery plan start | When the window opens. Default 20:00 |
+| Battery plan end | When it closes. Default 06:00. Equal start and end means a full day |
+| Battery plan target | Charge up to or discharge down to this percentage. Default 10 |
 | Battery capacity | The battery's usable energy in kWh, pre-filled from the nameplate model where the inverter has one. The plan cannot turn a state of charge into watts without it |
 
-At the start of the window the plan reads the state of charge, takes
-the energy above the reserve, spreads it over the window and selects
-*Discharge to grid* with that power. A 60 kWh battery at 80 % with a
-10 % reserve and a window from 20:00 to 06:00 gives 42 kWh over ten
-hours, 4200 W. At the end of the window the plan selects *Automatic*.
+At the start, the plan spreads the energy needed to reach the target
+over the window. Discharging a 60 kWh battery from 80 % to 10 % between
+20:00 and 06:00 gives 42 kWh over ten hours, 4200 W. Charging a 10 kWh
+battery from 50 % to 80 % over three hours requests 1000 W.
+At the end of the window the plan selects *Automatic*.
 Switched on inside the window, or started inside it after a restart,
 the plan covers what is left of the window. The switch's attributes
 show the power the last plan asked for.
@@ -128,12 +130,19 @@ show the power the last plan asked for.
 The power never exceeds the battery's own maximum, and the state of
 charge never goes below the inverter's own minimum reserve.
 
-The power is worked out once and then held: a steady discharge is the
-point. What is *not* held is the reserve, because the house discharges
-the same battery and the arithmetic cannot know how much it will take.
-The plan reads the state of charge on every poll and selects
-*Automatic* the moment the battery is down at the reserve, whether or
-not the window is over.
+The plan checks the target on every successful poll and selects
+*Automatic* when it is reached. PV generation, household consumption
+and inverter limits can affect when the battery reaches the target.
+Returning to *Automatic* ends forced charging or discharging; the
+inverter can still use the battery for its own energy management.
+
+Changes to direction, times, target or capacity take effect together
+on the next successful poll. The plan then calculates power for the
+remaining time. Moving the window away from the current time stops
+the active plan. Without changed settings, the power stays constant
+until the battery rate timer needs refreshing.
+
+Existing scheduled-discharge entities retain their IDs and settings.
 
 While the plan runs it owns *Battery rate revert time*, the inverter's
 dead-man switch for the battery rates. A GEN24 leaves the factory with
@@ -144,6 +153,27 @@ at all, writes the mode again before the timer lapses, and puts the old
 value back at the end. What that timer is and the other ways to live
 with it are in
 [write-controls.md](write-controls.md#the-revert-timer-and-how-not-to-get-caught-by-it).
+
+### Setting the plan from an automation
+
+Add the **SunSpec: Set battery plan** action and select the SunSpec
+device. Set any combination of direction, start, end, target, capacity
+and enabled state. Fields can use templates. Omitted fields keep their
+current values. Setting `enabled: false` stops the plan immediately.
+
+```yaml
+action: sunspec2.set_battery_plan
+data:
+  config_entry_id: YOUR_SUNSPEC_CONFIG_ENTRY_ID
+  direction: charge
+  start: "10:00"
+  end: "16:00"
+  target_pct: 80
+  enabled: true
+```
+
+The action requires administrator access for calls made by a user;
+scheduled automations can call it without a user context.
 
 ## Things to know
 
