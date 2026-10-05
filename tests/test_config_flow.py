@@ -157,15 +157,17 @@ def _serialise_form(schema):
     """Turn a form schema into the field list the frontend receives.
 
     The flow API does this for every form. HA 2026.9 moved it from
-    voluptuous_serialize to probatio and re-exports probatio's entry
-    point from config_validation; older releases only have
+    voluptuous_serialize to probatio and re-exported probatio's entry
+    point from config_validation; 2026.10 dropped that re-export, and
+    the flow API calls probatio directly. Older releases only have
     voluptuous_serialize, and its convert() cannot handle the sentinel
     the newer custom_serializer returns.
     """
-    to_field_list = getattr(cv, "to_field_list", None)
-    if to_field_list is not None:
-        return to_field_list(schema, custom_serializer=cv.custom_serializer)
-    return voluptuous_serialize.convert(schema, custom_serializer=cv.custom_serializer)
+    try:
+        import probatio
+    except ImportError:
+        return voluptuous_serialize.convert(schema, custom_serializer=cv.custom_serializer)
+    return probatio.to_field_list(schema, custom_serializer=cv.custom_serializer)
 
 
 async def test_options_flow(hass, sunspec_client_mock):
