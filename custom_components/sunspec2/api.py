@@ -10,11 +10,13 @@ from collections.abc import Callable
 from typing import Any
 from typing import Literal
 
+from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import HomeAssistantError
 from modbus_connection import ModbusSerialParams
 from modbus_connection import ModbusTcpParams
-from modbus_connection.tmodbus import ModbusConnection
 
+from .connection import SharedConnection
 from .const import DEFAULT_BAUDRATE
 from .const import DEFAULT_SCAN_DELAY_SECONDS
 from .const import MAX_SCAN_DELAY_SECONDS
@@ -146,6 +148,7 @@ class SunSpecApiClient:
         baudrate: int = DEFAULT_BAUDRATE,
         parity: str = PARITY_NONE,
         scan_delay: float = DEFAULT_SCAN_DELAY_SECONDS,
+        entry: ConfigEntry | None = None,
     ) -> None:
         """Sunspec modbus client.
 
@@ -204,12 +207,14 @@ class SunSpecApiClient:
         # The connection outlives the client. A close drops the link and
         # the model objects; the next client connects on the same object,
         # which modbus-connection reconnects on demand.
-        self._connection: ModbusConnection | None = None
+        self._connection: SharedConnection | None = None
+        # The config entry whose unload lets go of the shared link. None
+        # for the config flow's probe, which holds its own and closes it.
+        self._entry = entry
         # Cached SunSpec layout: base address plus (model_id, addr, len)
         # per block. Survives close() and transport failures. A new client
         # validates it before use; device or firmware changes explicitly
-        # discard it through reconnect_next(rescan=True). Healthy slot
-        # releases retain the model objects through async_release_slot().
+        # discard it through reconnect_next(rescan=True).
         #
         # Deliberately without an expiry. A SunSpec model tree changes on
         # a firmware update and never otherwise, so a timer can only ever
@@ -248,12 +253,10 @@ class SunSpecApiClient:
         ``_reconnect=True`` after the previous cycle failed) the old
         client's link is dropped first, so a single-slot inverter has
         its slot back before the new client asks for it. Otherwise the
-        client that is already open is handed straight back. Since
-        v0.22.0 that is the steady state: one session serves the 16+
-        ``async_read_model`` calls of a cycle and every cycle after it,
-        until a failure or an unload drops it. A healthy slot release
-        disconnects the link but retains the client; the next register
-        request reconnects without rebuilding its models.
+        client that is already open is handed straight back. That is the
+        steady state: one session serves the 16+ ``async_read_model``
+        calls of a cycle and every cycle after it, until a failure or an
+        unload drops it.
         """
         # Clear the flag whether or not there was a client to drop. It
         # arrives both ways: _after_failed_cycle closes before setting
@@ -689,8 +692,7 @@ class SunSpecApiClient:
 
         A restart, reload or transport failure rebuilds from the cache
         after three validating reads. A changed layout or an explicit
-        rescan walks the model tree instead. Healthy slot releases keep
-        their model objects and do not reach this method.
+        rescan walks the model tree instead.
         """
         if await self._async_restore_model_structure(client):
             self._log.debug(
@@ -1015,20 +1017,6 @@ class SunSpecApiClient:
             return False
         return True
 
-    async def async_release_slot(self) -> None:
-        """Disconnect a healthy session while retaining its model objects.
-
-        The next register request reconnects through modbus-connection.
-        Failed sessions must use ``async_close`` so their next client
-        validates the cached layout before reading data.
-        """
-        if self._partial_scan:
-            # A partial scan must be retried, otherwise missing models stay
-            # absent for the lifetime of these model objects.
-            await self.async_close()
-        elif self._client is not None:
-            await self._async_disconnect(self._client)
-
     async def async_close(self, force: bool = False) -> None:
         """Drop the active client's link and the reference to it.
 
@@ -1037,7 +1025,7 @@ class SunSpecApiClient:
         its first request.
 
         ``force`` says the session is already suspect: a failed cycle,
-        or a reload that has to get the slot back before the new
+        or a reload that has to get the link back before the new
         coordinator connects. The embedded TCP client used it to send a
         TCP RST instead of a FIN, on the theory that a single-slot
         inverter releases its slot faster after an abort.
@@ -1093,11 +1081,24 @@ class SunSpecApiClient:
             )
         return ModbusTcpParams(host=self._host, port=self._port)
 
-    def _get_connection(self) -> ModbusConnection:
+    def _get_connection(self) -> SharedConnection:
         """The connection object, built on first use. Constructing it does no I/O."""
         if self._connection is None:
-            self._connection = ModbusConnection(self._params(), timeout=self._timeout)
+            self._connection = SharedConnection(
+                self._hass, self._params(), self._entry, timeout=self._timeout
+            )
         return self._connection
+
+    async def _async_get_connection(self) -> SharedConnection:
+        """The connection with this device's unit taken on it. Does no I/O."""
+        connection = self._get_connection()
+        try:
+            await connection.async_for_unit(self._unit_id)
+        except HomeAssistantError as err:
+            # Another integration already talks to this endpoint with
+            # other link settings, and one connection cannot be both.
+            raise TransportError(str(err)) from err
+        return connection
 
     async def modbus_connect(self) -> SunSpecClient:
         """Build a fresh pysunspec2 client on the connection and give it its models.
@@ -1121,7 +1122,8 @@ class SunSpecApiClient:
         # blocking-call detector reports. Reading all of them once, from
         # a thread, leaves nothing to open later.
         await self._hass.async_add_executor_job(preload_model_defs)
-        client = SunSpecModbusClientDeviceUnit(self._get_connection(), slave_id=self._unit_id)
+        connection = await self._async_get_connection()
+        client = SunSpecModbusClientDeviceUnit(connection, slave_id=self._unit_id)
         self._wrap_capturing_read(client)
         # No probe connect in front of the real one. The old check_port
         # opened a TCP session of its own and let the client connect

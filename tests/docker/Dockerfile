@@ -30,6 +30,7 @@ ARG HA_CHANNEL=stable
 # written down in two places. Docker caches the layer, so a rebuild after
 # a new HA release needs --no-cache to actually move.
 COPY .github/scripts/resolve_ha_versions.py /tmp/resolve_ha_versions.py
+COPY .github/scripts/ha_requirements.py /tmp/ha_requirements.py
 
 # Same two steps as the workflow, same reasons:
 #
@@ -43,6 +44,10 @@ COPY .github/scripts/resolve_ha_versions.py /tmp/resolve_ha_versions.py
 # modbus-connection with its tmodbus backend, named twice because Home
 # Assistant ignores a package's extras when it checks what is installed
 # (home-assistant-libs/modbus-connection#182).
+#
+# Then the core modbus integration's own pins, pymodbus among them: the
+# manifest depends on it for the shared connection, and Home Assistant
+# installs an integration's requirements only when it loads it.
 RUN python /tmp/resolve_ha_versions.py --channel "${HA_CHANNEL}" > /tmp/versions \
     && HA=$(sed -n 's/^ha=//p' /tmp/versions) \
     && PHCC=$(sed -n 's/^phcc=//p' /tmp/versions) \
@@ -54,8 +59,9 @@ RUN python /tmp/resolve_ha_versions.py --channel "${HA_CHANNEL}" > /tmp/versions
         pytest-timeout \
         pytest-xdist \
         voluptuous-serialize \
-        "modbus-connection[tmodbus]>=4.10.0,<5" \
-        "tmodbus>=0.6.1" \
+        "modbus-connection[tmodbus]>=4.12.0,<5" \
+        "tmodbus>=0.6.2" \
+    && python /tmp/ha_requirements.py modbus | xargs -d '\n' pip install --no-cache-dir --user \
     && pip install --no-cache-dir --user "pytest<9"
 
 WORKDIR /src

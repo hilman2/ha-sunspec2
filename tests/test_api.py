@@ -8,10 +8,12 @@ import pytest
 from modbus_connection import ModbusSerialParams
 from modbus_connection import ModbusTcpParams
 from modbus_connection import ModbusTimeoutError
+from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 import custom_components.sunspec2.pysunspec2.mb as mb
 from custom_components.sunspec2.api import SunSpecApiClient
 from custom_components.sunspec2.const import DEFAULT_SCAN_DELAY_SECONDS
+from custom_components.sunspec2.const import DOMAIN
 from custom_components.sunspec2.const import MAX_SCAN_DELAY_SECONDS
 from custom_components.sunspec2.const import MIN_SCAN_DELAY_SECONDS
 from custom_components.sunspec2.const import TRANSPORT_RTU
@@ -27,6 +29,7 @@ from custom_components.sunspec2.pysunspec2.modbus.modbus import ModbusClientErro
 from custom_components.sunspec2.pysunspec2.modbus.modbus import ModbusClientTimeout
 from custom_components.sunspec2.pysunspec2.modbus.unit_device import SunSpecModbusClientDeviceUnit
 
+from .const import MOCK_CONFIG
 from .fake_unit import FakeConnection
 from .fake_unit import FakeUnit
 from .fake_unit import register_image
@@ -570,54 +573,24 @@ async def test_close_keeps_the_cached_structure(hass, sunspec_modbus_client_mock
     assert api._model_structure == [(1, 40002, 66)]
 
 
-async def test_releasing_a_healthy_slot_only_reads_data_on_the_next_poll(hass, mocker):
+async def test_a_transport_failure_validates_the_layout_instead_of_rescanning(hass, mocker):
     unit = FakeUnit(register_image("./tests/test_data/inverter_apsystems_controls.json"))
     connection = FakeConnection({1: unit})
-    mocker.patch("custom_components.sunspec2.api.ModbusConnection", return_value=connection)
+    mocker.patch.object(SunSpecApiClient, "_get_connection", return_value=connection)
     api = SunSpecApiClient(host="test", port=123, unit_id=1, hass=hass, scan_delay=0)
 
     await api.async_get_data(103)
-    await api.async_release_slot()
-    assert connection.connected is False
-    assert connection.disconnects == 1
-    unit.reads.clear()
-
-    await api.async_get_data(103)
-    assert unit.reads == [(40070, 52)]
-    await api.async_shutdown()
-    assert connection.closed is True
-
-
-async def test_a_failure_after_releasing_the_slot_validates_on_reconnect(hass, mocker):
-    unit = FakeUnit(register_image("./tests/test_data/inverter_apsystems_controls.json"))
-    connection = FakeConnection({1: unit})
-    mocker.patch("custom_components.sunspec2.api.ModbusConnection", return_value=connection)
-    api = SunSpecApiClient(host="test", port=123, unit_id=1, hass=hass, scan_delay=0)
-
-    await api.async_get_data(103)
-    await api.async_release_slot()
     unit.fail_next = ModbusTimeoutError("Response timeout")
     with pytest.raises(TransientError):
         await api.async_get_data(103)
 
+    await api.async_close(force=True)
     api.reconnect_next(rescan=False)
     unit.reads.clear()
     await api.async_get_data(103)
     assert unit.reads[:3] == [(40000, 3), (40122, 2), (40148, 1)]
     assert unit.reads[3:] == [(40070, 52)]
     await api.async_shutdown()
-
-
-async def test_releasing_a_partial_scan_drops_the_client(hass):
-    api = SunSpecApiClient(host="test", port=123, unit_id=1, hass=hass)
-    client = Mock(async_disconnect=AsyncMock())
-    api._client = client
-    api._partial_scan = True
-
-    await api.async_release_slot()
-
-    assert api._client is None
-    client.async_disconnect.assert_awaited_once()
 
 
 async def test_vendor_models_without_a_group_name_stay_cached(hass):
@@ -835,21 +808,47 @@ async def test_revision_only_moves_when_the_layout_does(hass):
 
 
 async def test_the_connection_is_built_once_with_the_request_timeout(hass, mocker):
-    """One ModbusConnection per api client, carrying the entry's timeout.
+    """One SharedConnection per api client, carrying the entry and the timeout.
 
     The connection outlives the client: a close drops the link and the
-    models, and the next client connects on the same object.
+    models, and the next client uses the same object.
     """
     from custom_components.sunspec2.api import SETUP_TIMEOUT
 
-    built = mocker.patch("custom_components.sunspec2.api.ModbusConnection")
-    api = SunSpecApiClient(host="test", port=123, unit_id=1, hass=hass, timeout=SETUP_TIMEOUT)
+    built = mocker.patch("custom_components.sunspec2.api.SharedConnection")
+    entry = MockConfigEntry(domain=DOMAIN, data=MOCK_CONFIG)
+    api = SunSpecApiClient(
+        host="test", port=123, unit_id=7, hass=hass, timeout=SETUP_TIMEOUT, entry=entry
+    )
 
     first = api._get_connection()
     second = api._get_connection()
 
     assert first is second
-    built.assert_called_once_with(ModbusTcpParams(host="test", port=123), timeout=SETUP_TIMEOUT)
+    built.assert_called_once_with(
+        hass, ModbusTcpParams(host="test", port=123), entry, timeout=SETUP_TIMEOUT
+    )
+
+
+async def test_the_unit_is_taken_for_the_devices_unit_id(hass, mocker):
+    built = mocker.patch("custom_components.sunspec2.api.SharedConnection")
+    built.return_value.async_for_unit = AsyncMock()
+    api = SunSpecApiClient(host="test", port=123, unit_id=7, hass=hass)
+
+    assert await api._async_get_connection() is built.return_value
+    built.return_value.async_for_unit.assert_awaited_once_with(7)
+
+
+async def test_a_device_in_use_with_other_link_settings_is_a_transport_error(hass, mocker):
+    """The shared connection cannot be both, and the message says so."""
+    from homeassistant.exceptions import HomeAssistantError
+
+    built = mocker.patch("custom_components.sunspec2.api.SharedConnection")
+    built.return_value.async_for_unit = AsyncMock(side_effect=HomeAssistantError("already in use"))
+    api = SunSpecApiClient(host="test", port=123, unit_id=1, hass=hass)
+
+    with pytest.raises(TransportError, match="already in use"):
+        await api._async_get_connection()
 
 
 async def test_rtu_entries_connect_over_serial_params(hass):

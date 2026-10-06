@@ -101,15 +101,14 @@ sensors go unavailable.
 
 If the gaps are longer than that, something else is going on:
 
-- Check whether **Release the Modbus connection between polls** is on.
-  It rebuilds the Modbus session on every poll, which is the thing an
-  embedded Modbus stack handles worst. On a KACO Powador 7.8 TL3 at a
-  30 s interval, reconnecting per poll failed 5 of 6 cycles while one
-  held session served 20 of 20. The option exists for the case where
-  another program outside Home Assistant has to reach the same
-  inverter, and it is a bad default for everyone else.
-- On versions before v0.22.0 that reconnect happened unconditionally.
-  Update.
+- Check whether another program outside Home Assistant reads the same
+  inverter. The integration holds one Modbus session open, which is
+  what Modbus TCP is built for and what inverters handle best (on a
+  KACO Powador 7.8 TL3 at a 30 s interval, one held session served 20
+  of 20 polls where reconnecting per poll failed 5 of 6). A single-slot
+  inverter has no room for a second reader, so put a Modbus proxy
+  between the inverter and everything that reads it, Home Assistant
+  included.
 - Otherwise the network link itself is dropping. Check the WiFi or the
   cable to the inverter.
 

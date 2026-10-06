@@ -1369,7 +1369,6 @@ def _keepalive_coordinator(hass, options=None):
     api.async_get_models = AsyncMock(return_value=[1, 103])
     api.async_get_data = AsyncMock(return_value=MagicMock())
     api.async_close = AsyncMock()
-    api.async_release_slot = AsyncMock()
     api.last_scan_was_partial = False
     return config_entry, SunSpecDataUpdateCoordinator(hass, client=api, entry=config_entry)
 
@@ -1390,58 +1389,36 @@ async def test_cycle_keeps_the_session_open(hass):
     coordinator.api.async_close.assert_not_awaited()
 
 
-async def test_cycle_releases_the_slot_when_asked_to(hass):
-    """The option exists for a reader outside HA that cannot use a proxy."""
-    from custom_components.sunspec2.const import CONF_RELEASE_SLOT
+async def test_a_neighbour_on_the_endpoint_does_not_make_the_cycle_close(hass):
+    """Two entries on one endpoint share one connection, so neither lets go of it.
 
-    _, coordinator = _keepalive_coordinator(
-        hass, options={CONF_ENABLED_MODELS: [103], CONF_RELEASE_SLOT: True}
-    )
-
-    await coordinator._run_one_update_cycle()
-
-    coordinator.api.async_release_slot.assert_awaited_once()
-    coordinator.api.async_close.assert_not_awaited()
-
-
-async def test_a_shared_gateway_releases_the_slot_without_being_told(hass):
-    """Two entries on one endpoint must not need a checkbox.
-
-    This is the SolarEdge-style gateway the per-gateway lock already
-    serialises. Holding the session open there would starve the second
-    entry permanently, and the user has no reason to know that an
-    option governs it.
+    This is the SolarEdge-style gateway. Home Assistant's modbus
+    integration hands both entries units on the same session, and the
+    last one to unload closes it, so a cycle has nothing to give back.
     """
     _, coordinator = _keepalive_coordinator(hass)
-    assert coordinator.release_slot_between_polls is False
 
     neighbour = MockConfigEntry(domain=DOMAIN, data=MOCK_CONFIG, options={})
     neighbour.add_to_hass(hass)
 
-    assert coordinator.release_slot_between_polls is True
-
     await coordinator._run_one_update_cycle()
-    coordinator.api.async_release_slot.assert_awaited_once()
     coordinator.api.async_close.assert_not_awaited()
 
 
-async def test_a_failed_shared_gateway_write_drops_the_model_objects(hass):
+async def test_a_failed_write_drops_the_session(hass):
     from unittest.mock import AsyncMock
 
     _, coordinator = _keepalive_coordinator(hass)
-    neighbour = MockConfigEntry(domain=DOMAIN, data=MOCK_CONFIG, options={})
-    neighbour.add_to_hass(hass)
     coordinator.api.async_write_points = AsyncMock(side_effect=TransportError("link gone"))
 
     with pytest.raises(TransportError):
         await coordinator.async_write_points_locked(123, [("WMaxLimPct", 50)])
 
     coordinator.api.async_close.assert_awaited_once_with(force=True)
-    coordinator.api.async_release_slot.assert_not_awaited()
     assert not coordinator._gateway_lock.locked()
 
 
-async def test_a_failed_poll_releases_the_slot_before_the_retry_sleep(hass, mocker):
+async def test_a_failed_poll_closes_the_session_before_the_retry_sleep(hass, mocker):
     from unittest.mock import AsyncMock
 
     _, coordinator = _keepalive_coordinator(hass)
