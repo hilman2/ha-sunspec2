@@ -288,39 +288,6 @@ async def test_set_value_keeps_the_session_by_default(hass, sunspec_write_client
     assert closes == []
 
 
-async def test_set_value_closes_the_session_when_sharing_the_slot(hass, sunspec_write_client_mock):
-    """With the slot shared, the old contract still has to hold.
-
-    Whoever opens a session under the lock closes it under the lock.
-    Handing the lock to a queued waiter with our socket still open makes
-    that waiter fail to connect, which surfaces as a bogus
-    TransportError in an unrelated config entry.
-    """
-    entry = await _setup_write_entry(hass)
-    coordinator = entry.runtime_data
-    limit = next(e for e in _live_entities(hass, "number") if e._point_name == "WMaxLimPct")
-
-    closes = []
-
-    with (
-        patch.object(
-            type(coordinator),
-            "release_slot_between_polls",
-            property(lambda self: True),
-        ),
-        patch.object(coordinator.api, "async_write_points"),
-        patch.object(coordinator, "async_request_refresh"),
-        patch.object(
-            coordinator.api,
-            "async_close",
-            side_effect=lambda *a, **kw: closes.append(coordinator._gateway_lock.locked()),
-        ),
-    ):
-        await limit.async_set_native_value(80)
-
-    assert closes == [True]
-
-
 async def test_set_value_releases_the_lock_when_the_write_fails(hass, sunspec_write_client_mock):
     """A failed write must not leave the gateway locked forever."""
     entry = await _setup_write_entry(hass)

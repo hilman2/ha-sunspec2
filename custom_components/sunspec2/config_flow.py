@@ -31,7 +31,6 @@ from .const import CONF_PARITY
 from .const import CONF_PORT
 from .const import CONF_PREFIX
 from .const import CONF_REARM_ON_CHANGE
-from .const import CONF_RELEASE_SLOT
 from .const import CONF_SCAN_DELAY
 from .const import CONF_SCAN_INTERVAL
 from .const import CONF_SERIAL_PORT
@@ -927,7 +926,6 @@ class SunSpecOptionsFlowHandler(config_entries.OptionsFlow):
             CONF_SCAN_INTERVAL, self.config_entry.data.get(CONF_SCAN_INTERVAL)
         )
         capture_raw = self.config_entry.options.get(CONF_CAPTURE_RAW, False)
-        release_slot = self.config_entry.options.get(CONF_RELEASE_SLOT, False)
         standby_when_idle = self.config_entry.options.get(CONF_STANDBY_WHEN_IDLE, False)
         scan_delay = self.config_entry.options.get(CONF_SCAN_DELAY, DEFAULT_SCAN_DELAY_SECONDS)
         # User-set value wins, and is shown back exactly as stored - the
@@ -960,10 +958,9 @@ class SunSpecOptionsFlowHandler(config_entries.OptionsFlow):
             # happened. NEVER call api.known_models() unconditionally:
             # ``known_models()`` reads the live client, and there is not
             # always one: before the first connect, after a failed cycle
-            # tore the session down with ``close(force=True)``, and on
-            # the CONF_RELEASE_SLOT / shared-gateway paths that do still
-            # close between polls. In those cases it returns ``[]`` and
-            # the form would render an empty multi-select.
+            # tore the session down with ``close(force=True)``. In those
+            # cases it returns ``[]`` and the form would render an empty
+            # multi-select.
             models = set(getattr(self.coordinator, "detected_models", set()))
             # The coordinator is None when the entry is not loaded, which
             # is exactly when the options flow can still be opened. Falling
@@ -1014,11 +1011,6 @@ class SunSpecOptionsFlowHandler(config_entries.OptionsFlow):
                     default=default_models,
                 ): cv.multi_select(model_filter),
                 vol.Optional(CONF_CAPTURE_RAW, default=capture_raw): bool,
-                # v0.22.0: the session is held open by default. This
-                # hands it back between polls for the rare install
-                # that has to share the inverter with a reader
-                # outside Home Assistant.
-                vol.Optional(CONF_RELEASE_SLOT, default=release_slot): bool,
                 # #52: opt-out for inverters that power their comms
                 # board down when idle and cannot be detected doing it.
                 vol.Optional(CONF_STANDBY_WHEN_IDLE, default=standby_when_idle): bool,

@@ -156,25 +156,6 @@ EXPORT_LIMIT_MIN_STEP_PCT = 0.01
 # trade to make between "fast polling" and "gentle on slow hardware".
 # Lowering it only affects that rare walk.
 
-
-# Give the inverter's Modbus slot back between polls instead of
-# holding one session open.
-#
-# Off by default, which is the opposite of what this integration did
-# until v0.22.0. Measured against a KACO Powador 7.8 TL3, polling every
-# 30 s: reconnecting per poll failed 5 of 6 cycles, while a single
-# session held open served 20 of 20 polls in a steady 1.6 s each. The
-# device is not flaky, it simply cannot build a fresh Modbus session
-# every 30 seconds, and Modbus TCP was never meant to be used that way.
-#
-# Turning this on is for one situation only: something else on the
-# network has to read the same inverter, and it cannot go through a
-# Modbus proxy. Sharing a single slot by taking turns is unreliable by
-# construction, so a proxy is the better answer wherever it is possible.
-# Multiple config entries behind one gateway do not need this option;
-# that case is detected and handled on its own.
-CONF_RELEASE_SLOT = "release_slot"
-
 # Issue #52: many PV inverters power their communication board down
 # when there is no DC input, which on a domestic roof means every
 # night. The TCP session dies with it, so the integration sees a plain
@@ -236,9 +217,8 @@ MAX_SCAN_DELAY_SECONDS = 2.0
 # round trips and 20 pacing sleeps every 30 seconds to rediscover a
 # layout that changes on firmware updates and never otherwise. v0.22.0
 # holds the session open, so a poll no longer pays any of it. The cache
-# still earns its keep on the paths that do build a client again:
-# CONF_RELEASE_SLOT and the shared-gateway case, where ``close()``
-# leaves the layout intact and the next connect rebuilds from it. A
+# still earns its keep on the paths that do build a client again: a
+# restart or a reload, where the layout comes back from the store. A
 # failed cycle is the one path that drops the layout on purpose; the
 # only other way back to a full scan is a connect whose cached layout
 # no longer validates.

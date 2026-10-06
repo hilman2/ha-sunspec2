@@ -44,7 +44,6 @@ from .const import CONF_HOST
 from .const import CONF_PARITY
 from .const import CONF_PORT
 from .const import CONF_REARM_ON_CHANGE
-from .const import CONF_RELEASE_SLOT
 from .const import CONF_SCAN_DELAY
 from .const import CONF_SCAN_INTERVAL
 from .const import CONF_SERIAL_PORT
@@ -226,11 +225,18 @@ async def async_setup_entry(hass: HomeAssistant, entry: SunSpec2ConfigEntry) -> 
             baudrate=baudrate,
             parity=parity,
             scan_delay=scan_delay,
+            entry=entry,
         )
         log = get_adapter(serial_port or "rtu", baudrate, unit_id)
     else:
         client = SunSpecApiClient(
-            host, port, unit_id, hass, capture_enabled=capture_enabled, scan_delay=scan_delay
+            host,
+            port,
+            unit_id,
+            hass,
+            capture_enabled=capture_enabled,
+            scan_delay=scan_delay,
+            entry=entry,
         )
         log = get_adapter(host, port, unit_id)
     log.debug("Setup config entry for SunSpec")
@@ -565,18 +571,18 @@ def get_sunspec_unique_id(config_entry_id: str, key: str, model_id: int, model_i
 class SunSpecDataUpdateCoordinator(DataUpdateCoordinator[dict[int, SunSpecModelWrapper]]):
     """Class to manage fetching data from the API."""
 
-    # Per-gateway asyncio lock used to serialise update cycles from multiple
-    # config entries that share the same TCP endpoint (host, port). Several
-    # inverters and Modbus TCP gateways - notably SolarEdge - only accept a
-    # single TCP connection at a time. Without this lock two coordinators
-    # polling different unit IDs behind the same gateway would race each
-    # other and produce "connection reset by peer" errors. The lock is
-    # held for the entire update cycle, and a shared endpoint is exactly
-    # the case that still hands the slot back at the end of every cycle
-    # (see ``release_slot_between_polls``), so only one of them holds a
-    # TCP session at a time. Single-gateway users see no behavioural
-    # change because the lock is always free, and their one session
-    # stays open between cycles.
+    # Per-gateway asyncio lock used to serialise update cycles and write
+    # sequences from multiple config entries that share the same TCP
+    # endpoint (host, port). Several inverters and Modbus TCP gateways -
+    # notably SolarEdge - only accept a single TCP connection at a time,
+    # and Home Assistant's modbus integration gives every entry behind
+    # one endpoint the same connection, so the slot is not what is
+    # contended any more. What the lock keeps is the whole cycle and the
+    # whole write sequence in one piece: the connection's own lock
+    # serialises single requests, so without this a poll of one unit
+    # could land between the steps of another unit's write plan.
+    # Single-gateway users see no behavioural change because the lock is
+    # always free.
     _GATEWAY_LOCKS: dict[tuple[str, int], asyncio.Lock] = {}
 
     @classmethod
@@ -693,8 +699,7 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator[dict[int, SunSpecModelW
         # whenever ``api._client`` is ``None``. That used to be the
         # steady state between cycles; since v0.22.0 the session is held
         # open, so ``None`` is only left before the first cycle, after a
-        # failed one, and between cycles on an entry that hands the slot
-        # back. A v0.7.3 -> v0.7.5
+        # failed one. A v0.7.3 -> v0.7.5
         # regression where the form rendered an empty multi-select and
         # silently saved ``models_enabled: []`` (killing every sensor)
         # was the motivating bug.
@@ -827,46 +832,6 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator[dict[int, SunSpecModelW
             update_interval=scan_interval,
             config_entry=entry,
         )
-
-    @property
-    def release_slot_between_polls(self) -> bool:
-        """Whether to hand the inverter's Modbus session back after each poll.
-
-        False is the normal case, and it is a change of position. The
-        integration used to disconnect after every cycle so a
-        single-slot inverter would be free for other readers between
-        polls. Measured against the hardware that motivated that design,
-        a KACO Powador 7.8 TL3 at a 30 s interval, it is what breaks it:
-        reconnecting per poll failed 5 of 6 cycles, holding one session
-        served 20 of 20 at a steady 1.6 s. Modbus TCP is built around a
-        session that stays up, and an embedded stack rebuilding one
-        every 30 seconds is the thing it handles worst.
-
-        It stays True for the two cases where somebody else genuinely
-        needs the slot:
-
-        * more than one config entry behind the same endpoint, which is
-          the SolarEdge-style gateway the per-gateway lock already
-          serialises. Detected here rather than configured, because the
-          user has no reason to know it matters.
-        * the CONF_RELEASE_SLOT option, for a reader outside Home
-          Assistant that cannot be put behind a Modbus proxy.
-        """
-        if self.entry.options.get(CONF_RELEASE_SLOT, False):
-            return True
-        return self._gateway_is_shared()
-
-    def _gateway_is_shared(self) -> bool:
-        """True if another config entry talks to the same endpoint."""
-        host = self.entry.data.get(CONF_HOST)
-        port = self.entry.data.get(CONF_PORT)
-        seen = 0
-        for entry in self.hass.config_entries.async_entries(DOMAIN):
-            if entry.data.get(CONF_HOST) == host and entry.data.get(CONF_PORT) == port:
-                seen += 1
-                if seen > 1:
-                    return True
-        return False
 
     async def async_load_model_structure(self) -> None:
         """Hand the API client the layout an earlier run discovered.
@@ -1110,11 +1075,8 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator[dict[int, SunSpecModelW
           plus a full scan) that nothing ever closed, holding a
           single-slot inverter's only Modbus slot until the next cycle.
           v0.13.4's ``model.read()`` widened that window by one more
-          block read. Since v0.22.0 the session is normally held open
-          and a write finds the live client, but an entry that hands
-          the slot back still opens one of its own here, which is why
-          this method closes it under the lock (see the ``finally``
-          below).
+          block read. Since v0.22.0 the session is held open and a
+          write finds the live client.
 
         The method is named ``_locked`` rather than mirroring
         ``SunSpecApiClient.async_write_point`` on purpose. An identical
@@ -1163,15 +1125,6 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator[dict[int, SunSpecModelW
                 if step.settle_seconds > 0:
                     await asyncio.sleep(step.settle_seconds)
         finally:
-            # Whoever opens a session under the lock closes it under the
-            # lock. Leaving the socket open past the release would let
-            # the next coordinator on this gateway win the lock
-            # (asyncio.Lock is FIFO, so a queued waiter is handed the
-            # lock on release) and then fail to connect, which surfaces
-            # as a bogus TransportError in an unrelated config entry -
-            # the hardest possible shape to diagnose.
-            if self.release_slot_between_polls:
-                await self.api.async_close()
             self._gateway_lock.release()
 
     @callback
@@ -1210,10 +1163,6 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator[dict[int, SunSpecModelW
         try:
             await self.api.async_write_block(address, data, unit_id_offset=block.unit_id_offset)
         finally:
-            # See async_write_points_locked for why the session closes
-            # under the lock where the slot is handed back.
-            if self.release_slot_between_polls:
-                await self.api.async_close()
             self._gateway_lock.release()
         self.raw_setpoints[(block.key, raw_field.name)] = value
         vendor = self.vendor
@@ -1235,10 +1184,8 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator[dict[int, SunSpecModelW
     async def _run_one_update_cycle(self) -> dict[int, SunSpecModelWrapper]:
         """Single read attempt over the live session. Caller holds the gateway lock.
 
-        Connects only when there is no live session: the first cycle,
-        the cycle after a failure, and every cycle on an entry that
-        hands the slot back (see ``release_slot_between_polls``), which
-        is also the only case that closes at the end.
+        Connects only when there is no live session: the first cycle and
+        the cycle after a failure. The session stays up between cycles.
 
         Returns the freshly-read data dict on success and re-raises any
         exception untouched on failure - bookkeeping (error categorisation,
@@ -1273,7 +1220,7 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator[dict[int, SunSpecModelW
         # options-flow form can render its multi-select even when
         # ``api._client`` is gone and ``api.known_models()`` would
         # return an empty list: before the first cycle, after a failed
-        # one, or between cycles on an entry that hands the slot back.
+        # one.
         self.detected_models = all_models
         # Union first, intersect second: a model the device does not
         # expose is still never read, but the write-beta model gets in
@@ -1337,8 +1284,6 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator[dict[int, SunSpecModelW
             # check keeps the rebuild out of the middle of a cycle whose
             # model list was computed against the old client.
             self.api.reconnect_next()
-        if self.release_slot_between_polls:
-            await self.api.async_close()
         return data
 
     async def _read_nameplate(self, all_models: set[int]) -> float | None:

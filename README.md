@@ -59,7 +59,8 @@ standard doing its job, so reports about other hardware are welcome.
 
 ## Installation
 
-The integration is in the default HACS store.
+The integration is in the default HACS store. It needs Home Assistant
+2026.10 or newer.
 
 1. **HACS** -> search for **SunSpec Modbus** -> **Download**
 2. **Restart Home Assistant**
@@ -100,7 +101,6 @@ Modbus -> Configure*.
 | Models | sensible defaults | Which SunSpec data blocks become sensors |
 | Peak AC power | read from the inverter | Ceiling for the plausibility filter. Readings above it are dropped. Older firmware does not publish its rated power, then you enter it once |
 | Scan delay | 0.5 s | Pause between blocks while mapping the inverter. Raise it if setup fails on slow hardware |
-| Release the Modbus connection between polls | off | Only needed when another program outside Home Assistant reads the same inverter |
 | Inverter powers down when idle | off | Suppresses the unreachable warning for inverters that vanish at night without saying so |
 | Capture raw registers | off | Puts the raw Modbus bytes into the diagnostics download, for bug reports |
 | Enable experimental export controls | off | The export limit and its relatives. See [Battery and export control](#battery-and-export-control) |
