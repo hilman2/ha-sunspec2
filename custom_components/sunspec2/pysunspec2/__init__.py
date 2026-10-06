@@ -35,6 +35,10 @@ Changes against upstream:
   function code 16 unless asked otherwise, and reports a dropped link as
   a connection error, which the unit device raises as
   ``ModbusClientConnectionClosed`` (v2026.10.0).
+* The model scan stops at a header with model id 0 and before an address
+  that no longer fits a register, instead of walking on. An APsystems
+  ECU-R declares its last model longer than it is, lands on blank memory
+  and read zero headers up to register 65535 (#109).
 
 Why a fork rather than the pip package: the integration needs the model
 layer to await an asyncio transport, and upstream accepts changes slowly

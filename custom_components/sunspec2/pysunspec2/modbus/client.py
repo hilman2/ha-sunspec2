@@ -27,6 +27,9 @@ from .. import mdef, device, mb
 from . import modbus as modbus_client
 
 
+MAX_REGISTER_ADDRESS = 0xFFFF
+
+
 class SunSpecModbusClientError(Exception):
     pass
 
@@ -315,10 +318,26 @@ class SunSpecModbusClientDevice(device.Device):
                     self.add_model(model)
 
                     addr += model_len + 2
+                    # A header has to fit in the register space. Past it
+                    # the transport refuses the address outright (a
+                    # ValueError, not a Modbus error), so the chain is
+                    # over whatever the last length claimed.
+                    if addr + 1 > MAX_REGISTER_ADDRESS:
+                        break
                     model_id_data = await self.async_read(addr, 1)
                     if model_id_data and len(model_id_data) == 2:
                         model_id = mb.data_to_u16(model_id_data)
                     else:
+                        break
+                    # Model id 0 is not a model, it is blank memory. An
+                    # APsystems ECU-R declares model 114 as 48 registers
+                    # while its data ends after 24, so the header it
+                    # lands on is zeros and the 0xFFFF marker sits 24
+                    # registers earlier (#109). Taken as a header, each
+                    # zero pair is a model of length 0 and the walk runs
+                    # on to the end of the register space, one read
+                    # every 2 registers, the last ones timing out.
+                    if model_id == 0:
                         break
                 else:
                     break
