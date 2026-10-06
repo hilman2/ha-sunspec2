@@ -242,6 +242,8 @@ class RawSensor:
             ``transform(value)`` with the decoded value. Returns what
             the sensor shows.
         icon (str|None): The icon.
+        enabled_by_default (bool): False for a sensor the user turns on
+            in the entity registry, for a field only some devices have.
     """
 
     block: str
@@ -255,6 +257,7 @@ class RawSensor:
     options: Mapping[int, str] | None = None
     transform: Callable[[Any], Any] | None = None
     icon: str | None = None
+    enabled_by_default: bool = True
 
 
 @dataclass(frozen=True)

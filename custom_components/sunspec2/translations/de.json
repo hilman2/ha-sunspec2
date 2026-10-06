@@ -744,6 +744,78 @@
           "digital_io": "Digitale E/A",
           "modbus": "Modbus"
         }
+      },
+      "apsystems_dc_voltage_1": {
+        "name": "DC-Spannung Eingang 1"
+      },
+      "apsystems_dc_voltage_2": {
+        "name": "DC-Spannung Eingang 2"
+      },
+      "apsystems_dc_voltage_3": {
+        "name": "DC-Spannung Eingang 3"
+      },
+      "apsystems_dc_voltage_4": {
+        "name": "DC-Spannung Eingang 4"
+      },
+      "apsystems_dc_voltage_5": {
+        "name": "DC-Spannung Eingang 5"
+      },
+      "apsystems_dc_voltage_6": {
+        "name": "DC-Spannung Eingang 6"
+      },
+      "apsystems_dc_voltage_7": {
+        "name": "DC-Spannung Eingang 7"
+      },
+      "apsystems_dc_voltage_8": {
+        "name": "DC-Spannung Eingang 8"
+      },
+      "apsystems_dc_current_1": {
+        "name": "DC-Strom Eingang 1"
+      },
+      "apsystems_dc_current_2": {
+        "name": "DC-Strom Eingang 2"
+      },
+      "apsystems_dc_current_3": {
+        "name": "DC-Strom Eingang 3"
+      },
+      "apsystems_dc_current_4": {
+        "name": "DC-Strom Eingang 4"
+      },
+      "apsystems_dc_current_5": {
+        "name": "DC-Strom Eingang 5"
+      },
+      "apsystems_dc_current_6": {
+        "name": "DC-Strom Eingang 6"
+      },
+      "apsystems_dc_current_7": {
+        "name": "DC-Strom Eingang 7"
+      },
+      "apsystems_dc_current_8": {
+        "name": "DC-Strom Eingang 8"
+      },
+      "apsystems_dc_power_1": {
+        "name": "DC-Leistung Eingang 1"
+      },
+      "apsystems_dc_power_2": {
+        "name": "DC-Leistung Eingang 2"
+      },
+      "apsystems_dc_power_3": {
+        "name": "DC-Leistung Eingang 3"
+      },
+      "apsystems_dc_power_4": {
+        "name": "DC-Leistung Eingang 4"
+      },
+      "apsystems_dc_power_5": {
+        "name": "DC-Leistung Eingang 5"
+      },
+      "apsystems_dc_power_6": {
+        "name": "DC-Leistung Eingang 6"
+      },
+      "apsystems_dc_power_7": {
+        "name": "DC-Leistung Eingang 7"
+      },
+      "apsystems_dc_power_8": {
+        "name": "DC-Leistung Eingang 8"
       }
     }
   },

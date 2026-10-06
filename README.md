@@ -48,6 +48,7 @@ If the manual mentions "SunSpec Modbus", yes. That covers most brands:
 Piko (port 1502 and unit ID 71, see [docs/kostal.md](docs/kostal.md)) .
 **Sungrow** SG, SH . **GoodWe** XS, DT, ET . **ABB / FIMER /
 Power-One** Aurora, Trio, UNO, REACT . **Delta** Solivia, RPI .
+**APsystems** ECU-R, ECU-C (micro inverters, see [docs/apsystems.md](docs/apsystems.md)) .
 **SunPower** . **Chint Power Systems**
 
 Most inverters need Modbus TCP switched on in their own web interface

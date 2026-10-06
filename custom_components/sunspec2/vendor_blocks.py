@@ -180,6 +180,7 @@ class RawBlockSensor(RawBlockEntity, SensorEntity):
             self._attr_options = list(spec.options.values())
         if spec.icon is not None:
             self._attr_icon = spec.icon
+        self._attr_entity_registry_enabled_default = spec.enabled_by_default
 
     @property
     def native_value(self) -> Any:
