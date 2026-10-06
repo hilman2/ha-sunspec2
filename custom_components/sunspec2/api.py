@@ -902,7 +902,9 @@ class SunSpecApiClient:
         except Exception as err:  # noqa: BLE001 - device need not answer past the chain
             self._log.debug("No readable end marker behind the cached chain (%s), accepting", err)
             return True
-        if end and len(end) >= 2 and mb.data_to_u16(end[0:2]) != mb.SUNS_END_MODEL_ID:
+        # Id 0 is where a scan stops on a device whose chain ends in
+        # blank memory instead of the marker (APsystems ECU-R, #109).
+        if end and len(end) >= 2 and mb.data_to_u16(end[0:2]) not in (mb.SUNS_END_MODEL_ID, 0):
             self._log.info(
                 "SunSpec model chain continues past its cached end, rescanning to pick up "
                 "the models behind it"

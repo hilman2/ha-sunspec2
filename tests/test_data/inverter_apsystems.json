@@ -1,0 +1,46 @@
+{
+  "name": "apsystems",
+  "models": [
+    {
+      "ID": 1,
+      "Mn": "APsystems",
+      "Md": "DS3",
+      "Opt": "",
+      "Vr": "ECU_R_1.3.23",
+      "SN": "703000000001",
+      "DA": 1,
+      "Pad": 0
+    },
+    {
+      "ID": 103,
+      "L": null,
+      "A": 5,
+      "AphA": 5,
+      "AphB": 7,
+      "AphC": 6,
+      "PPVphAB": 233,
+      "PPVphBC": 231,
+      "PPVphCA": 232,
+      "PhVphA": 232,
+      "PhVphB": 232,
+      "PhVphC": 232,
+      "W": 120,
+      "Hz": 50,
+      "VA": 800,
+      "VAr": 800,
+      "PF": 100,
+      "WH": 100000,
+      "DCA": 22,
+      "DCV": 500,
+      "DCW": 900,
+      "TmpCab": 45,
+      "St": 4,
+      "StVnd": 4,
+      "Evt1": 3
+    },
+    {
+      "ID": 65535,
+      "L": 0
+    }
+  ]
+}

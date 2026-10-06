@@ -17,6 +17,7 @@ from custom_components.sunspec2.errors import TransportError
 from custom_components.sunspec2.pysunspec2.modbus.modbus import ModbusClientException
 from custom_components.sunspec2.pysunspec2.modbus.modbus import ModbusClientTimeout
 
+from .apsystems_registers import ds3_registers
 from .kostal_registers import no_battery_registers
 from .kostal_registers import plenticore_g1_registers
 from .kostal_registers import plenticore_registers
@@ -321,6 +322,18 @@ def sunspec_sma_client_mock():
     client = MockFileClientDevice("./tests/test_data/inverter_sma.json")
     client.scan()
     client.unit_registers = {3: smart_energy_registers()}
+    with (
+        patch("custom_components.sunspec2.SunSpecApiClient.modbus_connect", return_value=client),
+    ):
+        yield client
+
+
+@pytest.fixture
+def sunspec_apsystems_client_mock():
+    """An APsystems DS3 behind an ECU-R: models 1 and 103, the DC floats at 40214."""
+    client = MockFileClientDevice("./tests/test_data/inverter_apsystems.json")
+    client.scan()
+    client.registers = ds3_registers()
     with (
         patch("custom_components.sunspec2.SunSpecApiClient.modbus_connect", return_value=client),
     ):

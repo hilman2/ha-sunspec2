@@ -185,3 +185,38 @@ async def test_the_capture_wraps_the_unit_reads(hass):
     assert captured[0]["addr"] == 40000
     assert captured[0]["count"] == 3
     assert captured[0]["hex"] == "53756e530001"
+
+
+async def test_a_chain_ending_in_blank_memory_stops_the_scan(hass):
+    """An overlong last model must not send the scan walking through zeros (#109).
+
+    The APsystems ECU-R declares its last model longer than its data, so
+    the header the walk lands on is blank memory (id 0, length 0) and the
+    0xFFFF marker sits inside the declared body. Read as headers, those
+    zeros are an endless run of models of length 0: one read every two
+    registers up to 65535, and a transport that refuses what lies past it.
+    The fake answers every address from the end marker up, so only the
+    stop at id 0 ends the walk.
+    """
+    image = register_image(FRONIUS)
+    # Model 160 repeats a group, so its length is checked against its
+    # body. Cut the last model off instead, and stretch the one before it.
+    headers = []
+    addr = 40002
+    while image[addr] != 0xFFFF:
+        headers.append(addr)
+        addr += image[addr + 1] + 2
+    expected = sorted(image[header] for header in headers[:-1])
+    marker = headers[-1]
+    last_header = headers[-2]
+    image = {addr: word for addr, word in image.items() if addr < marker}
+    image[marker] = 0xFFFF
+    image[marker + 1] = 0
+    image[last_header + 1] += 24
+    for addr in range(marker + 2, 65536):
+        image[addr] = 0
+    unit = FakeUnit(image)
+    api = _api(hass, FakeConnection({1: unit}))
+
+    assert await api.async_get_models() == expected
+    assert max(addr for addr, _ in unit.reads) < marker + 100

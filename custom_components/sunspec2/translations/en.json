@@ -744,6 +744,78 @@
           "digital_io": "Digital I/O",
           "modbus": "Modbus"
         }
+      },
+      "apsystems_dc_voltage_1": {
+        "name": "DC voltage input 1"
+      },
+      "apsystems_dc_voltage_2": {
+        "name": "DC voltage input 2"
+      },
+      "apsystems_dc_voltage_3": {
+        "name": "DC voltage input 3"
+      },
+      "apsystems_dc_voltage_4": {
+        "name": "DC voltage input 4"
+      },
+      "apsystems_dc_voltage_5": {
+        "name": "DC voltage input 5"
+      },
+      "apsystems_dc_voltage_6": {
+        "name": "DC voltage input 6"
+      },
+      "apsystems_dc_voltage_7": {
+        "name": "DC voltage input 7"
+      },
+      "apsystems_dc_voltage_8": {
+        "name": "DC voltage input 8"
+      },
+      "apsystems_dc_current_1": {
+        "name": "DC current input 1"
+      },
+      "apsystems_dc_current_2": {
+        "name": "DC current input 2"
+      },
+      "apsystems_dc_current_3": {
+        "name": "DC current input 3"
+      },
+      "apsystems_dc_current_4": {
+        "name": "DC current input 4"
+      },
+      "apsystems_dc_current_5": {
+        "name": "DC current input 5"
+      },
+      "apsystems_dc_current_6": {
+        "name": "DC current input 6"
+      },
+      "apsystems_dc_current_7": {
+        "name": "DC current input 7"
+      },
+      "apsystems_dc_current_8": {
+        "name": "DC current input 8"
+      },
+      "apsystems_dc_power_1": {
+        "name": "DC power input 1"
+      },
+      "apsystems_dc_power_2": {
+        "name": "DC power input 2"
+      },
+      "apsystems_dc_power_3": {
+        "name": "DC power input 3"
+      },
+      "apsystems_dc_power_4": {
+        "name": "DC power input 4"
+      },
+      "apsystems_dc_power_5": {
+        "name": "DC power input 5"
+      },
+      "apsystems_dc_power_6": {
+        "name": "DC power input 6"
+      },
+      "apsystems_dc_power_7": {
+        "name": "DC power input 7"
+      },
+      "apsystems_dc_power_8": {
+        "name": "DC power input 8"
       }
     }
   },

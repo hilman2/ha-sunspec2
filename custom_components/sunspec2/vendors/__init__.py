@@ -5,13 +5,14 @@ entities that only make sense with the vendor's reading of a model, and
 hides generic ones that would write the same register in another unit.
 The profile is picked from ``Mn`` in common model 1 once per connection.
 
-Fronius in two generations, SolarEdge, SMA and Kostal so far. See
+Fronius in two generations, SolarEdge, SMA, Kostal and APsystems so far. See
 ``profile.py`` for the shape, and the vendor modules for the knowledge
 and its sources.
 """
 
 from __future__ import annotations
 
+from .apsystems import APSYSTEMS
 from .fronius import FRONIUS
 from .fronius_datamanager import FRONIUS_DATAMANAGER
 from .kostal import KOSTAL
@@ -24,7 +25,14 @@ from .solaredge import SOLAREDGE
 
 # Where two profiles share a manufacturer, the one that identifies its
 # devices goes before the one that takes the rest.
-PROFILES: tuple[VendorProfile, ...] = (FRONIUS_DATAMANAGER, FRONIUS, SOLAREDGE, SMA, KOSTAL)
+PROFILES: tuple[VendorProfile, ...] = (
+    FRONIUS_DATAMANAGER,
+    FRONIUS,
+    SOLAREDGE,
+    SMA,
+    KOSTAL,
+    APSYSTEMS,
+)
 
 
 def profile_for(
