@@ -220,3 +220,57 @@ async def test_a_chain_ending_in_blank_memory_stops_the_scan(hass):
 
     assert await api.async_get_models() == expected
     assert max(addr for addr, _ in unit.reads) < marker + 100
+
+
+APSYSTEMS = "./tests/test_data/inverter_apsystems.json"
+
+#: The 24 registers behind the ECU-R's header at 40184, from the dump in #109.
+ECU_R_CONTROLS = [65535, 65535, 1, 300, 65535, 65535, 65535, 1, 32768, 65535, 65535, 65535]
+ECU_R_CONTROLS += [65535, 32768, 32768, 32768] + [65535] * 8
+
+
+def _ecu_r_image(manufacturer="APsystems"):
+    """A micro inverter behind an ECU-R: its controls labelled 114, 48 registers declared."""
+    image = register_image(APSYSTEMS)
+    header = max(addr for addr, word in image.items() if word == 0xFFFF)
+    image[header] = 114
+    image[header + 1] = 48
+    for index, word in enumerate(ECU_R_CONTROLS):
+        image[header + 2 + index] = word
+    image[header + 2 + 24] = 0xFFFF
+    for addr in range(header + 2 + 25, header + 2 + 60):
+        image[addr] = 0
+    # Mn is the first string of model 1, behind its id and length.
+    for index in range(16):
+        char = manufacturer[index * 2 : index * 2 + 2].ljust(2, "\0")
+        image[40004 + index] = int.from_bytes(char.encode(), "big")
+    return image, header
+
+
+async def test_the_ecu_r_controls_are_read_as_model_123(hass):
+    """Header 114 of 48 registers on an APsystems unit holds model 123 (#109)."""
+    image, header = _ecu_r_image()
+    unit = FakeUnit(image)
+    api = _api(hass, FakeConnection({1: unit}))
+
+    assert await api.async_get_models() == [1, 103, 123]
+    controls = await api.async_get_data(123)
+    assert controls.getValue("WMaxLimPct") == 30.0
+    assert controls.getValue("WMaxLim_Ena") == 1
+
+    # The cache keeps what the device holds, so it validates against it.
+    assert (114, header, 48) in api._model_structure
+
+    # A reconnect restores the layout from the cache and relabels again.
+    api._client = None
+    assert await api.async_get_models() == [1, 103, 123]
+
+    await api.async_write_points(123, [("WMaxLimPct", 50.0)])
+    assert unit.writes == [(header + 2 + 3, [500])]
+
+
+async def test_a_114_of_48_registers_from_another_maker_stays_114(hass):
+    image, _ = _ecu_r_image(manufacturer="Acme")
+    api = _api(hass, FakeConnection({1: FakeUnit(image)}))
+
+    assert await api.async_get_models() == [1, 103, 114]

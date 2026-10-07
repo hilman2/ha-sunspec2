@@ -20,20 +20,27 @@ tables (https://global.apsystems.com/wp-content/uploads/2025/01/SunSpec-Modbus.p
 and the register dump of an ECU-R 2160 on firmware 1.3.23 with eight
 DS3(L) in issue #109.
 
-What the dump shows and the document does not. On that firmware the
+What the dumps show and the document does not. On that firmware the
 header at 40184, where the document puts model 123 with 24 registers,
 reads model 114 with 48, and the header at 40212, where the document
 puts 114, reads zero; the registers behind both are as documented
 (the controls body behind 40184, the floats from 40214 on). The chain
 therefore ends in blank memory after 40233 instead of at the marker at
-40210, which the scan handles (it stops at a header with model id 0),
-and the controls model is not found under its number. That is not
-corrected here: it is one dump, and a guess at model 123 would be a
-guess about a write.
+40210, which the scan handles (it stops at a header with model id 0).
+
+The controls are read as model 123 all the same. Issue #109 has the
+dump of eight units: behind the header sit the 24 registers of model
+123 point by point (WMaxLimPct 300 with a scale factor of -1, the
+enable at 1, the unsupported points at 0xFFFF or 0x8000), and the
+0xFFFF marker follows at 40210. The profile therefore reads a 114 of
+48 registers as the 123 of 24 it contains. It applies only to a
+device whose manufacturer is APsystems; a deprecated MPPT extension
+114 from another maker stays what it is.
 """
 
 from __future__ import annotations
 
+from .profile import ModelRelabel
 from .profile import RawBlock
 from .profile import RawField
 from .profile import RawSensor
@@ -81,9 +88,13 @@ RAW_SENSORS: tuple[RawSensor, ...] = tuple(
     for input_no in range(1, INPUTS + 1)
 )
 
+#: The ECU-R labels the controls model 114 and declares 48 registers (#109).
+MODEL_RELABELS: tuple[ModelRelabel, ...] = (ModelRelabel(114, 48, 123, 24),)
+
 APSYSTEMS = VendorProfile(
     slug="apsystems",
     manufacturer_prefixes=("APsystems",),
     raw_blocks=RAW_BLOCKS,
     raw_sensors=RAW_SENSORS,
+    model_relabels=MODEL_RELABELS,
 )

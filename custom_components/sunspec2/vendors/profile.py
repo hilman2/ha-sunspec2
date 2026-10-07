@@ -361,6 +361,28 @@ class RawKeepAlive:
 
 
 @dataclass(frozen=True)
+class ModelRelabel:
+    """A model header the vendor's firmware writes wrongly, and what it stands for.
+
+    The scan walks the chain by the ids and lengths in the headers and
+    keeps what it finds. The relabel runs afterwards, on a device the
+    profile identified, and hands the registers behind the header to
+    the model they are laid out as. Nothing is rewritten on the device.
+
+    Args:
+        found_id (int): The model id the header reads.
+        found_len (int): The length the header declares.
+        as_id (int): The model whose layout the registers follow.
+        as_len (int): That model's length, for the body that is there.
+    """
+
+    found_id: int
+    found_len: int
+    as_id: int
+    as_len: int
+
+
+@dataclass(frozen=True)
 class VendorProfile:
     """Everything the integration does differently for one manufacturer.
 
@@ -407,6 +429,9 @@ class VendorProfile:
             timer, each behind a switch.
         volatile_registers (frozenset[int]): Addresses the device keeps
             in RAM. Writes there are not counted as flash writes.
+        model_relabels (tuple[ModelRelabel, ...]): Headers this vendor's
+            firmware labels with the wrong model, read as the model
+            they stand for.
     """
 
     slug: str
@@ -425,6 +450,7 @@ class VendorProfile:
     raw_selects: tuple[RawSelect, ...] = ()
     raw_keepalives: tuple[RawKeepAlive, ...] = ()
     volatile_registers: frozenset[int] = frozenset()
+    model_relabels: tuple[ModelRelabel, ...] = ()
 
     def raw_block(self, key: str) -> RawBlock | None:
         """The raw block named ``key``, or None."""
