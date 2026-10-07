@@ -1,5 +1,30 @@
 # CLAUDE.md
 
+## LIVE seit 2026-10-07 (Version 2026.10.5)
+
+The integration runs on real installations through HACS. The alpha rules
+(smoke tests only, no compatibility) do not apply.
+
+- **Entity ids and unique ids stay.** Users keep their entity ids and
+  Recorder history, and `migration.py` hands over those of
+  `cjne/ha-sunspec`. A change to how `get_sunspec_unique_id` builds an
+  id, or to the keys the raw block entities use, orphans entities and
+  their history.
+- **Stored data stays readable.** The coordinator persists the model
+  layout (`STRUCTURE_STORAGE_KEY`) and the setpoints of the battery
+  controls (`RestoreNumber`). A new shape needs a revision that makes
+  the old payload be dropped instead of misread; the layout cache
+  already validates against the device before it is used.
+- **Config entries stay valid.** New options get a default, existing
+  keys keep their meaning. Nothing is written to a device by a change
+  of defaults: writes belong behind the experimental export controls.
+- **Rollback is a HACS redownload** of the previous release. A release
+  that cannot be undone that way (a changed storage shape) says so in
+  its notes.
+- **Before every change:** the suite in Docker (see "Test suite"),
+  ruff and mypy, as CI runs them. Tags and releases only on the
+  owner's word.
+
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 ---
