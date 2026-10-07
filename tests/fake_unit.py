@@ -14,7 +14,8 @@ from modbus_connection import IllegalDataAddressError
 from modbus_connection import ModbusConnectionError
 
 from custom_components.sunspec2.pysunspec2 import mb
-from custom_components.sunspec2.pysunspec2.file.client import FileClientDevice
+
+from .file_client import FileClientDevice
 
 
 class FakeUnit:

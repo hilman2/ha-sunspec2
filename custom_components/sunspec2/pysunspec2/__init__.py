@@ -9,10 +9,13 @@ LICENSE files next to this one and next to the models; a few source files
 carry SunSpec's older MIT header, which stays with them.
 
 What is embedded: the SunSpec device and model layer (``device``, ``mdef``,
-``mb``, ``smdx``), the SunSpec Modbus client layer (``modbus``) and the
-file client the test suite uses (``file``). Left out: the spreadsheet and
-Excel tooling, the TLS test fixtures, the pymodbus-based test server and,
-since v2026.10.0, upstream's own socket and serial clients.
+``mb``) and the SunSpec Modbus client layer (``modbus``). Left out: the
+spreadsheet and Excel tooling, the TLS test fixtures, the pymodbus-based
+test server, upstream's own socket and serial clients (since v2026.10.0),
+and what the integration never calls: the SMDX reader, the model
+definition validator and writer, read and write hooks on points, the JSON
+round trip of devices and groups, and the file client, which lives in
+``tests/file_client.py`` now.
 
 Changes against upstream:
 
