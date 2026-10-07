@@ -135,6 +135,11 @@ module = [
 follow_imports = "skip"
 ignore_errors = true
 
+# The file client is upstream's, untyped, and subclasses its classes.
+[[tool.mypy.overrides]]
+module = "tests.file_client"
+ignore_errors = true
+
 # Tests: bodies are checked, signatures are not required. What is switched
 # off below is test idiom, not type looseness:
 #

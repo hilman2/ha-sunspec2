@@ -9,7 +9,6 @@ import pytest
 from homeassistant.helpers import issue_registry as ir
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-import custom_components.sunspec2.pysunspec2.file.client as file_client
 from custom_components.sunspec2 import SunSpecDataUpdateCoordinator
 from custom_components.sunspec2.api import SunSpecApiClient
 from custom_components.sunspec2.const import DOMAIN
@@ -21,6 +20,7 @@ from custom_components.sunspec2.errors import TransientError
 from custom_components.sunspec2.errors import TransportError
 from custom_components.sunspec2.models import SunSpecModelWrapper
 
+from . import file_client
 from .const import MOCK_CONFIG
 
 

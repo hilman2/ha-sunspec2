@@ -10,13 +10,13 @@ from unittest.mock import patch
 
 import pytest
 
-import custom_components.sunspec2.pysunspec2.file.client as modbus_client
 from custom_components.sunspec2.api import SunSpecApiClient
 from custom_components.sunspec2.errors import TransientError
 from custom_components.sunspec2.errors import TransportError
 from custom_components.sunspec2.pysunspec2.modbus.modbus import ModbusClientException
 from custom_components.sunspec2.pysunspec2.modbus.modbus import ModbusClientTimeout
 
+from . import file_client as modbus_client
 from .apsystems_registers import ds3_registers
 from .kostal_registers import no_battery_registers
 from .kostal_registers import plenticore_g1_registers

@@ -36,10 +36,6 @@ def test_preloaded_definitions_come_from_the_cache_and_unknown_ids_touch_no_file
             "custom_components.sunspec2.pysunspec2.mdef.from_json_file",
             side_effect=AssertionError("opened a file"),
         ),
-        patch(
-            "custom_components.sunspec2.pysunspec2.smdx.from_smdx_file",
-            side_effect=AssertionError("opened a file"),
-        ),
     ):
         assert device.get_model_def(103)["id"] == 103
         assert device.get_model_def(160)["id"] == 160

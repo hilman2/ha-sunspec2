@@ -4,7 +4,6 @@ import math
 from collections import OrderedDict
 import os
 from . import mdef
-from . import smdx
 from . import mb
 import time
 
@@ -15,11 +14,10 @@ class ModelError(Exception):
 
 ACCESS_REGION_REGS = 123
 
-this_dir, this_filename = os.path.split(__file__)
-models_dir = os.path.join(this_dir, 'models')
+models_dir = os.path.join(os.path.dirname(__file__), 'models')
 
 model_defs_path = ['.', models_dir]
-model_path_options = ['.', 'json', 'smdx']
+model_path_options = ['.', 'json']
 model_defs_cache = {}
 # ha-sunspec2: True once preload_model_defs has read every bundled
 # definition, after which get_model_def answers from the cache alone.
@@ -59,50 +57,12 @@ def preload_model_defs():
     model_defs_preloaded = True
 
 
-def set_model_defs_path(path_list):
-    if not isinstance(path_list, list):
-        raise mdef.ModelDefinitionError('Invalid path list type, path list is not a list')
-    global model_defs_path
-    model_defs_path = path_list
-    clear_model_defs_cache()
 
 
-def get_model_defs_path():
-    return model_defs_path
 
 
-def get_model_info(model_id):
-    try:
-        glen = 0
-        model_def = get_model_def(model_id)
-        gdef = model_def.get(mdef.GROUP)
-        # check if groups have a count point
-        has_group_count = check_group_count(gdef)
-        # if group has count point, compute the length of top-level points
-        if has_group_count:
-            points = gdef.get(mdef.POINTS)
-            if points:
-                for pdef in points:
-                    info = mb.point_type_info.get(pdef[mdef.TYPE])
-                    plen = pdef.get(mdef.SIZE, None)
-                    if plen is not None:
-                        glen += info.len
-    except:
-        raise
-
-    return (model_def, has_group_count, glen)
 
 
-def check_group_count(gdef):
-    has_group_count = (gdef.get(mdef.COUNT) is not None)
-    if not has_group_count:
-        groups = gdef.get(mdef.GROUPS)
-        if groups:
-            for g in groups:
-                has_group_count = check_group_count(g)
-                if has_group_count:
-                    break
-    return has_group_count
 
 
 def get_model_def(model_id, mapping=True):
@@ -118,10 +78,9 @@ def get_model_def(model_id, mapping=True):
         raise mdef.ModelDefinitionError('Model definition not found for model %s' % model_id)
 
     model_def_file_json = mdef.to_json_filename(model_id)
-    model_def_file_smdx = smdx.to_smdx_filename(model_id)
     model_def = None
     for path in model_defs_path:
-        # look in directory, then json/, then smdx/
+        # look in directory, then json/
         for path_option in model_path_options:
             try:
                 model_def = mdef.from_json_file(os.path.join(path, path_option, model_def_file_json))
@@ -130,15 +89,6 @@ def get_model_def(model_id, mapping=True):
             except Exception as e:
                 raise mdef.ModelDefinitionError('Error loading model definition for model %s: %s' %
                                                  (model_id, str(e)))
-
-            if model_def is None:
-                try:
-                    model_def = smdx.from_smdx_file(os.path.join(path, path_option, model_def_file_smdx))
-                except FileNotFoundError:
-                    pass
-                except Exception as e:
-                    raise mdef.ModelDefinitionError('Error loading model definition for model %s: %s' %
-                                                     (model_id, str(e)))
 
             if model_def is not None:
                 if mapping:
@@ -181,12 +131,6 @@ class Point(object):
         self.sf = None              # scale factor point name
         self.sf_value = None        # value of scale factor
         self.sf_required = False    # point has a scale factor
-        self.detail = None          # detailed description
-        self.standards = []         # list of standards requiring this point's implementation
-        self.read_func = None       # function to be called on read
-        self.read_func_arg = None   # the argument passed to the read_func
-        self.write_func = None      # function to be called on write
-        self.write_func_arg = None  # the argument passed to the write_func
         self.static = None
 
         if pdef:
@@ -211,13 +155,6 @@ class Point(object):
             if static and static == 'S':
                 self.static = True
 
-            standards = pdef.get('standards', None)
-            if standards:
-                if not isinstance(standards, list):
-                    standards = [standards]
-                self.standards = standards
-
-            self.detail = pdef.get('detail', None)
 
     def __str__(self):
         return self.disp()
@@ -237,8 +174,6 @@ class Point(object):
             if value is not None:
                 self.set_value(data=value)
 
-    def resolve_sf(self):
-        pass
 
     @property
     def value(self):
@@ -257,10 +192,6 @@ class Point(object):
         self.set_value(v, computed=True, dirty=True)
 
     def get_value(self, computed=False):
-        # call read function, if set
-        if self.read_func:
-            self.read_func(self.model, self.read_func_arg)
-
         v = self._value
         if computed and v is not None:
             if self.sf_required:
@@ -307,18 +238,7 @@ class Point(object):
         else:
             self._value = v
 
-        # call write function, if set
-        # should be used to set indication for subsequent processing rather than do detailed processing
-        if self.write_func:
-            self.write_func(self.model, self.write_func_arg)
 
-    def set_read_func(self, func, arg=None):
-        self.read_func = func
-        self.read_func_arg = arg
-
-    def set_write_func(self, func, arg=None):
-        self.write_func = func
-        self.write_func_arg = arg
 
     def get_mb(self, computed=False):
         v = self._value
@@ -666,13 +586,7 @@ class Group(object):
             else:
                 self.groups[k].set_dict(data[k], computed=computed, dirty=dirty)
 
-    def get_json(self, computed=False):
-        return json.dumps(self.get_dict(computed=computed))
 
-    def set_json(self, data=None, computed=False, dirty=None):
-        if data is not None:
-            d = json.loads(data)
-            self.set_dict(d, computed=computed, dirty=dirty)
 
     def get_mb(self, computed=False):
         data = bytearray()
@@ -783,8 +697,6 @@ class Device(object):
             raise AttributeError("'%s' object has no attribute '%s'" % (self.__class__.__name__, attr))
         return v
 
-    def scan(self, data=None):
-        pass
 
     def add_model(self, model):
         # add by model id
@@ -817,8 +729,6 @@ class Device(object):
             d['models'].append(m.get_dict(computed=computed))
         return d
 
-    def get_json(self, computed=False):
-        return json.dumps(self.get_dict(computed=computed))
 
     def get_mb(self, computed=False):
         data = bytearray()
@@ -841,33 +751,7 @@ class Device(object):
                     return None
         return int(offset/2)
 
-    def find_mid(self, mid=None):
-        if mid is not None:
-            for m in self.model_list:
-                if m.mid == mid:
-                    return m
 
-    # assumes data should be used to create and initialize the models, does not currently update an initialized device
-    def _set_dict(self, data, computed=False, detail=False):
-        if self.model_list:
-            raise ModelError('Device already initialized')
-        self.name = data.get('name')
-        models = data.get('models')
-        for m in models:
-            if detail:
-                model_id = m['ID']['value']
-            else:
-                model_id = m['ID']
-            if model_id != mdef.END_MODEL_ID:
-                model_def = model_len = None
-                try:
-                    model_def = get_model_def(model_id)
-                except:
-                    model_len = m.get('L')
-                if not model_len:
-                    model_len = 0
-                model = Model(model_def=model_def, data=m, model_id=m['ID'], model_len=model_len)
-                self.add_model(model=model)
 
     def get_text(self):
         txt = 'Timestamp: %s\n' % (time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()))

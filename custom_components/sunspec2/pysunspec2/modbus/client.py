@@ -191,7 +191,6 @@ class SunSpecModbusClientDevice(device.Device):
     def __init__(self, model_class=SunSpecModbusClientModel):
         device.Device.__init__(self, model_class=model_class)
         self.did = str(uuid.uuid4())
-        self.retry_count = 2
         self.base_addr_list = [40000, 0, 50000]
         self.base_addr = None
 

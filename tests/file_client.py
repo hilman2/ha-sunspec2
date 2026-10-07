@@ -1,9 +1,15 @@
-# Modified for ha-sunspec2: imports made relative to this package. Origin and license in __init__.py.
+"""The pysunspec2 file client, kept for the tests: a device read from a JSON file.
+
+Upstream: sunspec/pysunspec2 v1.3.6, Apache 2.0, see pysunspec2/__init__.py.
+It serves the fixtures in tests/test_data and the register images built from them.
+"""
+
 import json
 import uuid
-from .. import mdef
-from .. import device
-from .. import mb
+
+from custom_components.sunspec2.pysunspec2 import device
+from custom_components.sunspec2.pysunspec2 import mb
+from custom_components.sunspec2.pysunspec2 import mdef
 
 
 class FileClientError(Exception):
@@ -11,7 +17,6 @@ class FileClientError(Exception):
 
 
 class FileClientPoint(device.Point):
-
     def read(self):
         pass
 
@@ -29,7 +34,6 @@ class FileClientPoint(device.Point):
 
 
 class FileClientGroup(device.Group):
-
     def read(self):
         pass
 
@@ -44,8 +48,16 @@ class FileClientGroup(device.Group):
 
 
 class FileClientModel(FileClientGroup):
-    def __init__(self, model_id=None, model_addr=0, model_len=0, model_def=None, data=None,
-                 group_class=FileClientGroup, point_class=FileClientPoint):
+    def __init__(
+        self,
+        model_id=None,
+        model_addr=0,
+        model_len=0,
+        model_def=None,
+        data=None,
+        group_class=FileClientGroup,
+        point_class=FileClientPoint,
+    ):
         self.model_id = model_id
         self.model_addr = model_addr
         if model_len is None:
@@ -53,7 +65,7 @@ class FileClientModel(FileClientGroup):
         else:
             self.model_len = model_len
         self.model_def = model_def
-        self.error_info = ''
+        self.error_info = ""
         self.mid = None
         self.device = None
         self.model = self
@@ -67,11 +79,20 @@ class FileClientModel(FileClientGroup):
         except Exception as e:
             self.add_error(str(e))
 
-        FileClientGroup.__init__(self, gdef=gdef, model=self, model_offset=0, group_len=self.model_len, data=data,
-                                 data_offset=0, group_class=group_class, point_class=point_class)
+        FileClientGroup.__init__(
+            self,
+            gdef=gdef,
+            model=self,
+            model_offset=0,
+            group_len=self.model_len,
+            data=data,
+            data_offset=0,
+            group_class=group_class,
+            point_class=point_class,
+        )
 
     def add_error(self, error_info):
-        self.error_info = '%s%s\n' % (self.error_info, error_info)
+        self.error_info = f"{self.error_info}{error_info}\n"
 
 
 class FileClientDevice(device.Device):
@@ -84,33 +105,34 @@ class FileClientDevice(device.Device):
     def scan(self, data=None):
         try:
             if self.filename:
-                f = open(self.filename)
-                data = json.load(f)
+                with open(self.filename) as f:
+                    data = json.load(f)
 
                 mid = 0
                 addr = self.addr
-                for m in data.get('models'):
-                    model_id = m.get('ID')
-                    model_len = m.get('L')
+                for m in data.get("models"):
+                    model_id = m.get("ID")
+                    model_len = m.get("L")
                     if model_id != mb.SUNS_END_MODEL_ID:
-                        model = self.model_class(model_id=model_id, model_addr=addr, model_len=model_len,
-                                                 model_def=None, data=m)
-                        model.mid = '%s_%s' % (self.did, mid)
+                        model = self.model_class(
+                            model_id=model_id,
+                            model_addr=addr,
+                            model_len=model_len,
+                            model_def=None,
+                            data=m,
+                        )
+                        model.mid = f"{self.did}_{mid}"
                         mid += 1
                         self.add_model(model)
                         addr += model.len
         except Exception as e:
-            raise FileClientError(str(e))
+            raise FileClientError(str(e)) from e
 
     def read(self):
-        return ''
+        return ""
 
     def write(self):
         return
 
     def close(self):
         return
-
-
-class FileClient(FileClientDevice):
-    pass
