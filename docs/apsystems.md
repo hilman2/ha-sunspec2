@@ -33,15 +33,19 @@ A micro inverter has fewer than 8 inputs (a DS3 has 2) and reports 0
 for the rest, so only inputs 1 and 2 are on. The others are in the
 entity list, off; turn on as many as your inverter has.
 
-## What does not work yet
+## Limiting the output
 
-On ECU-R firmware 1.3.23 the controls model (123, on/off and power
-limit) is announced as model 114, so it is not found as 123 and has no
-entities. The APsystems document puts 123 there with 24 registers,
-and the registers behind the header are laid out like it, but this is
-one report and writing to registers on a guess is not something we do.
-If you have an APsystems gateway and want those controls, say so in
-an issue with a register dump from 40180 on.
+On ECU-R firmware 1.3.23 the header of the controls model (123) reads
+114, with 48 registers instead of 24. The integration reads the
+registers behind it as 123 all the same, so the power limit and the
+on/off switch are there. They follow [write-controls.md](write-controls.md):
+switched off until you enable the experimental export controls in the
+integration's options.
+
+An ECU-R shows an export limit of 30 % with the limit enabled before
+anyone sets one, while the inverters run at full power. Take that for a
+default, not for a limit. Whether the ECU acts on a limit you write is
+not confirmed yet; try it on one inverter first.
 
 Source: APsystems, SunSpec Modbus, rev 3.3
 (https://global.apsystems.com/wp-content/uploads/2025/01/SunSpec-Modbus.pdf).

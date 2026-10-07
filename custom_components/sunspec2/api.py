@@ -43,6 +43,9 @@ from .pysunspec2.modbus.modbus import ModbusClientError
 from .pysunspec2.modbus.modbus import ModbusClientException
 from .pysunspec2.modbus.modbus import ModbusClientTimeout
 from .pysunspec2.modbus.unit_device import SunSpecModbusClientDeviceUnit
+from .vendors import PROFILES
+from .vendors import profile_for
+from .vendors.profile import ModelRelabel
 
 # The embedded pysunspec2 is untyped, so every object it hands back reaches
 # mypy as Any. The alias names which Any is meant: a connected
@@ -788,6 +791,75 @@ class SunSpecApiClient:
         self._partial_scan = False
         self._capture_model_structure(client)
 
+    async def _async_relabel_models(self, client: SunSpecClient) -> None:
+        """Read a header the vendor's firmware labels wrongly as the model it stands for.
+
+        Runs behind the scan and the cache restore alike, and after
+        :meth:`_capture_model_structure`, so the cache keeps the ids and
+        lengths the device really holds and validates against them. A
+        header only comes into question when some profile lists its id
+        and length; then one read of ``Mn`` in model 1 says whether the
+        device is that vendor's. Any other device costs no read.
+        """
+        suspects = [
+            model
+            for key, instances in client.models.items()
+            if isinstance(key, int)
+            for model in instances
+            if any(
+                relabel.found_id == model.model_id and relabel.found_len == model.model_len
+                for profile in PROFILES
+                for relabel in profile.model_relabels
+            )
+        ]
+        common = client.models.get(1)
+        if not suspects or not common:
+            return
+        manufacturer = await client.async_read(common[0].model_addr + 2, 16)
+        if not manufacturer:
+            return
+        profile = profile_for(mb.data_to_str(manufacturer))
+        if profile is None:
+            return
+        for model in suspects:
+            for relabel in profile.model_relabels:
+                if (relabel.found_id, relabel.found_len) == (model.model_id, model.model_len):
+                    await self._async_relabel_model(client, model, relabel)
+                    break
+
+    async def _async_relabel_model(
+        self, client: SunSpecClient, model: Any, relabel: ModelRelabel
+    ) -> None:
+        """Swap ``model`` for the model its registers are laid out as."""
+        self._log.info(
+            "Reading model %s of %s registers at address %s as model %s of %s registers "
+            "(vendor firmware labels it wrongly)",
+            model.model_id,
+            model.model_len,
+            model.model_addr,
+            relabel.as_id,
+            relabel.as_len,
+        )
+        for key in list(client.models):
+            instances = client.models[key]
+            if model in instances:
+                instances.remove(model)
+            if not instances:
+                del client.models[key]
+        if model in client.model_list:
+            client.model_list.remove(model)
+        header = mb.u16_to_data(relabel.as_id) + mb.u16_to_data(relabel.as_len)
+        data = await client.async_model_data(relabel.as_id, model.model_addr, header)
+        relabelled = client.model_class(
+            model_id=relabel.as_id,
+            model_addr=model.model_addr,
+            model_len=relabel.as_len,
+            data=data,
+            mb_device=client,
+        )
+        relabelled.mid = model.mid
+        client.add_model(relabelled)
+
     def _capture_model_structure(self, client: SunSpecClient) -> None:
         """Remember the layout a successful scan just discovered.
 
@@ -1075,6 +1147,7 @@ class SunSpecApiClient:
                 raise TransportError(f"Failed to connect to {endpoint} unit id {self._unit_id}")
             self._log.debug("Client connected, perform initial scan")
             await self._async_scan_or_restore(client)
+            await self._async_relabel_models(client)
             handed_off = True
             return client
         except ModbusClientError as err:
