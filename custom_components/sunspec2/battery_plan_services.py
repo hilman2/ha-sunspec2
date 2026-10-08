@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import math
 from datetime import time
+from typing import Any
+from typing import cast
 
 import voluptuous as vol
 from homeassistant.config_entries import ConfigEntryState
@@ -75,5 +77,9 @@ def async_register_plan_service(hass: HomeAssistant) -> None:
     # This action addresses a config entry instead of an entity target.
     # Require admin access so it cannot bypass HA's entity permissions.
     async_register_admin_service(
-        hass, DOMAIN, SERVICE_SET_BATTERY_PLAN, async_set_battery_plan, schema=PLAN_SCHEMA
+        hass,
+        DOMAIN,
+        SERVICE_SET_BATTERY_PLAN,
+        async_set_battery_plan,
+        schema=cast(Any, PLAN_SCHEMA),
     )

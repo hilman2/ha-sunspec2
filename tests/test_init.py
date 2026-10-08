@@ -1475,3 +1475,33 @@ async def test_coordinator_clamps_an_unusable_stored_scan_interval(
         assert any(
             "below the" in r.getMessage() and "minimum" in r.getMessage() for r in caplog.records
         )
+
+
+async def test_reconfigure_reloads_the_entry_once(hass, sunspec_client_mock):
+    """The update listener reloads the entry; the flow must not reload it a second time.
+
+    HA 2026.12 turns an update listener combined with a reload from the
+    config flow into an error.
+    """
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data=MOCK_CONFIG,
+        entry_id="test_reconfigure_once",
+        unique_id="sn-123456789",
+    )
+    entry.add_to_hass(hass)
+    await setup_mock_sunspec_config_entry(hass, config_entry=entry)
+    assert entry.state is ConfigEntryState.LOADED
+
+    result = await entry.start_reconfigure_flow(hass)
+    with patch.object(
+        hass.config_entries, "async_reload", wraps=hass.config_entries.async_reload
+    ) as reload:
+        await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            user_input={"host": "test_host_new", "port": 502, "unit_id": 1},
+        )
+        await hass.async_block_till_done()
+
+    assert entry.data["host"] == "test_host_new"
+    assert reload.call_count == 1

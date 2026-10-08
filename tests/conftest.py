@@ -340,6 +340,22 @@ def sunspec_apsystems_client_mock():
         yield client
 
 
+@pytest.fixture
+def sunspec_apsystems_controls_client_mock():
+    """The same DS3 with the controls block as issue #109 dumped it.
+
+    Limit 30.0 % (scale factor -1), enable read back as 49, the revert
+    time and the power factor points not implemented.
+    """
+    client = MockFileClientDevice("./tests/test_data/inverter_apsystems_controls.json")
+    client.scan()
+    client.registers = ds3_registers()
+    with (
+        patch("custom_components.sunspec2.SunSpecApiClient.modbus_connect", return_value=client),
+    ):
+        yield client
+
+
 @pytest.fixture(autouse=True)
 def clear_gateway_locks():
     """Drop the class-level per-gateway locks between tests.

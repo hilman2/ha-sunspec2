@@ -439,6 +439,9 @@
       "lifetime_energy": {
         "name": "Lifetime energy produced"
       },
+      "daily_energy": {
+        "name": "Energy produced today"
+      },
       "dc_current": {
         "name": "DC current"
       },

@@ -36,6 +36,15 @@ enable at 1, the unsupported points at 0xFFFF or 0x8000), and the
 48 registers as the 123 of 24 it contains. It applies only to a
 device whose manufacturer is APsystems; a deprecated MPPT extension
 114 from another maker stays what it is.
+
+What the controls do and do not do, from the same issue after a test on
+eight DS3 behind one ECU-R: the limit works, writing it to one unit id
+is enough because the ECU keeps one setting for all of them, and it
+takes about 13 minutes to reach every inverter, the ECU polling them
+over Zigbee every 5 minutes. The enable point reads back as 49 or 48
+once written, the ASCII digits. The revert time and the power factor
+points read 0xFFFF and 0x8000 and are not implemented. And WH of model
+103 is the yield of today, which starts again at zero every night.
 """
 
 from __future__ import annotations
@@ -91,10 +100,28 @@ RAW_SENSORS: tuple[RawSensor, ...] = tuple(
 #: The ECU-R labels the controls model 114 and declares 48 registers (#109).
 MODEL_RELABELS: tuple[ModelRelabel, ...] = (ModelRelabel(114, 48, 123, 24),)
 
+#: Not implemented by the ECU-R: they read 0xFFFF / 0x8000 and no write
+#: changes that. An entity for them stays "unknown" for good.
+UNSUPPORTED_CONTROLS: frozenset[str] = frozenset(
+    {"123:WMaxLimPct_RvrtTms", "123:OutPFSet", "123:OutPFSet_Ena"}
+)
+
+#: The enable flag as the ECU reads it back after a write (#109).
+ASCII_FLAG_POINTS: frozenset[str] = frozenset({"123:WMaxLim_Ena"})
+
+#: The scale factor of -1 offers tenths of a percent, 0.3 W on a 300 W
+#: inverter, and every step of the number is a write to a gateway that
+#: needs minutes to pass it on.
+CONTROL_STEPS: dict[str, float] = {"123:WMaxLimPct": 1.0}
+
 APSYSTEMS = VendorProfile(
     slug="apsystems",
     manufacturer_prefixes=("APsystems",),
     raw_blocks=RAW_BLOCKS,
     raw_sensors=RAW_SENSORS,
     model_relabels=MODEL_RELABELS,
+    unsupported_controls=UNSUPPORTED_CONTROLS,
+    ascii_flag_points=ASCII_FLAG_POINTS,
+    control_steps=CONTROL_STEPS,
+    daily_energy_points=frozenset({"WH"}),
 )

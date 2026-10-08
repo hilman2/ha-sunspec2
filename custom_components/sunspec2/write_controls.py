@@ -140,6 +140,9 @@ _MODEL_123: tuple[WriteControlSpec, ...] = (
         platform=PLATFORM_SWITCH,
         translation_key="inverter_grid_connection",
         icon="mdi:transmission-tower",
+        # Off disconnects the inverter from the grid, so the switch is
+        # there for whoever turns it on in the entity list.
+        enabled_by_default=False,
     ),
 )
 
@@ -366,7 +369,10 @@ _SPECS_BY_MODEL: dict[int, tuple[WriteControlSpec, ...]] = {
 }
 
 
-def active_specs(detected_models: set[int] | frozenset[int]) -> list[WriteControlSpec]:
+def active_specs(
+    detected_models: set[int] | frozenset[int],
+    unsupported: frozenset[str] = frozenset(),
+) -> list[WriteControlSpec]:
     """Return the controls to build for a device exposing these models.
 
     Model 704 wins over model 123 where a device has both, and 123 then
@@ -377,6 +383,9 @@ def active_specs(detected_models: set[int] | frozenset[int]) -> list[WriteContro
     honestly.
 
     Storage control is orthogonal and is added whenever it is present.
+
+    ``unsupported`` holds the ``unique_key`` of controls the vendor
+    profile says the device does not implement; they are left out.
     """
     specs: list[WriteControlSpec] = []
     if DER_AC_CONTROLS_MODEL in detected_models:
@@ -385,13 +394,17 @@ def active_specs(detected_models: set[int] | frozenset[int]) -> list[WriteContro
         specs.extend(_MODEL_123)
     if STORAGE_CONTROL_MODEL in detected_models:
         specs.extend(_MODEL_124)
-    return specs
+    return [spec for spec in specs if spec.unique_key not in unsupported]
 
 
 def active_specs_for_platform(
-    detected_models: set[int] | frozenset[int], platform: str
+    detected_models: set[int] | frozenset[int],
+    platform: str,
+    unsupported: frozenset[str] = frozenset(),
 ) -> list[WriteControlSpec]:
-    return [spec for spec in active_specs(detected_models) if spec.platform == platform]
+    return [
+        spec for spec in active_specs(detected_models, unsupported) if spec.platform == platform
+    ]
 
 
 def models_in_use(detected_models: set[int] | frozenset[int]) -> set[int]:

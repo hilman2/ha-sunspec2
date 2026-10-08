@@ -197,6 +197,17 @@ def set_connection_error(
     )
 
 
+def _form_schema(schema: dict[Any, Any]) -> Any:
+    """A voluptuous schema for ``async_show_form``, typed as what both HA lines accept.
+
+    Home Assistant 2026.10 types its schema arguments with probatio and
+    still takes a voluptuous schema at runtime; 2026.9 types them with
+    voluptuous. ``Any`` satisfies both checkers until the integration
+    moves to probatio and requires 2026.10.
+    """
+    return vol.Schema(schema)
+
+
 class SunSpecFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
     """Config flow for sunspec."""
 
@@ -314,8 +325,12 @@ class SunSpecFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
                 _LOGGER.debug(f"Sunspec device unique id: {uid}")
                 await self.async_set_unique_id(uid)
 
+                # The entry reloads through its update listener; reloading
+                # here as well would run the reload twice (HA 2026.12 makes
+                # the combination an error).
                 self._abort_if_unique_id_configured(
-                    updates={CONF_HOST: host, CONF_PORT: port, CONF_UNIT_ID: unit_id}
+                    updates={CONF_HOST: host, CONF_PORT: port, CONF_UNIT_ID: unit_id},
+                    reload_on_update=False,
                 )
                 self.init_info = {
                     CONF_TRANSPORT: TRANSPORT_TCP,
@@ -370,7 +385,8 @@ class SunSpecFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
                         CONF_BAUDRATE: baudrate,
                         CONF_PARITY: parity,
                         CONF_UNIT_ID: unit_id,
-                    }
+                    },
+                    reload_on_update=False,
                 )
                 self.init_info = {
                     CONF_TRANSPORT: TRANSPORT_RTU,
@@ -399,7 +415,7 @@ class SunSpecFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
         }
         return self.async_show_form(
             step_id="serial",
-            data_schema=vol.Schema(
+            data_schema=_form_schema(
                 {
                     vol.Required(CONF_SERIAL_PORT, default=defaults[CONF_SERIAL_PORT]): str,
                     vol.Required(
@@ -466,7 +482,9 @@ class SunSpecFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
                     # builds the coordinator's own client, or a
                     # single-slot inverter refuses the new connection.
                     await self._close_probe_client()
-                    return self.async_update_reload_and_abort(
+                    # No reload of its own: the update listener reloads the
+                    # entry when the data changed.
+                    return self.async_update_and_abort(
                         entry,
                         data_updates={
                             CONF_HOST: host,
@@ -482,7 +500,7 @@ class SunSpecFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
         }
         return self.async_show_form(
             step_id="reconfigure",
-            data_schema=vol.Schema(
+            data_schema=_form_schema(
                 {
                     vol.Required(CONF_HOST, default=defaults[CONF_HOST]): str,
                     vol.Required(CONF_PORT, default=defaults[CONF_PORT]): int,
@@ -517,7 +535,7 @@ class SunSpecFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
         default_subnet = await async_get_default_subnet(self.hass) or "192.168.1.0/24"
         return self.async_show_form(
             step_id="scan",
-            data_schema=vol.Schema({vol.Required("subnet", default=default_subnet): str}),
+            data_schema=_form_schema({vol.Required("subnet", default=default_subnet): str}),
             errors=errors or None,
         )
 
@@ -547,7 +565,7 @@ class SunSpecFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
 
         return self.async_show_form(
             step_id="scan_results",
-            data_schema=vol.Schema({vol.Required("host"): vol.In(options)}),
+            data_schema=_form_schema({vol.Required("host"): vol.In(options)}),
         )
 
     async def async_step_settings(
@@ -606,7 +624,7 @@ class SunSpecFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
         }
         return self.async_show_form(
             step_id="manual",
-            data_schema=vol.Schema(
+            data_schema=_form_schema(
                 {
                     vol.Required(CONF_HOST, default=defaults[CONF_HOST]): str,
                     vol.Required(CONF_PORT, default=defaults[CONF_PORT]): int,
@@ -677,7 +695,7 @@ class SunSpecFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
 
         return self.async_show_form(
             step_id="settings",
-            data_schema=vol.Schema(schema),
+            data_schema=_form_schema(schema),
             errors=self._errors,
         )
 
@@ -862,7 +880,7 @@ class SunSpecOptionsFlowHandler(config_entries.OptionsFlow):
 
         return self.async_show_form(
             step_id="host_options",
-            data_schema=vol.Schema(
+            data_schema=_form_schema(
                 {
                     vol.Required(CONF_HOST, default=host): str,
                     vol.Required(CONF_PORT, default=port): int,
@@ -1056,7 +1074,7 @@ class SunSpecOptionsFlowHandler(config_entries.OptionsFlow):
 
             return self.async_show_form(
                 step_id="model_options",
-                data_schema=vol.Schema(schema),
+                data_schema=_form_schema(schema),
                 errors=errors or None,
             )
         except Exception as e:

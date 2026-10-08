@@ -42,10 +42,26 @@ on/off switch are there. They follow [write-controls.md](write-controls.md):
 switched off until you enable the experimental export controls in the
 integration's options.
 
+What you get: *Export limit* in whole percent and *Export limit
+enabled*. The ECU has no revert time and no power factor, so those
+entities are not built. *Inverter grid connection* is in the entity
+list, off by default.
+
 An ECU-R shows an export limit of 30 % with the limit enabled before
 anyone sets one, while the inverters run at full power. Take that for a
-default, not for a limit. Whether the ECU acts on a limit you write is
-not confirmed yet; try it on one inverter first.
+default, not for a limit.
+
+The limit works: on eight DS3 behind one ECU-R, 10 % held every
+inverter at about 65 W and 100 % released them. One ECU holds one
+setting for all its inverters, so writing it to one unit id is enough,
+and every unit id reads it back. The ECU polls the inverters over
+Zigbee about every 5 minutes, so it takes that long for the first
+inverter to follow and up to about 13 minutes for eight.
+
+## Energy
+
+*Energy produced today* (SunSpec point `WH`) is the yield of the
+current day, not a lifetime total. It starts again at zero every night.
 
 Source: APsystems, SunSpec Modbus, rev 3.3
 (https://global.apsystems.com/wp-content/uploads/2025/01/SunSpec-Modbus.pdf).
