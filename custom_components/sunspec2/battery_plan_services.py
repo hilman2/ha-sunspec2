@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 from datetime import time
 
-import voluptuous as vol
+import probatio
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.core import HomeAssistant
 from homeassistant.core import ServiceCall
@@ -24,7 +24,7 @@ SERVICE_SET_BATTERY_PLAN = "set_battery_plan"
 def _finite(value: float) -> float:
     """Reject NaN and infinities before a value reaches the power calculation."""
     if not math.isfinite(value):
-        raise vol.Invalid("Expected a finite number")
+        raise probatio.Invalid("Expected a finite number")
     return value
 
 
@@ -32,21 +32,25 @@ def _plan_time(value: object) -> time:
     """Accept local times with minute precision, matching the daily plan's triggers."""
     result: time = cv.time(value)
     if result.tzinfo is not None or result.second or result.microsecond:
-        raise vol.Invalid("Expected a local time with minute precision")
+        raise probatio.Invalid("Expected a local time with minute precision")
     return result
 
 
-PLAN_SCHEMA = vol.Schema(
+PLAN_SCHEMA = probatio.Schema(
     {
-        vol.Required("config_entry_id"): cv.string,
-        vol.Optional("direction"): vol.In([direction.value for direction in PlanDirection]),
-        vol.Optional("start"): _plan_time,
-        vol.Optional("end"): _plan_time,
-        vol.Optional("target_pct"): vol.All(vol.Coerce(float), _finite, vol.Range(min=0, max=100)),
-        vol.Optional("capacity_kwh"): vol.All(
-            vol.Coerce(float), _finite, vol.Range(min=0.1, max=1000)
+        probatio.Required("config_entry_id"): cv.string,
+        probatio.Optional("direction"): probatio.In(
+            [direction.value for direction in PlanDirection]
         ),
-        vol.Optional("enabled"): cv.boolean,
+        probatio.Optional("start"): _plan_time,
+        probatio.Optional("end"): _plan_time,
+        probatio.Optional("target_pct"): probatio.All(
+            probatio.Coerce(float), _finite, probatio.Range(min=0, max=100)
+        ),
+        probatio.Optional("capacity_kwh"): probatio.All(
+            probatio.Coerce(float), _finite, probatio.Range(min=0.1, max=1000)
+        ),
+        probatio.Optional("enabled"): cv.boolean,
     }
 )
 
