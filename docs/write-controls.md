@@ -40,7 +40,7 @@ from whichever of the two supported blocks the device has.
 | Battery minimum reserve | Number, 0 to 100 % | 124 `MinRsvPct` | Charge to hold back, for example for backup power. Disabled by default |
 | Power factor setpoint | Number, -1 to 1 | 123 `OutPFSet` | Cos-phi setpoint for reactive power |
 | Power factor enabled | Switch | 123 `OutPFSet_Ena` | The setpoint only applies while this is on |
-| Inverter grid connection | Switch | 123 `Conn` | **Most dangerous.** Off disconnects the inverter from the grid entirely |
+| Inverter grid connection | Switch | 123 `Conn` | **Most dangerous.** Off disconnects the inverter from the grid entirely. Disabled by default: turn it on in the entity list |
 
 The battery rates are percentages of `WChaMax`, not watts. An
 automation that wants 4200 W has to compute `4200 / WChaMax * 100`, and

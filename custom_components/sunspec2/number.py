@@ -146,8 +146,9 @@ def build_specs(
     """
     vendor = coordinator.vendor
     hidden = vendor.storage.hidden_points if vendor and vendor.storage else frozenset()
+    unsupported = vendor.unsupported_controls if vendor else frozenset()
     write_beta = coordinator.entry.options.get(CONF_WRITE_BETA_ENABLED, False)
-    for spec in active_specs_for_platform(coordinator.detected_models, platform):
+    for spec in active_specs_for_platform(coordinator.detected_models, platform, unsupported):
         if spec.model_id != STORAGE_CONTROL_MODEL and not write_beta:
             continue
         if spec.unique_key in hidden:
@@ -156,6 +157,9 @@ def build_specs(
             # available for whoever wants it, but disabled, so the two
             # cannot disagree by default.
             spec = replace(spec, enabled_by_default=False)
+        step = vendor.control_steps.get(spec.unique_key) if vendor else None
+        if step is not None and spec.native_step is None:
+            spec = replace(spec, native_step=step)
         model_wrapper = (coordinator.data or {}).get(spec.model_id)
         if model_wrapper is None:
             # Unreachable in the normal path since v0.14.0: the

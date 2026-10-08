@@ -290,6 +290,12 @@ async def async_setup_entry(
     prefix = entry.options.get(CONF_PREFIX, entry.data.get(CONF_PREFIX, ""))
 
     known_unique_ids: set[str] = set()
+    # Energy points that count one day, not the lifetime. They are plain
+    # sensors: the lifetime guards would hold the yesterday's total
+    # against every morning's restart from zero and log a warning for it,
+    # while Home Assistant's total_increasing already reads a drop as a
+    # new cycle.
+    daily_points = coordinator.vendor.daily_energy_points if coordinator.vendor else frozenset()
 
     @callback
     def _async_add_new_sensors() -> None:
@@ -322,7 +328,7 @@ async def async_setup_entry(
                     sunspec_unit = meta.get("units", "")
                     ha_meta = HA_META.get(sunspec_unit, (sunspec_unit, None, None))
                     device_class = ha_meta[2]
-                    if device_class == SensorDeviceClass.ENERGY:
+                    if device_class == SensorDeviceClass.ENERGY and key not in daily_points:
                         new_sensors.append(SunSpecEnergySensor(coordinator, entry, data))
                     else:
                         new_sensors.append(SunSpecSensor(coordinator, entry, data))
@@ -497,6 +503,9 @@ class SunSpecSensor(SunSpecEntity, SensorEntity):
         # is already English).
         if ":" not in self.key:
             translation_key = SUNSPEC_POINT_TRANSLATION_KEYS.get(self.key)
+            vendor = coordinator.vendor
+            if vendor is not None and self.key in vendor.daily_energy_points:
+                translation_key = "daily_energy"
             if translation_key:
                 self._attr_translation_key = translation_key
 

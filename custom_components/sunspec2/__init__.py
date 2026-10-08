@@ -271,7 +271,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: SunSpec2ConfigEntry) -> 
     # device with both 123 and 704 is driven from 704 since v0.19.0, so
     # the 123 Number / Switch entities from an earlier release have
     # nothing feeding them any more.
-    cleanup_superseded_control_entities(hass, entry, coordinator.detected_models, log)
+    cleanup_superseded_control_entities(
+        hass, entry, coordinator.detected_models, log, coordinator.vendor
+    )
 
     # Every platform, on every entry. The write platforms build the
     # battery controls of model 124 for any device that has the block,

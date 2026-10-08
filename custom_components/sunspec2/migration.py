@@ -51,6 +51,7 @@ from .const import CONF_PORT
 from .const import CONF_UNIT_ID
 from .const import is_excluded_sensor_point
 from .logger import LoggerLike
+from .vendors.profile import VendorProfile
 
 CJNE_DOMAIN = "sunspec"
 """The legacy domain we migrate FROM."""
@@ -264,6 +265,7 @@ def cleanup_superseded_control_entities(
     entry: ConfigEntry,
     detected_models: set[int],
     log: LoggerLike,
+    vendor: VendorProfile | None = None,
 ) -> list[str]:
     """Delete control entities no longer backed by an active spec.
 
@@ -274,6 +276,11 @@ def cleanup_superseded_control_entities(
     unavailable forever, which is exactly the complaint @haraldg raised
     in #17 about the model 123 sensors.
 
+    A control the vendor profile lists as unsupported goes the same way:
+    the ECU-R of an APsystems has no revert time and no power factor,
+    and the entities an earlier release built for them only ever read
+    "unknown".
+
     Only runs while the write beta is enabled. With the flag off there
     are no active specs at all, and deleting every control entity would
     destroy the entity ids a user's automations point at just because
@@ -281,7 +288,8 @@ def cleanup_superseded_control_entities(
     """
     from .write_controls import active_specs
 
-    live = {(spec.model_id, spec.point_name) for spec in active_specs(detected_models)}
+    unsupported = vendor.unsupported_controls if vendor else frozenset()
+    live = {(spec.model_id, spec.point_name) for spec in active_specs(detected_models, unsupported)}
     if not live:
         return []
 

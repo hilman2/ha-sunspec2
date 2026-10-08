@@ -27,12 +27,15 @@ async def _setup_write_entry(hass, beta=True):
 
 
 async def test_switch_entities_appear_with_beta_on(hass, sunspec_write_client_mock):
-    """All three model 123 switches register when the beta flag is on."""
+    """The model 123 switches register when the beta flag is on.
+
+    ``Conn`` ships disabled: off disconnects the inverter from the grid.
+    """
     await _setup_write_entry(hass)
 
     points = {e._point_name for e in _live_entities(hass, "switch")}
 
-    assert points == {"WMaxLim_Ena", "OutPFSet_Ena", "Conn"}
+    assert points == {"WMaxLim_Ena", "OutPFSet_Ena"}
 
 
 async def test_switch_reads_state_from_the_device(hass, sunspec_write_client_mock):
@@ -43,7 +46,6 @@ async def test_switch_reads_state_from_the_device(hass, sunspec_write_client_moc
 
     assert switches["WMaxLim_Ena"].is_on is True
     assert switches["OutPFSet_Ena"].is_on is False
-    assert switches["Conn"].is_on is True
 
 
 async def test_turn_on_holds_the_gateway_lock(hass, sunspec_write_client_mock):
@@ -77,7 +79,7 @@ async def test_turn_off_surfaces_write_errors(hass, sunspec_write_client_mock):
     """A rejected write reaches the UI as HomeAssistantError, not a traceback."""
     entry = await _setup_write_entry(hass)
     coordinator = entry.runtime_data
-    switch = next(e for e in _live_entities(hass, "switch") if e._point_name == "Conn")
+    switch = next(e for e in _live_entities(hass, "switch") if e._point_name == "OutPFSet_Ena")
 
     with (
         patch.object(
@@ -148,7 +150,7 @@ async def test_turning_the_beta_off_unloads_the_write_platforms(hass, sunspec_wr
     """
     entry = await _setup_write_entry(hass)
     assert len(_live_entities(hass, "number")) == 3
-    assert len(_live_entities(hass, "switch")) == 3
+    assert len(_live_entities(hass, "switch")) == 2
     first_coordinator = entry.runtime_data
 
     hass.config_entries.async_update_entry(entry, options={CONF_WRITE_BETA_ENABLED: False})
@@ -172,4 +174,4 @@ async def test_beta_toggle_off_then_on_restores_the_entities(hass, sunspec_write
     await hass.async_block_till_done()
 
     assert len(_live_entities(hass, "number")) == 3
-    assert len(_live_entities(hass, "switch")) == 3
+    assert len(_live_entities(hass, "switch")) == 2

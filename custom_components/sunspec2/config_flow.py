@@ -314,8 +314,12 @@ class SunSpecFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
                 _LOGGER.debug(f"Sunspec device unique id: {uid}")
                 await self.async_set_unique_id(uid)
 
+                # The entry reloads through its update listener; reloading
+                # here as well would run the reload twice (HA 2026.12 makes
+                # the combination an error).
                 self._abort_if_unique_id_configured(
-                    updates={CONF_HOST: host, CONF_PORT: port, CONF_UNIT_ID: unit_id}
+                    updates={CONF_HOST: host, CONF_PORT: port, CONF_UNIT_ID: unit_id},
+                    reload_on_update=False,
                 )
                 self.init_info = {
                     CONF_TRANSPORT: TRANSPORT_TCP,
@@ -370,7 +374,8 @@ class SunSpecFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
                         CONF_BAUDRATE: baudrate,
                         CONF_PARITY: parity,
                         CONF_UNIT_ID: unit_id,
-                    }
+                    },
+                    reload_on_update=False,
                 )
                 self.init_info = {
                     CONF_TRANSPORT: TRANSPORT_RTU,
@@ -466,7 +471,9 @@ class SunSpecFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
                     # builds the coordinator's own client, or a
                     # single-slot inverter refuses the new connection.
                     await self._close_probe_client()
-                    return self.async_update_reload_and_abort(
+                    # No reload of its own: the update listener reloads the
+                    # entry when the data changed.
+                    return self.async_update_and_abort(
                         entry,
                         data_updates={
                             CONF_HOST: host,

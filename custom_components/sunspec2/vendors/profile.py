@@ -432,6 +432,19 @@ class VendorProfile:
         model_relabels (tuple[ModelRelabel, ...]): Headers this vendor's
             firmware labels with the wrong model, read as the model
             they stand for.
+        unsupported_controls (frozenset[str]): ``"model:point"`` keys of
+            controls the model defines and the device does not
+            implement. No entity is built for them.
+        ascii_flag_points (frozenset[str]): ``"model:point"`` keys of
+            on/off points the firmware reads back as the ASCII code of
+            the digit, 49 for "1" and 48 for "0".
+        control_steps (Mapping[str, float]): ``"model:point"`` to the
+            step of its Number entity, for a device that takes whole
+            units where the scale factor would offer tenths.
+        daily_energy_points (frozenset[str]): Names of energy points that
+            count one day and start again at zero, where SunSpec says
+            lifetime. They are plain sensors, without the guards of a
+            lifetime counter.
     """
 
     slug: str
@@ -451,6 +464,10 @@ class VendorProfile:
     raw_keepalives: tuple[RawKeepAlive, ...] = ()
     volatile_registers: frozenset[int] = frozenset()
     model_relabels: tuple[ModelRelabel, ...] = ()
+    unsupported_controls: frozenset[str] = frozenset()
+    ascii_flag_points: frozenset[str] = frozenset()
+    control_steps: Mapping[str, float] = field(default_factory=dict)
+    daily_energy_points: frozenset[str] = frozenset()
 
     def raw_block(self, key: str) -> RawBlock | None:
         """The raw block named ``key``, or None."""
