@@ -56,8 +56,10 @@ class SunSpecModbusClientDeviceUnit(client.SunSpecModbusClientDevice):
     Parameters:
 
         connection :
-            A ``modbus_connection`` ``ModbusConnection``. Constructing
-            one does no I/O; the first request connects on demand.
+            A ``modbus_connection`` ``ModbusConnection``, or the
+            integration's ``SharedConnection``, which has the same
+            shape over Home Assistant's shared one. Constructing one
+            does no I/O; the first request connects on demand.
 
         slave_id :
             Modbus unit id of the device.

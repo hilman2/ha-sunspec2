@@ -7,7 +7,7 @@ from collections.abc import Mapping
 from typing import Any
 
 import homeassistant.helpers.config_validation as cv
-import voluptuous as vol
+import probatio
 from homeassistant import config_entries
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.config_entries import ConfigFlowResult
@@ -31,7 +31,6 @@ from .const import CONF_PARITY
 from .const import CONF_PORT
 from .const import CONF_PREFIX
 from .const import CONF_REARM_ON_CHANGE
-from .const import CONF_RELEASE_SLOT
 from .const import CONF_SCAN_DELAY
 from .const import CONF_SCAN_INTERVAL
 from .const import CONF_SERIAL_PORT
@@ -71,8 +70,8 @@ SMA_OUI = "0015bb"
 _LOGGER: logging.Logger = logging.getLogger(__package__)
 
 # Number selector for the optional peak AC power field. Using a selector
-# (rather than a plain callable like `vol.Coerce(float)` or a custom
-# validator) is required so voluptuous_serialize can serialise the schema
+# (rather than a plain callable like `probatio.Coerce(float)` or a custom
+# validator) is required so probatio can serialise the schema
 # when the frontend requests the options form - otherwise the POST to
 # config/config_entries/options/flow raises and the form never renders.
 # The web interface password is typed once and turned into the Digest
@@ -95,7 +94,9 @@ _MAX_AC_POWER_SELECTOR = selector.NumberSelector(
 # drift apart. Both used to take a bare ``int``: a saved 0 stops polling
 # silently and forever, a negative value hot-loops it. See
 # MIN_SCAN_INTERVAL_SECONDS for what Home Assistant does with each.
-_SCAN_INTERVAL_VALIDATOR = vol.All(vol.Coerce(int), vol.Range(min=MIN_SCAN_INTERVAL_SECONDS))
+_SCAN_INTERVAL_VALIDATOR = probatio.All(
+    probatio.Coerce(int), probatio.Range(min=MIN_SCAN_INTERVAL_SECONDS)
+)
 
 
 def _suggested_peak_power_kw(detected_kw: float | None) -> float | None:
@@ -399,10 +400,10 @@ class SunSpecFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
         }
         return self.async_show_form(
             step_id="serial",
-            data_schema=vol.Schema(
+            data_schema=probatio.Schema(
                 {
-                    vol.Required(CONF_SERIAL_PORT, default=defaults[CONF_SERIAL_PORT]): str,
-                    vol.Required(
+                    probatio.Required(CONF_SERIAL_PORT, default=defaults[CONF_SERIAL_PORT]): str,
+                    probatio.Required(
                         CONF_BAUDRATE, default=defaults[CONF_BAUDRATE]
                     ): selector.NumberSelector(
                         selector.NumberSelectorConfig(
@@ -412,7 +413,7 @@ class SunSpecFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
                             mode=selector.NumberSelectorMode.BOX,
                         )
                     ),
-                    vol.Required(
+                    probatio.Required(
                         CONF_PARITY, default=defaults[CONF_PARITY]
                     ): selector.SelectSelector(
                         selector.SelectSelectorConfig(
@@ -424,7 +425,7 @@ class SunSpecFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
                             translation_key="parity",
                         )
                     ),
-                    vol.Required(CONF_UNIT_ID, default=defaults[CONF_UNIT_ID]): int,
+                    probatio.Required(CONF_UNIT_ID, default=defaults[CONF_UNIT_ID]): int,
                 }
             ),
             errors=self._errors,
@@ -482,11 +483,11 @@ class SunSpecFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
         }
         return self.async_show_form(
             step_id="reconfigure",
-            data_schema=vol.Schema(
+            data_schema=probatio.Schema(
                 {
-                    vol.Required(CONF_HOST, default=defaults[CONF_HOST]): str,
-                    vol.Required(CONF_PORT, default=defaults[CONF_PORT]): int,
-                    vol.Required(CONF_UNIT_ID, default=defaults[CONF_UNIT_ID]): int,
+                    probatio.Required(CONF_HOST, default=defaults[CONF_HOST]): str,
+                    probatio.Required(CONF_PORT, default=defaults[CONF_PORT]): int,
+                    probatio.Required(CONF_UNIT_ID, default=defaults[CONF_UNIT_ID]): int,
                 }
             ),
             errors=self._errors,
@@ -517,7 +518,7 @@ class SunSpecFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
         default_subnet = await async_get_default_subnet(self.hass) or "192.168.1.0/24"
         return self.async_show_form(
             step_id="scan",
-            data_schema=vol.Schema({vol.Required("subnet", default=default_subnet): str}),
+            data_schema=probatio.Schema({probatio.Required("subnet", default=default_subnet): str}),
             errors=errors or None,
         )
 
@@ -547,7 +548,7 @@ class SunSpecFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
 
         return self.async_show_form(
             step_id="scan_results",
-            data_schema=vol.Schema({vol.Required("host"): vol.In(options)}),
+            data_schema=probatio.Schema({probatio.Required("host"): probatio.In(options)}),
         )
 
     async def async_step_settings(
@@ -606,11 +607,11 @@ class SunSpecFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
         }
         return self.async_show_form(
             step_id="manual",
-            data_schema=vol.Schema(
+            data_schema=probatio.Schema(
                 {
-                    vol.Required(CONF_HOST, default=defaults[CONF_HOST]): str,
-                    vol.Required(CONF_PORT, default=defaults[CONF_PORT]): int,
-                    vol.Required(CONF_UNIT_ID, default=defaults[CONF_UNIT_ID]): int,
+                    probatio.Required(CONF_HOST, default=defaults[CONF_HOST]): str,
+                    probatio.Required(CONF_PORT, default=defaults[CONF_PORT]): int,
+                    probatio.Required(CONF_UNIT_ID, default=defaults[CONF_UNIT_ID]): int,
                 }
             ),
             errors=self._errors,
@@ -659,17 +660,17 @@ class SunSpecFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
         suggested_peak = _suggested_peak_power_kw(await self._probe_nameplate(models))
 
         schema: dict[Any, Any] = {
-            vol.Optional(CONF_PREFIX, default=""): str,
-            vol.Optional(
+            probatio.Optional(CONF_PREFIX, default=""): str,
+            probatio.Optional(
                 CONF_SCAN_INTERVAL, default=SCAN_INTERVAL.total_seconds()
             ): _SCAN_INTERVAL_VALIDATOR,
-            vol.Optional(
+            probatio.Optional(
                 CONF_ENABLED_MODELS,
                 default=default_enabled,
             ): cv.multi_select(model_filter),
         }
         schema[
-            vol.Optional(
+            probatio.Optional(
                 CONF_MAX_AC_POWER_KW,
                 description={"suggested_value": suggested_peak},
             )
@@ -677,7 +678,7 @@ class SunSpecFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
 
         return self.async_show_form(
             step_id="settings",
-            data_schema=vol.Schema(schema),
+            data_schema=probatio.Schema(schema),
             errors=self._errors,
         )
 
@@ -862,11 +863,11 @@ class SunSpecOptionsFlowHandler(config_entries.OptionsFlow):
 
         return self.async_show_form(
             step_id="host_options",
-            data_schema=vol.Schema(
+            data_schema=probatio.Schema(
                 {
-                    vol.Required(CONF_HOST, default=host): str,
-                    vol.Required(CONF_PORT, default=port): int,
-                    vol.Required(CONF_UNIT_ID, default=unit_id): int,
+                    probatio.Required(CONF_HOST, default=host): str,
+                    probatio.Required(CONF_PORT, default=port): int,
+                    probatio.Required(CONF_UNIT_ID, default=unit_id): int,
                 }
             ),
             errors=errors,
@@ -896,7 +897,7 @@ class SunSpecOptionsFlowHandler(config_entries.OptionsFlow):
                 self.options.update(user_input)
                 # The UI promises "leave it empty to disable filtering",
                 # and until #45 that promise was a no-op. An emptied
-                # ``vol.Optional`` field arrives as a MISSING key rather
+                # ``probatio.Optional`` field arrives as a MISSING key rather
                 # than None, and ``dict.update`` cannot express a
                 # deletion, so the previously stored ceiling survived
                 # every save. Clearing the box was therefore impossible
@@ -927,7 +928,6 @@ class SunSpecOptionsFlowHandler(config_entries.OptionsFlow):
             CONF_SCAN_INTERVAL, self.config_entry.data.get(CONF_SCAN_INTERVAL)
         )
         capture_raw = self.config_entry.options.get(CONF_CAPTURE_RAW, False)
-        release_slot = self.config_entry.options.get(CONF_RELEASE_SLOT, False)
         standby_when_idle = self.config_entry.options.get(CONF_STANDBY_WHEN_IDLE, False)
         scan_delay = self.config_entry.options.get(CONF_SCAN_DELAY, DEFAULT_SCAN_DELAY_SECONDS)
         # User-set value wins, and is shown back exactly as stored - the
@@ -960,10 +960,9 @@ class SunSpecOptionsFlowHandler(config_entries.OptionsFlow):
             # happened. NEVER call api.known_models() unconditionally:
             # ``known_models()`` reads the live client, and there is not
             # always one: before the first connect, after a failed cycle
-            # tore the session down with ``close(force=True)``, and on
-            # the CONF_RELEASE_SLOT / shared-gateway paths that do still
-            # close between polls. In those cases it returns ``[]`` and
-            # the form would render an empty multi-select.
+            # tore the session down with ``close(force=True)``. In those
+            # cases it returns ``[]`` and the form would render an empty
+            # multi-select.
             models = set(getattr(self.coordinator, "detected_models", set()))
             # The coordinator is None when the entry is not loaded, which
             # is exactly when the options flow can still be opened. Falling
@@ -1006,31 +1005,28 @@ class SunSpecOptionsFlowHandler(config_entries.OptionsFlow):
                 CONF_REARM_ON_CHANGE, vendor.rearm_by_default if vendor is not None else False
             )
             schema: dict[Any, Any] = {
-                vol.Optional(CONF_PREFIX, default=prefix): str,
-                vol.Optional(CONF_SCAN_INTERVAL, default=scan_interval): _SCAN_INTERVAL_VALIDATOR,
-                vol.Optional(CONF_SCAN_DELAY, default=scan_delay): _SCAN_DELAY_SELECTOR,
-                vol.Optional(
+                probatio.Optional(CONF_PREFIX, default=prefix): str,
+                probatio.Optional(
+                    CONF_SCAN_INTERVAL, default=scan_interval
+                ): _SCAN_INTERVAL_VALIDATOR,
+                probatio.Optional(CONF_SCAN_DELAY, default=scan_delay): _SCAN_DELAY_SELECTOR,
+                probatio.Optional(
                     CONF_ENABLED_MODELS,
                     default=default_models,
                 ): cv.multi_select(model_filter),
-                vol.Optional(CONF_CAPTURE_RAW, default=capture_raw): bool,
-                # v0.22.0: the session is held open by default. This
-                # hands it back between polls for the rare install
-                # that has to share the inverter with a reader
-                # outside Home Assistant.
-                vol.Optional(CONF_RELEASE_SLOT, default=release_slot): bool,
+                probatio.Optional(CONF_CAPTURE_RAW, default=capture_raw): bool,
                 # #52: opt-out for inverters that power their comms
                 # board down when idle and cannot be detected doing it.
-                vol.Optional(CONF_STANDBY_WHEN_IDLE, default=standby_when_idle): bool,
+                probatio.Optional(CONF_STANDBY_WHEN_IDLE, default=standby_when_idle): bool,
                 # v0.12.0 EXPERIMENTAL: opt-in for the write
                 # platforms (Number / Switch / service action) and
                 # the matching SunSpec model 123 entities.
-                vol.Optional(CONF_WRITE_BETA_ENABLED, default=write_beta_enabled): bool,
+                probatio.Optional(CONF_WRITE_BETA_ENABLED, default=write_beta_enabled): bool,
             }
             # The off/on cycle for a new export limit exists for a
             # vendor that needs one, so the field only shows up there.
             if vendor is not None and vendor.enable_edge:
-                schema[vol.Optional(CONF_REARM_ON_CHANGE, default=rearm_on_change)] = bool
+                schema[probatio.Optional(CONF_REARM_ON_CHANGE, default=rearm_on_change)] = bool
             # The web interface login, for a vendor whose web API the
             # integration speaks, on a TCP entry: the web page lives on
             # the same address as the Modbus port.
@@ -1039,16 +1035,16 @@ class SunSpecOptionsFlowHandler(config_entries.OptionsFlow):
                 and vendor.web_user
                 and self.config_entry.data.get(CONF_TRANSPORT, TRANSPORT_TCP) == TRANSPORT_TCP
             ):
-                schema[vol.Optional(CONF_FRONIUS_WEB_PASSWORD)] = _PASSWORD_SELECTOR
+                schema[probatio.Optional(CONF_FRONIUS_WEB_PASSWORD)] = _PASSWORD_SELECTOR
                 if self.config_entry.options.get(CONF_FRONIUS_WEB_TOKEN):
-                    schema[vol.Optional(CONF_FRONIUS_WEB_FORGET, default=False)] = bool
+                    schema[probatio.Optional(CONF_FRONIUS_WEB_FORGET, default=False)] = bool
             # Use suggested_value (not default) for the optional float so
             # the form field can stay genuinely empty - an empty value
             # disables the plausibility filter rather than coercing to 0.
             # A cleared field comes back as a missing key, which
             # async_step_model_options turns into a deletion above.
             schema[
-                vol.Optional(
+                probatio.Optional(
                     CONF_MAX_AC_POWER_KW,
                     description={"suggested_value": max_ac_power_kw},
                 )
@@ -1056,7 +1052,7 @@ class SunSpecOptionsFlowHandler(config_entries.OptionsFlow):
 
             return self.async_show_form(
                 step_id="model_options",
-                data_schema=vol.Schema(schema),
+                data_schema=probatio.Schema(schema),
                 errors=errors or None,
             )
         except Exception as e:

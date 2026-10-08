@@ -14,12 +14,7 @@ Behavioural notes:
 
 - Writes go through ``coordinator.async_write_points_locked``, which
   takes the per-``(host, port)`` gateway lock for the duration of the
-  write. The session is handed back before the lock is released only
-  where it is not held open anyway (``release_slot_between_polls``);
-  since v0.22.0 one session normally stays up across polls and writes
-  alike. Releasing it under the lock is deliberate: the next
-  coordinator on this gateway must not inherit a lock it cannot
-  connect under.
+  write. One session stays up across polls and writes alike.
   Calling ``coordinator.api.async_write_point`` directly, which is what
   this platform did before v0.14.0, bypasses that lock entirely and
   lets a write interleave with the poll cycle on one socket.

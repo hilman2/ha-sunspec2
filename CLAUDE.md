@@ -90,7 +90,10 @@ change, and why the source is mounted read-only under a non-root user.
 
 The dependency set is in `tests/docker/Dockerfile` and mirrors the
 pytest job in `.github/workflows/ci.yml`. **Change one, change the
-other.** `voluptuous-serialize` is named explicitly there because
+other.** The core `modbus` integration is a manifest dependency, and
+the tests never let Home Assistant install its requirements, so
+`.github/scripts/ha_requirements.py modbus` reads them (pymodbus among
+them) from the installed Home Assistant's own manifest. `voluptuous-serialize` is named explicitly there because
 `tests/test_config_flow.py` imports it and HA stopped depending on it
 in 2026.9.
 
@@ -255,7 +258,7 @@ The full read pipeline lives under `custom_components/sunspec2/`:
   `tests/pysunspec2/`. Since the `feat/modbus-connection` branch the
   integration polls through `modbus/unit_device.py`, a device over a
   `modbus-connection` unit (Home Assistant's asyncio Modbus transport,
-  the manifest's only requirement); points, groups, models and devices
+  the manifest's only requirement besides tmodbus); points, groups, models and devices
   have `async_read`/`async_write`/`async_scan` in place of upstream's
   sync methods. Upstream's socket and serial clients are deleted, and
   so are their tests and `pyserial`. Transport fixes go into
@@ -271,9 +274,23 @@ The full read pipeline lives under `custom_components/sunspec2/`:
   `coordinator.storage_setpoints`); rates are written first in one
   frame, the mode last. Fronius is the first profile (2026.9.2); its
   sources and quirks are in `vendors/fronius.py` and `docs/fronius.md`.
+- **`connection.py`** (`SharedConnection`): the Modbus link, taken from
+  Home Assistant's core `modbus` integration (`async_get_unit`, a
+  manifest dependency, so Home Assistant 2026.10 at least). One
+  connection per physical endpoint is shared by every entry and every
+  integration behind it, their requests queue behind its lock, and it
+  closes when the last entry holding a unit on it unloads. It gives
+  `unit_device.py` the `ModbusConnection` shape it was written against:
+  `connect` is a first read (a unit has no connect of its own), `close`
+  lets go only of a config flow's temporary holds, an entry's holds go
+  with its unload. `require_timeout` raises the shared link's timeout
+  for the flow's long scan (modbus-connection 4.12). Home Assistant's
+  internals change between releases (2026.10 started tracking holds per
+  entry id), so only `async_get_unit` and `async_get_temporary_unit` are
+  used, never the private helpers.
 - **`api.py`** (`SunSpecApiClient`): instance-scoped, async end to end
   since the `feat/modbus-connection` branch (no executor in the read or
-  write path). Owns one `ModbusConnection` and one client at a time
+  write path). Owns one `SharedConnection` and one client at a time
   and, since v0.22.0, keeps them: `async_get_client()` builds the
   client only when `self._client` is None, so a single session is
   reused across cycles; `async_close()` drops the link, `async_shutdown()`
@@ -288,17 +305,19 @@ The full read pipeline lives under `custom_components/sunspec2/`:
   pysunspec2 exceptions to the typed `errors.py` hierarchy at the
   boundary.
 - **`__init__.py`** (`SunSpecDataUpdateCoordinator`): the polling brain.
-  Holds a per-`(host, port)` class-level `asyncio.Lock` because KACO
-  Powador and SolarEdge gateways only allow one Modbus TCP slot at a
-  time. The read cycle runs under that lock; the lock is
-  released across the in-cycle retry sleep so other coordinators on the
-  same gateway can poll. Since v0.22.0 the cycle does not connect and
-  close per poll: one session is held open (measured on a KACO Powador
-  7.8 TL3 at a 30 s interval, reconnecting per poll failed 5 of 6
-  cycles, one held session served 20 of 20 at a steady 1.6 s). It is
-  handed back only where `release_slot_between_polls` says so (the
-  `CONF_RELEASE_SLOT` option, or a second config entry on the same
-  host/port), and torn down with `close(force=True)` by
+  Holds a per-`(host, port)` class-level `asyncio.Lock` that keeps a
+  whole read cycle or write sequence in one piece when several entries
+  sit behind one gateway (KACO Powador and SolarEdge only allow one
+  Modbus TCP slot, which the shared connection now provides; the lock
+  no longer guards the slot). The read cycle runs under that lock; the
+  lock is released across the in-cycle retry sleep so other
+  coordinators on the same gateway can poll. Since v0.22.0 the cycle
+  does not connect and close per poll: one session is held open
+  (measured on a KACO Powador 7.8 TL3 at a 30 s interval, reconnecting
+  per poll failed 5 of 6 cycles, one held session served 20 of 20 at
+  a steady 1.6 s). There is no option to hand the slot back: a second
+  reader outside Home Assistant goes behind a Modbus proxy. The
+  session is torn down with `close(force=True)` by
   `_after_failed_cycle` on the failure path.
 - **`models.py`** (`SunSpecModelWrapper`): facade over a list of
   pysunspec2 model instances. Flattens repeating-group points into a
