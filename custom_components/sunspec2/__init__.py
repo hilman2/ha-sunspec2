@@ -1034,7 +1034,13 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator[dict[int, SunSpecModelW
         first_err: BaseException | None = None
         try:
             async with self._gateway_lock:
-                data = await self._run_one_update_cycle()
+                try:
+                    data = await self._run_one_update_cycle()
+                except BaseException:
+                    # Release the failed session before another unit takes
+                    # the lock, including during the retry sleep.
+                    await self.api.async_close(force=True)
+                    raise
             result = self._after_successful_cycle(data)
             await self._async_save_model_structure()
             return result
@@ -1062,11 +1068,15 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator[dict[int, SunSpecModelW
         # Force a fresh client on the next attempt; sleep WITHOUT the
         # gateway lock so other coordinators on the same gateway can
         # use the slot during the wait.
-        self.api.reconnect_next()
+        self.api.reconnect_next(rescan=not isinstance(first_err, (TransportError, TransientError)))
         await asyncio.sleep(INTERVAL_RETRY_DELAY_SECONDS)
         try:
             async with self._gateway_lock:
-                data = await self._run_one_update_cycle()
+                try:
+                    data = await self._run_one_update_cycle()
+                except BaseException:
+                    await self.api.async_close(force=True)
+                    raise
         except Exception as second_err:  # noqa: BLE001 - dispatched below
             return await self._after_failed_cycle(second_err)
         result = self._after_successful_cycle(data)
@@ -1143,6 +1153,7 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator[dict[int, SunSpecModelW
                 f"Timed out after {WRITE_LOCK_TIMEOUT_SECONDS}s waiting for the Modbus "
                 f"gateway to become free; the inverter is busy, try again"
             ) from exc
+        successful = False
         try:
             # One step for everyone but a vendor that takes a new value
             # only on the rising edge of its enable register; then three
@@ -1164,6 +1175,7 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator[dict[int, SunSpecModelW
                 await self.api.async_write_points(model_id, step.points)
                 if step.settle_seconds > 0:
                     await asyncio.sleep(step.settle_seconds)
+            successful = True
         finally:
             # Whoever opens a session under the lock closes it under the
             # lock. Leaving the socket open past the release would let
@@ -1172,8 +1184,10 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator[dict[int, SunSpecModelW
             # lock on release) and then fail to connect, which surfaces
             # as a bogus TransportError in an unrelated config entry -
             # the hardest possible shape to diagnose.
-            if self.release_slot_between_polls:
-                await self.api.async_close()
+            if not successful:
+                await self.api.async_close(force=True)
+            elif self.release_slot_between_polls:
+                await self.api.async_release_slot()
             self._gateway_lock.release()
 
     @callback
@@ -1209,13 +1223,17 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator[dict[int, SunSpecModelW
                 f"Timed out after {WRITE_LOCK_TIMEOUT_SECONDS}s waiting for the Modbus "
                 f"gateway to become free; the inverter is busy, try again"
             ) from exc
+        successful = False
         try:
             await self.api.async_write_block(address, data, unit_id_offset=block.unit_id_offset)
+            successful = True
         finally:
             # See async_write_points_locked for why the session closes
             # under the lock where the slot is handed back.
-            if self.release_slot_between_polls:
-                await self.api.async_close()
+            if not successful:
+                await self.api.async_close(force=True)
+            elif self.release_slot_between_polls:
+                await self.api.async_release_slot()
             self._gateway_lock.release()
         self.raw_setpoints[(block.key, raw_field.name)] = value
         vendor = self.vendor
@@ -1340,7 +1358,7 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator[dict[int, SunSpecModelW
             # model list was computed against the old client.
             self.api.reconnect_next()
         if self.release_slot_between_polls:
-            await self.api.async_close()
+            await self.api.async_release_slot()
         return data
 
     async def _read_nameplate(self, all_models: set[int]) -> float | None:
@@ -1557,7 +1575,7 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator[dict[int, SunSpecModelW
         # on this socket would have been read as the answer to the next
         # request. The embedded transport checks the transaction id now.)
         await self.api.async_close(force=True)
-        self.api.reconnect_next()
+        self.api.reconnect_next(rescan=not isinstance(wrapped, (TransportError, TransientError)))
         self.consecutive_failed_cycles += 1
         # HA's DataUpdateCoordinator._async_refresh stops dispatching
         # listeners on consecutive failures (it early-returns when both

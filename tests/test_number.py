@@ -278,8 +278,8 @@ async def test_set_value_keeps_the_session_by_default(hass, sunspec_write_client
         patch.object(coordinator.api, "async_write_points"),
         patch.object(coordinator, "async_request_refresh"),
         patch.object(
-            coordinator.api,
-            "async_close",
+            sunspec_write_client_mock,
+            "async_disconnect",
             side_effect=lambda *a, **kw: closes.append(coordinator._gateway_lock.locked()),
         ),
     ):
@@ -311,8 +311,8 @@ async def test_set_value_closes_the_session_when_sharing_the_slot(hass, sunspec_
         patch.object(coordinator.api, "async_write_points"),
         patch.object(coordinator, "async_request_refresh"),
         patch.object(
-            coordinator.api,
-            "async_close",
+            sunspec_write_client_mock,
+            "async_disconnect",
             side_effect=lambda *a, **kw: closes.append(coordinator._gateway_lock.locked()),
         ),
     ):

@@ -144,7 +144,36 @@ async def test_the_daily_yield_is_not_held_like_a_lifetime_counter(
     assert not isinstance(wh, SunSpecEnergySensor)
     assert wh.state_class == SensorStateClass.TOTAL_INCREASING
     assert wh.translation_key == "daily_energy"
+    assert wh.name == "Energy produced today"
+    state = hass.states.get(wh.entity_id)
+    assert state is not None
+    assert state.attributes["friendly_name"].endswith(" Energy produced today")
 
     # Every morning starts at zero. A lifetime guard would hold yesterday's value.
     entry.runtime_data.data[103].getPoint("WH").value = 0
     assert wh.native_value == 0
+
+
+async def test_the_daily_energy_name_keeps_the_registered_entity_id(
+    hass, sunspec_apsystems_client_mock
+):
+    entry = create_mock_sunspec_config_entry(hass, data=MOCK_CONFIG)
+    registry = er.async_get(hass)
+    original = registry.async_get_or_create(
+        "sensor",
+        "sunspec2",
+        get_sunspec_unique_id(entry.entry_id, "WH", 103, 0),
+        config_entry=entry,
+        suggested_object_id="ds3_inverter_three_phase_watthours",
+    )
+    client = SunSpecApiClient(host="test", port=123, unit_id=1, hass=hass)
+
+    await setup_mock_sunspec_config_entry(hass, config_entry=entry, client=client)
+
+    component = hass.data["entity_components"]["sensor"]
+    wh = next(e for e in component.entities if isinstance(e, SunSpecSensor) and e.key == "WH")
+    assert wh.entity_id == original.entity_id
+    assert wh.name == "Energy produced today"
+    registered = registry.async_get(wh.entity_id)
+    assert registered is not None
+    assert registered.original_name == "Energy produced today"

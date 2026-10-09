@@ -586,6 +586,14 @@ class SunSpecSensor(SunSpecEntity, SensorEntity):
     @property
     def name(self) -> str:
         """Return the name of the sensor."""
+        if self.translation_key == "daily_energy":
+            # The vendor's daily counter needs its translated meaning in the
+            # UI. Keep the other point labels and indexed names as before.
+            translated = super().name
+            if isinstance(translated, str):
+                if self.model_index > 0:
+                    return f"{self.model_index} {translated}"
+                return translated
         return self._name
 
     @property

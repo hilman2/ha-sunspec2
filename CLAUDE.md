@@ -283,8 +283,12 @@ The full read pipeline lives under `custom_components/sunspec2/`:
   objects from the cache instead of re-scanning; the coordinator
   persists that layout across restarts (`STRUCTURE_STORAGE_KEY`).
   `reconnect_next()` flags the next `get_client()` to disconnect and
-  rebuild, and drops the cached layout with it. It runs only on failure
-  paths, never on a timer: there is no periodic rescan. Translates
+  rebuild. Transport failures pass `rescan=False` to retain the layout
+  for validation; device and firmware changes discard it. A validation
+  timeout fails the attempt rather than starting a full scan.
+  `async_release_slot()` disconnects healthy sessions without dropping
+  their model objects, so shared gateways skip the three validation
+  reads on healthy polls. There is no periodic rescan. Translates
   pysunspec2 exceptions to the typed `errors.py` hierarchy at the
   boundary.
 - **`__init__.py`** (`SunSpecDataUpdateCoordinator`): the polling brain.
@@ -298,8 +302,8 @@ The full read pipeline lives under `custom_components/sunspec2/`:
   cycles, one held session served 20 of 20 at a steady 1.6 s). It is
   handed back only where `release_slot_between_polls` says so (the
   `CONF_RELEASE_SLOT` option, or a second config entry on the same
-  host/port), and torn down with `close(force=True)` by
-  `_after_failed_cycle` on the failure path.
+  host/port). Failed attempts use `async_close(force=True)` under the
+  gateway lock before another unit can take the slot or the retry sleeps.
 - **`models.py`** (`SunSpecModelWrapper`): facade over a list of
   pysunspec2 model instances. Flattens repeating-group points into a
   `group:idx:point` key namespace.

@@ -186,8 +186,8 @@ class SunSpecApiClient:
         # session is held open now, and the layout is cached (v0.17.0)
         # and persisted across restarts (v0.21.0), so scan() only runs
         # when there is no usable cached layout: a first setup with
-        # nothing stored, or a reconnect after a failure, which drops
-        # the cache on purpose. Paid per model on that rare walk.
+        # nothing stored, or a layout that no longer validates after
+        # reconnecting. Paid per model on that rare walk.
         # See CONF_SCAN_DELAY.
         # Clamped here rather than trusting the caller because a
         # corrupted options save reaching pysunspec2 as a negative
@@ -206,12 +206,10 @@ class SunSpecApiClient:
         # which modbus-connection reconnects on demand.
         self._connection: ModbusConnection | None = None
         # Cached SunSpec layout: base address plus (model_id, addr, len)
-        # per block. Survives close(), which since v0.22.0 only runs on
-        # unload, on the failure path, and after a poll or a write when
-        # the slot has to be handed back (CONF_RELEASE_SLOT, or two
-        # config entries behind one gateway), and is dropped by
-        # reconnect_next(), which only runs after a failure: the one
-        # situation where the layout is a suspect rather than an asset.
+        # per block. Survives close() and transport failures. A new client
+        # validates it before use; device or firmware changes explicitly
+        # discard it through reconnect_next(rescan=True). Healthy slot
+        # releases retain the model objects through async_release_slot().
         #
         # Deliberately without an expiry. A SunSpec model tree changes on
         # a firmware update and never otherwise, so a timer can only ever
@@ -220,8 +218,8 @@ class SunSpecApiClient:
         # the chain with ``addr += model_len + 2``, so a single misread
         # length shifts every block behind it and scan() still returns
         # without raising. What guards against a real change is
-        # :meth:`_validate_model_structure`, which re-reads both ends of
-        # the chain on every reconnect.
+        # :meth:`_async_validate_model_structure`, which re-reads both ends
+        # of the chain when building a fresh client.
         self._base_addr: int | None = None
         self._model_structure: list[tuple[int, int, int]] | None = None
         # Bumped on every layout change so the coordinator can tell when
@@ -253,10 +251,9 @@ class SunSpecApiClient:
         client that is already open is handed straight back. Since
         v0.22.0 that is the steady state: one session serves the 16+
         ``async_read_model`` calls of a cycle and every cycle after it,
-        until a failure, an unload, or a close between polls
-        (CONF_RELEASE_SLOT, or two config entries behind one gateway)
-        drops it - hence the conditional, not an unconditional rebuild
-        on every entry.
+        until a failure or an unload drops it. A healthy slot release
+        disconnects the link but retains the client; the next register
+        request reconnects without rebuilding its models.
         """
         # Clear the flag whether or not there was a client to drop. It
         # arrives both ways: _after_failed_cycle closes before setting
@@ -610,18 +607,16 @@ class SunSpecApiClient:
         model_ids = sorted(list(filter(lambda m: type(m) is int, client.models.keys())))
         return model_ids
 
-    def reconnect_next(self) -> None:
-        """Force a fresh client, and a fresh scan, on the next get_client().
+    def reconnect_next(self, *, rescan: bool = True) -> None:
+        """Force a fresh client on the next get_client().
 
-        Drops the cached model layout too. This only ever runs after a
-        failed cycle, and a layout read at addresses that just stopped
-        answering is exactly the thing not to reuse: a different device
-        answering on a recycled IP would otherwise be read at the
-        previous device's offsets and return plausible garbage rather
-        than an error.
+        With ``rescan=False``, keep the layout for validation on the new
+        connection. Transport failures do not establish that the model tree
+        changed. Explicit device or firmware changes still discard it.
         """
         self._reconnect = True
-        self._invalidate_model_structure()
+        if rescan:
+            self._invalidate_model_structure()
 
     def _invalidate_model_structure(self) -> None:
         if self._model_structure is None and self._base_addr is None:
@@ -692,22 +687,10 @@ class SunSpecApiClient:
     async def _async_scan_or_restore(self, client: SunSpecClient) -> None:
         """Give ``client`` its model objects, rescanning only when needed.
 
-        pysunspec2 populates ``client.models`` exclusively inside
-        ``scan()``, so building a client used to mean walking the
-        entire model tree again even though nothing about the device
-        had changed, and until v0.22.0 the coordinator rebuilt its
-        client on every single cycle to free the inverter's Modbus
-        slot. The session is held open now, so what is left to save is
-        the client rebuilt after the close that CONF_RELEASE_SLOT (or a
-        second config entry behind the same gateway) still does between
-        polls, and the first connect after a restart or a reload, where
-        the layout comes back from the store. Not the failure path:
-        reconnect_next() drops the cache on purpose, because a layout
-        read at addresses that just stopped answering is the one thing
-        not to reuse. Restoring the cached layout produces the same
-        model objects from the three validating reads in
-        :meth:`_validate_model_structure` instead of ``1 + 2n``, and
-        skips the per-model pacing sleep completely.
+        A restart, reload or transport failure rebuilds from the cache
+        after three validating reads. A changed layout or an explicit
+        rescan walks the model tree instead. Healthy slot releases keep
+        their model objects and do not reach this method.
         """
         if await self._async_restore_model_structure(client):
             self._log.debug(
@@ -937,6 +920,8 @@ class SunSpecApiClient:
         """
         try:
             header = await client.async_read(self._base_addr, 3)
+        except (SunSpecModbusClientTimeout, ModbusClientTimeout, ModbusClientConnectionClosed):
+            raise
         except Exception as err:  # noqa: BLE001 - any failure just means "scan"
             self._log.debug("Cached model structure could not be validated: %s", err)
             return False
@@ -950,6 +935,8 @@ class SunSpecApiClient:
         last_id, last_addr, last_len = structure[-1]
         try:
             tail = await client.async_read(last_addr, 2)
+        except (SunSpecModbusClientTimeout, ModbusClientTimeout, ModbusClientConnectionClosed):
+            raise
         except Exception as err:  # noqa: BLE001 - any failure just means "scan"
             self._log.debug("Cached model chain tail could not be validated: %s", err)
             return False
@@ -971,6 +958,8 @@ class SunSpecApiClient:
             return False
         try:
             end = await client.async_read(last_addr + 2 + last_len, 1)
+        except (SunSpecModbusClientTimeout, ModbusClientTimeout, ModbusClientConnectionClosed):
+            raise
         except Exception as err:  # noqa: BLE001 - device need not answer past the chain
             self._log.debug("No readable end marker behind the cached chain (%s), accepting", err)
             return True
@@ -987,9 +976,8 @@ class SunSpecApiClient:
     async def _async_restore_model_structure(self, client: SunSpecClient) -> bool:
         """Rebuild ``client.models`` from the cache. False means "scan instead".
 
-        Every failure path returns False rather than raising, so a cache
-        that no longer matches the device costs three wasted reads and
-        falls back to exactly the behaviour we had before.
+        A mismatch returns False so the caller can scan. A timeout or lost
+        connection propagates instead of starting a scan on a failing link.
         """
         structure = self._model_structure
         if not structure or self._base_addr is None:
@@ -1026,6 +1014,20 @@ class SunSpecApiClient:
             self._invalidate_model_structure()
             return False
         return True
+
+    async def async_release_slot(self) -> None:
+        """Disconnect a healthy session while retaining its model objects.
+
+        The next register request reconnects through modbus-connection.
+        Failed sessions must use ``async_close`` so their next client
+        validates the cached layout before reading data.
+        """
+        if self._partial_scan:
+            # A partial scan must be retried, otherwise missing models stay
+            # absent for the lifetime of these model objects.
+            await self.async_close()
+        elif self._client is not None:
+            await self._async_disconnect(self._client)
 
     async def async_close(self, force: bool = False) -> None:
         """Drop the active client's link and the reference to it.
