@@ -7,6 +7,7 @@ from unittest.mock import Mock
 import pytest
 from modbus_connection import ModbusSerialParams
 from modbus_connection import ModbusTcpParams
+from modbus_connection import ModbusTimeoutError
 
 import custom_components.sunspec2.pysunspec2.mb as mb
 from custom_components.sunspec2.api import SunSpecApiClient
@@ -23,9 +24,12 @@ from custom_components.sunspec2.pysunspec2.modbus.client import SunSpecModbusCli
 from custom_components.sunspec2.pysunspec2.modbus.client import SunSpecModbusClientTimeout
 from custom_components.sunspec2.pysunspec2.modbus.modbus import ModbusClientConnectionClosed
 from custom_components.sunspec2.pysunspec2.modbus.modbus import ModbusClientError
+from custom_components.sunspec2.pysunspec2.modbus.modbus import ModbusClientTimeout
 from custom_components.sunspec2.pysunspec2.modbus.unit_device import SunSpecModbusClientDeviceUnit
 
 from .fake_unit import FakeConnection
+from .fake_unit import FakeUnit
+from .fake_unit import register_image
 
 
 async def test_api(hass, sunspec_client_mock):
@@ -513,6 +517,44 @@ async def test_reconnect_next_drops_the_cached_structure(hass):
     assert fresh.scan_calls == 1
 
 
+async def test_transport_reconnect_validates_the_cache_instead_of_scanning(hass):
+    api = await _api_with_structure(hass, _FakeClient())
+
+    api.reconnect_next(rescan=False)
+    fresh = _FakeClient()
+    await api._async_scan_or_restore(fresh)
+
+    assert fresh.scan_calls == 0
+    assert fresh.reads == [(40000, 3), (40070, 2), (40122, 1)]
+
+
+async def test_transport_reconnect_rescans_a_changed_layout(hass):
+    api = await _api_with_structure(hass, _FakeClient())
+
+    api.reconnect_next(rescan=False)
+    moved = _FakeClient(layout=[(1, 40002, 66), (103, 40070, 60)])
+    await api._async_scan_or_restore(moved)
+
+    assert moved.scan_calls == 1
+
+
+@pytest.mark.parametrize("address", [40000, 40070, 40122])
+async def test_cache_validation_timeout_does_not_start_a_scan(hass, address):
+    api = await _api_with_structure(hass, _FakeClient())
+    fresh = _FakeClient()
+    original_read = fresh.read
+
+    def read(addr, count):
+        if addr == address:
+            raise ModbusClientTimeout("Response timeout")
+        return original_read(addr, count)
+
+    fresh.read = read
+    with pytest.raises(ModbusClientTimeout):
+        await api._async_scan_or_restore(fresh)
+    assert fresh.scan_calls == 0
+
+
 async def test_close_keeps_the_cached_structure(hass, sunspec_modbus_client_mock):
     """close() runs at the end of every healthy cycle and must not invalidate.
 
@@ -526,6 +568,56 @@ async def test_close_keeps_the_cached_structure(hass, sunspec_modbus_client_mock
     await api.async_close()
 
     assert api._model_structure == [(1, 40002, 66)]
+
+
+async def test_releasing_a_healthy_slot_only_reads_data_on_the_next_poll(hass, mocker):
+    unit = FakeUnit(register_image("./tests/test_data/inverter_apsystems_controls.json"))
+    connection = FakeConnection({1: unit})
+    mocker.patch("custom_components.sunspec2.api.ModbusConnection", return_value=connection)
+    api = SunSpecApiClient(host="test", port=123, unit_id=1, hass=hass, scan_delay=0)
+
+    await api.async_get_data(103)
+    await api.async_release_slot()
+    assert connection.connected is False
+    assert connection.disconnects == 1
+    unit.reads.clear()
+
+    await api.async_get_data(103)
+    assert unit.reads == [(40070, 52)]
+    await api.async_shutdown()
+    assert connection.closed is True
+
+
+async def test_a_failure_after_releasing_the_slot_validates_on_reconnect(hass, mocker):
+    unit = FakeUnit(register_image("./tests/test_data/inverter_apsystems_controls.json"))
+    connection = FakeConnection({1: unit})
+    mocker.patch("custom_components.sunspec2.api.ModbusConnection", return_value=connection)
+    api = SunSpecApiClient(host="test", port=123, unit_id=1, hass=hass, scan_delay=0)
+
+    await api.async_get_data(103)
+    await api.async_release_slot()
+    unit.fail_next = ModbusTimeoutError("Response timeout")
+    with pytest.raises(TransientError):
+        await api.async_get_data(103)
+
+    api.reconnect_next(rescan=False)
+    unit.reads.clear()
+    await api.async_get_data(103)
+    assert unit.reads[:3] == [(40000, 3), (40122, 2), (40148, 1)]
+    assert unit.reads[3:] == [(40070, 52)]
+    await api.async_shutdown()
+
+
+async def test_releasing_a_partial_scan_drops_the_client(hass):
+    api = SunSpecApiClient(host="test", port=123, unit_id=1, hass=hass)
+    client = Mock(async_disconnect=AsyncMock())
+    api._client = client
+    api._partial_scan = True
+
+    await api.async_release_slot()
+
+    assert api._client is None
+    client.async_disconnect.assert_awaited_once()
 
 
 async def test_vendor_models_without_a_group_name_stay_cached(hass):

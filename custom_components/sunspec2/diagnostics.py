@@ -41,6 +41,7 @@ async def async_get_config_entry_diagnostics(
 ) -> dict[str, Any]:
     """Return diagnostics for a config entry."""
     coordinator = entry.runtime_data
+    transport_versions = await hass.async_add_executor_job(_transport_versions)
 
     scanned_models: list[dict[str, Any]] = []
     latest_values: dict[str, dict[str, Any]] = {}
@@ -118,10 +119,17 @@ async def async_get_config_entry_diagnostics(
             # The Modbus transport underneath it. Home Assistant installs
             # whatever satisfies the manifest's range, so the version a
             # reporter runs is not ours to know without asking.
-            "modbus_connection": _package_version("modbus-connection"),
-            "tmodbus": _package_version("tmodbus"),
+            **transport_versions,
             "sunspec2_integration": VERSION,
         },
+    }
+
+
+def _transport_versions() -> dict[str, str | None]:
+    """Read installed transport versions outside the event loop."""
+    return {
+        "modbus_connection": _package_version("modbus-connection"),
+        "tmodbus": _package_version("tmodbus"),
     }
 
 

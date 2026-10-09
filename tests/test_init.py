@@ -1369,6 +1369,7 @@ def _keepalive_coordinator(hass, options=None):
     api.async_get_models = AsyncMock(return_value=[1, 103])
     api.async_get_data = AsyncMock(return_value=MagicMock())
     api.async_close = AsyncMock()
+    api.async_release_slot = AsyncMock()
     api.last_scan_was_partial = False
     return config_entry, SunSpecDataUpdateCoordinator(hass, client=api, entry=config_entry)
 
@@ -1399,7 +1400,8 @@ async def test_cycle_releases_the_slot_when_asked_to(hass):
 
     await coordinator._run_one_update_cycle()
 
-    coordinator.api.async_close.assert_awaited_once()
+    coordinator.api.async_release_slot.assert_awaited_once()
+    coordinator.api.async_close.assert_not_awaited()
 
 
 async def test_a_shared_gateway_releases_the_slot_without_being_told(hass):
@@ -1419,7 +1421,43 @@ async def test_a_shared_gateway_releases_the_slot_without_being_told(hass):
     assert coordinator.release_slot_between_polls is True
 
     await coordinator._run_one_update_cycle()
-    coordinator.api.async_close.assert_awaited_once()
+    coordinator.api.async_release_slot.assert_awaited_once()
+    coordinator.api.async_close.assert_not_awaited()
+
+
+async def test_a_failed_shared_gateway_write_drops_the_model_objects(hass):
+    from unittest.mock import AsyncMock
+
+    _, coordinator = _keepalive_coordinator(hass)
+    neighbour = MockConfigEntry(domain=DOMAIN, data=MOCK_CONFIG, options={})
+    neighbour.add_to_hass(hass)
+    coordinator.api.async_write_points = AsyncMock(side_effect=TransportError("link gone"))
+
+    with pytest.raises(TransportError):
+        await coordinator.async_write_points_locked(123, [("WMaxLimPct", 50)])
+
+    coordinator.api.async_close.assert_awaited_once_with(force=True)
+    coordinator.api.async_release_slot.assert_not_awaited()
+    assert not coordinator._gateway_lock.locked()
+
+
+async def test_a_failed_poll_releases_the_slot_before_the_retry_sleep(hass, mocker):
+    from unittest.mock import AsyncMock
+
+    _, coordinator = _keepalive_coordinator(hass)
+    coordinator.data = {103: mocker.Mock()}
+    coordinator.api.async_get_models.side_effect = [TransportError("link gone"), [1, 103]]
+
+    async def retry_sleep(delay):
+        coordinator.api.async_close.assert_awaited_once_with(force=True)
+        assert not coordinator._gateway_lock.locked()
+
+    mocker.patch("custom_components.sunspec2.asyncio.sleep", side_effect=retry_sleep)
+    mocker.patch.object(coordinator, "_async_save_model_structure", new_callable=AsyncMock)
+
+    await coordinator._async_update_data()
+
+    coordinator.api.reconnect_next.assert_called_once_with(rescan=False)
 
 
 async def test_a_failed_cycle_drops_the_session_hard(hass):
@@ -1441,7 +1479,7 @@ async def test_a_failed_cycle_drops_the_session_hard(hass):
         await coordinator._after_failed_cycle(TransportError("boom"))
 
     coordinator.api.async_close.assert_awaited_once_with(force=True)
-    coordinator.api.reconnect_next.assert_called_once()
+    coordinator.api.reconnect_next.assert_called_once_with(rescan=False)
 
 
 @pytest.mark.parametrize("stored_interval", [0, -5, "not a number"])

@@ -1,5 +1,7 @@
 """Tests for the SunSpec 2 diagnostics platform."""
 
+import importlib.metadata
+import threading
 from unittest.mock import AsyncMock
 from unittest.mock import Mock
 from unittest.mock import patch
@@ -72,6 +74,31 @@ async def test_diagnostics_includes_versions(hass, sunspec_client_mock):
     assert versions["pysunspec2"] == "1.3.6"
     assert versions["sunspec2_integration"]
     assert versions["homeassistant"]
+
+
+@pytest.mark.parametrize("missing_package", [None, "modbus-connection", "tmodbus"])
+async def test_transport_versions_do_not_read_metadata_on_the_event_loop(
+    hass, sunspec_client_mock, missing_package
+):
+    entry = await setup_mock_sunspec_config_entry(hass)
+    event_loop_thread = threading.get_ident()
+    installed = {"modbus-connection": "4.10.0", "tmodbus": "0.6.1"}
+
+    def package_version(name):
+        assert threading.get_ident() != event_loop_thread, "Metadata read on the event loop"
+        if name == missing_package:
+            raise importlib.metadata.PackageNotFoundError(name)
+        return installed[name]
+
+    with patch(
+        "custom_components.sunspec2.diagnostics.importlib.metadata.version", package_version
+    ):
+        diag = await async_get_config_entry_diagnostics(hass, entry)
+
+    assert diag["versions"]["modbus_connection"] == (
+        None if missing_package == "modbus-connection" else "4.10.0"
+    )
+    assert diag["versions"]["tmodbus"] == (None if missing_package == "tmodbus" else "0.6.1")
 
 
 async def test_diagnostics_includes_scanned_models(hass, sunspec_client_mock):
