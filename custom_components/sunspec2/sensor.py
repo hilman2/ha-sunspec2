@@ -656,6 +656,11 @@ class SunSpecSensor(SunSpecEntity, SensorEntity):
                 "Math overflow error when retrieving calculated value for %s", self.key
             )
             return None
+        if val is None and self.translation_key == "daily_energy":
+            # SunSpec reserves 0 of an acc32 for "not implemented", and the
+            # library reads it as None. A counter that starts again every
+            # night sits at exactly that value until the sun is up (#109).
+            return 0
         # Plausibility filter for measured power points: drop readings
         # beyond the ceiling. Inverters at dawn / dusk sometimes report
         # MW-range garbage that poisons long-term statistics.
