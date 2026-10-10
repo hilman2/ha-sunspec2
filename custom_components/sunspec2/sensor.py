@@ -240,6 +240,12 @@ HA_META: dict[str, tuple[str | None, str, SensorDeviceClass | None]] = {
     "bitfield32": (None, ICON_DEFAULT, None),
 }
 
+#: Energy points that hold an amount in a store right now, not a counter
+#: that only grows: the energy available in a DER storage (model 713) moves
+#: with the state of charge. A lifetime guard would hold every discharge
+#: back as a counter running backwards (#120).
+STORED_ENERGY_POINTS: frozenset[str] = frozenset({"WHAvail"})
+
 # Deliberately absent, and this is the point of the None fallback rather
 # than a growing table:
 #
@@ -328,7 +334,11 @@ async def async_setup_entry(
                     sunspec_unit = meta.get("units", "")
                     ha_meta = HA_META.get(sunspec_unit, (sunspec_unit, None, None))
                     device_class = ha_meta[2]
-                    if device_class == SensorDeviceClass.ENERGY and key not in daily_points:
+                    if (
+                        device_class == SensorDeviceClass.ENERGY
+                        and key not in daily_points
+                        and key.split(":")[-1] not in STORED_ENERGY_POINTS
+                    ):
                         new_sensors.append(SunSpecEnergySensor(coordinator, entry, data))
                     else:
                         new_sensors.append(SunSpecSensor(coordinator, entry, data))
@@ -403,6 +413,8 @@ class SunSpecSensor(SunSpecEntity, SensorEntity):
         self.unit = ha_meta[0]
         self.use_icon = ha_meta[1]
         self.use_device_class = ha_meta[2]
+        if self.key.split(":")[-1] in STORED_ENERGY_POINTS:
+            self.use_device_class = SensorDeviceClass.ENERGY_STORAGE
         self._options: list[str] = []
         # Used if this is an energy sensor and the read value is 0
         # Updated whenever the value read is not 0
@@ -656,6 +668,11 @@ class SunSpecSensor(SunSpecEntity, SensorEntity):
                 "Math overflow error when retrieving calculated value for %s", self.key
             )
             return None
+        if val is None and self.translation_key == "daily_energy":
+            # SunSpec reserves 0 of an acc32 for "not implemented", and the
+            # library reads it as None. A counter that starts again every
+            # night sits at exactly that value until the sun is up (#109).
+            return 0
         # Plausibility filter for measured power points: drop readings
         # beyond the ceiling. Inverters at dawn / dusk sometimes report
         # MW-range garbage that poisons long-term statistics.

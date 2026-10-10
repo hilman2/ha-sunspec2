@@ -153,6 +153,11 @@ async def test_the_daily_yield_is_not_held_like_a_lifetime_counter(
     entry.runtime_data.data[103].getPoint("WH").value = 0
     assert wh.native_value == 0
 
+    # At night the register holds 0, which an acc32 reserves for "not
+    # implemented" and the library hands back as None. The counter reads 0.
+    entry.runtime_data.data[103].getPoint("WH")._value = None
+    assert wh.native_value == 0
+
 
 async def test_the_daily_energy_name_keeps_the_registered_entity_id(
     hass, sunspec_apsystems_client_mock
