@@ -4,6 +4,7 @@ from unittest.mock import patch
 
 import pytest
 from homeassistant.components.sensor import SensorDeviceClass
+from homeassistant.components.sensor import SensorStateClass
 from homeassistant.const import PERCENTAGE
 from homeassistant.const import UnitOfApparentPower
 from homeassistant.const import UnitOfElectricPotential
@@ -13,12 +14,15 @@ from homeassistant.const import UnitOfReactivePower
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import device_registry as dr
 
+from custom_components.sunspec2.const import CONF_ENABLED_MODELS
 from custom_components.sunspec2.const import CONF_MAX_AC_POWER_KW
 from custom_components.sunspec2.const import DOMAIN
 from custom_components.sunspec2.const import IMPLAUSIBLE_LOG_EVERY
 from custom_components.sunspec2.const import measured_power_headroom
 from custom_components.sunspec2.sensor import HA_META
 from custom_components.sunspec2.sensor import ICON_DC_AMPS
+from custom_components.sunspec2.sensor import SunSpecEnergySensor
+from custom_components.sunspec2.sensor import SunSpecSensor
 from custom_components.sunspec2.sensor import _power_limit_in_native_unit
 
 from . import TEST_CONFIG_ENTRY_ID
@@ -1020,3 +1024,24 @@ async def test_rejection_log_names_the_autodetected_nameplate(
     dropped = [r for r in caplog.records if "Dropping implausible value" in r.getMessage()]
     assert dropped
     assert "auto-detected nameplate from model 120 WRtg" in dropped[0].getMessage()
+
+
+async def test_stored_energy_is_not_held_like_a_lifetime_counter(
+    hass: HomeAssistant, sunspec_storage_capacity_client_mock
+) -> None:
+    """The energy available in a storage falls with every discharge (#120)."""
+    entry = await setup_mock_sunspec_config_entry(
+        hass, data={**MOCK_CONFIG, CONF_ENABLED_MODELS: ["713"]}
+    )
+    component = hass.data["entity_components"]["sensor"]
+    avail = next(
+        e for e in component.entities if isinstance(e, SunSpecSensor) and e.key == "WHAvail"
+    )
+
+    assert not isinstance(avail, SunSpecEnergySensor)
+    assert avail.device_class == SensorDeviceClass.ENERGY_STORAGE
+    assert avail.state_class == SensorStateClass.MEASUREMENT
+    assert avail.native_value == 18568
+
+    entry.runtime_data.data[713].getPoint("WHAvail").value = 18552
+    assert avail.native_value == 18552

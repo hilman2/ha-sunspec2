@@ -196,6 +196,17 @@ def sunspec_client_mock():
         yield
 
 
+@pytest.fixture
+def sunspec_storage_capacity_client_mock():
+    """The standard inverter plus a DER storage capacity model (713)."""
+    client = MockFileClientDevice("./tests/test_data/inverter_storage_capacity.json")
+    client.scan()
+    with (
+        patch("custom_components.sunspec2.SunSpecApiClient.modbus_connect", return_value=client),
+    ):
+        yield
+
+
 # In this fixture, we are forcing calls to async_get_data to raise an Exception. This is useful
 # for exception handling.
 @pytest.fixture
