@@ -27,8 +27,7 @@ template sensors.
 What you get:
 
 - Everything the device publishes as a normal HA sensor: power,
-  energy, voltages, currents, temperatures, operating state and error
-  events
+  energy, voltages, currents, temperatures, operating state and error events
 - The lifetime energy counter as an Energy dashboard source, with no
   template sensor in between
 - One integration for every brand, so a SolarEdge string and a KACO
@@ -42,20 +41,23 @@ What you get:
 
 If the manual mentions "SunSpec Modbus", yes. That covers most brands:
 
-**KACO** Powador, blueplanet . **SolarEdge** SE, HD-Wave, Energy Hub .
-**Fronius** Symo, Primo, Galvo, GEN24 . **SMA** Sunny Boy, Tripower
-(SunSpec answers on unit ID 126, see [docs/sma.md](docs/sma.md)) . **Kostal** Plenticore,
-Piko (port 1502 and unit ID 71, see [docs/kostal.md](docs/kostal.md)) .
-**Sungrow** SG, SH . **GoodWe** XS, DT, ET . **ABB / FIMER /
-Power-One** Aurora, Trio, UNO, REACT . **Delta** Solivia, RPI .
-**APsystems** ECU-R, ECU-C (micro inverters, see [docs/apsystems.md](docs/apsystems.md)) .
-**SunPower** . **Chint Power Systems**
+**ABB / FIMER / Power-One** Aurora, Trio, UNO, REACT .  
+**APsystems** ECU-R, ECU-C (micro inverters, see [docs/apsystems.md](docs/apsystems.md)) .  
+**Chint Power Systems**  
+**Delta** Solivia, RPI .  
+**Fronius** Symo, Primo, Galvo, GEN24 .  
+**GoodWe** XS, DT, ET .  
+**KACO** Powador, blueplanet .  
+**Kostal** Plenticore, Piko (port 1502 and unit ID 71, see [docs/kostal.md](docs/kostal.md)) .  
+**SMA** Sunny Boy, Tripower  (SunSpec answers on unit ID 126, see [docs/sma.md](docs/sma.md)) .  
+**SolarEdge** SE, HD-Wave, Energy Hub .  
+**Sungrow** SG, SH .  
+**SunPower** .  
 
-Most inverters need Modbus TCP switched on in their own web interface
-before they answer. It is usually off by default.
 
-Developed against a KACO Powador 7.8 TL3. Everything else is the
-standard doing its job, so reports about other hardware are welcome.
+Most inverters need Modbus TCP switched on in their own web interface before they answer. It is usually off by default.
+
+**Developed against a KACO Powador 7.8 TL3**. Everything else is the standard doing its job, so reports about other hardware are welcome.
 
 ## Installation
 
