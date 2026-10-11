@@ -442,6 +442,9 @@
       "daily_energy": {
         "name": "Tagesertrag"
       },
+      "counted_lifetime_energy": {
+        "name": "Gesamtertrag (gezählt)"
+      },
       "dc_current": {
         "name": "DC-Strom"
       },

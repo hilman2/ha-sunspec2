@@ -72,6 +72,27 @@ polling interval. Daily totals can differ by about 1 % from the EMA app.
 **Energy produced today** is the yield of the current day. It is not a
 lifetime total, and it starts again at zero every night.
 
+## A total for the Energy dashboard
+
+The ECU has no lifetime counter, so the integration counts one itself:
+**Lifetime energy produced (counted)**. It adds up the daily values of
+the micro inverter, day by day, and keeps the sum across restarts. Use it
+as solar production in the Energy dashboard if you want a total. The
+daily sensor also works there, because Home Assistant reads the nightly
+reset as the start of a new day.
+
+What to expect:
+
+- It starts when the sensor is added, with what the micro inverter has
+  made so far that day. Your total in the EMA app is not part of it.
+- A reading that does not fit a counter that only goes up waits for the
+  next one. A single wrong reading from the ECU therefore never ends up
+  in the total.
+- If Home Assistant is off over a night, the part of the day it missed
+  is not counted.
+- Every micro inverter has its own total, because every micro inverter
+  is its own entry.
+
 ## Limiting what you feed in
 
 The integration can limit the output of your micro inverters. This is
