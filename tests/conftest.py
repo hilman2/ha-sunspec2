@@ -148,6 +148,18 @@ def no_model_read_pacing():
         yield
 
 
+@pytest.fixture(autouse=True)
+def no_usage_stats_ping():
+    """Keep the daily usage ping, and its timers, out of every test.
+
+    The ping is on by default, so without this every test that sets the
+    integration up would schedule a request and leave a timer behind.
+    ``tests/test_usage_stats.py`` drives the module directly.
+    """
+    with patch("custom_components.sunspec2.async_start_usage_stats"):
+        yield
+
+
 @pytest.fixture(name="auto_enable_custom_integrations", autouse=True)
 def auto_enable_custom_integrations(
     hass: Any,

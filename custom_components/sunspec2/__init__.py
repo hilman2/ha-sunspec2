@@ -92,6 +92,7 @@ from .migration import migrate_from_cjne_sync
 from .models import SunSpecModelWrapper
 from .raw_blocks import RawBlockReader
 from .raw_blocks import encode_value
+from .usage_stats import async_start_usage_stats
 from .vendors import VendorProfile
 from .vendors import plan_write
 from .vendors import profile_for
@@ -302,6 +303,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: SunSpec2ConfigEntry) -> 
     # process (not per config entry). The handler routes by
     # config_entry_id passed in the call data.
     _async_register_services(hass)
+
+    async_start_usage_stats(hass, entry)
 
     return True
 
