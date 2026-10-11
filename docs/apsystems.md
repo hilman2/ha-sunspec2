@@ -60,8 +60,11 @@ inverter to follow and up to about 13 minutes for eight.
 
 ## Energy
 
-*Energy produced today* (SunSpec point `WH`) is the yield of the
-current day, not a lifetime total. It starts again at zero every night.
+Note: Implementation of ECU-R firmware 1.3.23 deviates from Sunspec specification and required a workaround for this ECU!
 
 Source: APsystems, SunSpec Modbus, rev 3.3
 (https://global.apsystems.com/wp-content/uploads/2025/01/SunSpec-Modbus.pdf).
+
+*Energy produced today* (SunSpec point `WH`) is the yield of the
+current day, not a lifetime total. It starts again at zero every night.
+
