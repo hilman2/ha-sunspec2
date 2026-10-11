@@ -442,6 +442,9 @@
       "daily_energy": {
         "name": "Energy produced today"
       },
+      "counted_lifetime_energy": {
+        "name": "Lifetime energy produced (counted)"
+      },
       "dc_current": {
         "name": "DC current"
       },
