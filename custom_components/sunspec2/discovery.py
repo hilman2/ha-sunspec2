@@ -69,6 +69,7 @@ SUNSPEC_VENDOR_OUIS: frozenset[str] = frozenset(
         "dc:57:26",  # Power-One (Italy, ABB Solar)
         "00:22:f2",  # SunPower Corp
         "34:ad:e4",  # Chint Power Systems
+        "80:97:1b",  # Altenergy Power System (APsystems ECU)
         # Microchip Technology - generic embedded ethernet/wifi chip
         # OUI used by KACO Powador (DE / Siemens) ethernet loggers,
         # plus a few other inverter brands and a long tail of unrelated

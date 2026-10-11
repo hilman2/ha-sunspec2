@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
 from unittest.mock import AsyncMock
 from unittest.mock import patch
 
@@ -20,6 +22,18 @@ def test_vendor_match_recognises_known_oui():
     sample_oui = next(iter(SUNSPEC_VENDOR_OUIS))
     fake_mac = f"{sample_oui}:de:ad:be"
     assert _is_vendor_match(fake_mac) is True
+
+
+def test_manifest_dhcp_ouis_match_the_scan_list():
+    """Passive DHCP discovery and the active scan know the same vendors."""
+    manifest = json.loads(
+        (Path(__file__).parent.parent / "custom_components/sunspec2/manifest.json").read_text()
+    )
+    manifest_ouis = {
+        f"{mac[0:2]}:{mac[2:4]}:{mac[4:6]}".lower()
+        for mac in (item["macaddress"].removesuffix("*") for item in manifest["dhcp"])
+    }
+    assert manifest_ouis == SUNSPEC_VENDOR_OUIS
 
 
 def test_vendor_match_rejects_unknown_oui():
