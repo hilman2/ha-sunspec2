@@ -323,6 +323,9 @@ CONF_CAPTURE_RAW = "capture_raw_registers"
 #   * Energy sensors are dropped when the delta to the previous value would
 #     imply an instantaneous power above this value, with a safety factor.
 CONF_MAX_AC_POWER_KW = "max_ac_power_kw"
+
+# The daily ping of usage_stats.py. On unless the user turns it off.
+CONF_USAGE_STATS = "usage_stats"
 # Safety factor applied when deriving the maximum plausible energy delta
 # from the configured peak power. Generous on purpose - we only want to
 # catch the really obvious garbage values (MW / TWh spikes), not legitimate

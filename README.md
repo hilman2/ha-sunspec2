@@ -124,9 +124,32 @@ You can change these at any time under *Settings -> Devices & Services
 | Inverter powers down when idle | off | Stops the "unreachable" notification for inverters that vanish at night without saying so |
 | Capture raw Modbus bytes for diagnostics | off | Puts what the inverter sent, unprocessed, into the diagnostics download. For bug reports |
 | Enable experimental export controls (BETA) | off | Lets you limit the power you feed into the grid. See [Battery and export control](#battery-and-export-control) |
+| Send anonymous usage statistics | on | One request a day that counts active installations. See [Usage statistics](#usage-statistics) |
 
 Host, port and unit ID are changed via **Reconfigure** in the same
 menu.
+
+## Usage statistics
+
+Once a day the integration sends one request to the author's server, so
+that the number of active installations can be counted. It is on by
+default. Turn it off with **Send anonymous usage statistics** under
+*Configure*, and nothing is sent.
+
+**What is sent:**
+
+- a random install ID, made on the first start and kept in
+  `.storage/sunspec2.usage_stats`
+- the version of the integration and of Home Assistant
+- the vendor profile in use, for example `fronius`
+- the number of entries
+
+**What is not sent:** host, port, serial number, model, location and
+readings.
+
+The request goes to `analytics.fs-sys.de`, a Matomo server of the author.
+It keeps no visitor log of these requests, only the counts. The code is in
+[`usage_stats.py`](custom_components/sunspec2/usage_stats.py).
 
 ## Several inverters on one connection
 
