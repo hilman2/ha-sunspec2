@@ -1,67 +1,121 @@
 # APsystems
 
-The ECU-R and ECU-C gateways from APsystems answer SunSpec Modbus for
-the micro inverters behind them (DS3, QS1, QT2, YC). Each micro
-inverter is its own SunSpec device on its own unit id, so one config
-entry per inverter. The integration recognises the gateway by the
-manufacturer name it reports, nothing to configure.
+This page is for APsystems micro inverters (DS3, QS1, QT2, YC) that
+report to an ECU-R or ECU-C gateway. Home Assistant does not talk to
+the micro inverters directly. It talks to the gateway, which answers
+for each of them. The integration recognises the gateway by the
+manufacturer name it reports, so there is nothing to select.
+
+Each micro inverter counts as its own device. Add one entry per micro
+inverter, all with the gateway's IP address and a different **unit ID**
+(the number that tells the gateway which micro inverter you mean).
 
 ## Before it works
 
-1. Check the gateway supports it: ECU-R with a serial starting 2160 on
-   firmware 1.3.7 or later, or 2162 on 2.0.2 or later; ECU-C 215...
-   on C1.1.3 or later. The ECU-B does not.
-2. In EMA Manager open *Workspace -> Modbus Configuration*, switch
-   SunSpec Modbus on and set the address of each inverter. Those
-   addresses are the unit ids to enter here.
-3. Port 502 over TCP, or the RS485 port of the ECU.
+1. Check that your gateway supports it:
+   - ECU-R with a serial number starting 2160, firmware 1.3.7 or later
+   - ECU-R with a serial number starting 2162, firmware 2.0.2 or later
+   - ECU-C with a serial number starting 215, firmware C1.1.3 or later
 
-## What SunSpec has
+   The ECU-B does not support it.
+2. In EMA Manager open *Workspace -> Modbus Configuration*. Switch
+   **SunSpec Modbus** on and give each micro inverter an address. Those
+   addresses are the unit IDs you enter in Home Assistant.
+3. Use port 502 over the network (TCP), or the RS485 port of the ECU.
 
-Models 1, 101 or 103, 111 to 113 and 123 (the controls), as the
-APsystems document lists them. These become the usual sensors.
+## What you get
 
-## What this integration adds
+The usual sensors for each micro inverter: AC power, voltage, current,
+frequency, temperature, operating state and the energy it produced.
 
-The DC side of each micro inverter is not in a SunSpec model. APsystems
-keeps it in a block of its own, labelled model 114, of 8 float32
-values each for DC voltage, current and power, starting at register
-40214. The integration reads it from there and adds
-*DC voltage input n*, *DC current input n* and *DC power input n*.
+Beyond that, the integration adds the values for each solar panel input
+of the micro inverter, which APsystems keeps in a place of its own:
 
-A micro inverter has fewer than 8 inputs (a DS3 has 2) and reports 0
-for the rest, so only inputs 1 and 2 are on. The others are in the
-entity list, off; turn on as many as your inverter has.
+| Sensor | What it shows |
+|---|---|
+| **DC voltage input n** | Voltage coming from the panel on input n |
+| **DC current input n** | Current coming from the panel on input n |
+| **DC power input n** | Power coming from the panel on input n |
 
-## Limiting the output
+A micro inverter has fewer than 8 inputs (a DS3 has 2). The gateway
+reports 0 for the inputs that do not exist. So only inputs 1 and 2 are
+switched on. The others are in the entity list, switched off. Turn on
+as many as your micro inverter has.
 
-On ECU-R firmware 1.3.23 the header of the controls model (123) reads
-114, with 48 registers instead of 24. The integration reads the
-registers behind it as 123 all the same, so the power limit and the
-on/off switch are there. They follow [write-controls.md](write-controls.md):
-switched off until you enable the experimental export controls in the
-integration's options.
+## Energy produced today
 
-What you get: *Export limit* in whole percent and *Export limit
-enabled*. The ECU has no revert time and no power factor, so those
-entities are not built. *Inverter grid connection* is in the entity
-list, off by default.
+**Energy produced today** is the yield of the current day. It is not a
+lifetime total, and it starts again at zero every night.
 
-An ECU-R shows an export limit of 30 % with the limit enabled before
-anyone sets one, while the inverters run at full power. Take that for a
-default, not for a limit.
+## Limiting what you feed in
 
-The limit works: on eight DS3 behind one ECU-R, 10 % held every
-inverter at about 65 W and 100 % released them. One ECU holds one
-setting for all its inverters, so writing it to one unit id is enough,
-and every unit id reads it back. The ECU polls the inverters over
-Zigbee about every 5 minutes, so it takes that long for the first
-inverter to follow and up to about 13 minutes for eight.
+The integration can limit the output of your micro inverters. This is
+off until you switch on the experimental export controls in the
+integration's options. How that works, and the risks, are in
+[Battery and export control](write-controls.md).
 
-## Energy
+What you get:
 
-*Energy produced today* (SunSpec point `WH`) is the yield of the
-current day, not a lifetime total. It starts again at zero every night.
+| Entity | What it does |
+|---|---|
+| **Export limit** | Caps the output in whole percent |
+| **Export limit enabled** | The limit only applies while this is on |
+| **Inverter grid connection** | Disconnects the inverter from the grid. In the entity list, off by default |
+
+The ECU has no timer after which the limit lapses and no power factor
+setting. So those entities do not exist for it.
+
+**Take the shown value with a grain of salt.** An ECU-R shows an export
+limit of 30 % with the limit enabled before anyone has set one, while
+the micro inverters run at full power. Treat that as the ECU's default
+display, not as an active limit.
+
+**One setting for all.** One ECU holds one limit for all its micro
+inverters. Writing it to one unit ID is enough, and every unit ID shows
+it. The ECU asks the micro inverters about every 5 minutes, so it takes
+that long for the first micro inverter to follow. With eight micro
+inverters it takes up to about 13 minutes for all of them.
+
+**It works.** On eight DS3 behind one ECU-R, 10 % held every micro
+inverter at about 65 W, and 100 % released them.
+
+### ECU-R firmware 1.3.23 does not follow the standard
+
+SunSpec is the standard that all inverters of this kind are meant to
+follow. It describes the power control data as a block with a fixed
+number (123) and a fixed length (24 values). ECU-R firmware 1.3.23
+does it differently: it labels that block with a different number (114)
+and makes it twice as long (48 values). The label 114 is also in use for
+something else on these ECUs, the panel inputs above, so a program that
+trusts the label gets confused.
+
+You do not have to do anything. The integration notices this, ignores
+the wrong label and reads the data as the power control block anyway.
+The export limit and the on/off switch work as described above.
+
+If you see odd behaviour with this firmware, include the diagnostics
+download in your report (see [Troubleshooting](troubleshooting.md)).
+
+---
+
+## Technical details
+
+- **Models the gateway offers**, as the APsystems document lists them:
+  1, 101 or 103, 111 to 113 and 123 (the controls).
+- **The panel inputs** are not in a SunSpec model. APsystems keeps them in
+  a block of its own, labelled model 114, with 8 float32 values each
+  for DC voltage, current and power, starting at register 40214. The
+  integration reads it from there.
+- **Energy produced today** is the SunSpec point `WH`. The standard
+  defines it as a lifetime counter, the ECU delivers a daily value
+  that resets every night.
+- **ECU-R firmware 1.3.23:** the header of the controls model (123)
+  reads 114, with 48 registers instead of 24. The integration reads the
+  registers behind the header as model 123.
+- **Controls:** *Export limit* is `WMaxLimPct`, *Export limit enabled*
+  is `WMaxLim_Ena`, *Inverter grid connection* is `Conn`. The ECU has no
+  `WMaxLimPct_RvrtTms` and no `OutPFSet`, so those entities are not
+  built.
 
 Source: APsystems, SunSpec Modbus, rev 3.3
 (https://global.apsystems.com/wp-content/uploads/2025/01/SunSpec-Modbus.pdf).
