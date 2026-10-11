@@ -22,6 +22,22 @@ inverter, all with the gateway's IP address and a different **unit ID**
    **SunSpec Modbus** on and give each micro inverter an address. Those
    addresses are the unit IDs you enter in Home Assistant.
 3. Use port 502 over the network (TCP), or the RS485 port of the ECU.
+   Over the network, Modbus only works on the **wired** port, so give
+   the ECU an Ethernet cable and a fixed IP address.
+4. Modbus is off in the factory settings, and the setting is in the
+   installer part of EMA Manager. If you have no installer account, use
+   the ECU's own access point: install EMA Manager on your phone, press
+   the **AP button** on the side of the ECU, connect the phone to the
+   Wi-Fi it starts (`ECU_R_2160...`) and choose **Local Access** in the
+   app. The Modbus settings are under *Workspace*. Depending on the
+   app version they are called *Modbus settings* or *Modbus
+   Configuration*.
+5. Testers report that APsystems features such as Dynamic Tariff stop
+   working while Modbus is on. That is the ECU's behaviour, not
+   something the integration can change.
+6. Let **nothing else talk to the ECU over Modbus** while the
+   integration runs. In one test a second connection made the ECU stop
+   answering the integration.
 
 ## What you get
 
@@ -41,6 +57,15 @@ A micro inverter has fewer than 8 inputs (a DS3 has 2). The gateway
 reports 0 for the inputs that do not exist. So only inputs 1 and 2 are
 switched on. The others are in the entity list, switched off. Turn on
 as many as your micro inverter has.
+
+## How often the values change
+
+The ECU collects the values from the micro inverters over Zigbee about
+every 5 minutes, and Modbus only reads what the ECU has collected. Polling
+more often does not make the values fresher. With many micro inverters it
+overloads the ECU: testers with eight micro inverters behind one ECU-R
+got timeouts at a 20 second interval. If you see timeouts, raise the
+polling interval. Daily totals can differ by about 1 % from the EMA app.
 
 ## Energy produced today
 
@@ -69,6 +94,25 @@ setting. So those entities do not exist for it.
 limit of 30 % with the limit enabled before anyone has set one, while
 the micro inverters run at full power. Treat that as the ECU's default
 display, not as an active limit.
+
+**An ECU that does not pass the limit on.** An early tester measured this
+on one ECU-R (firmware 1.3.23) with eight DS3 micro inverters. It is not
+in the APsystems document, so treat it as an observation:
+
+- The ECU only passes a limit on to the micro inverters when the value
+  *changes*. If one micro inverter misses a change, the ECU does not send
+  it again. Writing the same value again does nothing. Write another
+  value first (99 instead of 100), wait a few minutes, then the value
+  you want.
+- Restarting the ECU clears the limit on the micro inverters, while the
+  ECU keeps showing the old value.
+- At 0 % each micro inverter still delivers about 20 to 30 W.
+- Just before dusk the ECU can show 30 % for a single reading.
+
+If a micro inverter stays limited, set 100 %. If that does not help,
+switch the ECU off for a minute. In the tester's runs this cleared the
+limit on all micro inverters. Before you remove the integration, set
+100 % and check that every micro inverter delivers power again.
 
 **One setting for all.** One ECU holds one limit for all its micro
 inverters. Writing it to one unit ID is enough, and every unit ID shows

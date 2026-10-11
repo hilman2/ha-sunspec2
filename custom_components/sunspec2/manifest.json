@@ -23,7 +23,8 @@
     {"macaddress": "DC5726*"},
     {"macaddress": "0022F2*"},
     {"macaddress": "34ADE4*"},
-    {"macaddress": "001EC0*"}
+    {"macaddress": "001EC0*"},
+    {"macaddress": "80971B*"}
   ],
   "documentation": "https://github.com/hilman2/ha-sunspec2",
   "integration_type": "device",
