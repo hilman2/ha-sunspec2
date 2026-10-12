@@ -127,7 +127,9 @@ in the APsystems document, so treat it as an observation:
   you want.
 - Restarting the ECU clears the limit on the micro inverters, while the
   ECU keeps showing the old value.
-- At 0 % each micro inverter still delivers about 20 to 30 W.
+- At 0 % each micro inverter still delivers about 15 to 31 W. At 20 %
+  a DS3-L delivered up to 17 W more than 20 % of its rating. Read the
+  limit as a ceiling with some give, not as an exact value.
 - Just before dusk the ECU can show 30 % for a single reading.
 
 If a micro inverter stays limited, set 100 %. If that does not help,
@@ -184,3 +186,7 @@ download in your report (see [Troubleshooting](troubleshooting.md)).
 
 Source: APsystems, SunSpec Modbus, rev 3.3
 (https://global.apsystems.com/wp-content/uploads/2025/01/SunSpec-Modbus.pdf).
+The 15 to 31 W at 0 % and the 17 W at 20 % are measurements on DS3-L
+micro inverters by the author of
+[homeassistant-apsystems_modbus](https://github.com/christianvaes/homeassistant-apsystems_modbus),
+version 0.4.0. They are not in the APsystems document.
