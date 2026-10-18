@@ -859,6 +859,30 @@
       },
       "apsystems_dc_power_8": {
         "name": "DC-Leistung Eingang 8"
+      },
+      "saj_energy_today": {
+        "name": "Tagesertrag"
+      },
+      "saj_energy_month": {
+        "name": "Monatsertrag"
+      },
+      "saj_dc_voltage_1": {
+        "name": "DC-Spannung Eingang 1"
+      },
+      "saj_dc_voltage_2": {
+        "name": "DC-Spannung Eingang 2"
+      },
+      "saj_dc_current_1": {
+        "name": "DC-Strom Eingang 1"
+      },
+      "saj_dc_current_2": {
+        "name": "DC-Strom Eingang 2"
+      },
+      "saj_dc_power_1": {
+        "name": "DC-Leistung Eingang 1"
+      },
+      "saj_dc_power_2": {
+        "name": "DC-Leistung Eingang 2"
       }
     }
   },

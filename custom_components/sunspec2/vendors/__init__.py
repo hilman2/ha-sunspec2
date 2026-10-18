@@ -5,7 +5,7 @@ entities that only make sense with the vendor's reading of a model, and
 hides generic ones that would write the same register in another unit.
 The profile is picked from ``Mn`` in common model 1 once per connection.
 
-Fronius in two generations, SolarEdge, SMA, Kostal and APsystems so far. See
+Fronius in two generations, SolarEdge, SMA, Kostal, APsystems and SAJ so far. See
 ``profile.py`` for the shape, and the vendor modules for the knowledge
 and its sources.
 """
@@ -20,6 +20,7 @@ from .profile import ModuleRole
 from .profile import VendorProfile
 from .profile import WriteStep
 from .profile import plan_write
+from .saj import SAJ
 from .sma import SMA
 from .solaredge import SOLAREDGE
 
@@ -32,6 +33,7 @@ PROFILES: tuple[VendorProfile, ...] = (
     SMA,
     KOSTAL,
     APSYSTEMS,
+    SAJ,
 )
 
 

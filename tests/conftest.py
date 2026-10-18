@@ -21,6 +21,7 @@ from .apsystems_registers import ds3_registers
 from .kostal_registers import no_battery_registers
 from .kostal_registers import plenticore_g1_registers
 from .kostal_registers import plenticore_registers
+from .saj_registers import r6_registers
 from .sma_registers import smart_energy_registers
 from .solaredge_registers import home_hub_registers
 
@@ -357,6 +358,18 @@ def sunspec_apsystems_client_mock():
     client = MockFileClientDevice("./tests/test_data/inverter_apsystems.json")
     client.scan()
     client.registers = ds3_registers()
+    with (
+        patch("custom_components.sunspec2.SunSpecApiClient.modbus_connect", return_value=client),
+    ):
+        yield client
+
+
+@pytest.fixture
+def sunspec_saj_client_mock():
+    """A SAJ R6 behind an eSolar AIO3: models 1 and 103, SAJ's energy and DC blocks."""
+    client = MockFileClientDevice("./tests/test_data/inverter_saj.json")
+    client.scan()
+    client.registers = r6_registers()
     with (
         patch("custom_components.sunspec2.SunSpecApiClient.modbus_connect", return_value=client),
     ):
