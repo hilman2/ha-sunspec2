@@ -67,6 +67,27 @@ overloads the ECU: testers with eight micro inverters behind one ECU-R
 got timeouts at a 20 second interval. If you see timeouts, raise the
 polling interval. Daily totals can differ by about 1 % from the EMA app.
 
+The ECU starts a round on the clock, about 10 seconds past every fifth
+minute, and works through the micro inverters one by one. With many of
+them the last one is up to a few minutes behind the first. A reply can
+take close to a minute when the ECU is busy, and a request you give up
+on keeps it busy.
+
+## What the ECU does not report
+
+The following comes from one tester with eight DS3 on an ECU-R
+(firmware 1.3.23). It is not in the APsystems document, so treat it as
+an observation:
+
+- **Operating state** always reads MPPT, also at night, and the **event
+  flags** always read 0. Do not build an automation on either.
+- A **DS3-L** and a **DS3** both report the model DS3, so the integration
+  cannot tell them apart.
+- There is no timestamp or round counter. A value that did not change
+  can be new or old.
+- At night a micro inverter can keep showing 1 W with 0 V and 0 Hz, until
+  the ECU resets its counters at about 02:15.
+
 ## Energy produced today
 
 **Energy produced today** is the yield of the current day. It is not a
@@ -131,6 +152,11 @@ in the APsystems document, so treat it as an observation:
   a DS3-L delivered up to 17 W more than 20 % of its rating. Read the
   limit as a ceiling with some give, not as an exact value.
 - Just before dusk the ECU can show 30 % for a single reading.
+- Turning **Export limit enabled** on while it is already on stopped the
+  ECU from answering at all, twice, until it was switched off and on.
+  Switch it on only when it shows off. The `set_export_limit` action
+  sets the flag too. In an automation that runs while the limit is
+  already on, pass `enable: false`.
 
 If a micro inverter stays limited, set 100 %. If that does not help,
 switch the ECU off for a minute. In the tester's runs this cleared the
@@ -189,4 +215,8 @@ Source: APsystems, SunSpec Modbus, rev 3.3
 The 15 to 31 W at 0 % and the 17 W at 20 % are measurements on DS3-L
 micro inverters by the author of
 [homeassistant-apsystems_modbus](https://github.com/christianvaes/homeassistant-apsystems_modbus),
-version 0.4.0. They are not in the APsystems document.
+version 0.4.0. The round timing, the readings the ECU gets wrong, the
+02:15 reset and the flag that silenced the ECU are that author's
+observations too (issue 1 and the code of version 0.4.12 in that
+repository, ECU-R firmware 1.3.23). None of them is in the APsystems
+document, and we have not reproduced them.
