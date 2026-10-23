@@ -19,6 +19,7 @@ from custom_components.sunspec2.errors import DeviceError
 from custom_components.sunspec2.errors import TransientError
 from custom_components.sunspec2.errors import TransportError
 from custom_components.sunspec2.raw_blocks import REPROBE_CYCLES
+from custom_components.sunspec2.raw_blocks import RETRY_CYCLES
 from custom_components.sunspec2.raw_blocks import RawBlockReader
 from custom_components.sunspec2.raw_blocks import decode_block
 from custom_components.sunspec2.raw_blocks import decode_field
@@ -154,6 +155,35 @@ async def test_a_silent_block_costs_one_timeout_and_then_waits():
     assert await reader.async_read((BLOCK,)) == {}
     assert await reader.async_read((BLOCK,)) == {}
     assert api.async_read_block.await_count == 1
+
+
+async def test_a_block_that_answered_rides_out_a_refusal():
+    reader, api = _reader(None)
+    api.async_read_block.return_value = b"\x00\x07\x00\x00"
+    assert await reader.async_read((BLOCK,)) == {"one": {"value": 7}}
+    # SAJ's dongle refuses a read now and then: keep the reading, ask again next cycle.
+    api.async_read_block.side_effect = DeviceError("Modbus exception 4")
+    assert await reader.async_read((BLOCK,)) == {"one": {"value": 7}}
+    api.async_read_block.side_effect = TransientError("Modbus read timeout at register 100")
+    assert await reader.async_read((BLOCK,)) == {"one": {"value": 7}}
+    api.async_read_block.side_effect = None
+    api.async_read_block.return_value = b"\x00\x08\x00\x00"
+    assert await reader.async_read((BLOCK,)) == {"one": {"value": 8}}
+    assert api.async_read_block.await_count == 4
+
+
+async def test_a_block_that_answered_is_absent_after_failing_in_a_row():
+    reader, api = _reader(None)
+    api.async_read_block.return_value = b"\x00\x07\x00\x00"
+    assert await reader.async_read((BLOCK,)) == {"one": {"value": 7}}
+    api.async_read_block.side_effect = DeviceError("Modbus exception 2")
+    for _ in range(RETRY_CYCLES):
+        assert await reader.async_read((BLOCK,)) == {"one": {"value": 7}}
+    assert await reader.async_read((BLOCK,)) == {}
+    reads = api.async_read_block.await_count
+    for _ in range(REPROBE_CYCLES - 1):
+        assert await reader.async_read((BLOCK,)) == {}
+    assert api.async_read_block.await_count == reads
 
 
 async def test_a_connection_failure_keeps_the_last_reading():

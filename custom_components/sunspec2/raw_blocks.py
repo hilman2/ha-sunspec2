@@ -14,6 +14,12 @@ at all for a block it does not serve, which costs the socket timeout
 each time it is tried. Both mark the block absent for a while; both
 are tried again later, because a feature can be switched on by the
 vendor's support without a reconnect.
+
+A block that has answered before is another matter. SAJ's dongle
+refuses a read now and then with a Modbus exception, a few dozen times
+a day, for registers it served a second earlier. Such a block keeps
+its last reading and is asked again the next cycle; only when it fails
+``RETRY_CYCLES`` cycles in a row is it taken for absent.
 """
 
 from __future__ import annotations
@@ -39,6 +45,10 @@ _LOGGER: logging.Logger = logging.getLogger(__package__)
 #: Cycles an absent or silent block waits before it is tried again:
 #: an hour at the default scan interval.
 REPROBE_CYCLES = 120
+
+#: Cycles in a row a block that has answered before may fail before it
+#: is taken for absent. SAJ's dongle refuses single reads at random.
+RETRY_CYCLES = 3
 
 _NOT_IMPLEMENTED: dict[str, int] = {
     "uint16": 0xFFFF,
@@ -143,6 +153,8 @@ class _Probe:
     skip_until: int | None = None
     last: dict[str, Any] | None = None
     reported: bool = False
+    seen: bool = False
+    misses: int = 0
 
 
 class RawBlockReader:
@@ -183,12 +195,12 @@ class RawBlockReader:
                 # A Modbus exception: the device does not serve these
                 # registers. SolarEdge switches whole feature sets on per
                 # inverter, so ask again in a while.
-                self._mark_absent(probe, block, f"not on this device ({exc})")
+                self._fail(probe, block, f"not on this device ({exc})", result)
             except TransientError as exc:
                 # Silence. SolarEdge firmware from 4.23 hangs instead of
                 # refusing a block it does not have, and every attempt
                 # costs the socket timeout, so this one waits as long.
-                self._mark_absent(probe, block, f"no answer ({exc})")
+                self._fail(probe, block, f"no answer ({exc})", result)
             except SunSpecError as exc:
                 self._log.debug("Raw block %s: %s, keeping the last reading", block.key, exc)
                 if probe.last is not None:
@@ -198,13 +210,28 @@ class RawBlockReader:
                     self._log.info("Raw block %s answers again", block.key)
                     probe.reported = False
                 probe.skip_until = None
+                probe.seen = True
+                probe.misses = 0
                 probe.last = decoded
                 result[block.key] = decoded
         return result
 
+    def _fail(
+        self, probe: _Probe, block: RawBlock, why: str, result: dict[str, dict[str, Any]]
+    ) -> None:
+        """A block that has answered before rides out a few refusals on its last reading."""
+        if probe.seen and probe.misses < RETRY_CYCLES:
+            probe.misses += 1
+            self._log.debug("Raw block %s: %s, keeping the last reading", block.key, why)
+            if probe.last is not None:
+                result[block.key] = probe.last
+            return
+        self._mark_absent(probe, block, why)
+
     def _mark_absent(self, probe: _Probe, block: RawBlock, why: str) -> None:
         probe.skip_until = self._cycle + REPROBE_CYCLES
         probe.last = None
+        probe.misses = 0
         if not probe.reported:
             self._log.info(
                 "Raw block %s at %d: %s. Trying again in %d cycles",
