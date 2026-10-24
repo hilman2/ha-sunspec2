@@ -1,0 +1,106 @@
+{
+  "name": "franklinwh_selected_v12_points",
+  "models": [
+    {
+      "ID": 1,
+      "Mn": "FranklinWH",
+      "Md": "aGate X",
+      "Opt": "",
+      "Vr": "V12R02B60D00",
+      "SN": "test-franklinwh",
+      "DA": 1,
+      "Pad": 0
+    },
+    {
+      "ID": 701,
+      "ACType": 0,
+      "St": 1,
+      "InvSt": 3,
+      "ConnSt": 1,
+      "DERMode": 1,
+      "W": -1,
+      "LNV": 2425,
+      "Hz": 49980,
+      "TotWhInj": 5964768,
+      "TotWhAbs": 1918874,
+      "W_SF": 0,
+      "V_SF": -1,
+      "Hz_SF": -3,
+      "WH_SF": 0
+    },
+    {
+      "ID": 702,
+      "WMaxRtg": 0,
+      "WChaRteMaxRtg": 5000,
+      "WDisChaRteMaxRtg": 5000,
+      "W_SF": 0
+    },
+    {
+      "ID": 703
+    },
+    {
+      "ID": 704,
+      "WSetEna": 0,
+      "WSetMod": 0,
+      "WSet": 0,
+      "WSetPct": 0,
+      "WSetRvrt": 0,
+      "WSetPctRvrt": 0,
+      "WSetEnaRvrt": 0,
+      "WSetRvrtTms": 0,
+      "WSetRvrtRem": 0,
+      "WSet_SF": 0,
+      "WSetPct_SF": -1
+    },
+    {
+      "ID": 713,
+      "WHRtg": 13600,
+      "WHAvail": 4394,
+      "SoC": 320,
+      "SoH": 948,
+      "Sta": 0,
+      "WH_SF": 0,
+      "Pct_SF": -1
+    },
+    {
+      "ID": 714,
+      "PrtAlrms": 0,
+      "NPrt": 1,
+      "DCA": 0,
+      "DCW": -100,
+      "DCWhInj": 7861360,
+      "DCWhAbs": 8039960,
+      "DCA_SF": 0,
+      "DCV_SF": 0,
+      "DCW_SF": 0,
+      "DCWH_SF": 0,
+      "Tmp_SF": 0,
+      "Prt": [
+        {
+          "PrtTyp": 0,
+          "ID": 0,
+          "IDStr": "ID_String",
+          "DCA": 0,
+          "DCV": 0,
+          "DCW": 0,
+          "DCWhInj": 0,
+          "DCWhAbs": 0,
+          "Tmp": 0,
+          "DCSta": 0,
+          "DCAlrm": 0
+        }
+      ]
+    },
+    {
+      "ID": 502,
+      "OutPw": 300,
+      "OutWh": 15882870,
+      "W_SF": 0,
+      "Wh_SF": 0
+    },
+    {
+      "ID": 65535,
+      "L": 0
+    }
+  ]
+}

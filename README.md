@@ -51,6 +51,7 @@ setting, the entry links to a page with the details:
 **APsystems** ECU-R, ECU-C (micro inverters, see [docs/apsystems.md](docs/apsystems.md)) .  
 **Chint Power Systems**  
 **Delta** Solivia, RPI .  
+**FranklinWH** aGate gateways with aPower batteries (see [docs/franklinwh.md](docs/franklinwh.md)) .\
 **Fronius** Symo, Primo, Eco, Galvo, GEN24, Verto, Tauro (see [docs/fronius.md](docs/fronius.md) and [docs/fronius-symo.md](docs/fronius-symo.md)) .  
 **GoodWe** XS, DT, ET .  
 **KACO** Powador, blueplanet .  
@@ -197,6 +198,9 @@ get more than that:
   integration reads it from SolarEdge's own data, one device per
   battery, if SolarEdge has switched that on for your system. See
   **[docs/solaredge.md](docs/solaredge.md)**.
+- **FranklinWH aGate** gets a watt target, standby and release actions,
+  battery activity, local and remote solar power and home consumption.
+  See **[docs/franklinwh.md](docs/franklinwh.md)** for firmware differences.
 - **Kostal Plenticore and PIKO IQ** show the house consumption split
   into roof, battery and grid. The battery appears as its own device
   with temperature and energy counters. A G3 can also hand the battery

@@ -51,6 +51,7 @@ from .const import EXPORT_LIMIT_DEFAULT_STEP_PCT
 from .const import EXPORT_LIMIT_MIN_STEP_PCT
 from .entity import SunSpecEntity
 from .errors import SunSpecError
+from .franklinwh_controls import franklinwh_numbers
 from .models import SunSpecModelWrapper
 from .storage_modes import storage_setpoint_numbers
 from .vendor_blocks import raw_block_numbers
@@ -196,6 +197,7 @@ async def async_setup_entry(
     entities.extend(battery_plan_numbers(coordinator, entry, prefix))
     # The vendor's registers outside the models, where a profile has them.
     entities.extend(raw_block_numbers(coordinator, entry, prefix))
+    entities.extend(franklinwh_numbers(coordinator, entry, prefix))
     async_add_devices(entities)
 
 

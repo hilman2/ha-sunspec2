@@ -266,6 +266,9 @@
       },
       "battery_fallback_time": {
         "name": "Time until fallback"
+      },
+      "franklinwh_power_target": {
+        "name": "Battery power target"
       }
     },
     "select": {
@@ -427,6 +430,12 @@
     "button": {
       "reset_modbus_control": {
         "name": "Reset Modbus control"
+      },
+      "franklinwh_standby": {
+        "name": "Hold battery in standby"
+      },
+      "franklinwh_release": {
+        "name": "Release battery control"
       }
     },
     "sensor": {
@@ -885,6 +894,58 @@
       },
       "saj_dc_power_2": {
         "name": "DC power input 2"
+      },
+      "franklinwh_pv_total": {
+        "name": "Solar power from extension registers"
+      },
+      "franklinwh_pv_proximal": {
+        "name": "Local solar power"
+      },
+      "franklinwh_pv_remote_1": {
+        "name": "Remote solar power 1"
+      },
+      "franklinwh_pv_remote_2": {
+        "name": "Remote solar power 2"
+      },
+      "franklinwh_home_load": {
+        "name": "Home load, coarse reading"
+      },
+      "franklinwh_home_load_high_resolution": {
+        "name": "Home load"
+      },
+      "franklinwh_native_mode": {
+        "name": "Native operating mode",
+        "state": {
+          "emergency_backup": "Emergency backup",
+          "self_consumption": "Self-consumption",
+          "time_of_use": "Time of use"
+        }
+      },
+      "franklinwh_self_reserve": {
+        "name": "Self-consumption reserve"
+      },
+      "franklinwh_tou_reserve": {
+        "name": "Reported time-of-use reserve"
+      },
+      "franklinwh_active_reserve": {
+        "name": "Reported active reserve"
+      },
+      "franklinwh_pv_energy": {
+        "name": "Solar energy from extension registers"
+      },
+      "franklinwh_pv_proximal_energy": {
+        "name": "Local solar energy"
+      },
+      "franklinwh_battery_state": {
+        "name": "Battery activity",
+        "state": {
+          "charging": "Charging",
+          "discharging": "Discharging",
+          "idle": "Idle"
+        }
+      },
+      "franklinwh_home_consumption": {
+        "name": "Home consumption"
       }
     }
   },
