@@ -40,9 +40,10 @@ consecutive rejections, which costs a poll or two of the new year.
 
 Sources: register reads of an R6-15K-T2-32 on firmware 6.199 behind an
 AIO3, checked against model 103, SAJ's eSolar cloud and the Elekeeper
-app on 2026-10-17 and 18. Only the R6 is known; the profile does not
-claim other SAJ models, whose own register maps differ (the R5 and the
-H1/H2 hybrids put their real-time data at 0x0100 or 0x4000 over RS485).
+app on 2026-10-17 and 18. Only the R6-15K-T2-32 is verified; other R6
+variants stay generic until their registers have been checked. Other
+SAJ models use different maps: the R5 and the H1/H2 hybrids put their
+real-time data at 0x0100 or 0x4000 over RS485.
 """
 
 from __future__ import annotations
@@ -131,8 +132,10 @@ RAW_SENSORS: tuple[RawSensor, ...] = (
 
 
 def is_r6(model: str, option: str, version: str) -> bool:
-    """Whether common model 1 describes an R6, the one SAJ inverter the registers are known for."""
-    return model.upper().startswith("R6") or option.upper().startswith("R6")
+    """Whether common model 1 names the R6 variant whose registers have been checked."""
+    # Opt only says "R6" on the verified device. It cannot distinguish
+    # the larger R6 variants with three or four MPPT inputs.
+    return model.strip().upper() == "R6-15K-T2-32"
 
 
 SAJ = VendorProfile(

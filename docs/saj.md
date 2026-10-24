@@ -1,10 +1,10 @@
 # SAJ
 
-This page is for SAJ R6 inverters (three-phase, 3 to 15 kW) with an
+This page is for the SAJ R6-15K-T2-32 (three-phase, 15 kW) with an
 **eSolar AIO3** communication module. The AIO3 is the small module
 plugged into the inverter's USB port that sends data to SAJ's cloud and
 the Elekeeper app. Home Assistant talks to the module, and the module
-answers for the inverter. The integration recognises an R6 by the
+answers for the inverter. The integration recognises this model by the
 manufacturer and model name it reports, so there is nothing to select.
 
 ## Before it works
@@ -55,7 +55,7 @@ control.
   place, so you can untick model 160 in the options.
 - **The DC voltage of the inverter sensor is one input's voltage.** DC
   power and DC current there are the sum of both inputs.
-- **Other SAJ inverters** (R5, Sununo, the H1 and H2 hybrids) are not
+- **Other SAJ inverters**, including other R6 variants, are not
   covered by these extra sensors, because their registers are not
   known to be the same. They still get the usual sensors if their
   communication module speaks SunSpec. A report with a register dump is

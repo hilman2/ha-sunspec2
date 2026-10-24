@@ -1,5 +1,6 @@
 """The SAJ profile: the energy counters and the MPPT inputs from SAJ's own registers on an R6."""
 
+import pytest
 from homeassistant.components.sensor import SensorStateClass
 
 from custom_components.sunspec2.api import SunSpecApiClient
@@ -13,11 +14,18 @@ from .const import MOCK_CONFIG
 from .saj_registers import PV_ADDRESS
 
 
-def test_saj_is_matched_for_the_r6_only():
+def test_saj_is_matched_for_the_verified_r6():
     assert profile_for("SAJ", "R6-15K-T2-32", "R6", "6.199") is SAJ
-    # The registers are known for the R6 alone; another SAJ stays generic.
-    assert profile_for("SAJ", "H2-10K-T2", "", "") is None
+    assert profile_for(" SAJ ", " r6-15k-t2-32 ") is SAJ
     assert profile_for("Fronius", "R6-15K-T2-32") is not SAJ
+
+
+@pytest.mark.parametrize(
+    "model",
+    ["R6-25K-T3-32-B", "R6-50K-T4-32", "R6-5K-S2", "R6-10K-T2", "H2-10K-T2", ""],
+)
+def test_unverified_models_stay_generic_even_with_an_r6_option(model):
+    assert profile_for("SAJ", model, "R6", "6.199") is None
 
 
 def test_the_blocks_sit_where_the_r6_keeps_them():
