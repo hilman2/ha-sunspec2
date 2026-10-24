@@ -207,6 +207,7 @@ class SunSpecApiClient:
         # the model objects; the next client connects on the same object,
         # which modbus-connection reconnects on demand.
         self._connection: ModbusConnection | None = None
+        self._shutdown = False
         # Cached SunSpec layout: base address plus (model_id, addr, len)
         # per block. Survives close() and transport failures. A new client
         # validates it before use; device or firmware changes explicitly
@@ -257,6 +258,8 @@ class SunSpecApiClient:
         disconnects the link but retains the client; the next register
         request reconnects without rebuilding its models.
         """
+        if self._shutdown:
+            raise TransportError("SunSpec client is shut down")
         # Clear the flag whether or not there was a client to drop. It
         # arrives both ways: _after_failed_cycle closes before setting
         # it, so _client is already None there, while the in-cycle retry
@@ -1058,6 +1061,7 @@ class SunSpecApiClient:
 
     async def async_shutdown(self) -> None:
         """Close the client and the connection for good: the entry is unloading."""
+        self._shutdown = True
         await self.async_close(force=True)
         connection = self._connection
         self._connection = None
@@ -1096,6 +1100,9 @@ class SunSpecApiClient:
 
     def _get_connection(self) -> ModbusConnection:
         """The connection object, built on first use. Constructing it does no I/O."""
+        # A retry or a pending scan may resume after HA unloaded the entry.
+        if self._shutdown:
+            raise TransportError("SunSpec client is shut down")
         if self._connection is None:
             self._connection = ModbusConnection(self._params(), timeout=self._timeout)
         return self._connection
