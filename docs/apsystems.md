@@ -116,9 +116,8 @@ What to expect:
 
 ## Limiting what you feed in
 
-The integration can limit the output of your micro inverters. This is
-off until you switch on the experimental export controls in the
-integration's options. How that works, and the risks, are in
+The integration offers controls to limit the output of your micro
+inverters. How that works, and the risks, are in
 [Battery and export control](write-controls.md).
 
 What you get:

@@ -38,7 +38,6 @@ page in your browser and go to *Communication -> Modbus*:
 
 The battery entities appear on their own when the inverter reports a
 battery. There is nothing to tick in the integration options for them.
-Only the export limit is behind the experimental switch there.
 
 The inverter has features that take priority over commands from Home
 Assistant: **IO control** and **dynamic power reduction**, if you set
@@ -209,9 +208,8 @@ Scheduled automations can call it without that.
 - **Minimum reserve does not stop discharging by itself.** It sets how
   much charge the inverter keeps back. Solar.web shows "Energy-saving
   mode" once it is set. The inverter ignores a reserve below 5 %.
-- **A new export limit needs the switch turned off and on.** The export
-  limit and the power factor are behind the experimental switch in the
-  integration options. A GEN24 takes a new **Export limit** or **Power
+- **A new export limit needs the switch turned off and on.** A GEN24
+  takes a new **Export limit** or **Power
   factor** only when its enable switch goes from off to on. If the
   switch is already on, Home Assistant shows your new value, but the
   inverter keeps running on the old one. The only way to see it is the
@@ -355,9 +353,6 @@ registers; the per-string energies are on those.
   on the old one. The integration option *rearm_on_change* does the
   switch off, value, switch on cycle with one second between the
   writes.
-- The experimental export controls are the integration option "Enable
-  experimental export controls (BETA)". The battery controls of model
-  124 do not need it.
 - **Meters** sit under unit IDs 200, 201, 202. Several entries on one
   IP address share the connection through a per-host lock.
 

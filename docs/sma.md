@@ -61,8 +61,7 @@ are described in [write-controls.md](write-controls.md). The export
 limit works on current firmware without the installer's Grid Guard
 code (a code that unlocks protected grid settings), see Technical
 details. SMA names those export limits, and only those, as safe to
-write on a timer. The export limit is behind the experimental export
-controls option, see
+write on a timer. See
 [Battery and export control](../README.md#battery-and-export-control).
 
 ## How to use it

@@ -10,7 +10,6 @@ from homeassistant.helpers import device_registry as dr
 from pytest_homeassistant_custom_component.common import async_fire_time_changed
 
 from custom_components.sunspec2 import get_sunspec_unique_id
-from custom_components.sunspec2.const import CONF_WRITE_BETA_ENABLED
 from custom_components.sunspec2.const import DOMAIN
 from custom_components.sunspec2.const import default_models_for
 from custom_components.sunspec2.raw_blocks import decode_block
@@ -246,19 +245,17 @@ def _controls(hass, platform, cls):
     )
 
 
-async def _write_entry(hass, beta=False):
-    entry = create_mock_sunspec_config_entry(
-        hass, options={CONF_WRITE_BETA_ENABLED: True} if beta else {}
-    )
+async def _write_entry(hass):
+    entry = create_mock_sunspec_config_entry(hass)
     await setup_mock_sunspec_config_entry(hass, config_entry=entry)
     return entry
 
 
-async def test_the_battery_bounds_exist_without_the_beta(hass, sunspec_kostal_client_mock):
-    """Bounding the battery is not driving it, so it needs no opt-in."""
+async def test_the_battery_controls_exist_by_default(hass, sunspec_kostal_client_mock):
     await _write_entry(hass)
     numbers = _controls(hass, "number", RawBlockNumber)
     assert set(numbers) == {
+        "battery_dc_power_setpoint",
         "battery_min_soc",
         "battery_max_soc",
         "battery_max_charge_power_limit",
@@ -275,14 +272,8 @@ async def test_the_battery_bounds_exist_without_the_beta(hass, sunspec_kostal_cl
     assert set(_controls(hass, "switch", RawKeepAliveSwitch)) == {"battery_limitation_hold"}
 
 
-async def test_the_dc_setpoint_stays_away_without_the_beta(hass, sunspec_kostal_client_mock):
-    """The one entity that drives the battery, and the one Kostal names no timeout for."""
+async def test_the_dc_setpoint_uses_the_device_value(hass, sunspec_kostal_client_mock):
     await _write_entry(hass)
-    assert "battery_dc_power_setpoint" not in _controls(hass, "number", RawBlockNumber)
-
-
-async def test_the_dc_setpoint_appears_with_the_beta(hass, sunspec_kostal_client_mock):
-    await _write_entry(hass, beta=True)
     setpoint = _controls(hass, "number", RawBlockNumber)["battery_dc_power_setpoint"]
     assert setpoint.native_value == 0.0
     # Negative charges, which is Kostal's sign convention.
@@ -311,6 +302,7 @@ async def test_an_inverter_below_the_limitation_firmware_gets_the_rest(
     assert "battery_limitation" not in entry.runtime_data.raw_blocks
     numbers = _controls(hass, "number", RawBlockNumber)
     assert set(numbers) == {
+        "battery_dc_power_setpoint",
         "battery_min_soc",
         "battery_max_soc",
         "battery_max_charge_power_limit",

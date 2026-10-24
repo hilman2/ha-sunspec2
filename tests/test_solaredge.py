@@ -14,7 +14,6 @@ from homeassistant.helpers import device_registry as dr
 from pytest_homeassistant_custom_component.common import async_fire_time_changed
 
 from custom_components.sunspec2 import get_sunspec_unique_id
-from custom_components.sunspec2.const import CONF_WRITE_BETA_ENABLED
 from custom_components.sunspec2.const import DOMAIN
 from custom_components.sunspec2.errors import DeviceError
 from custom_components.sunspec2.errors import TransientError
@@ -313,41 +312,43 @@ def _controls(hass, platform, cls):
     )
 
 
-async def _write_entry(hass, beta=False):
-    entry = create_mock_sunspec_config_entry(
-        hass, options={CONF_WRITE_BETA_ENABLED: True} if beta else {}
-    )
+async def _write_entry(hass):
+    entry = create_mock_sunspec_config_entry(hass)
     await setup_mock_sunspec_config_entry(hass, config_entry=entry)
     return entry
 
 
-async def test_the_storage_controls_exist_without_the_beta(hass, sunspec_solaredge_client_mock):
+async def test_the_controls_exist_by_default(hass, sunspec_solaredge_client_mock):
     await _write_entry(hass)
     selects = _controls(hass, "select", RawBlockSelect)
     numbers = _controls(hass, "number", RawBlockNumber)
     switches = _controls(hass, "switch", RawKeepAliveSwitch)
     assert set(selects) == {
+        "site_limit_mode",
+        "site_limit_scope",
         "storage_control_mode",
         "storage_ac_charge_policy",
         "storage_default_mode",
         "storage_command_mode",
     }
     assert set(numbers) == {
+        "site_limit",
+        "active_power_limit",
         "storage_ac_charge_limit",
         "storage_backup_reserve",
         "storage_command_timeout",
         "storage_charge_limit",
         "storage_discharge_limit",
     }
-    assert set(switches) == {"storage_command_rearm"}
+    assert set(switches) == {"storage_command_rearm", "active_power_limit_reassert"}
     assert selects["storage_control_mode"].current_option == "maximize_self_consumption"
     assert selects["storage_command_mode"].current_option == "maximize_self_consumption"
     assert numbers["storage_command_timeout"].native_value == 3600.0
     assert numbers["storage_backup_reserve"].native_value == 10.0
 
 
-async def test_the_export_controls_need_the_beta(hass, sunspec_solaredge_client_mock):
-    await _write_entry(hass, beta=True)
+async def test_the_export_controls_use_the_device_values(hass, sunspec_solaredge_client_mock):
+    await _write_entry(hass)
     assert {"site_limit_mode", "site_limit_scope"} <= set(_controls(hass, "select", RawBlockSelect))
     numbers = _controls(hass, "number", RawBlockNumber)
     assert {"site_limit", "active_power_limit"} <= set(numbers)
@@ -384,7 +385,7 @@ async def test_a_number_writes_in_the_inverters_word_order(hass, sunspec_solared
 async def test_the_site_limit_mode_keeps_the_other_bits(hass, sunspec_solaredge_client_mock):
     """Bit 10 says external production is present; choosing a mode must not clear it."""
     sunspec_solaredge_client_mock.registers[0xE000] = 1 | (1 << 10)
-    await _write_entry(hass, beta=True)
+    await _write_entry(hass)
     select = _controls(hass, "select", RawBlockSelect)["site_limit_mode"]
     assert select.current_option == "export_control_export_import_meter"
 
@@ -398,7 +399,7 @@ async def test_the_site_limit_mode_keeps_the_other_bits(hass, sunspec_solaredge_
 async def test_persistent_writes_are_counted_and_volatile_ones_are_not(
     hass, sunspec_solaredge_client_mock, caplog
 ):
-    entry = await _write_entry(hass, beta=True)
+    entry = await _write_entry(hass)
     numbers = _controls(hass, "number", RawBlockNumber)
     counter = next(iter(_controls(hass, "sensor", RawWriteCountSensor).values()))
     assert counter.native_value == 0

@@ -134,7 +134,8 @@ async def test_diagnostics_reports_models_the_user_did_not_enable(hass, sunspec_
 
     # The fixture device exposes far more than MOCK_CONFIG enables.
     assert detected > polled
-    assert 704 in detected and 704 not in polled
+    assert 705 in detected and 705 not in polled
+    assert 704 in polled
     assert diag["model_filters"]["option_model_filter"] == [103, 160]
 
 

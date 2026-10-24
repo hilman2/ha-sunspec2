@@ -17,7 +17,7 @@ has the short version.
 | Part | Switched on by |
 |---|---|
 | Battery controls | Nothing to do. They appear on their own when the inverter has a battery that can be steered |
-| Export limit, power factor, grid connection, the `sunspec2.set_export_limit` action | **Enable experimental export controls (BETA)** in the options. Off by default, see [Enabling the export controls](#enabling-the-export-controls) |
+| Export limit, power factor, grid connection, the `sunspec2.set_export_limit` action | Available when the inverter supports the corresponding controls |
 
 Some brands have their own extras on top. They have their own pages:
 [Fronius GEN24, Verto and Tauro](fronius.md),
@@ -115,18 +115,16 @@ net to least:
 
 ## Enabling the export controls
 
-1. *Settings -> Devices & Services -> SunSpec Modbus -> Configure*
-2. Go on to the step with the data blocks.
-3. Tick **Enable experimental export controls (BETA)**.
-4. Save. The entities appear on your inverter's device page.
+The controls appear on your inverter's device page when it supports
+them. You do not have to enable an integration option or select the
+control data blocks. Setup and polling only read values. A control or
+service action writes when you use it.
 
-You do not have to tick any data blocks for this yourself. The battery
-data is read whenever the inverter has it. The export data is read while
-the option is on. None of them is offered as a sensor, because their
-values are settings rather than measurements.
+Some controls, including **Inverter grid connection**, start disabled
+in the entity list. Enable an individual entity there when you need it.
 
-If your inverter has no such data at all, no entities appear even with
-the option on. To check what your inverter has, see
+If your inverter has no control data, no entities appear. To check what
+your inverter has, see
 [Which data blocks does my inverter have?](troubleshooting.md#which-data-blocks-does-my-inverter-actually-have).
 
 ## What you cannot change on purpose
@@ -152,21 +150,18 @@ None of that is an oversight. The reasoning for each entry is in the
 source file
 [`write_controls.py`](../custom_components/sunspec2/write_controls.py).
 
-## Why the export controls are still a beta
+## Differences between inverters
 
 - **Inverters differ from the standard.** Which firmware offers which
   data, how numbers are scaled, which values are accepted: all of it
   varies. This integration follows the standard, not your firmware.
 - **Some inverters keep a write through a power cycle, others forget
   it.**
-- **There is no test hardware.** The KACO Powador 7.8 TL3 that the
-  integration was developed against does not offer the control blocks.
-  So this part has not been tried against a live device of that kind.
 
 If you use these controls, please
 [open an issue](https://github.com/hilman2/ha-sunspec2/issues) with your
 inverter model, its firmware version and which writes worked and which
-did not. That feedback is what lets the BETA label come off.
+did not.
 
 ---
 
@@ -225,9 +220,10 @@ SunSpec marks 1586 points across 67 models as writable.
 
 ### Which models are polled
 
-The battery model (124) is polled whenever the inverter has it. The
-export models (123, 704) are polled while the option is on. All of them
-are kept out of the sensor list.
+The battery model (124) and export models (123, 704) are polled whenever
+the inverter has them, regardless of the model selection. Writable
+points become controls. The existing `WSetPct` sensor remains available
+alongside its control to preserve entity IDs and history.
 
 The diagnostics file lists the models the inverter has in its top-level
 `detected_models` array. Not `scanned_models`, which only lists what is

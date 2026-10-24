@@ -1,4 +1,4 @@
-"""Tests for the experimental Number platform and the write locking.
+"""Tests for the Number platform and the write locking.
 
 First coverage for this platform. It has shipped since v0.12.0 with
 none, which is how the scale-factor bug in #17 reached real hardware
@@ -13,7 +13,6 @@ from homeassistant.helpers import entity_registry as er
 
 from custom_components.sunspec2 import get_sunspec_unique_id
 from custom_components.sunspec2.const import CONF_ENABLED_MODELS
-from custom_components.sunspec2.const import CONF_WRITE_BETA_ENABLED
 from custom_components.sunspec2.errors import DeviceError
 from custom_components.sunspec2.models import SunSpecModelWrapper
 
@@ -36,23 +35,23 @@ def _live_entities(hass, domain):
     return list(component.entities) if component else []
 
 
-async def _setup_write_entry(hass, beta=True):
+async def _setup_write_entry(hass, legacy_beta=None):
     config_entry = create_mock_sunspec_config_entry(hass, data=MOCK_CONFIG_WRITE)
-    if beta:
+    if legacy_beta is not None:
         hass.config_entries.async_update_entry(
-            config_entry, options={CONF_WRITE_BETA_ENABLED: True}
+            config_entry, options={"write_beta_enabled": legacy_beta}
         )
     return await setup_mock_sunspec_config_entry(hass, config_entry=config_entry)
 
 
-async def test_number_entities_appear_with_beta_on(hass, sunspec_write_client_mock):
-    """All model 123 Number entities register when the beta flag is on.
+async def test_number_entities_appear_by_default(hass, sunspec_write_client_mock):
+    """All model 123 Number entities register without an option.
 
     MOCK_CONFIG_WRITE deliberately does NOT list 123 in its enabled
     models, which is the realistic case: 123 is not in DEFAULT_MODELS,
     so nobody has it ticked unless they went looking. Before v0.14.0
     the entities silently never appeared for those users (#17). The
-    beta flag alone must be enough.
+    detected model alone must be enough.
     """
     entry = await _setup_write_entry(hass)
 
@@ -70,22 +69,44 @@ async def test_number_entities_appear_with_beta_on(hass, sunspec_write_client_mo
     assert coordinator.write_model_filter == {123, 124, 704}
 
 
-async def test_beta_off_does_not_poll_model_123(hass, sunspec_write_client_mock):
-    """Without the beta flag we must not poll 123 behind the user's back.
-
-    The battery block is the exception: its controls are not behind
-    the beta, so it is in the filter for every device.
-    """
-    entry = await _setup_write_entry(hass, beta=False)
+async def test_control_models_are_polled_without_selecting_them(hass, sunspec_write_client_mock):
+    entry = await _setup_write_entry(hass)
     coordinator = entry.runtime_data
 
-    assert coordinator.write_model_filter == {124}
-    assert 123 not in coordinator.data
+    assert coordinator.write_model_filter == {123, 124, 704}
+    assert 123 in coordinator.data
 
 
-@pytest.mark.parametrize("beta", [False, True])
+@pytest.mark.parametrize("legacy_beta", [None, False, True])
+@pytest.mark.parametrize(
+    "device_fixture",
+    ["sunspec_write_client_mock", "sunspec_kostal_client_mock", "sunspec_solaredge_client_mock"],
+)
+async def test_default_controls_never_write_during_setup_or_reload(
+    hass, request, device_fixture, legacy_beta
+):
+    request.getfixturevalue(device_fixture)
+    options = {} if legacy_beta is None else {"write_beta_enabled": legacy_beta}
+    entry = create_mock_sunspec_config_entry(hass, options=options)
+    with (
+        patch("custom_components.sunspec2.api.SunSpecApiClient.async_write_points") as points,
+        patch("custom_components.sunspec2.api.SunSpecApiClient.async_write_block") as blocks,
+    ):
+        await setup_mock_sunspec_config_entry(hass, config_entry=entry)
+        before = {e.entity_id for e in _live_entities(hass, "number")}
+        assert before
+        await entry.runtime_data.async_refresh()
+        hass.config_entries.async_update_entry(entry, options={**options, "prefix": "Garage"})
+        await hass.async_block_till_done()
+
+        assert {e.entity_id for e in _live_entities(hass, "number")} == before
+        points.assert_not_awaited()
+        blocks.assert_not_awaited()
+
+
+@pytest.mark.parametrize("legacy_beta", [None, False, True])
 @pytest.mark.parametrize("percent", [-12.5, 0, 45.6])
-async def test_percent_setpoint_writes_704_with_its_scale_factor(hass, beta, percent):
+async def test_percent_setpoint_writes_704_with_its_scale_factor(hass, legacy_beta, percent):
     """Percent mode needs its own signed setpoint, independent of the watt value."""
     client = MockFileClientDevice("./tests/test_data/inverter.json")
     client.scan()
@@ -101,7 +122,7 @@ async def test_percent_setpoint_writes_704_with_its_scale_factor(hass, beta, per
         entry = create_mock_sunspec_config_entry(
             hass,
             data={**MOCK_CONFIG_WRITE, CONF_ENABLED_MODELS: [160, 704]},
-            options={CONF_WRITE_BETA_ENABLED: beta},
+            options={} if legacy_beta is None else {"write_beta_enabled": legacy_beta},
         )
         registry = er.async_get(hass)
         original = registry.async_get_or_create(
@@ -119,10 +140,6 @@ async def test_percent_setpoint_writes_704_with_its_scale_factor(hass, beta, per
         assert sensor is not None
         assert sensor.state == "25.0"
         numbers = [e for e in _live_entities(hass, "number") if e._point_name == "WSetPct"]
-        if not beta:
-            assert numbers == []
-            return
-
         assert len(numbers) == 1
         number = numbers[0]
         assert number.native_value == 25
@@ -199,13 +216,6 @@ async def test_revert_time_is_a_number_not_a_sensor(hass, sunspec_write_client_m
 
     assert "WMaxLimPct_RvrtTms" in number_points
     assert not any(eid.endswith("wmaxlimpct_rvrttms") for eid in sensor_ids)
-
-
-async def test_number_entities_absent_with_beta_off(hass, sunspec_write_client_mock):
-    """No write entities without the opt-in, even though the device has model 123."""
-    await _setup_write_entry(hass, beta=False)
-
-    assert _live_entities(hass, "number") == []
 
 
 async def test_export_limit_reports_the_device_value_above_100(hass, sunspec_write_client_mock):

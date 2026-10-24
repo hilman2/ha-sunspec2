@@ -1,6 +1,5 @@
 """Select platform for SunSpec write controls.
 
-EXPERIMENTAL, opt-in, same gating as the Number and Switch platforms.
 New in v0.19.0, and it exists for one point in particular.
 
 ``StorCtl_Mod`` (model 124) is a ``bitfield16``: bit 0 gates the charge
