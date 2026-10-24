@@ -8,8 +8,10 @@ from unittest.mock import patch
 import pytest
 from homeassistant.config_entries import ConfigEntryDisabler
 from homeassistant.config_entries import ConfigEntryState
+from homeassistant.helpers import issue_registry as ir
 
 from custom_components.sunspec2.api import SunSpecApiClient
+from custom_components.sunspec2.const import DOMAIN
 from custom_components.sunspec2.errors import TransportError
 
 from . import create_mock_sunspec_config_entry
@@ -100,6 +102,7 @@ async def test_disable_during_retry_does_not_reopen_the_connection(hass, tcp_dev
         assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
     coordinator = entry.runtime_data
+    coordinator._consecutive_failures["transport"] = 2
     cycle = coordinator._run_one_update_cycle
     sleeping = asyncio.Event()
     resume = asyncio.Event()
@@ -137,6 +140,7 @@ async def test_disable_during_retry_does_not_reopen_the_connection(hass, tcp_dev
                 await refresh
             assert entry.state == ConfigEntryState.NOT_LOADED
             assert not writers
+            assert ir.async_get(hass).async_get_issue(DOMAIN, f"{entry.entry_id}_transport") is None
         finally:
             resume.set()
             if not refresh.done():

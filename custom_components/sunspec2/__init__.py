@@ -503,6 +503,8 @@ async def async_unload_entry(hass: HomeAssistant, entry: SunSpec2ConfigEntry) ->
         )
     )
     if unloaded:
+        # Stop retries before clearing Repairs or awaiting transport cleanup.
+        await coordinator.async_shutdown()
         # Drop any Repairs panel issues this coordinator may have raised.
         # Without this, removing the integration leaves ghost issues
         # in Settings -> Repairs that the user can never clear.
@@ -1545,6 +1547,8 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator[dict[int, SunSpecModelW
         from outside the original ``except`` block (after the in-cycle
         retry path), where ``sys.exc_info()`` is no longer set.
         """
+        if self._shutdown_requested:
+            raise asyncio.CancelledError("SunSpec entry was unloaded")
         if isinstance(exc, SunSpecError):
             wrapped = exc
         else:
