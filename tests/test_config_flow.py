@@ -205,7 +205,8 @@ async def test_options_flow(hass, sunspec_client_mock):
     # serialises cleanly, so every field - including max_ac_power_kw -
     # must appear in the serialised output.
     serialised = _serialise_form(result["data_schema"])
-    serialised_names = {field["name"] for field in serialised}
+    advanced = next(field for field in serialised if field["name"] == "advanced")
+    serialised_names = {field["name"] for field in advanced["schema"]}
     assert CONF_MAX_AC_POWER_KW in serialised_names
     assert "write_beta_enabled" not in serialised_names
 
@@ -231,12 +232,18 @@ async def test_options_flow_keeps_the_usage_statistics_choice(hass, sunspec_clie
     result = await hass.config_entries.options.async_configure(
         result["flow_id"], user_input=MOCK_CONFIG_STEP_1
     )
-    schema = next(f for f in _serialise_form(result["data_schema"]) if f["name"] == "usage_stats")
+    privacy = next(f for f in _serialise_form(result["data_schema"]) if f["name"] == "privacy")
+    assert privacy["expanded"] is False
+    schema = next(f for f in privacy["schema"] if f["name"] == "usage_stats")
     assert schema["default"] is True
 
     result = await hass.config_entries.options.async_configure(
         result["flow_id"],
-        user_input={CONF_ENABLED_MODELS: ["1"], CONF_SCAN_INTERVAL: 10, "usage_stats": False},
+        user_input={
+            CONF_ENABLED_MODELS: ["1"],
+            CONF_SCAN_INTERVAL: 10,
+            "privacy": {"usage_stats": False},
+        },
     )
     assert result["type"] == FlowResultType.CREATE_ENTRY
     assert result["data"]["usage_stats"] is False
@@ -809,7 +816,87 @@ async def test_options_flow_offers_standby_when_idle(hass, sunspec_client_mock, 
 
     result = await _open_model_options(hass, entry)
 
-    assert _schema_default(result["data_schema"], CONF_STANDBY_WHEN_IDLE) is stored
+    advanced = result["data_schema"].schema["advanced"].schema
+    assert _schema_default(advanced, CONF_STANDBY_WHEN_IDLE) is stored
+
+
+@pytest.mark.parametrize("sections", [{}, {"advanced": {CONF_MAX_AC_POWER_KW: 4.2}, "privacy": {}}])
+async def test_options_flow_preserves_unedited_sections(hass, sunspec_client_mock, sections):
+    """Collapsed or omitted sections preserve the installation's existing choices."""
+    saved = {
+        "capture_raw_registers": True,
+        "scan_delay": 1.25,
+        CONF_MAX_AC_POWER_KW: 4.2,
+        CONF_PREFIX: "roof",
+        CONF_STANDBY_WHEN_IDLE: True,
+        "usage_stats": False,
+        "fronius_web_token": {"stored": "login"},
+    }
+    entry = MockConfigEntry(domain=DOMAIN, data=MOCK_CONFIG, options=saved)
+    entry.add_to_hass(hass)
+    entry.runtime_data = MockSunSpecDataUpdateCoordinator(hass, [1, 2])
+    result = await _open_model_options(hass, entry)
+
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        user_input={CONF_ENABLED_MODELS: ["1"], CONF_SCAN_INTERVAL: 15, **sections},
+    )
+
+    assert result["type"] == FlowResultType.CREATE_ENTRY
+    for key, value in saved.items():
+        assert result["data"][key] == value
+    assert {"advanced", "privacy", "fronius"}.isdisjoint(result["data"])
+    assert result["data"][CONF_SCAN_INTERVAL] == 15
+
+
+async def test_options_flow_saves_section_edits_as_flat_options(hass, sunspec_client_mock):
+    """The new form shape must not leak into persisted config entry options."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data=MOCK_CONFIG,
+        options={"capture_raw_registers": True, CONF_STANDBY_WHEN_IDLE: True, "usage_stats": True},
+    )
+    entry.add_to_hass(hass)
+    entry.runtime_data = MockSunSpecDataUpdateCoordinator(hass, [1, 2])
+    result = await _open_model_options(hass, entry)
+
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        user_input={
+            CONF_ENABLED_MODELS: ["1"],
+            CONF_SCAN_INTERVAL: 12,
+            "advanced": {
+                CONF_PREFIX: "garage",
+                CONF_MAX_AC_POWER_KW: 6.9,
+                "capture_raw_registers": False,
+                "scan_delay": 0.75,
+                CONF_STANDBY_WHEN_IDLE: False,
+            },
+            "privacy": {"usage_stats": False},
+        },
+    )
+
+    assert result["type"] == FlowResultType.CREATE_ENTRY
+    assert result["data"]["scan_delay"] == 0.75
+    assert result["data"][CONF_PREFIX] == "garage"
+    assert result["data"][CONF_MAX_AC_POWER_KW] == 6.9
+    assert result["data"]["capture_raw_registers"] is False
+    assert result["data"][CONF_STANDBY_WHEN_IDLE] is False
+    assert result["data"]["usage_stats"] is False
+    assert {"advanced", "privacy", "fronius"}.isdisjoint(result["data"])
+
+
+async def test_options_flow_rejects_models_outside_the_detected_list(hass, sunspec_client_mock):
+    """The compact model picker still rejects a model that cannot be polled."""
+    entry = MockConfigEntry(domain=DOMAIN, data=MOCK_CONFIG)
+    entry.add_to_hass(hass)
+    entry.runtime_data = MockSunSpecDataUpdateCoordinator(hass, [1, 2])
+    result = await _open_model_options(hass, entry)
+
+    with pytest.raises(InvalidData):
+        await hass.config_entries.options.async_configure(
+            result["flow_id"], user_input={CONF_ENABLED_MODELS: ["99999"], CONF_SCAN_INTERVAL: 10}
+        )
 
 
 async def test_options_flow_suggests_nameplate_with_headroom(hass, sunspec_client_mock):
@@ -832,7 +919,10 @@ async def test_options_flow_suggests_nameplate_with_headroom(hass, sunspec_clien
 
     result = await _open_model_options(hass, entry)
 
-    assert _suggested_value(result["data_schema"], CONF_MAX_AC_POWER_KW) == 6.0
+    assert (
+        _suggested_value(result["data_schema"].schema["advanced"].schema, CONF_MAX_AC_POWER_KW)
+        == 6.0
+    )
 
 
 async def test_options_flow_shows_configured_peak_unchanged(hass, sunspec_client_mock):
@@ -856,7 +946,10 @@ async def test_options_flow_shows_configured_peak_unchanged(hass, sunspec_client
 
     result = await _open_model_options(hass, entry)
 
-    assert _suggested_value(result["data_schema"], CONF_MAX_AC_POWER_KW) == 4.2
+    assert (
+        _suggested_value(result["data_schema"].schema["advanced"].schema, CONF_MAX_AC_POWER_KW)
+        == 4.2
+    )
 
 
 async def test_options_flow_clearing_peak_power_disables_filter(hass, sunspec_client_mock):
@@ -881,7 +974,7 @@ async def test_options_flow_clearing_peak_power_disables_filter(hass, sunspec_cl
     result = await _open_model_options(hass, entry)
     result = await hass.config_entries.options.async_configure(
         result["flow_id"],
-        user_input={CONF_ENABLED_MODELS: ["1"], CONF_SCAN_INTERVAL: 10},
+        user_input={CONF_ENABLED_MODELS: ["1"], CONF_SCAN_INTERVAL: 10, "advanced": {}},
     )
 
     assert result["type"] == FlowResultType.CREATE_ENTRY
@@ -905,7 +998,7 @@ async def test_options_flow_keeps_peak_power_when_submitted(hass, sunspec_client
         user_input={
             CONF_ENABLED_MODELS: ["1"],
             CONF_SCAN_INTERVAL: 10,
-            CONF_MAX_AC_POWER_KW: 7.5,
+            "advanced": {CONF_MAX_AC_POWER_KW: 7.5},
         },
     )
 

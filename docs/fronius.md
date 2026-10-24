@@ -215,8 +215,8 @@ Scheduled automations can call it without that.
   inverter keeps running on the old one. The only way to see it is the
   exported watts. There are two ways out:
   - Turn **Export limit enabled** off and on after each change.
-  - Tick the integration option *Re-apply the export limit and power
-    factor by switching them off and on when their value changes*. It
+  - Under **Advanced** in the integration options, tick
+    **Re-enable controls after a setpoint change**. It
     does the off and on for you: switch off, new value, one second
     later switch on. It is off by default because for that one second
     the inverter runs without any limit.
@@ -237,14 +237,15 @@ Scheduled automations can call it without that.
 
 A GEN24 tells its own web page some things that it does not offer over
 Modbus. With the password of that page, the integration reads them
-too. In the integration options, enter the **Web interface password**.
+too. In the integration options, open **Fronius web interface** and enter
+the **Web interface password**.
 This is the local `customer` login you use in your browser on the
 inverter's address in your home network. It is not your Solar.web
 account.
 
 Home Assistant does not store the password. It keeps a scrambled copy
-(a hash) that logs in to this inverter and nothing else. *Forget the
-stored web interface login* removes it.
+(a hash) that logs in to this inverter and nothing else. **Forget saved
+login** removes it.
 
 | Entity | What it does |
 |---|---|

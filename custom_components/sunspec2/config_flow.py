@@ -7,12 +7,12 @@ import logging
 from collections.abc import Mapping
 from typing import Any
 
-import homeassistant.helpers.config_validation as cv
 import probatio
 from homeassistant import config_entries
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.config_entries import ConfigFlowResult
 from homeassistant.core import callback
+from homeassistant.data_entry_flow import section
 from homeassistant.helpers import selector
 from homeassistant.helpers.service_info.dhcp import DhcpServiceInfo
 
@@ -96,8 +96,30 @@ _MAX_AC_POWER_SELECTOR = selector.NumberSelector(
 # silently and forever, a negative value hot-loops it. See
 # MIN_SCAN_INTERVAL_SECONDS for what Home Assistant does with each.
 _SCAN_INTERVAL_VALIDATOR = probatio.All(
-    probatio.Coerce(int), probatio.Range(min=MIN_SCAN_INTERVAL_SECONDS)
+    selector.NumberSelector(
+        selector.NumberSelectorConfig(
+            min=MIN_SCAN_INTERVAL_SECONDS,
+            step=1,
+            mode=selector.NumberSelectorMode.BOX,
+            unit_of_measurement="s",
+        )
+    ),
+    probatio.Coerce(int),
 )
+
+
+def _model_selector(labels: dict[str, str]) -> selector.SelectSelector:
+    """Select detected models without expanding every model into a checkbox."""
+    return selector.SelectSelector(
+        selector.SelectSelectorConfig(
+            options=[
+                selector.SelectOptionDict(value=value, label=label)
+                for value, label in labels.items()
+            ],
+            multiple=True,
+            mode=selector.SelectSelectorMode.DROPDOWN,
+        )
+    )
 
 
 def _suggested_peak_power_kw(detected_kw: float | None) -> float | None:
@@ -683,7 +705,7 @@ class SunSpecFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
             probatio.Optional(
                 CONF_ENABLED_MODELS,
                 default=default_enabled,
-            ): cv.multi_select(model_filter),
+            ): _model_selector(model_filter),
         }
         schema[
             probatio.Optional(
@@ -902,6 +924,12 @@ class SunSpecOptionsFlowHandler(config_entries.OptionsFlow):
         errors: dict[str, str] = {}
 
         if user_input is not None:
+            # Sections only organize the form. Keep the stored options flat so
+            # existing installations and HACS rollbacks read the same keys.
+            edit_power_limit = "advanced" in user_input
+            user_input = dict(user_input)
+            for name in ("advanced", "privacy", "fronius"):
+                user_input.update(user_input.pop(name, {}))
             # Reject empty model selections - silently saving
             # ``models_enabled: []`` was the v0.7.3 -> v0.7.5 regression
             # that wiped every sensor on the next reload. Show the form
@@ -917,16 +945,10 @@ class SunSpecOptionsFlowHandler(config_entries.OptionsFlow):
                 password = user_input.pop(CONF_FRONIUS_WEB_PASSWORD, "")
                 forget_web_login = user_input.pop(CONF_FRONIUS_WEB_FORGET, False)
                 self.options.update(user_input)
-                # The UI promises "leave it empty to disable filtering",
-                # and until #45 that promise was a no-op. An emptied
-                # ``probatio.Optional`` field arrives as a MISSING key rather
-                # than None, and ``dict.update`` cannot express a
-                # deletion, so the previously stored ceiling survived
-                # every save. Clearing the box was therefore impossible
-                # short of hand-editing core.config_entries - which is
-                # exactly what a user does once the filter starts eating
-                # their legitimate readings. Delete explicitly.
-                if CONF_MAX_AC_POWER_KW not in user_input:
+                # A cleared optional field arrives without a key. Only a
+                # submitted advanced section can clear the stored override;
+                # omitting the section must preserve its existing settings.
+                if edit_power_limit and CONF_MAX_AC_POWER_KW not in user_input:
                     self.options.pop(CONF_MAX_AC_POWER_KW, None)
                 if forget_web_login:
                     self.options.pop(CONF_FRONIUS_WEB_TOKEN, None)
@@ -1026,26 +1048,36 @@ class SunSpecOptionsFlowHandler(config_entries.OptionsFlow):
             rearm_on_change = self.config_entry.options.get(
                 CONF_REARM_ON_CHANGE, vendor.rearm_by_default if vendor is not None else False
             )
-            schema: dict[Any, Any] = {
+            advanced: dict[Any, Any] = {
                 probatio.Optional(CONF_PREFIX, default=prefix): str,
+                probatio.Optional(
+                    CONF_MAX_AC_POWER_KW,
+                    description={"suggested_value": max_ac_power_kw},
+                ): _MAX_AC_POWER_SELECTOR,
+                probatio.Optional(CONF_STANDBY_WHEN_IDLE, default=standby_when_idle): bool,
+                probatio.Optional(CONF_SCAN_DELAY, default=scan_delay): _SCAN_DELAY_SELECTOR,
+                probatio.Optional(CONF_CAPTURE_RAW, default=capture_raw): bool,
+            }
+            schema: dict[Any, Any] = {
                 probatio.Optional(
                     CONF_SCAN_INTERVAL, default=scan_interval
                 ): _SCAN_INTERVAL_VALIDATOR,
-                probatio.Optional(CONF_SCAN_DELAY, default=scan_delay): _SCAN_DELAY_SELECTOR,
                 probatio.Optional(
                     CONF_ENABLED_MODELS,
                     default=default_models,
-                ): cv.multi_select(model_filter),
-                probatio.Optional(CONF_CAPTURE_RAW, default=capture_raw): bool,
-                # #52: opt-out for inverters that power their comms
-                # board down when idle and cannot be detected doing it.
-                probatio.Optional(CONF_STANDBY_WHEN_IDLE, default=standby_when_idle): bool,
-                probatio.Optional(CONF_USAGE_STATS, default=usage_stats): bool,
+                ): _model_selector(model_filter),
             }
             # The off/on cycle for a new export limit exists for a
             # vendor that needs one, so the field only shows up there.
             if vendor is not None and vendor.enable_edge:
-                schema[probatio.Optional(CONF_REARM_ON_CHANGE, default=rearm_on_change)] = bool
+                advanced[probatio.Optional(CONF_REARM_ON_CHANGE, default=rearm_on_change)] = bool
+            schema[probatio.Optional("advanced")] = section(
+                probatio.Schema(advanced), {"collapsed": True}
+            )
+            schema[probatio.Optional("privacy")] = section(
+                probatio.Schema({probatio.Optional(CONF_USAGE_STATS, default=usage_stats): bool}),
+                {"collapsed": True},
+            )
             # The web interface login, for a vendor whose web API the
             # integration speaks, on a TCP entry: the web page lives on
             # the same address as the Modbus port.
@@ -1054,20 +1086,14 @@ class SunSpecOptionsFlowHandler(config_entries.OptionsFlow):
                 and vendor.web_user
                 and self.config_entry.data.get(CONF_TRANSPORT, TRANSPORT_TCP) == TRANSPORT_TCP
             ):
-                schema[probatio.Optional(CONF_FRONIUS_WEB_PASSWORD)] = _PASSWORD_SELECTOR
+                web_schema: dict[Any, Any] = {
+                    probatio.Optional(CONF_FRONIUS_WEB_PASSWORD): _PASSWORD_SELECTOR
+                }
                 if self.config_entry.options.get(CONF_FRONIUS_WEB_TOKEN):
-                    schema[probatio.Optional(CONF_FRONIUS_WEB_FORGET, default=False)] = bool
-            # Use suggested_value (not default) for the optional float so
-            # the form field can stay genuinely empty - an empty value
-            # disables the plausibility filter rather than coercing to 0.
-            # A cleared field comes back as a missing key, which
-            # async_step_model_options turns into a deletion above.
-            schema[
-                probatio.Optional(
-                    CONF_MAX_AC_POWER_KW,
-                    description={"suggested_value": max_ac_power_kw},
+                    web_schema[probatio.Optional(CONF_FRONIUS_WEB_FORGET, default=False)] = bool
+                schema[probatio.Optional("fronius")] = section(
+                    probatio.Schema(web_schema), {"collapsed": True}
                 )
-            ] = _MAX_AC_POWER_SELECTOR
 
             return self.async_show_form(
                 step_id="model_options",

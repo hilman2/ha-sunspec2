@@ -387,7 +387,7 @@ async def test_the_password_becomes_a_stored_secret_and_is_not_kept(
     _mock_web(aioclient_mock)
     entry = await _web_entry(hass, options={})
     result = await _model_options(hass, entry)
-    fields = {key.schema for key in result["data_schema"].schema}
+    fields = {key.schema for key in result["data_schema"].schema["fronius"].schema.schema}
     assert CONF_FRONIUS_WEB_PASSWORD in fields
     assert CONF_FRONIUS_WEB_FORGET not in fields
 
@@ -399,7 +399,7 @@ async def test_the_password_becomes_a_stored_secret_and_is_not_kept(
             user_input={
                 CONF_ENABLED_MODELS: ["160"],
                 CONF_SCAN_INTERVAL: 10,
-                CONF_FRONIUS_WEB_PASSWORD: "secret",
+                "fronius": {CONF_FRONIUS_WEB_PASSWORD: "secret"},
             },
         )
         await hass.async_block_till_done()
@@ -424,7 +424,7 @@ async def test_a_rejected_password_shows_the_error(hass, sunspec_fronius_client_
             user_input={
                 CONF_ENABLED_MODELS: ["160"],
                 CONF_SCAN_INTERVAL: 10,
-                CONF_FRONIUS_WEB_PASSWORD: "wrong",
+                "fronius": {CONF_FRONIUS_WEB_PASSWORD: "wrong"},
             },
         )
 
@@ -439,14 +439,14 @@ async def test_forgetting_the_login_drops_the_secret(
     _mock_web(aioclient_mock)
     entry = await _web_entry(hass)
     result = await _model_options(hass, entry)
-    assert CONF_FRONIUS_WEB_FORGET in {key.schema for key in result["data_schema"].schema}
+    assert CONF_FRONIUS_WEB_FORGET in result["data_schema"].schema["fronius"].schema.schema
 
     result = await hass.config_entries.options.async_configure(
         result["flow_id"],
         user_input={
             CONF_ENABLED_MODELS: ["160"],
             CONF_SCAN_INTERVAL: 10,
-            CONF_FRONIUS_WEB_FORGET: True,
+            "fronius": {CONF_FRONIUS_WEB_FORGET: True},
         },
     )
     await hass.async_block_till_done()
@@ -459,4 +459,4 @@ async def test_forgetting_the_login_drops_the_secret(
 async def test_the_password_field_is_not_offered_for_other_vendors(hass, sunspec_write_client_mock):
     entry = await _web_entry(hass, options={})
     result = await _model_options(hass, entry)
-    assert CONF_FRONIUS_WEB_PASSWORD not in {key.schema for key in result["data_schema"].schema}
+    assert "fronius" not in result["data_schema"].schema
