@@ -9,13 +9,17 @@ from unittest.mock import patch
 
 import pytest
 from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers import entity_registry as er
 
+from custom_components.sunspec2 import get_sunspec_unique_id
+from custom_components.sunspec2.const import CONF_ENABLED_MODELS
 from custom_components.sunspec2.const import CONF_WRITE_BETA_ENABLED
 from custom_components.sunspec2.errors import DeviceError
 from custom_components.sunspec2.models import SunSpecModelWrapper
 
 from . import create_mock_sunspec_config_entry
 from . import setup_mock_sunspec_config_entry
+from .conftest import MockFileClientDevice
 from .const import MOCK_CONFIG_WRITE
 
 
@@ -77,6 +81,68 @@ async def test_beta_off_does_not_poll_model_123(hass, sunspec_write_client_mock)
 
     assert coordinator.write_model_filter == {124}
     assert 123 not in coordinator.data
+
+
+@pytest.mark.parametrize("beta", [False, True])
+@pytest.mark.parametrize("percent", [-12.5, 0, 45.6])
+async def test_percent_setpoint_writes_704_with_its_scale_factor(hass, beta, percent):
+    """Percent mode needs its own signed setpoint, independent of the watt value."""
+    client = MockFileClientDevice("./tests/test_data/inverter.json")
+    client.scan()
+    controls = client.models[704][0]
+    controls.WSetPct_SF.value = -1
+    controls.WSetPct.value = 250
+    controls.WSet_SF.value = 0
+    controls.WSet.value = 321
+    controls.WSetMod.value = 0
+    controls.WSetEna.value = 1
+
+    with patch("custom_components.sunspec2.SunSpecApiClient.modbus_connect", return_value=client):
+        entry = create_mock_sunspec_config_entry(
+            hass,
+            data={**MOCK_CONFIG_WRITE, CONF_ENABLED_MODELS: [160, 704]},
+            options={CONF_WRITE_BETA_ENABLED: beta},
+        )
+        registry = er.async_get(hass)
+        original = registry.async_get_or_create(
+            "sensor",
+            "sunspec2",
+            get_sunspec_unique_id(entry.entry_id, "WSetPct", 704, 0),
+            config_entry=entry,
+            suggested_object_id="existing_percent_setpoint",
+        )
+        await setup_mock_sunspec_config_entry(hass, config_entry=entry)
+        registered = registry.async_get(original.entity_id)
+        assert registered is not None
+        assert registered.id == original.id
+        sensor = hass.states.get(original.entity_id)
+        assert sensor is not None
+        assert sensor.state == "25.0"
+        numbers = [e for e in _live_entities(hass, "number") if e._point_name == "WSetPct"]
+        if not beta:
+            assert numbers == []
+            return
+
+        assert len(numbers) == 1
+        number = numbers[0]
+        assert number.native_value == 25
+        assert number.native_unit_of_measurement == "%"
+        assert number.native_step == 0.1
+        assert number.native_min_value == -100
+        assert number.native_max_value == 100
+        state = hass.states.get(number.entity_id)
+        assert state is not None
+        assert state.attributes["friendly_name"].endswith(" Active power setpoint percent")
+
+        await hass.services.async_call(
+            "number", "set_value", {"entity_id": number.entity_id, "value": percent}, blocking=True
+        )
+
+        assert controls.WSetPct.value == round(percent * 10)
+        assert controls.WSet.value == 321
+        assert controls.WSetMod.value == 0
+        assert controls.WSetEna.value == 1
+        assert number.native_value == percent
 
 
 async def test_model_123_control_points_do_not_become_sensors(hass, sunspec_write_client_mock):

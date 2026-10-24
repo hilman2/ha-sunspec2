@@ -138,6 +138,9 @@
       "active_power_setpoint": {
         "name": "Active power setpoint"
       },
+      "active_power_setpoint_pct": {
+        "name": "Active power setpoint percent"
+      },
       "export_limit_revert_value": {
         "name": "Export limit revert value"
       },

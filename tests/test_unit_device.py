@@ -76,6 +76,26 @@ async def test_a_write_lands_in_the_registers_scaled(hass):
     assert (await api.async_get_data(123)).getValue("WMaxLimPct") == 60.0
 
 
+@pytest.mark.parametrize(
+    ("sf", "value", "raw"),
+    [(0, -100, 65436), (-1, -12.5, 65411), (-1, 0, 0), (-2, 12.34, 1234), (-2, 100, 10000)],
+)
+async def test_percent_setpoint_reaches_the_registers(hass, sf, value, raw):
+    unit = FakeUnit(register_image("./tests/test_data/inverter.json"))
+    api = _api(hass, FakeConnection({1: unit}), scan_delay=0)
+    await api.async_get_models()
+    model = api._client.models[704][0]
+    sf_address = model.model_addr + model.points["WSetPct_SF"].offset
+    address = model.model_addr + model.points["WSetPct"].offset
+    unit.holding[sf_address] = sf & 0xFFFF
+    await api.async_get_data(704)
+
+    await api.async_write_points(704, [("WSetPct", value)])
+
+    assert unit.writes == [(address, [raw])]
+    assert (await api.async_get_data(704)).getValue("WSetPct") == value
+
+
 async def test_raw_blocks_read_and_write_another_unit_on_the_same_connection(hass):
     """SMA's registers sit 123 unit ids below the SunSpec ones; the offset picks the unit."""
     connection = FakeConnection({1: FakeUnit(register_image(FRONIUS))})

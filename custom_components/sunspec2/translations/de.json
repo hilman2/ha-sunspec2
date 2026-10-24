@@ -138,6 +138,9 @@
       "active_power_setpoint": {
         "name": "Wirkleistungs-Sollwert"
       },
+      "active_power_setpoint_pct": {
+        "name": "Wirkleistungs-Sollwert in Prozent"
+      },
       "export_limit_revert_value": {
         "name": "Ruecksprungwert Einspeiselimit"
       },

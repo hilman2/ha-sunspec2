@@ -177,6 +177,12 @@ gh pr merge --auto --squash --delete-branch   # merges itself once the five chec
 access arm it, so an external contributor's PR still needs a human
 merge; never arm it on someone else's PR.
 
+Every PR must receive an independent agent review before merge. This
+includes our own PRs, community contributions and dependency updates.
+Review the current head, resolve the findings and have an agent review
+any subsequent changes before merging or enabling auto-merge. Record
+the reviewed commit and the review result on the PR.
+
 A red CI is loud and the user notices fast, so always run the test
 suite, ruff **and** mypy locally before pushing the branch:
 
