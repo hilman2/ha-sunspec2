@@ -187,6 +187,7 @@ class SunSpecApiClient:
         # the model objects; the next client connects on the same object,
         # which modbus-connection reconnects on demand.
         self._connection: SharedConnection | None = None
+        self._shutdown = False
         # The config entry whose unload lets go of the shared link. None
         # for the config flow's probe, which holds its own and closes it.
         self._entry = entry
@@ -236,6 +237,8 @@ class SunSpecApiClient:
         calls of a cycle and every cycle after it, until a failure or an
         unload drops it.
         """
+        if self._shutdown:
+            raise TransportError("SunSpec client is shut down")
         # Clear the flag whether or not there was a client to drop. It
         # arrives both ways: _after_failed_cycle closes before setting
         # it, so _client is already None there, while the in-cycle retry
@@ -1022,6 +1025,7 @@ class SunSpecApiClient:
 
     async def async_shutdown(self) -> None:
         """Close the client and the connection for good: the entry is unloading."""
+        self._shutdown = True
         await self.async_close(force=True)
         connection = self._connection
         self._connection = None
@@ -1060,6 +1064,9 @@ class SunSpecApiClient:
 
     def _get_connection(self) -> SharedConnection:
         """The connection object, built on first use. Constructing it does no I/O."""
+        # A retry or a pending scan may resume after HA unloaded the entry.
+        if self._shutdown:
+            raise TransportError("SunSpec client is shut down")
         if self._connection is None:
             self._connection = SharedConnection(self._hass, self._params(), self._entry)
         return self._connection

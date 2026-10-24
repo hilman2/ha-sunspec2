@@ -1,5 +1,6 @@
 """Tests for SunSpec api."""
 
+import asyncio
 import time
 from unittest.mock import AsyncMock
 from unittest.mock import Mock
@@ -571,6 +572,36 @@ async def test_close_keeps_the_cached_structure(hass, sunspec_modbus_client_mock
     await api.async_close()
 
     assert api._model_structure == [(1, 40002, 66)]
+
+
+async def test_shutdown_while_preparing_a_client_never_opens_a_connection(hass, mocker):
+    preparing = asyncio.Event()
+    resume = asyncio.Event()
+
+    async def prepare(*args):
+        preparing.set()
+        await resume.wait()
+
+    connection = FakeConnection(
+        {1: FakeUnit(register_image("./tests/test_data/inverter_fronius.json"))}
+    )
+    built = mocker.patch("custom_components.sunspec2.api.SharedConnection", return_value=connection)
+    mocker.patch.object(hass, "async_add_executor_job", side_effect=prepare)
+    api = SunSpecApiClient(host="test", port=502, unit_id=1, hass=hass, scan_delay=0)
+    pending = asyncio.create_task(api.async_get_models())
+    try:
+        async with asyncio.timeout(1):
+            await preparing.wait()
+        await api.async_shutdown()
+        resume.set()
+        with pytest.raises(TransportError, match="shut down"):
+            await pending
+        built.assert_not_called()
+    finally:
+        resume.set()
+        if not pending.done():
+            pending.cancel()
+            await asyncio.gather(pending, return_exceptions=True)
 
 
 async def test_a_transport_failure_validates_the_layout_instead_of_rescanning(hass, mocker):
