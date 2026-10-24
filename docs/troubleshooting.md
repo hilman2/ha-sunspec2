@@ -113,14 +113,10 @@ three minutes. Only after that do they go unavailable.
 
 If your gaps are longer, something else is going on:
 
-- **Check whether *Release the Modbus connection between polls* is
-  on.** It makes the integration hang up after every poll and build the
-  connection again for the next. Inverters cope with that badly. On a
-  KACO Powador 7.8 TL3 polled every 30 seconds, reconnecting each time
-  failed 5 of 6 polls. Keeping the connection open worked 20 of 20.
-  The option exists only for the case where another program outside
-  Home Assistant has to reach the same inverter. For everybody else it
-  should be off.
+- **Check whether another program reads the same inverter.** Home
+  Assistant shares one connection between its integrations. An external
+  program still needs its own connection, which a single-slot inverter
+  cannot accept. Use a Modbus proxy when several programs need access.
 - **Check the network link.** WiFi to the inverter is the usual
   suspect. A cable is better.
 

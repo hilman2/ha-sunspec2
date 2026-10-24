@@ -29,6 +29,8 @@ class FakeUnit:
         #: Raised by the next request instead of answering, then cleared.
         self.fail_next: Exception | None = None
         self.disconnects = 0
+        #: What the owner asked the link's timeout to be raised to.
+        self.timeouts: list[float | None] = []
 
     async def read_holding_registers(self, address: int, count: int) -> list[int]:
         self.reads.append((address, count))
@@ -54,6 +56,9 @@ class FakeUnit:
 
     async def disconnect(self) -> None:
         self.disconnects += 1
+
+    def require_timeout(self, seconds: float | None) -> None:
+        self.timeouts.append(seconds)
 
     @property
     def connected(self) -> bool:
@@ -93,6 +98,9 @@ class FakeConnection:
 
     def for_unit(self, unit_id: int) -> FakeUnit:
         return self.units.setdefault(unit_id, FakeUnit(unit_id=unit_id))
+
+    async def async_for_unit(self, unit_id: int) -> FakeUnit:
+        return self.for_unit(unit_id)
 
 
 def register_image(path: str, base: int = 40000) -> dict[int, int]:

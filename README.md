@@ -71,7 +71,8 @@ welcome.
 
 ## Installation
 
-The integration is in the default HACS store.
+The integration is in the default HACS store. It needs Home Assistant
+2026.10 or newer.
 
 1. **HACS** -> search for **SunSpec Modbus** -> **Download**
 2. **Restart Home Assistant**
@@ -120,7 +121,6 @@ You can change these at any time under *Settings -> Devices & Services
 | Enabled models | sensible defaults | Which groups of data become sensors. The inverter lists them, the integration reads them |
 | Peak AC power of the inverter | read from the inverter | Readings above this are thrown away as nonsense. Older inverters do not publish their power, then you enter it once. See [Troubleshooting](docs/troubleshooting.md#a-sensor-shows-unknown-on-a-bright-day) |
 | Pause between models while scanning | 0.5 s | A pause while the integration maps what the inverter offers. Raise it if setup fails on slow inverters |
-| Release the Modbus connection between polls | off | Only for the case that another program outside Home Assistant reads the same inverter |
 | Inverter powers down when idle | off | Stops the "unreachable" notification for inverters that vanish at night without saying so |
 | Capture raw Modbus bytes for diagnostics | off | Puts what the inverter sent, unprocessed, into the diagnostics download. For bug reports |
 | Send anonymous usage statistics | on | One request a day that counts active installations. See [Usage statistics](#usage-statistics) |
