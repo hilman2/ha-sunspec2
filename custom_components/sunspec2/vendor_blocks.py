@@ -42,7 +42,6 @@ from homeassistant.helpers.restore_state import RestoreEntity
 
 from . import SunSpecDataUpdateCoordinator
 from . import get_sunspec_unique_id
-from .const import CONF_WRITE_BETA_ENABLED
 from .const import DOMAIN
 from .const import OPERATING_STATE_MODEL_IDS
 from .entity import Home
@@ -509,23 +508,17 @@ def raw_block_sensors(
     return sensors
 
 
-def _writable(config_entry: ConfigEntry, beta: bool) -> bool:
-    return not beta or bool(config_entry.options.get(CONF_WRITE_BETA_ENABLED, False))
-
-
 def raw_block_numbers(
     coordinator: SunSpecDataUpdateCoordinator, config_entry: ConfigEntry, prefix: str
 ) -> list[NumberEntity]:
-    """The profile's numbers whose blocks answered, minus the beta ones without the beta."""
+    """The profile's numbers whose blocks answered."""
     context = _context(coordinator)
     if context is None:
         return []
     vendor, home, devices = context
     numbers: list[NumberEntity] = []
     for spec in vendor.raw_numbers:
-        if not _block_answers(coordinator, vendor, spec.block) or not _writable(
-            config_entry, spec.beta
-        ):
+        if not _block_answers(coordinator, vendor, spec.block):
             continue
         buildable, device = _device_for(coordinator, devices, spec.device, spec.key)
         if buildable:
@@ -536,16 +529,14 @@ def raw_block_numbers(
 def raw_block_selects(
     coordinator: SunSpecDataUpdateCoordinator, config_entry: ConfigEntry, prefix: str
 ) -> list[SelectEntity]:
-    """The profile's selects whose blocks answered, minus the beta ones without the beta."""
+    """The profile's selects whose blocks answered."""
     context = _context(coordinator)
     if context is None:
         return []
     vendor, home, devices = context
     selects: list[SelectEntity] = []
     for spec in vendor.raw_selects:
-        if not _block_answers(coordinator, vendor, spec.block) or not _writable(
-            config_entry, spec.beta
-        ):
+        if not _block_answers(coordinator, vendor, spec.block):
             continue
         buildable, device = _device_for(coordinator, devices, spec.device, spec.key)
         if buildable:
@@ -563,9 +554,7 @@ def raw_keepalive_switches(
     vendor, home, devices = context
     switches: list[SwitchEntity] = []
     for spec in vendor.raw_keepalives:
-        if not _block_answers(coordinator, vendor, spec.block) or not _writable(
-            config_entry, spec.beta
-        ):
+        if not _block_answers(coordinator, vendor, spec.block):
             continue
         buildable, device = _device_for(coordinator, devices, spec.device, spec.key)
         if buildable:

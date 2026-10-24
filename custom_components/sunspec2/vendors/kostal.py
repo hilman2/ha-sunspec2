@@ -557,7 +557,7 @@ RAW_NUMBERS: tuple[RawNumber, ...] = (
         device_class="power",
         icon="mdi:battery-arrow-down",
     ),
-    # Behind the beta, and the only entity here that drives the battery
+    # The only entity here that drives the battery
     # rather than bounding it. Kostal names no timeout for this
     # register, so a value written here is one the inverter keeps: an
     # automation that sets it and stops leaves the battery where it
@@ -571,7 +571,6 @@ RAW_NUMBERS: tuple[RawNumber, ...] = (
         step=100,
         unit="W",
         device_class="power",
-        beta=True,
         icon="mdi:battery-charging-medium",
     ),
     _limitation(

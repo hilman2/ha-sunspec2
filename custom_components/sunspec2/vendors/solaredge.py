@@ -450,7 +450,6 @@ RAW_SELECTS: tuple[RawSelect, ...] = (
         options=SITE_LIMIT_MODES,
         read=lambda value: value & 0b111 if isinstance(value, int) else None,
         write=_keep_site_limit_bits,
-        beta=True,
         icon="mdi:transmission-tower-export",
     ),
     RawSelect(
@@ -458,7 +457,6 @@ RAW_SELECTS: tuple[RawSelect, ...] = (
         field="limit_mode",
         key="site_limit_scope",
         options=SITE_LIMIT_SCOPES,
-        beta=True,
         icon="mdi:transmission-tower-export",
     ),
 )
@@ -525,7 +523,6 @@ RAW_NUMBERS: tuple[RawNumber, ...] = (
         step=10,
         unit="W",
         device_class="power",
-        beta=True,
         icon="mdi:transmission-tower-export",
     ),
     RawNumber(
@@ -536,7 +533,6 @@ RAW_NUMBERS: tuple[RawNumber, ...] = (
         max=100,
         step=1,
         unit="%",
-        beta=True,
         icon="mdi:speedometer-slow",
     ),
 )
@@ -555,7 +551,6 @@ RAW_KEEPALIVES: tuple[RawKeepAlive, ...] = (
         block="power_control",
         fields=("active_power_limit",),
         interval_seconds=ACTIVE_POWER_LIMIT_REASSERT_SECONDS,
-        beta=True,
         icon="mdi:refresh-auto",
     ),
 )

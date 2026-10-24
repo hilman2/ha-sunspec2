@@ -28,7 +28,6 @@ from custom_components.sunspec2.battery_plan import hours_until
 from custom_components.sunspec2.battery_plan import in_window
 from custom_components.sunspec2.battery_plan import planned_power_w
 from custom_components.sunspec2.battery_plan import window_hours
-from custom_components.sunspec2.const import CONF_WRITE_BETA_ENABLED
 
 from . import create_mock_sunspec_config_entry
 from . import setup_mock_sunspec_config_entry
@@ -75,7 +74,6 @@ def test_the_power_is_capped_at_wchamax_and_floored_to_the_step():
 
 async def _entry(hass):
     entry = create_mock_sunspec_config_entry(hass, data=MOCK_CONFIG_WRITE)
-    hass.config_entries.async_update_entry(entry, options={CONF_WRITE_BETA_ENABLED: True})
     await setup_mock_sunspec_config_entry(hass, config_entry=entry)
     return entry
 

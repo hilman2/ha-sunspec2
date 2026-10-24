@@ -12,7 +12,6 @@ import voluptuous as vol
 
 from custom_components.sunspec2 import get_sunspec_unique_id
 from custom_components.sunspec2.const import CONF_REARM_ON_CHANGE
-from custom_components.sunspec2.const import CONF_WRITE_BETA_ENABLED
 from custom_components.sunspec2.dc_channels import BatteryDirectionSensor
 from custom_components.sunspec2.dc_channels import DcChannelSensor
 from custom_components.sunspec2.dc_channels import PvPowerSensor
@@ -150,7 +149,7 @@ async def test_a_new_export_limit_is_cycled_without_the_option(
     hass, sunspec_symo_hybrid_client_mock
 ):
     """The manual's own recipe: the value, then the operating mode restarted via WMaxLim_Ena."""
-    entry = await _entry(hass, {CONF_WRITE_BETA_ENABLED: True})
+    entry = await _entry(hass)
     entry.runtime_data.vendor = replace(FRONIUS_DATAMANAGER, enable_edge_settle_seconds=0.0)
     assert await _set_export_limit(hass, entry, 60) == [
         (123, [("WMaxLim_Ena", 0)]),
@@ -160,12 +159,12 @@ async def test_a_new_export_limit_is_cycled_without_the_option(
 
 
 async def test_the_cycle_can_still_be_switched_off(hass, sunspec_symo_hybrid_client_mock):
-    entry = await _entry(hass, {CONF_WRITE_BETA_ENABLED: True, CONF_REARM_ON_CHANGE: False})
+    entry = await _entry(hass, {CONF_REARM_ON_CHANGE: False})
     assert await _set_export_limit(hass, entry, 60) == [(123, [("WMaxLimPct", 60.0)])]
 
 
 async def test_the_option_is_offered_on_by_default(hass, sunspec_symo_hybrid_client_mock):
-    entry = await _entry(hass, {CONF_WRITE_BETA_ENABLED: True})
+    entry = await _entry(hass)
     result = await hass.config_entries.options.async_init(entry.entry_id)
     result = await hass.config_entries.options.async_configure(
         result["flow_id"], user_input=MOCK_CONFIG_STEP_1

@@ -16,7 +16,6 @@ from homeassistant.helpers import entity_registry as er
 from custom_components.sunspec2 import get_sunspec_unique_id
 from custom_components.sunspec2.battery_plan import BatteryPlanSwitch
 from custom_components.sunspec2.const import CONF_REARM_ON_CHANGE
-from custom_components.sunspec2.const import CONF_WRITE_BETA_ENABLED
 from custom_components.sunspec2.const import DOMAIN
 from custom_components.sunspec2.dc_channels import DcChannelEnergySensor
 from custom_components.sunspec2.dc_channels import DcChannelSensor
@@ -165,9 +164,8 @@ def test_every_recipe_reads_back_as_its_own_mode():
 
 
 async def _fronius_entry(hass):
-    """An entry with the write beta on, which is what the battery entities need."""
+    """An entry exposing battery and export controls."""
     entry = create_mock_sunspec_config_entry(hass, data=MOCK_CONFIG_WRITE)
-    hass.config_entries.async_update_entry(entry, options={CONF_WRITE_BETA_ENABLED: True})
     await setup_mock_sunspec_config_entry(hass, config_entry=entry)
     return entry
 
@@ -226,8 +224,7 @@ async def test_generic_percent_entities_ship_disabled_on_fronius(hass, sunspec_f
     assert disabled_by("number", "WChaMax") is None
 
 
-async def test_the_battery_entities_need_no_beta(hass, sunspec_fronius_client_mock):
-    """The battery block is not experimental; the export limit still is."""
+async def test_battery_and_export_controls_appear_by_default(hass, sunspec_fronius_client_mock):
     entry = create_mock_sunspec_config_entry(hass, data=MOCK_CONFIG_WRITE)
     await setup_mock_sunspec_config_entry(hass, config_entry=entry)
     registry = er.async_get(hass)
@@ -242,15 +239,13 @@ async def test_the_battery_entities_need_no_beta(hass, sunspec_fronius_client_mo
         )
         is not None
     )
-    # The export limit of model 123 stays behind the beta, and 123 is
-    # not even polled without it.
     assert (
         registry.async_get_entity_id(
             "number", DOMAIN, get_sunspec_unique_id(entry.entry_id, "WMaxLimPct", 123, 0)
         )
-        is None
+        is not None
     )
-    assert 123 not in entry.runtime_data.data
+    assert 123 in entry.runtime_data.data
     assert 124 in entry.runtime_data.data
 
 
@@ -478,9 +473,7 @@ async def _set_export_limit(hass, entry, percent):
 async def test_the_number_cycles_the_enable_with_the_option_on(hass, sunspec_fronius_client_mock):
     """The fixture has the limit on at 100 %; a new value goes out between off and on."""
     entry = create_mock_sunspec_config_entry(hass, data=MOCK_CONFIG_WRITE)
-    hass.config_entries.async_update_entry(
-        entry, options={CONF_WRITE_BETA_ENABLED: True, CONF_REARM_ON_CHANGE: True}
-    )
+    hass.config_entries.async_update_entry(entry, options={CONF_REARM_ON_CHANGE: True})
     await setup_mock_sunspec_config_entry(hass, config_entry=entry)
     # No second of waiting in a test.
     entry.runtime_data.vendor = replace(FRONIUS, enable_edge_settle_seconds=0.0)

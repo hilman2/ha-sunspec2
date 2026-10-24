@@ -25,7 +25,7 @@ SELECT = "select"
 TIME = "time"
 BUTTON = "button"
 # Every platform is forwarded on every entry. What the write platforms
-# build depends on the device and on CONF_WRITE_BETA_ENABLED, see
+# build depends on the device, see
 # number.build_specs.
 PLATFORMS = [SENSOR, NUMBER, SWITCH, SELECT, TIME, BUTTON]
 
@@ -67,22 +67,6 @@ PARITY_EVEN = "E"
 # different setting can override during the serial setup step.
 DEFAULT_BAUDRATE = 9600
 
-# v0.12.0: experimental write support / inverter controls.
-#
-# Disabled by default. The user has to explicitly tick "Enable
-# experimental write controls (BETA)" in the options flow before any
-# Number / Switch entity from the write platforms shows up. Reason:
-# writing to a Modbus register on a real inverter is genuinely risky
-# (vendor-specific deviations from the SunSpec spec, persistence
-# semantics that vary between firmware revisions, the possibility
-# of locking yourself out of the inverter if the wrong combination
-# of registers is sent), and the integration owner has no test
-# hardware that exposes model 123 to validate the write path against.
-# Until at least one community tester has confirmed the path on real
-# hardware, every write entity is gated behind this flag and the
-# README carries a clear "EXPERIMENTAL" disclaimer.
-CONF_WRITE_BETA_ENABLED = "write_beta_enabled"
-
 # Opt-in for the off/on cycle a vendor needs before it takes a new
 # value for an export limit or power factor (Fronius, see
 # vendors/fronius.py). Off by default: the cycle leaves the inverter
@@ -103,8 +87,7 @@ CONF_FRONIUS_WEB_TOKEN = "fronius_web_token"
 # coordinator.detected_models.
 WRITE_CONTROLS_MODEL_ID = 123
 # Every model the write platforms can build controls for. The
-# coordinator polls whichever of these a device exposes while the beta
-# flag is on, so users do not have to find and tick them in the model
+# coordinator polls whichever of these a device exposes, so users do not have to find and tick them in the model
 # list first, which is the bug #30 fixed for model 123 alone.
 WRITE_CAPABLE_MODEL_IDS: frozenset[int] = frozenset({123, 124, 704})
 

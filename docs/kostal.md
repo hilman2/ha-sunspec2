@@ -88,8 +88,6 @@ boundaries for the battery rather than drive it:
 | **Discharge power limit** | Caps discharging, in watts |
 
 One more control, **DC power setpoint**, drives the battery directly.
-It is hidden until you tick **"Enable experimental export controls
-(BETA)"** in the integration's options.
 
 ## How to use it
 
@@ -104,7 +102,7 @@ for example to stop charging at 90 %.
 Set **Charge power limit** or **Discharge power limit** to the most
 watts you want the battery to take or give.
 
-### Telling the battery to charge or discharge a fixed amount (beta)
+### Telling the battery to charge or discharge a fixed amount
 
 > **This can bite.** The inverter keeps the value you write here
 > until something else changes it. Kostal names no time limit for it. An
@@ -116,9 +114,7 @@ watts you want the battery to take or give.
    cannot change this setting, it can only show it. The sensor
    **External management** must read "Modbus". If it does not, the
    inverter reads your setpoint back and ignores it.
-2. In the integration's options, tick **"Enable experimental export
-   controls (BETA)"**.
-3. Set **DC power setpoint** in watts. Negative charges the battery,
+2. Set **DC power setpoint** in watts. Negative charges the battery,
    positive discharges it. Kostal does it this way round, which is the
    opposite of the generic battery controls in other docs.
 

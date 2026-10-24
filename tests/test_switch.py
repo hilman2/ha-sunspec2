@@ -1,4 +1,4 @@
-"""Tests for the experimental Switch platform and the unload contract.
+"""Tests for the Switch platform and the unload contract.
 
 First coverage for this platform, alongside tests/test_number.py.
 """
@@ -8,7 +8,6 @@ from unittest.mock import patch
 import pytest
 from homeassistant.exceptions import HomeAssistantError
 
-from custom_components.sunspec2.const import CONF_WRITE_BETA_ENABLED
 from custom_components.sunspec2.errors import DeviceError
 
 from . import create_mock_sunspec_config_entry
@@ -17,17 +16,13 @@ from .const import MOCK_CONFIG_WRITE
 from .test_number import _live_entities
 
 
-async def _setup_write_entry(hass, beta=True):
+async def _setup_write_entry(hass):
     config_entry = create_mock_sunspec_config_entry(hass, data=MOCK_CONFIG_WRITE)
-    if beta:
-        hass.config_entries.async_update_entry(
-            config_entry, options={CONF_WRITE_BETA_ENABLED: True}
-        )
     return await setup_mock_sunspec_config_entry(hass, config_entry=config_entry)
 
 
-async def test_switch_entities_appear_with_beta_on(hass, sunspec_write_client_mock):
-    """The model 123 switches register when the beta flag is on.
+async def test_switch_entities_appear_by_default(hass, sunspec_write_client_mock):
+    """The model 123 switches register without an option.
 
     ``Conn`` ships disabled: off disconnects the inverter from the grid.
     """
@@ -132,46 +127,31 @@ async def test_set_export_limit_service_uses_one_lock_hold(hass, sunspec_write_c
     assert len(acquisitions) == 1
 
 
-async def test_turning_the_beta_off_unloads_the_write_platforms(hass, sunspec_write_client_mock):
-    """Unticking the beta flag must actually remove the write entities.
+async def test_options_reload_preserves_control_entity_ids(hass, sunspec_write_client_mock):
+    entry = await _setup_write_entry(hass)
+    before = {e.entity_id for domain in ("number", "switch") for e in _live_entities(hass, domain)}
+    first_coordinator = entry.runtime_data
 
-    Before v0.14.0 ``async_unload_entry`` re-derived the platform list
-    from ``entry.options``, but HA writes the new options BEFORE it
-    dispatches the update listener. Unticking the flag therefore made
-    the unload read False and unload only the sensor platform, leaving
-    the Number and Switch entities bound to a coordinator that had
-    already been replaced: available forever off its frozen data, and
-    writing through its closed api on the next press.
+    hass.config_entries.async_update_entry(entry, options={"prefix": "Garage"})
+    await hass.async_block_till_done()
 
-    Asserting on the live platform entities rather than on
-    ``hass.states``: HA leaves a restored placeholder state behind for
-    every registry entry whose platform is unloaded, so the states stay
-    visible as "unavailable" either way.
-    """
+    after = {e.entity_id for domain in ("number", "switch") for e in _live_entities(hass, domain)}
+    assert before == after
+    assert entry.runtime_data is not first_coordinator
+    assert all(
+        e.coordinator is entry.runtime_data
+        for domain in ("number", "switch")
+        for e in _live_entities(hass, domain)
+    )
+
+
+async def test_unload_removes_all_write_entities(hass, sunspec_write_client_mock):
     entry = await _setup_write_entry(hass)
     assert len(_live_entities(hass, "number")) == 3
     assert len(_live_entities(hass, "switch")) == 2
-    first_coordinator = entry.runtime_data
 
-    hass.config_entries.async_update_entry(entry, options={CONF_WRITE_BETA_ENABLED: False})
+    assert await hass.config_entries.async_unload(entry.entry_id)
     await hass.async_block_till_done()
 
     assert _live_entities(hass, "number") == []
     assert _live_entities(hass, "switch") == []
-    # The reload really happened, so this is not just a stale read.
-    assert entry.runtime_data is not first_coordinator
-    # Sensors survive the toggle - only the write platforms go.
-    assert _live_entities(hass, "sensor")
-
-
-async def test_beta_toggle_off_then_on_restores_the_entities(hass, sunspec_write_client_mock):
-    """The unload fix must not make the platforms unrecoverable."""
-    entry = await _setup_write_entry(hass)
-
-    hass.config_entries.async_update_entry(entry, options={CONF_WRITE_BETA_ENABLED: False})
-    await hass.async_block_till_done()
-    hass.config_entries.async_update_entry(entry, options={CONF_WRITE_BETA_ENABLED: True})
-    await hass.async_block_till_done()
-
-    assert len(_live_entities(hass, "number")) == 3
-    assert len(_live_entities(hass, "switch")) == 2

@@ -326,7 +326,7 @@ async def test_cleanup_keeps_the_write_entities(hass):
 
     They use the same get_sunspec_unique_id helper, so a cleanup keyed
     on the unique_id alone would delete the controls the user operates
-    on every single setup while the beta flag is on.
+    on every setup.
     """
     entry = _our_entry(hass)
     number = _register_ours(hass, entry, "number", "WMaxLimPct-123-0")
@@ -491,7 +491,7 @@ async def test_cleanup_keeps_storage_controls_alongside_the_export_limit(hass):
 async def test_cleanup_does_nothing_without_a_control_model(hass):
     """No active specs means no basis to judge, so nothing is deleted.
 
-    With the beta flag off the caller skips this entirely; this covers
+    When discovery has not returned any models, this covers
     the device that simply has no control model at all.
     """
     entry = _our_entry(hass)

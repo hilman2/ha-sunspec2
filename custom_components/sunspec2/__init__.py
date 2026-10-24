@@ -52,7 +52,6 @@ from .const import CONF_SERIAL_PORT
 from .const import CONF_STANDBY_WHEN_IDLE
 from .const import CONF_TRANSPORT
 from .const import CONF_UNIT_ID
-from .const import CONF_WRITE_BETA_ENABLED
 from .const import DEFAULT_BAUDRATE
 from .const import DEFAULT_MODELS
 from .const import DEFAULT_SCAN_DELAY_SECONDS
@@ -102,7 +101,6 @@ from .vendors.profile import RawField
 if TYPE_CHECKING:
     # Typing only: battery_plan imports the coordinator from here.
     from .battery_plan import BatteryPlanner
-from .write_controls import STORAGE_CONTROL_MODEL
 from .write_controls import export_limit_points
 
 SCAN_INTERVAL = timedelta(seconds=30)
@@ -282,11 +280,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: SunSpec2ConfigEntry) -> 
         hass, entry, coordinator.detected_models, log, coordinator.vendor
     )
 
-    # Every platform, on every entry. The write platforms build the
-    # battery controls of model 124 for any device that has the block,
-    # and the export and grid controls of 123 / 704 only behind
-    # CONF_WRITE_BETA_ENABLED; that choice is made per spec in
-    # number.build_specs, not by leaving a platform out.
+    # Every platform loads on every entry; each builds the controls
+    # supported by the models and vendor profile.
     platforms_to_load = list(PLATFORMS)
     # Remember what we forwarded, and unload exactly that. The list
     # used to depend on the beta option, and async_unload_entry
@@ -299,7 +294,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: SunSpec2ConfigEntry) -> 
     coordinator.forwarded_platforms = platforms_to_load
     await hass.config_entries.async_forward_entry_setups(entry, platforms_to_load)
 
-    # Register the experimental write service action once per HA
+    # Register the write service action once per HA
     # process (not per config entry). The handler routes by
     # config_entry_id passed in the call data.
     _async_register_services(hass)
@@ -355,12 +350,6 @@ def _async_register_services(hass: HomeAssistant) -> None:
         target_entry = hass.config_entries.async_get_entry(entry_id)
         if target_entry is None or target_entry.runtime_data is None:
             raise HomeAssistantError(f"SunSpec config entry {entry_id} is not loaded")
-        if not target_entry.options.get(CONF_WRITE_BETA_ENABLED, False):
-            raise HomeAssistantError(
-                "Experimental export controls are not enabled for this entry. "
-                "Open the integration options and tick "
-                "'Enable experimental export controls (BETA)' first."
-            )
         coordinator = target_entry.runtime_data
         # Resolve the model the same way the entities do, so the service
         # and the UI cannot end up driving different registers on a
@@ -642,9 +631,8 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator[dict[int, SunSpecModelW
         self._raw_write_listeners: list[Callable[[], None]] = []
         self._flash_warned = False
         # Which platforms async_setup_entry actually forwarded. Recorded
-        # there and read back by async_unload_entry, because the set
-        # depends on the write-beta option and the option may have been
-        # unticked in between. See the note at the assignment.
+        # there and read back by async_unload_entry, including when
+        # setup only forwarded part of the list before failing.
         self.forwarded_platforms: list[str] = []
         # Persisted SunSpec model layout. The store is per config entry so
         # removing the entry can drop the file, and so two inverters never
@@ -810,21 +798,15 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator[dict[int, SunSpecModelW
         # them in the model multi-select: the write entities read their
         # state from ``coordinator.data[model]``, and without the model
         # in the polled set no write entity ever registers (#17). The
-        # battery block, 124, is polled on every device that has it;
-        # the export and grid blocks, 123 and 704, only behind the
-        # beta, so the beta off means those registers are never read
-        # behind the user's back.
+        # battery, export and grid blocks are read on every device
+        # that has them. Polling does not write any register.
         #
         # Deliberately a SEPARATE set from option_model_filter.
         # option_model_filter mirrors exactly what the user picked and
         # is what the options form round-trips, so folding a model into
         # it would render a tick the user never made and then persist
         # it on their next save.
-        self.write_model_filter: set[int] = (
-            set(WRITE_CAPABLE_MODEL_IDS)
-            if entry.options.get(CONF_WRITE_BETA_ENABLED, False)
-            else {STORAGE_CONTROL_MODEL}
-        )
+        self.write_model_filter: set[int] = set(WRITE_CAPABLE_MODEL_IDS)
         self.unsub = entry.add_update_listener(async_reload_entry)
         self._log.debug(
             "Setup entry with models %s, scan interval %s",
@@ -1305,7 +1287,7 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator[dict[int, SunSpecModelW
         # one, or between cycles on an entry that hands the slot back.
         self.detected_models = all_models
         # Union first, intersect second: a model the device does not
-        # expose is still never read, but the write-beta model gets in
+        # expose is still never read, but the control models get in
         # without polluting the user's own selection.
         model_ids = (self.option_model_filter | self.write_model_filter) & all_models
         self._log.debug("Update data got models %s", model_ids)

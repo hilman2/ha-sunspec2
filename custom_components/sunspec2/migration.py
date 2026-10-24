@@ -204,7 +204,7 @@ def cleanup_excluded_sensor_entities(
     write entities carry model 123 in their unique_id too (same
     ``get_sunspec_unique_id`` helper), and those are the entities the
     user actually operates. Matching on the unique_id alone would
-    delete the controls on every setup while the beta flag is on.
+    delete the controls on every setup.
 
     Returns the list of removed entity ids.
     """
@@ -281,10 +281,8 @@ def cleanup_superseded_control_entities(
     and the entities an earlier release built for them only ever read
     "unknown".
 
-    Only runs while the write beta is enabled. With the flag off there
-    are no active specs at all, and deleting every control entity would
-    destroy the entity ids a user's automations point at just because
-    they toggled the feature off for an afternoon.
+    An empty model set leaves existing controls registered, so a
+    temporary discovery failure cannot remove their entity ids.
     """
     from .write_controls import active_specs
 

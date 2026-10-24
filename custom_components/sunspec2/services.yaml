@@ -51,12 +51,10 @@ set_battery_plan:
 set_export_limit:
   name: Set export limit
   description: >
-    EXPERIMENTAL (BETA). Set the inverter's export limit as a
-    percentage of WMax via SunSpec model 123 WMaxLimPct, and
-    optionally enable the limit via WMaxLim_Ena. Only available
-    when the matching config entry has "Enable experimental
-    write controls (BETA)" ticked in the options flow AND the
-    inverter actually exposes model 123.
+    Set the inverter's export limit as a percentage of rated power,
+    and optionally enable the limit. Uses SunSpec model 704 when
+    available, otherwise model 123. Requires a loaded config entry
+    whose inverter exposes one of these models.
   fields:
     config_entry_id:
       name: Config entry

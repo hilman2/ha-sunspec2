@@ -332,8 +332,7 @@ class SunSpecApiClient:
     async def async_write_points(self, model_id: int, points: list[tuple[str, object]]) -> None:
         """Write one or more points on a SunSpec model as a single batch.
 
-        v0.12.0 EXPERIMENTAL: this is the only path the new Number /
-        Switch / service-action write features take. Resolves the
+        The Number / Switch / service-action write features resolve the
         points on the live client, sets each ``cvalue`` (which lets
         pysunspec2 handle the scale-factor encoding for us), and
         flushes them together via ``model.write()``. That emits one

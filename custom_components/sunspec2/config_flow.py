@@ -39,7 +39,6 @@ from .const import CONF_STANDBY_WHEN_IDLE
 from .const import CONF_TRANSPORT
 from .const import CONF_UNIT_ID
 from .const import CONF_USAGE_STATS
-from .const import CONF_WRITE_BETA_ENABLED
 from .const import DEFAULT_BAUDRATE
 from .const import DEFAULT_MODELS
 from .const import DEFAULT_SCAN_DELAY_SECONDS
@@ -1020,7 +1019,6 @@ class SunSpecOptionsFlowHandler(config_entries.OptionsFlow):
             if not default_models:
                 default_models = default_enabled
 
-            write_beta_enabled = self.config_entry.options.get(CONF_WRITE_BETA_ENABLED, False)
             vendor = getattr(self.coordinator, "vendor", None)
             rearm_on_change = self.config_entry.options.get(
                 CONF_REARM_ON_CHANGE, vendor.rearm_by_default if vendor is not None else False
@@ -1042,10 +1040,6 @@ class SunSpecOptionsFlowHandler(config_entries.OptionsFlow):
                 # #52: opt-out for inverters that power their comms
                 # board down when idle and cannot be detected doing it.
                 vol.Optional(CONF_STANDBY_WHEN_IDLE, default=standby_when_idle): bool,
-                # v0.12.0 EXPERIMENTAL: opt-in for the write
-                # platforms (Number / Switch / service action) and
-                # the matching SunSpec model 123 entities.
-                vol.Optional(CONF_WRITE_BETA_ENABLED, default=write_beta_enabled): bool,
                 vol.Optional(CONF_USAGE_STATS, default=usage_stats): bool,
             }
             # The off/on cycle for a new export limit exists for a

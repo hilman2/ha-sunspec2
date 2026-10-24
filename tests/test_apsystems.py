@@ -5,7 +5,6 @@ from homeassistant.helpers import entity_registry as er
 
 from custom_components.sunspec2 import get_sunspec_unique_id
 from custom_components.sunspec2.api import SunSpecApiClient
-from custom_components.sunspec2.const import CONF_WRITE_BETA_ENABLED
 from custom_components.sunspec2.sensor import SunSpecEnergySensor
 from custom_components.sunspec2.sensor import SunSpecSensor
 from custom_components.sunspec2.vendor_blocks import RawBlockSensor
@@ -80,7 +79,6 @@ async def test_an_ecu_that_does_not_serve_the_block_gets_no_dc_sensors(
 
 async def _controls_entry(hass, setup=True):
     entry = create_mock_sunspec_config_entry(hass, data=MOCK_CONFIG)
-    hass.config_entries.async_update_entry(entry, options={CONF_WRITE_BETA_ENABLED: True})
     if setup:
         client = SunSpecApiClient(host="test", port=123, unit_id=1, hass=hass)
         await setup_mock_sunspec_config_entry(hass, config_entry=entry, client=client)
