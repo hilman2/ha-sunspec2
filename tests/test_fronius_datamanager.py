@@ -172,7 +172,7 @@ async def test_the_option_is_offered_on_by_default(hass, sunspec_symo_hybrid_cli
     assert result["step_id"] == "model_options"
     defaults = {
         key.schema: key.default()
-        for key in result["data_schema"].schema
+        for key in result["data_schema"].schema["advanced"].schema.schema
         if key.default is not vol.UNDEFINED
     }
     assert defaults[CONF_REARM_ON_CHANGE] is True

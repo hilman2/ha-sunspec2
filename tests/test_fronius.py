@@ -499,7 +499,7 @@ async def _model_option_fields(hass, entry):
         result["flow_id"], user_input=MOCK_CONFIG_STEP_1
     )
     assert result["step_id"] == "model_options"
-    return {key.schema for key in result["data_schema"].schema}
+    return {key.schema for key in result["data_schema"].schema["advanced"].schema.schema}
 
 
 async def test_the_option_is_offered_on_a_fronius(hass, sunspec_fronius_client_mock):

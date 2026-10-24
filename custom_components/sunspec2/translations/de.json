@@ -44,15 +44,18 @@
       },
       "settings": {
         "title": "Wechselrichter-Einstellungen",
-        "description": "Wähle, welche SunSpec-Modelle als Sensoren angelegt werden, und setze optional die Spitzen-AC-Leistung des Wechselrichters für den Plausibilitätsfilter.",
+        "description": "Wähle Sensormodelle und Abfrageintervall. Beides kannst du später in den Geräteoptionen ändern.",
         "data": {
-          "prefix": "Sensor-Namens-Präfix",
-          "scan_interval": "Scan-Intervall (Sekunden)",
-          "models_enabled": "Aktive Modelle",
-          "max_ac_power_kw": "Spitzen-AC-Leistung des Wechselrichters (kW, optional)"
+          "prefix": "Präfix für Sensornamen",
+          "scan_interval": "Abfrageintervall",
+          "models_enabled": "Sensormodelle",
+          "max_ac_power_kw": "Plausibilitätsgrenze für Leistung"
         },
         "data_description": {
-          "max_ac_power_kw": "Werte oberhalb dieser Grenze werden als unplausibel verworfen. Vorbelegt aus dem Typenschild des Wechselrichters plus 20% Reserve, denn Wechselrichter überschreiten ihre Dauerleistung kurzzeitig und die DC-Leistung liegt immer über der AC-Leistung. Nicht auf das nackte Typenschild absenken: die Sensoren für DC-Leistung und Scheinleistung stehen sonst an einem sonnigen Tag die meiste Zeit auf \"unbekannt\". Feld leeren schaltet den Filter ab."
+          "prefix": "Optionaler Zusatz vor den Sensornamen.",
+          "scan_interval": "Abstand zwischen den Geräteabfragen. Kurze Intervalle belasten Gerät und Netzwerk stärker.",
+          "models_enabled": "Wähle die erkannten SunSpec-Modelle, für die Sensoren angelegt werden. Mindestens ein Modell muss ausgewählt sein.",
+          "max_ac_power_kw": "Verwirft unplausible Leistungswerte oberhalb dieser Grenze. Der Vorschlag enthält 20 % Reserve auf die AC-Nennleistung für DC-Leistung und Scheinleistung. Leeren verwendet die automatische Erkennung."
         }
       },
       "reconfigure": {
@@ -84,7 +87,7 @@
     "step": {
       "host_options": {
         "title": "Verbindungseinstellungen",
-        "description": "Bearbeite Host, Port und Unit-ID des Wechselrichters. Im nächsten Schritt kannst du die aktiven SunSpec-Modelle und die Spitzen-AC-Leistung für den Plausibilitätsfilter ändern.",
+        "description": "Prüfe die Verbindungsdaten und gehe dann zu den Geräteoptionen weiter.",
         "data": {
           "host": "Host oder IP",
           "port": "Modbus-TCP-Port",
@@ -93,26 +96,58 @@
       },
       "model_options": {
         "title": "Geräteoptionen",
-        "description": "Wähle die SunSpec-Modelle (Datenregister), für die Sensoren erstellt werden sollen. Die Spitzen-AC-Leistung ist optional und dient dazu, unrealistische Werte zu verwerfen, die manche Wechselrichter bei Dämmerung melden (z.B. Spikes im MW- oder TWh-Bereich). Leer lassen, um den Filter zu deaktivieren.",
+        "description": "Wähle Sensoren und Abfrageintervall. Weitere Einstellungen findest du in den aufklappbaren Bereichen.",
         "data": {
-          "prefix": "Sensor-Namens-Präfix",
-          "scan_interval": "Scan-Intervall (Sekunden)",
-          "scan_delay": "Pause zwischen den Modellen beim Scan des SunSpec-Modellbaums (Sekunden). Der Baum wird nur gescannt, wenn die Integration eine neue Verbindung aufbauen muss und kein gespeichertes Layout mehr zum Gerät passt, nie bei einem normalen Poll; im Normalbetrieb kostet die Pause also nichts. Erhöhen, wenn Scans auf langsamer Hardware fehlschlagen; verringern nur, wenn der Rescan selbst stört.",
-          "models_enabled": "Aktive Modelle",
-          "capture_raw_registers": "Rohe Modbus-Bytes für Diagnose mitschneiden",
-          "max_ac_power_kw": "Spitzen-AC-Leistung des Wechselrichters (kW, optional)",
-          "standby_when_idle": "Wechselrichter schaltet sich im Leerlauf ab (keine Reparatur-Meldung, solange er nicht erreichbar ist)",
-          "usage_stats": "Anonyme Nutzungsstatistik senden",
-          "rearm_on_change": "Einspeiselimit und Leistungsfaktor bei Wertänderung durch Aus- und Einschalten neu anwenden (Fronius)",
-          "fronius_web_password": "Passwort der Weboberfläche (Fronius, lokaler Login \"customer\")",
-          "fronius_web_forget": "Gespeicherten Login der Weboberfläche vergessen"
+          "prefix": "Präfix für Sensornamen",
+          "scan_interval": "Abfrageintervall",
+          "models_enabled": "Sensormodelle",
+          "max_ac_power_kw": "Plausibilitätsgrenze für Leistung"
         },
         "data_description": {
-          "fronius_web_password": "Schaltet frei, was ein GEN24 seiner eigenen Webseite sagt und nicht Modbus: Temperaturen, Identität und Zelltemperatur der Batterie, die Position des Smart Meters, die Netzlade-Schalter, ob Modbus-Steuerung erlaubt ist, und einen Modbus-Reset. Das Passwort wird nicht gespeichert; gespeichert wird ein Hash davon, der nur an diesem Wechselrichter anmeldet. Feld leer lassen, um den gespeicherten Login zu behalten.",
-          "rearm_on_change": "Ein Fronius GEN24 übernimmt ein neues Einspeiselimit oder einen neuen Leistungsfaktor nur, wenn der zugehörige Schalter von Aus auf Ein geht. Ist die Option an, schreibt eine Wertänderung bei eingeschaltetem Schalter erst den Schalter aus, dann den Wert und eine Sekunde später den Schalter wieder ein; für diese Sekunde läuft der Wechselrichter ohne Limit. Ist sie aus, wird nur der Wert geschrieben, und der Wechselrichter behält den alten, bis der Schalter aus- und wieder eingeschaltet wird, von Hand oder per Automation.",
-          "max_ac_power_kw": "Werte oberhalb dieser Grenze werden als unplausibel verworfen. Vorbelegt aus dem Typenschild des Wechselrichters plus 20% Reserve, denn Wechselrichter überschreiten ihre Dauerleistung kurzzeitig und die DC-Leistung liegt immer über der AC-Leistung. Nicht auf das nackte Typenschild absenken: die Sensoren für DC-Leistung und Scheinleistung stehen sonst an einem sonnigen Tag die meiste Zeit auf \"unbekannt\". Feld leeren schaltet den Filter ab.",
-          "standby_when_idle": "Nur einschalten, wenn es nötig ist. Meldet der Wechselrichter vor dem Verbindungsabbruch OFF, SLEEPING, SHUTTING_DOWN oder STANDBY, erkennt die Integration das von selbst und bleibt still. Diese Option ist für Geräte, die ohne Vorwarnung aus dem Netz gehen oder gar keinen Betriebszustand veröffentlichen. Solange sie aktiv ist, wird die Reparatur \"SunSpec-Wechselrichter nicht erreichbar\" nie ausgelöst. Sensoren werden weiterhin nicht mehr verfügbar, wenn der Wechselrichter einige Minuten weg ist, und ein Gerät, das mit einem Modbus-Fehler antwortet, meldet das weiterhin.",
-          "usage_stats": "Standardmäßig an. Einmal am Tag meldet die Integration dem Server des Autors, dass eine Installation aktiv ist. Gesendet werden eine zufällige Installations-ID, die Version der Integration und von Home Assistant, das Herstellerprofil und die Zahl der Einträge. Es werden weder Host, Seriennummer, Modell, Standort noch Messwerte gesendet. Ausschalten, damit nichts gesendet wird."
+          "prefix": "Optionaler Zusatz vor den Sensornamen.",
+          "scan_interval": "Abstand zwischen den Geräteabfragen. Kurze Intervalle belasten Gerät und Netzwerk stärker.",
+          "models_enabled": "Wähle die erkannten SunSpec-Modelle, für die Sensoren angelegt werden. Mindestens ein Modell muss ausgewählt sein.",
+          "max_ac_power_kw": "Verwirft unplausible Leistungswerte oberhalb dieser Grenze. Der Vorschlag enthält 20 % Reserve auf die AC-Nennleistung für DC-Leistung und Scheinleistung. Leeren verwendet die automatische Erkennung."
+        },
+        "sections": {
+          "advanced": {
+            "name": "Erweitert",
+            "description": "Standby, Geräteerkennung und Fehlersuche.",
+            "data": {
+              "standby_when_idle": "Abschalten im Leerlauf berücksichtigen",
+              "scan_delay": "Pause beim Modellscan",
+              "capture_raw_registers": "Diagnoseregister mitschneiden",
+              "rearm_on_change": "Steuerung nach Wertänderung neu aktivieren"
+            },
+            "data_description": {
+              "standby_when_idle": "Unterdrückt Verbindungs-Reparaturmeldungen für Geräte, die ohne Standby-Meldung vom Netz gehen. Sensoren werden weiterhin nicht verfügbar. Gemeldeten Standby erkennt die Integration automatisch.",
+              "scan_delay": "Pause zwischen Modellen bei der Geräteerkennung, nicht bei normalen Abfragen. Erhöhen, wenn die Erkennung auf langsamen Geräten fehlschlägt.",
+              "capture_raw_registers": "Ergänzt Diagnose-Downloads zur Fehlersuche um rohe Modbus-Registerdaten.",
+              "rearm_on_change": "Fronius GEN24 benötigt einen Aus-/Ein-Zyklus für geänderte Grenzwerte. Bei aktiver Steuerung wird der Schalter ausgeschaltet, der Wert geschrieben und der Schalter eine Sekunde später eingeschaltet. In dieser Sekunde wirkt das Limit nicht."
+            }
+          },
+          "privacy": {
+            "name": "Datenschutz",
+            "description": "Übertragung der Nutzungsstatistik festlegen.",
+            "data": {
+              "usage_stats": "Anonyme Nutzungsstatistik senden"
+            },
+            "data_description": {
+              "usage_stats": "Sendet einmal täglich eine zufällige Installations-ID, Integrations- und HA-Version, Herstellerprofil und Anzahl der Einträge an den Autor. Keine Adresse, Seriennummer, Standort- oder Messwerte. Ausschalten beendet die Übertragung."
+            }
+          },
+          "fronius": {
+            "name": "Fronius-Weboberfläche",
+            "description": "Optionaler Zugang zu zusätzlichen Gerätedaten.",
+            "data": {
+              "fronius_web_password": "Passwort der Weboberfläche",
+              "fronius_web_forget": "Gespeicherten Login löschen"
+            },
+            "data_description": {
+              "fronius_web_password": "Lokaler Login \"customer\", nicht das Solar.web-Konto. Ermöglicht zusätzliche Geräte- und Batteriedaten. Gespeichert wird nur ein gerätespezifischer Login-Hash. Leer lassen behält den gespeicherten Login.",
+              "fronius_web_forget": "Entfernt den gespeicherten Login und deaktiviert die zusätzlichen Funktionen der Weboberfläche."
+            }
+          }
         }
       }
     },

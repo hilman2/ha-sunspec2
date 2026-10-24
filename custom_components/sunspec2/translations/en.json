@@ -44,15 +44,18 @@
       },
       "settings": {
         "title": "Inverter settings",
-        "description": "Pick which SunSpec models to expose as sensors and optionally set the inverter's peak AC power for plausibility filtering.",
+        "description": "Choose sensor models and a polling interval. You can change these later in the device options.",
         "data": {
           "prefix": "Sensor name prefix",
-          "scan_interval": "Scan interval (seconds)",
-          "models_enabled": "Enabled models",
-          "max_ac_power_kw": "Peak AC power of the inverter (kW, optional)"
+          "scan_interval": "Polling interval",
+          "models_enabled": "Sensor models",
+          "max_ac_power_kw": "Power plausibility limit"
         },
         "data_description": {
-          "max_ac_power_kw": "Readings above this are discarded as implausible. Pre-filled from the inverter's own nameplate with 20% headroom, because inverters overshoot their continuous rating and DC power always reads above AC output. Do not lower it to the bare nameplate: the DC power and apparent power sensors would then read \"unknown\" for most of a sunny day. Clear the field to switch the filter off."
+          "prefix": "Optional prefix for sensor names.",
+          "scan_interval": "Time between reading the device. Short intervals increase network and device load.",
+          "models_enabled": "Select the detected SunSpec models to expose as sensors. Select at least one.",
+          "max_ac_power_kw": "Discards implausible power readings above this limit. The suggested value includes 20% above the AC rating to allow for DC power and apparent power. Clear to use automatic detection."
         }
       },
       "reconfigure": {
@@ -84,7 +87,7 @@
     "step": {
       "host_options": {
         "title": "Connection settings",
-        "description": "Edit the inverter's host, port and unit ID. The next step lets you change which SunSpec models are exposed as sensors and the peak AC power for plausibility filtering.",
+        "description": "Check the connection details, then continue to the device options.",
         "data": {
           "host": "Host or IP",
           "port": "Modbus TCP port",
@@ -93,26 +96,58 @@
       },
       "model_options": {
         "title": "Device options",
-        "description": "Select which SunSpec models (data registers) you want sensors for. The peak AC power is optional and used to discard unrealistic values that some inverters report at dawn or dusk (e.g. spikes in the MW or TWh range). Leave it empty to disable filtering.",
+        "description": "Adjust sensor selection and polling. Further settings are grouped below.",
         "data": {
           "prefix": "Sensor name prefix",
-          "scan_interval": "Scan interval (seconds)",
-          "scan_delay": "Pause between models while scanning the SunSpec model tree (seconds). The tree is only scanned when the integration has to build a new connection and no stored layout still matches the device, never on a normal poll, so this pacing costs nothing in normal operation. Raise it if scans fail on slow hardware, lower it only if the rescan itself is disruptive.",
-          "models_enabled": "Enabled models",
-          "capture_raw_registers": "Capture raw modbus bytes for diagnostics",
-          "max_ac_power_kw": "Peak AC power of the inverter (kW, optional)",
-          "standby_when_idle": "Inverter powers down when idle (no repair notification while it is unreachable)",
-          "usage_stats": "Send anonymous usage statistics",
-          "rearm_on_change": "Re-apply the export limit and power factor by switching them off and on when their value changes (Fronius)",
-          "fronius_web_password": "Web interface password (Fronius, the local \"customer\" login)",
-          "fronius_web_forget": "Forget the stored web interface login"
+          "scan_interval": "Polling interval",
+          "models_enabled": "Sensor models",
+          "max_ac_power_kw": "Power plausibility limit"
         },
         "data_description": {
-          "fronius_web_password": "Unlocks what a GEN24 tells its own web page and not Modbus: temperatures, the battery's identity and cell temperature, where the smart meter sits, the grid charging flags, whether Modbus control is allowed, and a Modbus reset. The password is not stored; a hash of it that logs in to this inverter and nothing else is. Leave the field empty to keep the stored login.",
-          "rearm_on_change": "A Fronius GEN24 takes a new export limit or power factor only when its enable switch goes from off to on. With this on, changing a value while its switch is on writes the switch off, the new value, and the switch on again, one second apart, so for that second the inverter runs without the limit. Off: the value is written on its own and the inverter keeps the old one until the switch is turned off and on, by you or by an automation.",
-          "max_ac_power_kw": "Readings above this are discarded as implausible. Pre-filled from the inverter's own nameplate with 20% headroom, because inverters overshoot their continuous rating and DC power always reads above AC output. Do not lower it to the bare nameplate: the DC power and apparent power sensors would then read \"unknown\" for most of a sunny day. Clear the field to switch the filter off.",
-          "standby_when_idle": "Leave this off unless you need it. The integration already detects an inverter that reports OFF, SLEEPING, SHUTTING_DOWN or STANDBY before the connection drops, and stays quiet about that on its own. Turn this on for a device that goes off the network without warning, or that does not publish an operating state at all. While it is on, the \"Cannot reach SunSpec inverter\" repair is never raised. Sensors still go unavailable when the inverter has been away for a few minutes, and a device that answers with a Modbus error still reports it.",
-          "usage_stats": "On by default. Once a day the integration tells the author's server that an installation is active. It sends a random install ID, the version of the integration and of Home Assistant, the vendor profile and the number of entries. It sends no host, serial number, model, location or readings. Turn it off to send nothing."
+          "prefix": "Optional prefix for sensor names.",
+          "scan_interval": "Time between reading the device. Short intervals increase network and device load.",
+          "models_enabled": "Select the detected SunSpec models to expose as sensors. Select at least one.",
+          "max_ac_power_kw": "Discards implausible power readings above this limit. The suggested value includes 20% above the AC rating to allow for DC power and apparent power. Clear to use automatic detection."
+        },
+        "sections": {
+          "advanced": {
+            "name": "Advanced",
+            "description": "Standby, device discovery and troubleshooting.",
+            "data": {
+              "standby_when_idle": "Allow the inverter to go offline when idle",
+              "scan_delay": "Model scan pause",
+              "capture_raw_registers": "Capture diagnostic registers",
+              "rearm_on_change": "Re-enable controls after a setpoint change"
+            },
+            "data_description": {
+              "standby_when_idle": "Suppresses connection Repairs for devices that go offline without reporting standby. Sensors still become unavailable. Reported standby is detected automatically.",
+              "scan_delay": "Pause between models during discovery, not during normal polling. Increase it if discovery fails on slow devices.",
+              "capture_raw_registers": "Adds raw Modbus register data to diagnostic downloads for troubleshooting.",
+              "rearm_on_change": "Fronius GEN24 requires an off/on cycle to apply changed limits. While a control is enabled, its switch is turned off, the value is written, and the switch is turned on one second later. The limit is inactive during that second."
+            }
+          },
+          "privacy": {
+            "name": "Privacy",
+            "description": "Choose whether to send usage statistics.",
+            "data": {
+              "usage_stats": "Send anonymous usage statistics"
+            },
+            "data_description": {
+              "usage_stats": "Sends a random installation ID, integration and HA versions, vendor profile and entry count to the author once a day. Sends no address, serial number, location or readings. Disable to send nothing."
+            }
+          },
+          "fronius": {
+            "name": "Fronius web interface",
+            "description": "Optional access to additional device data.",
+            "data": {
+              "fronius_web_password": "Web interface password",
+              "fronius_web_forget": "Forget saved login"
+            },
+            "data_description": {
+              "fronius_web_password": "Local \"customer\" login, not your Solar.web account. Enables additional device and battery data. Only a device-specific login hash is stored. Leave empty to keep the saved login.",
+              "fronius_web_forget": "Removes the saved login and disables the additional web interface features."
+            }
+          }
         }
       }
     },

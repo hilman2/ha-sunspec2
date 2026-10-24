@@ -1,4 +1,15 @@
 {
+  "options": {
+    "step": {
+      "model_options": {
+        "sections": {
+          "advanced": "mdi:tune",
+          "privacy": "mdi:shield-account-outline",
+          "fronius": "mdi:web"
+        }
+      }
+    }
+  },
   "entity": {
     "sensor": {
       "amps": {"default": "mdi:current-ac"},
