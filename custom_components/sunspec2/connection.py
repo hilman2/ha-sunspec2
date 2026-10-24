@@ -13,7 +13,7 @@ config entry holding a unit on it unloads.
 ``ModbusConnection`` with ``for_unit``, ``connect``, ``disconnect``,
 ``close`` and ``connected``, so the fork needs no change. What differs
 is who owns the link: a unit has no ``connect`` or ``close`` of its own,
-so ``connect`` here is a first read and ``close`` hands the holds back
+so ``connect`` defers to the first register read and ``close`` hands the holds back
 only where nobody else will.
 """
 
@@ -26,14 +26,7 @@ from homeassistant.components.modbus.connection import async_get_temporary_unit
 from homeassistant.components.modbus.connection import async_get_unit
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
-from modbus_connection import ModbusExceptionError
 from modbus_connection import ModbusUnit
-
-# What the first request of a session reads. 40000 is where SunSpec puts
-# its marker unless the device says otherwise, but the address is not the
-# point: any answer, an exception response included, proves the link is
-# up, and the scan that follows finds the real base address.
-PROBE_ADDRESS = 40000
 
 
 class SharedConnection:
@@ -51,12 +44,10 @@ class SharedConnection:
         hass: HomeAssistant,
         params: ModbusParams,
         entry: ConfigEntry | None = None,
-        timeout: float | None = None,
     ) -> None:
         self._hass = hass
         self._params = params
         self._entry = entry
-        self._timeout = timeout
         self._temporary = contextlib.AsyncExitStack() if entry is None else None
         self._units: dict[int, ModbusUnit] = {}
 
@@ -77,9 +68,8 @@ class SharedConnection:
         if unit is None:
             if self._entry is None:
                 raise RuntimeError(f"unit {unit_id} was not opened with async_for_unit")
-            unit = self._adopt(
-                unit_id, async_get_unit(self._hass, self._entry, self._params, unit_id)
-            )
+            unit = async_get_unit(self._hass, self._entry, self._params, unit_id)
+            self._units[unit_id] = unit
         return unit
 
     async def async_for_unit(self, unit_id: int) -> ModbusUnit:
@@ -88,29 +78,12 @@ class SharedConnection:
             unit = await self._temporary.enter_async_context(
                 async_get_temporary_unit(self._hass, self._params, unit_id)
             )
-            return self._adopt(unit_id, unit)
+            self._units[unit_id] = unit
+            return unit
         return self.for_unit(unit_id)
 
-    def _adopt(self, unit_id: int, unit: ModbusUnit) -> ModbusUnit:
-        if self._timeout is not None:
-            # Only ever raises the shared link's timeout: the config
-            # flow's longer walk of a whole model tree asks for it and a
-            # running entry's steady-state value changes nothing.
-            unit.require_timeout(self._timeout)
-        self._units[unit_id] = unit
-        return unit
-
     async def connect(self) -> None:
-        """Open the link by reading once, so a refused connect fails here.
-
-        A unit connects on its first request and has no ``connect`` of its
-        own. Left to the scan, a refused connect would surface from the
-        middle of it as a protocol error. An exception response is an
-        answer: the link is up and the scan decides what the device means.
-        """
-        unit = next(iter(self._units.values()))
-        with contextlib.suppress(ModbusExceptionError):
-            await unit.read_holding_registers(PROBE_ADDRESS, 1)
+        """Let discovery or cached-layout validation open the link on its first read."""
 
     async def disconnect(self) -> None:
         """Drop the link; every holder reconnects on its next request."""

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from collections.abc import Mapping
 from typing import Any
@@ -156,7 +157,7 @@ def set_connection_error(
     err: Exception,
 ) -> None:
     """Map backend failures to user-visible config flow errors."""
-    if isinstance(err, TransientError):
+    if isinstance(err, (TransientError, TimeoutError)):
         errors["base"] = "timeout"
         _LOGGER.warning(
             "Timeout while connecting to host %s:%s unit %s",
@@ -724,9 +725,10 @@ class SunSpecFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
         inverter never sees two sessions from this flow at once.
         """
         await self._close_probe_client()
-        client = SunSpecApiClient(host, port, unit_id, self.hass, timeout=SETUP_TIMEOUT)
+        client = SunSpecApiClient(host, port, unit_id, self.hass)
         try:
-            await client.async_get_device_info()
+            async with asyncio.timeout(SETUP_TIMEOUT):
+                await client.async_get_device_info()
         except Exception:  # noqa: BLE001 - a probe that fails is the answer
             return False
         finally:
@@ -736,20 +738,15 @@ class SunSpecFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
     async def _test_connection_tcp(self, host: str, port: int, unit_id: int) -> bool:
         """Probe a Modbus TCP inverter and cache its common-block info.
 
-        Uses ``SETUP_TIMEOUT`` instead of the steady-state ``TIMEOUT``
-        because the very first ``client.scan()`` walks every SunSpec
-        model on the device, which can be 16+ models deep on a fully
-        featured inverter and is much slower than a single read in
-        steady state. The 10s steady-state ceiling is too tight for
-        the initial walk on slower devices (notably KACO Powador on
-        100 Mbit), so the config-flow probe gets the longer 60s
-        envelope.
+        The complete scan has a ``SETUP_TIMEOUT`` budget. Individual
+        requests use Home Assistant's shared connection timeout.
         """
         _LOGGER.debug(f"Test TCP connection to {host}:{port} unit id {unit_id}")
         await self._close_probe_client()
         try:
-            self.client = SunSpecApiClient(host, port, unit_id, self.hass, timeout=SETUP_TIMEOUT)
-            self._device_info = await self.client.async_get_device_info()
+            self.client = SunSpecApiClient(host, port, unit_id, self.hass)
+            async with asyncio.timeout(SETUP_TIMEOUT):
+                self._device_info = await self.client.async_get_device_info()
             _LOGGER.info(self._device_info)
             return True
         except Exception as err:
@@ -782,13 +779,13 @@ class SunSpecFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
                 port=baudrate,
                 unit_id=unit_id,
                 hass=self.hass,
-                timeout=SETUP_TIMEOUT,
                 transport=TRANSPORT_RTU,
                 serial_port=serial_port,
                 baudrate=baudrate,
                 parity=parity,
             )
-            self._device_info = await self.client.async_get_device_info()
+            async with asyncio.timeout(SETUP_TIMEOUT):
+                self._device_info = await self.client.async_get_device_info()
             _LOGGER.info(self._device_info)
             return True
         except Exception as err:

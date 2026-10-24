@@ -5,25 +5,172 @@ here, so the two entries that share a link are shared by the code that
 shares them. Only the unit's I/O is faked.
 """
 
+import asyncio
+import struct
+from typing import cast
 from unittest.mock import patch
 
 import pytest
 from homeassistant.components.modbus.connection import DATA_MODBUS_CONNECTIONS
+from homeassistant.config_entries import ConfigEntryDisabler
+from homeassistant.config_entries import ConfigEntryState
 from homeassistant.exceptions import HomeAssistantError
 from modbus_connection import ModbusConnectionError
 from modbus_connection import ModbusExceptionError
 from modbus_connection import ModbusSerialParams
 from modbus_connection import ModbusTcpParams
+from modbus_connection import ModbusTimeoutError
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from custom_components.sunspec2.connection import PROBE_ADDRESS
+from custom_components.sunspec2.api import SunSpecApiClient
+from custom_components.sunspec2.config_flow import SunSpecFlowHandler
 from custom_components.sunspec2.connection import SharedConnection
 from custom_components.sunspec2.const import DOMAIN
+from custom_components.sunspec2.errors import TransportError
 
+from . import create_mock_sunspec_config_entry
 from .const import MOCK_CONFIG
 from .fake_unit import FakeUnit
+from .fake_unit import register_image
 
 PARAMS = ModbusTcpParams(host="gateway", port=502)
+
+
+@pytest.fixture
+async def tcp_device(hass, socket_enabled):
+    """A device that silently ignores reads outside its SunSpec register map."""
+    registers = register_image("./tests/test_data/inverter_fronius.json")
+    writers = set()
+    reads = []
+
+    async def serve(reader, writer):
+        writers.add(writer)
+        try:
+            while True:
+                header = await reader.readexactly(7)
+                transaction, protocol, length, unit_id = struct.unpack(">HHHB", header)
+                body = await reader.readexactly(length - 1)
+                function, address, count = struct.unpack(">BHH", body)
+                assert function == 3
+                reads.append((unit_id, address, count))
+                if any(address + offset not in registers for offset in range(count)):
+                    continue
+                values = [registers[address + offset] for offset in range(count)]
+                response = struct.pack(">BB", function, count * 2) + struct.pack(
+                    f">{count}H", *values
+                )
+                writer.write(
+                    struct.pack(">HHHB", transaction, protocol, len(response) + 1, unit_id)
+                )
+                writer.write(response)
+                await writer.drain()
+        except (asyncio.IncompleteReadError, ConnectionError):
+            pass
+        finally:
+            writer.close()
+            writers.discard(writer)
+
+    server = await asyncio.start_server(serve, "127.0.0.1", 0)
+    port = server.sockets[0].getsockname()[1]
+    try:
+        yield port, registers, reads
+    finally:
+        for shared in hass.data.get(DATA_MODBUS_CONNECTIONS, {}).values():
+            await shared.connection.close()
+        server.close()
+        await server.wait_closed()
+        for writer in list(writers):
+            writer.close()
+        await asyncio.gather(*(writer.wait_closed() for writer in list(writers)))
+
+
+def _probe_flow(hass):
+    flow = SunSpecFlowHandler()
+    flow.hass = hass
+    return flow
+
+
+def _fast_client(*args, **kwargs):
+    kwargs["scan_delay"] = 0
+    return SunSpecApiClient(*args, **kwargs)
+
+
+@pytest.mark.parametrize("base", [0, 50000])
+async def test_probe_finds_other_bases_when_40000_is_silent(hass, tcp_device, base):
+    port, registers, reads = tcp_device
+    shifted = register_image("./tests/test_data/inverter_fronius.json", base=base)
+    registers.clear()
+    registers.update(shifted)
+    params = ModbusTcpParams(host="127.0.0.1", port=port)
+    holder = SharedConnection(hass, params, _entry(hass))
+    holder.for_unit(1).require_timeout(0.05)
+    flow = _probe_flow(hass)
+    try:
+        with patch("custom_components.sunspec2.config_flow.SunSpecApiClient", _fast_client):
+            async with asyncio.timeout(1):
+                assert await flow._test_connection_tcp("127.0.0.1", port, 2)
+        assert flow.client._base_addr == base
+        assert any(address == base for _, address, _ in reads)
+    finally:
+        await flow._close_probe_client()
+
+
+@pytest.mark.parametrize("probe_unit", [1, 2])
+async def test_closing_probe_preserves_another_holders_timeout(hass, tcp_device, probe_unit):
+    port, _, _ = tcp_device
+    params = ModbusTcpParams(host="127.0.0.1", port=port)
+    holder = SharedConnection(hass, params, _entry(hass))
+    unit = holder.for_unit(1)
+    unit.require_timeout(0.05)
+    flow = _probe_flow(hass)
+    try:
+        with patch("custom_components.sunspec2.config_flow.SunSpecApiClient", _fast_client):
+            assert await flow._test_connection_tcp("127.0.0.1", port, probe_unit)
+    finally:
+        await flow._close_probe_client()
+
+    async with asyncio.timeout(0.5):
+        with pytest.raises(ModbusTimeoutError):
+            await unit.read_holding_registers(65000, 1)
+
+
+async def test_refused_connection_is_a_transport_error(hass, socket_enabled, unused_tcp_port):
+    api = SunSpecApiClient(
+        host="127.0.0.1",
+        port=unused_tcp_port,
+        unit_id=1,
+        hass=hass,
+        scan_delay=0,
+        entry=_entry(hass),
+    )
+    try:
+        with pytest.raises(TransportError):
+            await api.async_get_models()
+    finally:
+        await api.async_shutdown()
+
+
+@pytest.mark.parametrize("transport", ["tcp", "rtu"])
+async def test_probe_has_a_total_timeout_budget(hass, transport):
+    flow = _probe_flow(hass)
+
+    async def never_answers(*args):
+        await asyncio.Event().wait()
+
+    try:
+        with (
+            patch("custom_components.sunspec2.config_flow.SETUP_TIMEOUT", 0.01),
+            patch.object(SunSpecApiClient, "async_get_device_info", never_answers),
+        ):
+            async with asyncio.timeout(0.5):
+                if transport == "tcp":
+                    result = await flow._test_connection_tcp("test", 502, 1)
+                else:
+                    result = await flow._test_connection_rtu("/dev/ttyTEST", 9600, "N", 1)
+        assert result is False
+        assert flow._errors == {"base": "timeout"}
+    finally:
+        await flow._close_probe_client()
 
 
 def _entry(hass):
@@ -101,35 +248,14 @@ async def test_an_entrys_holds_are_left_to_its_unload(hass):
     assert next(iter(hass.data[DATA_MODBUS_CONNECTIONS].values())).consumers == 1
 
 
-async def test_the_timeout_is_asked_for_on_each_unit(hass):
+async def test_connect_does_not_probe_a_fixed_address(hass):
     unit = FakeUnit()
-    with patch("custom_components.sunspec2.connection.async_get_unit", return_value=unit):
-        SharedConnection(hass, PARAMS, _entry(hass), timeout=60).for_unit(1)
-
-    assert unit.timeouts == [60]
-
-
-async def test_connect_reads_once_so_a_refused_connect_fails_there(hass):
-    unit = FakeUnit()
-    unit.fail_next = ModbusConnectionError("connection refused")
     with patch("custom_components.sunspec2.connection.async_get_unit", return_value=unit):
         connection = SharedConnection(hass, PARAMS, _entry(hass))
         connection.for_unit(1)
-
-        with pytest.raises(ModbusConnectionError):
-            await connection.connect()
-
-
-async def test_an_exception_response_to_the_probe_means_the_link_is_up(hass):
-    unit = FakeUnit()  # no registers: the read is answered with an illegal address
-    unit.fail_next = ModbusExceptionError(2)
-    with patch("custom_components.sunspec2.connection.async_get_unit", return_value=unit):
-        connection = SharedConnection(hass, PARAMS, _entry(hass))
-        connection.for_unit(1)
-
         await connection.connect()
-
-    assert unit.reads == [(PROBE_ADDRESS, 1)]
+    assert unit.reads == []
+    assert unit.timeouts == []
 
 
 async def test_disconnect_drops_the_link_through_a_unit(hass):

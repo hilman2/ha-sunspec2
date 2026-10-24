@@ -807,27 +807,21 @@ async def test_revision_only_moves_when_the_layout_does(hass):
     assert api.structure_revision == revision
 
 
-async def test_the_connection_is_built_once_with_the_request_timeout(hass, mocker):
-    """One SharedConnection per api client, carrying the entry and the timeout.
+async def test_the_connection_is_built_once_for_the_entry(hass, mocker):
+    """One SharedConnection per api client, carrying the entry.
 
     The connection outlives the client: a close drops the link and the
     models, and the next client uses the same object.
     """
-    from custom_components.sunspec2.api import SETUP_TIMEOUT
-
     built = mocker.patch("custom_components.sunspec2.api.SharedConnection")
     entry = MockConfigEntry(domain=DOMAIN, data=MOCK_CONFIG)
-    api = SunSpecApiClient(
-        host="test", port=123, unit_id=7, hass=hass, timeout=SETUP_TIMEOUT, entry=entry
-    )
+    api = SunSpecApiClient(host="test", port=123, unit_id=7, hass=hass, entry=entry)
 
     first = api._get_connection()
     second = api._get_connection()
 
     assert first is second
-    built.assert_called_once_with(
-        hass, ModbusTcpParams(host="test", port=123), entry, timeout=SETUP_TIMEOUT
-    )
+    built.assert_called_once_with(hass, ModbusTcpParams(host="test", port=123), entry)
 
 
 async def test_the_unit_is_taken_for_the_devices_unit_id(hass, mocker):

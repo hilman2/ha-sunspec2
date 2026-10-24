@@ -287,10 +287,10 @@ The full read pipeline lives under `custom_components/sunspec2/`:
   integration behind it, their requests queue behind its lock, and it
   closes when the last entry holding a unit on it unloads. It gives
   `unit_device.py` the `ModbusConnection` shape it was written against:
-  `connect` is a first read (a unit has no connect of its own), `close`
+  `connect` defers to discovery or cached-layout validation, `close`
   lets go only of a config flow's temporary holds, an entry's holds go
-  with its unload. `require_timeout` raises the shared link's timeout
-  for the flow's long scan (modbus-connection 4.12). Home Assistant's
+  with its unload. The config flow has a 60-second scan budget and
+  leaves the shared link's per-request timeout unchanged. Home Assistant's
   internals change between releases (2026.10 started tracking holds per
   entry id), so only `async_get_unit` and `async_get_temporary_unit` are
   used, never the private helpers.

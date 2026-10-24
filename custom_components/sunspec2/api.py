@@ -70,24 +70,8 @@ type SunSpecClient = Any
 # coordinator (5s sleep then one more attempt) and the stale-data
 # tolerance in the entity available property cover the actual
 # flaky-network case much better than a long socket timeout ever did.
-TIMEOUT = 10
-
-# There is no separate connect timeout any more. The embedded TCP client
-# had one of 2 s, measured against real hardware where every successful
-# connect landed between 0.08 s and 0.33 s, so a connect still open after
-# two seconds was a refused one: the inverter had no free Modbus session
-# and dropped the SYN. modbus-connection hands its backend one timeout and
-# leaves tmodbus's own connect timeout at 10 s, so a refused connect now
-# costs TIMEOUT. If that shows up as a lost cycle after the nightly drop,
-# the fix is upstream: pass connect_timeout through ModbusConnection.
-
-# Initial-setup socket timeout (seconds). The very first
-# ``client.scan()`` after a fresh connect walks every SunSpec model
-# block on the device, which can be 16+ models deep on a fully featured
-# inverter and is much slower than a single read in steady state. The
-# steady-state TIMEOUT of 10s is too tight for that walk on slower
-# devices (notably KACO Powador on 100 Mbit), so the config-flow probe
-# and the diagnostics probe pass this longer timeout to the API client.
+# Total time allowed for a config-flow scan, not a per-request timeout.
+# A probe must not alter the timeout of Home Assistant's shared link.
 SETUP_TIMEOUT = 60
 
 # Pause before every model instance async_read_model reads (seconds).
@@ -142,7 +126,6 @@ class SunSpecApiClient:
         unit_id: int,
         hass: HomeAssistant,
         capture_enabled: bool = False,
-        timeout: int = TIMEOUT,
         transport: str = TRANSPORT_TCP,
         serial_port: str | None = None,
         baudrate: int = DEFAULT_BAUDRATE,
@@ -177,12 +160,6 @@ class SunSpecApiClient:
         self._port = port
         self._hass = hass
         self._unit_id = unit_id
-        # Steady-state coordinator instances pass nothing here and get
-        # the short ``TIMEOUT``. The config-flow probe and any other
-        # one-shot caller that needs to walk the full SunSpec model tree
-        # passes ``timeout=SETUP_TIMEOUT`` so the initial scan has time
-        # to finish on slower devices.
-        self._timeout = timeout
         # Seconds pysunspec2 sleeps between models during scan(). Until
         # v0.22.0 the coordinator closed the client after every cycle,
         # so every poll rescanned and paid this once per model. The
@@ -241,10 +218,9 @@ class SunSpecApiClient:
         self._capture_enabled = capture_enabled
         self._captured_reads: list[dict[str, Any]] = []
         self._log.debug(
-            "New SunspecApi Client (transport=%s, capture=%s, timeout=%ds, scan_delay=%ss)",
+            "New SunspecApi Client (transport=%s, capture=%s, scan_delay=%ss)",
             transport,
             capture_enabled,
-            timeout,
             self._scan_delay,
         )
 
@@ -1085,9 +1061,7 @@ class SunSpecApiClient:
     def _get_connection(self) -> SharedConnection:
         """The connection object, built on first use. Constructing it does no I/O."""
         if self._connection is None:
-            self._connection = SharedConnection(
-                self._hass, self._params(), self._entry, timeout=self._timeout
-            )
+            self._connection = SharedConnection(self._hass, self._params(), self._entry)
         return self._connection
 
     async def _async_get_connection(self) -> SharedConnection:
@@ -1114,9 +1088,7 @@ class SunSpecApiClient:
             if self._transport == TRANSPORT_RTU
             else f"{self._host}:{self._port}"
         )
-        self._log.debug(
-            "Connecting to %s unit id %s, timeout %ss", endpoint, self._unit_id, self._timeout
-        )
+        self._log.debug("Connecting to %s unit id %s", endpoint, self._unit_id)
         # The model definitions are JSON files next to the fork, read on
         # first use. The scan and the cache restore look them up on the
         # event loop, and an open() there is what Home Assistant's
@@ -1144,14 +1116,10 @@ class SunSpecApiClient:
         # describes our own leak rather than the original fault.
         handed_off = False
         try:
-            # Eager rather than on the first request, so a refused
-            # connect fails here with a transport error and not inside
-            # the scan as a protocol one.
             await client.async_connect()
+            await self._async_scan_or_restore(client)
             if not client.is_connected():
                 raise TransportError(f"Failed to connect to {endpoint} unit id {self._unit_id}")
-            self._log.debug("Client connected, perform initial scan")
-            await self._async_scan_or_restore(client)
             await self._async_relabel_models(client)
             handed_off = True
             return client
