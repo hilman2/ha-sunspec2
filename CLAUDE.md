@@ -17,7 +17,7 @@ The integration runs on real installations through HACS. The alpha rules
   already validates against the device before it is used.
 - **Config entries stay valid.** New options get a default, existing
   keys keep their meaning. Nothing is written to a device by a change
-  of defaults: writes belong behind the experimental export controls.
+  of defaults: device writes require an explicit control or service action.
 - **Rollback is a HACS redownload** of the previous release. A release
   that cannot be undone that way (a changed storage shape) says so in
   its notes.

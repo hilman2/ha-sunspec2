@@ -1,8 +1,7 @@
 """Number platform for SunSpec write controls.
 
-EXPERIMENTAL, opt-in. Entities only register when the user has ticked
-"Enable experimental write controls (BETA)" in the options flow and the
-inverter exposes a model :mod:`write_controls` has specs for.
+Entities register when the inverter exposes a model
+:mod:`write_controls` has specs for. Setup only reads their state.
 
 v0.19.0 replaced one hand-written class per point with one class driven
 by a :class:`~.write_controls.WriteControlSpec`. The platform now spans
@@ -48,7 +47,6 @@ from . import SunSpec2ConfigEntry
 from . import SunSpecDataUpdateCoordinator
 from . import get_sunspec_unique_id
 from .battery_plan import battery_plan_numbers
-from .const import CONF_WRITE_BETA_ENABLED
 from .const import EXPORT_LIMIT_DEFAULT_STEP_PCT
 from .const import EXPORT_LIMIT_MIN_STEP_PCT
 from .entity import SunSpecEntity
@@ -57,7 +55,6 @@ from .models import SunSpecModelWrapper
 from .storage_modes import storage_setpoint_numbers
 from .vendor_blocks import raw_block_numbers
 from .write_controls import PLATFORM_NUMBER
-from .write_controls import STORAGE_CONTROL_MODEL
 from .write_controls import WriteControlSpec
 from .write_controls import active_specs_for_platform
 
@@ -134,18 +131,12 @@ def build_specs(
     """Yield (spec, wrapper) for every control this device can support.
 
     Shared by the number, switch and select platforms so the three
-    cannot drift on which models they consider present. The battery
-    controls of model 124 come for any device that has the block; the
-    export and grid controls of 123 and 704 only while the write beta
-    is on.
+    cannot drift on which models they consider present.
     """
     vendor = coordinator.vendor
     hidden = vendor.storage.hidden_points if vendor and vendor.storage else frozenset()
     unsupported = vendor.unsupported_controls if vendor else frozenset()
-    write_beta = coordinator.entry.options.get(CONF_WRITE_BETA_ENABLED, False)
     for spec in active_specs_for_platform(coordinator.detected_models, platform, unsupported):
-        if spec.model_id != STORAGE_CONTROL_MODEL and not write_beta:
-            continue
         if spec.unique_key in hidden:
             # The vendor profile writes this register through its own
             # entities, in watts. The generic percent entity stays

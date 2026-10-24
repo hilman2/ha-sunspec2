@@ -93,11 +93,7 @@ option to tick.
 
 ### Export controls
 
-These controls limit what the site feeds into the grid. They are off
-until you tick **Enable experimental export controls (BETA)** in the
-integration's options (*Settings -> Devices & services -> SunSpec
-Modbus -> Configure*). It is the same option that switches on the
-export controls for other inverters, described in
+These controls limit what the site feeds into the grid. See
 [Battery and export control](write-controls.md). They only appear
 when SolarEdge has enabled battery access for your inverter.
 
@@ -182,8 +178,7 @@ entity to see whether the inverter really took the value.
 
 ## Limiting what you feed in
 
-Turn on the export controls first (see "Export controls" above).
-Then use:
+Use the export controls described above:
 
 - **Site limit mode**, **Site limit scope** and **Site limit** if
   your site has a meter that the inverter can use. The inverter keeps

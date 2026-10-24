@@ -11,7 +11,7 @@ remembering what they asked for.
 
 Only built when the vendor has a storage profile and model 124 reports
 a WChaMax above zero, which is how the device says it has a battery.
-No option to tick: the battery block is not behind the write beta.
+The controls appear when the device has a supported battery block.
 """
 
 from __future__ import annotations

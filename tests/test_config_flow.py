@@ -207,6 +207,7 @@ async def test_options_flow(hass, sunspec_client_mock):
     serialised = _serialise_form(result["data_schema"])
     serialised_names = {field["name"] for field in serialised}
     assert CONF_MAX_AC_POWER_KW in serialised_names
+    assert "write_beta_enabled" not in serialised_names
 
     result = await hass.config_entries.options.async_configure(
         result["flow_id"], user_input={CONF_ENABLED_MODELS: ["1"], CONF_SCAN_INTERVAL: 10}

@@ -165,7 +165,7 @@ def test_selects_declare_options_and_others_do_not():
 
 
 def test_daily_use_controls_are_enabled_by_default():
-    """The reason someone turns the beta on should not need a second click."""
+    """Daily controls appear without enabling individual entities."""
     enabled = {
         spec.point_name
         for spec in active_specs({DER_AC_CONTROLS_MODEL, STORAGE_CONTROL_MODEL})

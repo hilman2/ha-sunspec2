@@ -123,7 +123,6 @@ You can change these at any time under *Settings -> Devices & Services
 | Pause between models while scanning | 0.5 s | A pause while the integration maps what the inverter offers. Raise it if setup fails on slow inverters |
 | Inverter powers down when idle | off | Stops the "unreachable" notification for inverters that vanish at night without saying so |
 | Capture raw Modbus bytes for diagnostics | off | Puts what the inverter sent, unprocessed, into the diagnostics download. For bug reports |
-| Enable experimental export controls (BETA) | off | Lets you limit the power you feed into the grid. See [Battery and export control](#battery-and-export-control) |
 | Send anonymous usage statistics | on | One request a day that counts active installations. See [Usage statistics](#usage-statistics) |
 
 Host, port and unit ID are changed via **Reconfigure** in the same
@@ -202,8 +201,7 @@ get more than that:
 - **SMA** with a battery gets its battery data and a power setpoint for
   steering it. See **[docs/sma.md](docs/sma.md)**.
 
-**Export controls** are a beta and off by default. Tick **Enable
-experimental export controls (BETA)** in the options to get:
+**Export controls** appear when your inverter supports them:
 
 - an export limit in percent or watts, with an on/off switch and a
   timer after which the inverter drops the limit by itself
@@ -217,8 +215,7 @@ which settings are left alone on purpose.
 
 If you use the export controls, please
 [open an issue](https://github.com/hilman2/ha-sunspec2/issues) with
-your inverter model, its firmware version and what worked. That
-feedback is what lets the BETA label come off.
+your inverter model, its firmware version and what worked.
 
 ## When something is wrong
 

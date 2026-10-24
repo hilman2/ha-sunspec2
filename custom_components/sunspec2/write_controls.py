@@ -40,7 +40,7 @@ DER_AC_CONTROLS_MODEL = 704
 STORAGE_CONTROL_MODEL = 124
 
 #: Every model this module can build controls for. The coordinator
-#: polls these while the write beta is on, so a user does not have to
+#: polls these on every device that has them, so a user does not have to
 #: find and tick them in the model list first.
 WRITE_CAPABLE_MODELS: frozenset[int] = frozenset(
     {IMMEDIATE_CONTROLS_MODEL, DER_AC_CONTROLS_MODEL, STORAGE_CONTROL_MODEL}

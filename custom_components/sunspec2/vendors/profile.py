@@ -274,7 +274,6 @@ class RawNumber:
         device (str): ``"inverter"`` or the key of a ``RawDevice``.
         unit (str|None): Home Assistant unit string.
         device_class (str|None): Home Assistant number device class value.
-        beta (bool): Only with the experimental export controls on.
         icon (str|None): The icon.
     """
 
@@ -287,7 +286,6 @@ class RawNumber:
     device: str = "inverter"
     unit: str | None = None
     device_class: str | None = None
-    beta: bool = False
     icon: str | None = None
 
 
@@ -301,7 +299,6 @@ class RawSelect:
         key (str): The translation key.
         options (Mapping[int, str]): Raw value to option name.
         device (str): ``"inverter"`` or the key of a ``RawDevice``.
-        beta (bool): Only with the experimental export controls on.
         read (Callable[[Any], Any]|None): Called as ``read(raw)`` with
             the decoded field. Returns the raw value to look up in
             ``options``, for a field that carries more than the choice.
@@ -317,7 +314,6 @@ class RawSelect:
     key: str
     options: Mapping[int, str]
     device: str = "inverter"
-    beta: bool = False
     read: Callable[[Any], Any] | None = None
     write: Callable[[Any, int], int] | None = None
     icon: str | None = None
@@ -345,7 +341,6 @@ class RawKeepAlive:
         settle_seconds (float): The pause between the fields' writes.
             SMA wants its control flag a moment before the setpoint.
         device (str): ``"inverter"`` or the key of a ``RawDevice``.
-        beta (bool): Only with the experimental export controls on.
         icon (str|None): The icon.
     """
 
@@ -356,7 +351,6 @@ class RawKeepAlive:
     only_while: Callable[[Mapping[str, Any]], bool] | None = None
     settle_seconds: float = 0.0
     device: str = "inverter"
-    beta: bool = False
     icon: str | None = None
 
 

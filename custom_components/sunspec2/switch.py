@@ -1,6 +1,6 @@
 """Switch platform for SunSpec write controls.
 
-EXPERIMENTAL, opt-in, same gating as the Number platform. Covers the
+Covers the
 SunSpec points that are booleans in everything but name: the spec
 spells them as two-symbol enums (ENABLED / DISABLED,
 CONNECTED / DISCONNECTED) rather than as a boolean type.

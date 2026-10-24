@@ -3,8 +3,8 @@ rules:
   action-setup:
     status: done
     comment: |
-      v0.12.0 added the experimental ``sunspec2.set_export_limit``
-      service action (gated behind the write-controls beta flag).
+      The ``sunspec2.set_export_limit`` service action is available
+      for inverters with model 123 or 704.
       Registered idempotently in __init__.py via
       ``hass.services.async_register`` from the first config entry
       that loads. Service definition lives in services.yaml with
@@ -57,9 +57,7 @@ rules:
       docs/write-controls.md documents the
       ``sunspec2.set_export_limit`` service action, every Number /
       Switch / Select entity, the SunSpec point each one writes to,
-      the opt-in flag and the risk profile. The README section that
-      links there carries the EXPERIMENTAL warning, so nobody
-      reaches the feature without seeing the BETA status first.
+      and the differences between inverter implementations.
   docs-high-level-description:
     status: done
   docs-installation-instructions:
@@ -126,7 +124,7 @@ rules:
     comment: |
       The ``sunspec2.set_export_limit`` handler raises
       ``HomeAssistantError`` for every failure mode: unknown
-      config entry, beta flag not enabled, model 123 not exposed
+      config entry, no supported control model exposed
       by the device, modbus write failure (wrapped from our typed
       SunSpecError hierarchy). The Number and Switch entities
       do the same on async_set_native_value / async_turn_on /
