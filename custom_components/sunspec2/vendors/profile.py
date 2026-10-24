@@ -439,6 +439,8 @@ class VendorProfile:
             count one day and start again at zero, where SunSpec says
             lifetime. They are plain sensors, without the guards of a
             lifetime counter.
+        required_models (frozenset[int]): Models a profile's controls and
+            sensors need, polled when the device exposes them.
     """
 
     slug: str
@@ -462,6 +464,7 @@ class VendorProfile:
     ascii_flag_points: frozenset[str] = frozenset()
     control_steps: Mapping[str, float] = field(default_factory=dict)
     daily_energy_points: frozenset[str] = frozenset()
+    required_models: frozenset[int] = frozenset()
 
     def raw_block(self, key: str) -> RawBlock | None:
         """The raw block named ``key``, or None."""

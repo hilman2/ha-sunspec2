@@ -10,7 +10,9 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections import deque
+from collections.abc import AsyncIterator
 from collections.abc import Callable
+from contextlib import asynccontextmanager
 from datetime import datetime
 from datetime import timedelta
 from time import monotonic
@@ -1105,16 +1107,7 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator[dict[int, SunSpecModelW
         runs ``_async_refresh`` inline and it would deadlock on the
         lock we are still holding.
         """
-        try:
-            async with asyncio.timeout(WRITE_LOCK_TIMEOUT_SECONDS):
-                await self._gateway_lock.acquire()
-        except TimeoutError as exc:
-            raise TransientError(
-                f"Timed out after {WRITE_LOCK_TIMEOUT_SECONDS}s waiting for the Modbus "
-                f"gateway to become free; the inverter is busy, try again"
-            ) from exc
-        successful = False
-        try:
+        async with self.async_write_transaction():
             # One step for everyone but a vendor that takes a new value
             # only on the rising edge of its enable register; then three
             # (see plan_write). Each step is one batch, not one call per
@@ -1135,14 +1128,30 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator[dict[int, SunSpecModelW
                 await self.api.async_write_points(model_id, step.points)
                 if step.settle_seconds > 0:
                     await asyncio.sleep(step.settle_seconds)
+
+    @asynccontextmanager
+    async def async_write_transaction(self) -> AsyncIterator[None]:
+        """Hold the gateway across reads, writes and verification of one control action."""
+        try:
+            async with asyncio.timeout(WRITE_LOCK_TIMEOUT_SECONDS):
+                await self._gateway_lock.acquire()
+        except TimeoutError as exc:
+            raise TransientError(
+                f"Timed out after {WRITE_LOCK_TIMEOUT_SECONDS}s waiting for the Modbus "
+                f"gateway to become free; the inverter is busy, try again"
+            ) from exc
+        successful = False
+        try:
+            yield
             successful = True
         finally:
-            # A failed write leaves the session in an unknown state: a late
-            # answer on this socket would be read as the answer to the next
-            # request, so drop it.
-            if not successful:
-                await self.api.async_close(force=True)
-            self._gateway_lock.release()
+            try:
+                # A failed transaction can leave a late response on the
+                # session. Do not let the next request consume it.
+                if not successful:
+                    await self.api.async_close(force=True)
+            finally:
+                self._gateway_lock.release()
 
     @callback
     def async_add_raw_write_listener(self, listener: Callable[[], None]) -> Callable[[], None]:
@@ -1169,22 +1178,8 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator[dict[int, SunSpecModelW
         """
         data = encode_value(raw_field.kind, value, block.word_order)
         address = block.address + raw_field.offset
-        try:
-            async with asyncio.timeout(WRITE_LOCK_TIMEOUT_SECONDS):
-                await self._gateway_lock.acquire()
-        except TimeoutError as exc:
-            raise TransientError(
-                f"Timed out after {WRITE_LOCK_TIMEOUT_SECONDS}s waiting for the Modbus "
-                f"gateway to become free; the inverter is busy, try again"
-            ) from exc
-        successful = False
-        try:
+        async with self.async_write_transaction():
             await self.api.async_write_block(address, data, unit_id_offset=block.unit_id_offset)
-            successful = True
-        finally:
-            if not successful:
-                await self.api.async_close(force=True)
-            self._gateway_lock.release()
         self.raw_setpoints[(block.key, raw_field.name)] = value
         vendor = self.vendor
         if vendor is not None and address in vendor.volatile_registers:
@@ -1247,7 +1242,6 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator[dict[int, SunSpecModelW
         # expose is still never read, but the control models get in
         # without polluting the user's own selection.
         model_ids = (self.option_model_filter | self.write_model_filter) & all_models
-        self._log.debug("Update data got models %s", model_ids)
 
         # Fetch common model 1 once per process under the lock so
         # the sensor platform setup can read device metadata
@@ -1280,6 +1274,9 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator[dict[int, SunSpecModelW
         # Only meaningful once model 1 has been read, and it is read on
         # the first cycle, so this lands exactly where it can act.
         rescan_after_cycle = await self._check_device_identity()
+        if self.vendor is not None:
+            model_ids |= self.vendor.required_models & all_models
+        self._log.debug("Update data got models %s", model_ids)
 
         # Auto-detect the inverter's nameplate AC power once, on the
         # first cycle that reaches this point. Prefer model 120

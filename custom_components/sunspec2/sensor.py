@@ -49,6 +49,7 @@ from .const import effective_peak_power_kw
 from .const import is_excluded_sensor_point
 from .const import measured_power_headroom
 from .entity import SunSpecEntity
+from .franklinwh_controls import franklinwh_sensors
 
 # Bronze rule parallel-updates: the coordinator already serialises all
 # I/O via its per-gateway asyncio.Lock, so platform entities never
@@ -368,6 +369,7 @@ async def async_setup_entry(
         # The vendor's registers outside the models. A block can start
         # answering later, so this runs on every cycle like the models.
         vendor_sensors.extend(raw_block_sensors(coordinator, entry, prefix))
+        vendor_sensors.extend(franklinwh_sensors(coordinator, entry, prefix))
         for sensor in vendor_sensors:
             role_uid = sensor.unique_id
             if role_uid is None or role_uid in known_unique_ids:

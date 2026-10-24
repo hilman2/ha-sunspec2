@@ -23,7 +23,7 @@ Some brands have their own extras on top. They have their own pages:
 [Fronius GEN24, Verto and Tauro](fronius.md),
 [Fronius Symo, Primo, Eco, Galvo and Symo Hybrid](fronius-symo.md),
 [SolarEdge](solaredge.md), [Kostal](kostal.md), [SMA](sma.md) and
-[APsystems](apsystems.md).
+[APsystems](apsystems.md) and [FranklinWH](franklinwh.md).
 
 ## What you get
 

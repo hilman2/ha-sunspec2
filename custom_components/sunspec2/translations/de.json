@@ -266,6 +266,9 @@
       },
       "battery_fallback_time": {
         "name": "Zeit bis zum Rückfall"
+      },
+      "franklinwh_power_target": {
+        "name": "Batterie-Leistungssollwert"
       }
     },
     "select": {
@@ -427,6 +430,12 @@
     "button": {
       "reset_modbus_control": {
         "name": "Modbus-Steuerung zurücksetzen"
+      },
+      "franklinwh_standby": {
+        "name": "Batterie im Standby halten"
+      },
+      "franklinwh_release": {
+        "name": "Batteriesteuerung freigeben"
       }
     },
     "sensor": {
@@ -885,6 +894,58 @@
       },
       "saj_dc_power_2": {
         "name": "DC-Leistung Eingang 2"
+      },
+      "franklinwh_pv_total": {
+        "name": "Solarleistung aus Erweiterungsregistern"
+      },
+      "franklinwh_pv_proximal": {
+        "name": "Lokale Solarleistung"
+      },
+      "franklinwh_pv_remote_1": {
+        "name": "Entfernte Solarleistung 1"
+      },
+      "franklinwh_pv_remote_2": {
+        "name": "Entfernte Solarleistung 2"
+      },
+      "franklinwh_home_load": {
+        "name": "Hausverbrauch, grobe Messung"
+      },
+      "franklinwh_home_load_high_resolution": {
+        "name": "Hausverbrauch"
+      },
+      "franklinwh_native_mode": {
+        "name": "Nativer Betriebsmodus",
+        "state": {
+          "emergency_backup": "Notstromreserve",
+          "self_consumption": "Eigenverbrauch",
+          "time_of_use": "Zeittarif"
+        }
+      },
+      "franklinwh_self_reserve": {
+        "name": "Reserve für Eigenverbrauch"
+      },
+      "franklinwh_tou_reserve": {
+        "name": "Gemeldete Reserve für Zeittarif"
+      },
+      "franklinwh_active_reserve": {
+        "name": "Gemeldete aktive Reserve"
+      },
+      "franklinwh_pv_energy": {
+        "name": "Solarenergie aus Erweiterungsregistern"
+      },
+      "franklinwh_pv_proximal_energy": {
+        "name": "Lokale Solarenergie"
+      },
+      "franklinwh_battery_state": {
+        "name": "Batterieaktivität",
+        "state": {
+          "charging": "Laden",
+          "discharging": "Entladen",
+          "idle": "Leerlauf"
+        }
+      },
+      "franklinwh_home_consumption": {
+        "name": "Hausverbrauch"
       }
     }
   },
