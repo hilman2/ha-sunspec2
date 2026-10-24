@@ -114,6 +114,7 @@
               "prefix": "Präfix für Sensornamen",
               "standby_when_idle": "Abschalten im Leerlauf berücksichtigen",
               "scan_delay": "Pause beim Modellscan",
+              "model_read_delay": "Pause zwischen Modellabfragen",
               "capture_raw_registers": "Diagnoseregister mitschneiden",
               "rearm_on_change": "Steuerung nach Wertänderung neu aktivieren"
             },
@@ -122,6 +123,7 @@
               "prefix": "Optionaler Zusatz vor den Sensornamen.",
               "standby_when_idle": "Unterdrückt Verbindungs-Reparaturmeldungen für Geräte, die ohne Standby-Meldung vom Netz gehen. Sensoren werden weiterhin nicht verfügbar. Gemeldeten Standby erkennt die Integration automatisch.",
               "scan_delay": "Pause zwischen Modellen bei der Geräteerkennung, nicht bei normalen Abfragen. Erhöhen, wenn die Erkennung auf langsamen Geräten fehlschlägt.",
+              "model_read_delay": "Pause zwischen Modellabfragen im laufenden Betrieb. Kleinere Werte verkürzen Abfragen und Schreibaktionen. 0 schaltet die Pause aus.",
               "capture_raw_registers": "Ergänzt Diagnose-Downloads zur Fehlersuche um rohe Modbus-Registerdaten.",
               "rearm_on_change": "Fronius GEN24 benötigt einen Aus-/Ein-Zyklus für geänderte Grenzwerte. Bei aktiver Steuerung wird der Schalter ausgeschaltet, der Wert geschrieben und der Schalter eine Sekunde später eingeschaltet. In dieser Sekunde wirkt das Limit nicht."
             }

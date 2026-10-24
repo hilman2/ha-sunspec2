@@ -114,6 +114,7 @@
               "prefix": "Sensor name prefix",
               "standby_when_idle": "Allow the inverter to go offline when idle",
               "scan_delay": "Model scan pause",
+              "model_read_delay": "Model read pause",
               "capture_raw_registers": "Capture diagnostic registers",
               "rearm_on_change": "Re-enable controls after a setpoint change"
             },
@@ -122,6 +123,7 @@
               "prefix": "Optional prefix for sensor names.",
               "standby_when_idle": "Suppresses connection Repairs for devices that go offline without reporting standby. Sensors still become unavailable. Reported standby is detected automatically.",
               "scan_delay": "Pause between models during discovery, not during normal polling. Increase it if discovery fails on slow devices.",
+              "model_read_delay": "Pause between model reads during normal polling. Lower values shorten refreshes and write actions. Set 0 to remove the pause.",
               "capture_raw_registers": "Adds raw Modbus register data to diagnostic downloads for troubleshooting.",
               "rearm_on_change": "Fronius GEN24 requires an off/on cycle to apply changed limits. While a control is enabled, its switch is turned off, the value is written, and the switch is turned on one second later. The limit is inactive during that second."
             }

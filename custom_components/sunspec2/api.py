@@ -18,8 +18,11 @@ from modbus_connection import ModbusTcpParams
 
 from .connection import SharedConnection
 from .const import DEFAULT_BAUDRATE
+from .const import DEFAULT_MODEL_READ_DELAY_SECONDS
 from .const import DEFAULT_SCAN_DELAY_SECONDS
+from .const import MAX_MODEL_READ_DELAY_SECONDS
 from .const import MAX_SCAN_DELAY_SECONDS
+from .const import MIN_MODEL_READ_DELAY_SECONDS
 from .const import MIN_SCAN_DELAY_SECONDS
 from .const import PARITY_EVEN
 from .const import PARITY_NONE
@@ -74,15 +77,6 @@ type SunSpecClient = Any
 # A probe must not alter the timeout of Home Assistant's shared link.
 SETUP_TIMEOUT = 60
 
-# Pause before every model instance async_read_model reads (seconds).
-# Inherited verbatim from cjne/ha-sunspec in the phase 0 baseline, where
-# it paced the request stream for inverters that answer slowly, and never
-# re-examined since. A named constant so the test suite can switch it
-# off: the file-backed test client needs no pacing, and at 0.6 s per
-# model every test that sets the integration up paid two seconds for
-# nothing, most of the suite's three minutes.
-MODEL_READ_PACING_SECONDS = 0.6
-
 _LOGGER: logging.Logger = logging.getLogger(__package__)
 
 
@@ -132,6 +126,7 @@ class SunSpecApiClient:
         parity: str = PARITY_NONE,
         scan_delay: float = DEFAULT_SCAN_DELAY_SECONDS,
         entry: ConfigEntry | None = None,
+        model_read_delay: float = DEFAULT_MODEL_READ_DELAY_SECONDS,
     ) -> None:
         """Sunspec modbus client.
 
@@ -174,6 +169,12 @@ class SunSpecApiClient:
         # sleep would raise ValueError deep inside the scan walk.
         self._scan_delay = min(
             MAX_SCAN_DELAY_SECONDS, max(MIN_SCAN_DELAY_SECONDS, float(scan_delay))
+        )
+        # Keep the inherited pause by default; faster devices can opt out
+        # without changing discovery pacing or other entries on this host.
+        self._model_read_delay = min(
+            MAX_MODEL_READ_DELAY_SECONDS,
+            max(MIN_MODEL_READ_DELAY_SECONDS, float(model_read_delay)),
         )
         self._transport = transport
         self._serial_port = serial_port
@@ -219,10 +220,11 @@ class SunSpecApiClient:
         self._capture_enabled = capture_enabled
         self._captured_reads: list[dict[str, Any]] = []
         self._log.debug(
-            "New SunspecApi Client (transport=%s, capture=%s, scan_delay=%ss)",
+            "New SunspecApi Client (transport=%s, capture=%s, scan_delay=%ss, model_read_delay=%ss)",
             transport,
             capture_enabled,
             self._scan_delay,
+            self._model_read_delay,
         )
 
     async def async_get_client(self) -> SunSpecClient:
@@ -1211,7 +1213,7 @@ class SunSpecApiClient:
         return SunSpecModelWrapper(models)
 
     async def _pace_model_read(self) -> None:
-        """Keep ``MODEL_READ_PACING_SECONDS`` between the end of one model read and the next.
+        """Keep the configured pause between the end of one model read and the next.
 
         The pause used to come before every read, the first of a cycle
         included. That one follows an idle interval or a fresh connect and
@@ -1220,8 +1222,8 @@ class SunSpecApiClient:
         eight entries behind one APsystems ECU-R spent it eight times in
         a row on startup (#126).
         """
-        if not MODEL_READ_PACING_SECONDS or self._last_model_read_end is None:
+        if not self._model_read_delay or self._last_model_read_end is None:
             return
-        remaining = MODEL_READ_PACING_SECONDS - (time.monotonic() - self._last_model_read_end)
+        remaining = self._model_read_delay - (time.monotonic() - self._last_model_read_end)
         if remaining > 0:
             await asyncio.sleep(remaining)

@@ -28,6 +28,7 @@ from .const import CONF_FRONIUS_WEB_PASSWORD
 from .const import CONF_FRONIUS_WEB_TOKEN
 from .const import CONF_HOST
 from .const import CONF_MAX_AC_POWER_KW
+from .const import CONF_MODEL_READ_DELAY
 from .const import CONF_PARITY
 from .const import CONF_PORT
 from .const import CONF_PREFIX
@@ -40,10 +41,13 @@ from .const import CONF_TRANSPORT
 from .const import CONF_UNIT_ID
 from .const import CONF_USAGE_STATS
 from .const import DEFAULT_BAUDRATE
+from .const import DEFAULT_MODEL_READ_DELAY_SECONDS
 from .const import DEFAULT_MODELS
 from .const import DEFAULT_SCAN_DELAY_SECONDS
 from .const import DOMAIN
+from .const import MAX_MODEL_READ_DELAY_SECONDS
 from .const import MAX_SCAN_DELAY_SECONDS
+from .const import MIN_MODEL_READ_DELAY_SECONDS
 from .const import MIN_SCAN_DELAY_SECONDS
 from .const import MIN_SCAN_INTERVAL_SECONDS
 from .const import NAMEPLATE_FILTER_HEADROOM
@@ -164,6 +168,16 @@ _SCAN_DELAY_SELECTOR = selector.NumberSelector(
     selector.NumberSelectorConfig(
         min=MIN_SCAN_DELAY_SECONDS,
         max=MAX_SCAN_DELAY_SECONDS,
+        step=0.05,
+        mode=selector.NumberSelectorMode.BOX,
+        unit_of_measurement="s",
+    )
+)
+
+_MODEL_READ_DELAY_SELECTOR = selector.NumberSelector(
+    selector.NumberSelectorConfig(
+        min=MIN_MODEL_READ_DELAY_SECONDS,
+        max=MAX_MODEL_READ_DELAY_SECONDS,
         step=0.05,
         mode=selector.NumberSelectorMode.BOX,
         unit_of_measurement="s",
@@ -975,6 +989,9 @@ class SunSpecOptionsFlowHandler(config_entries.OptionsFlow):
         usage_stats = self.config_entry.options.get(CONF_USAGE_STATS, True)
         standby_when_idle = self.config_entry.options.get(CONF_STANDBY_WHEN_IDLE, False)
         scan_delay = self.config_entry.options.get(CONF_SCAN_DELAY, DEFAULT_SCAN_DELAY_SECONDS)
+        model_read_delay = self.config_entry.options.get(
+            CONF_MODEL_READ_DELAY, DEFAULT_MODEL_READ_DELAY_SECONDS
+        )
         # User-set value wins, and is shown back exactly as stored - the
         # filter uses it as-is, so the form must not quietly inflate it.
         # If the user has not configured a peak power yet, fall back to
@@ -1056,6 +1073,9 @@ class SunSpecOptionsFlowHandler(config_entries.OptionsFlow):
                 ): _MAX_AC_POWER_SELECTOR,
                 probatio.Optional(CONF_STANDBY_WHEN_IDLE, default=standby_when_idle): bool,
                 probatio.Optional(CONF_SCAN_DELAY, default=scan_delay): _SCAN_DELAY_SELECTOR,
+                probatio.Optional(
+                    CONF_MODEL_READ_DELAY, default=model_read_delay
+                ): _MODEL_READ_DELAY_SELECTOR,
                 probatio.Optional(CONF_CAPTURE_RAW, default=capture_raw): bool,
             }
             schema: dict[Any, Any] = {

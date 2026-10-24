@@ -42,6 +42,7 @@ from .const import CONF_CAPTURE_RAW
 from .const import CONF_ENABLED_MODELS
 from .const import CONF_FRONIUS_WEB_TOKEN
 from .const import CONF_HOST
+from .const import CONF_MODEL_READ_DELAY
 from .const import CONF_PARITY
 from .const import CONF_PORT
 from .const import CONF_REARM_ON_CHANGE
@@ -52,6 +53,7 @@ from .const import CONF_STANDBY_WHEN_IDLE
 from .const import CONF_TRANSPORT
 from .const import CONF_UNIT_ID
 from .const import DEFAULT_BAUDRATE
+from .const import DEFAULT_MODEL_READ_DELAY_SECONDS
 from .const import DEFAULT_MODELS
 from .const import DEFAULT_SCAN_DELAY_SECONDS
 from .const import DEVICE_IDENTITY_POINTS
@@ -202,6 +204,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: SunSpec2ConfigEntry) -> 
     # SunSpec model tree. Read from options on every setup so changing
     # it in the options flow takes effect on the reload that follows.
     scan_delay = entry.options.get(CONF_SCAN_DELAY, DEFAULT_SCAN_DELAY_SECONDS)
+    model_read_delay = entry.options.get(CONF_MODEL_READ_DELAY, DEFAULT_MODEL_READ_DELAY_SECONDS)
 
     # v0.11.0: Modbus transport selector. Default is TCP so existing
     # config entries (which never had a CONF_TRANSPORT key) keep
@@ -225,6 +228,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: SunSpec2ConfigEntry) -> 
             baudrate=baudrate,
             parity=parity,
             scan_delay=scan_delay,
+            model_read_delay=model_read_delay,
             entry=entry,
         )
         log = get_adapter(serial_port or "rtu", baudrate, unit_id)
@@ -236,6 +240,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: SunSpec2ConfigEntry) -> 
             hass,
             capture_enabled=capture_enabled,
             scan_delay=scan_delay,
+            model_read_delay=model_read_delay,
             entry=entry,
         )
         log = get_adapter(host, port, unit_id)

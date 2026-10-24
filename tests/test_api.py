@@ -13,9 +13,12 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 import custom_components.sunspec2.pysunspec2.mb as mb
 from custom_components.sunspec2.api import SunSpecApiClient
+from custom_components.sunspec2.const import DEFAULT_MODEL_READ_DELAY_SECONDS
 from custom_components.sunspec2.const import DEFAULT_SCAN_DELAY_SECONDS
 from custom_components.sunspec2.const import DOMAIN
+from custom_components.sunspec2.const import MAX_MODEL_READ_DELAY_SECONDS
 from custom_components.sunspec2.const import MAX_SCAN_DELAY_SECONDS
+from custom_components.sunspec2.const import MIN_MODEL_READ_DELAY_SECONDS
 from custom_components.sunspec2.const import MIN_SCAN_DELAY_SECONDS
 from custom_components.sunspec2.const import TRANSPORT_RTU
 from custom_components.sunspec2.errors import DeviceError
@@ -962,14 +965,17 @@ class _TimedModel:
         self._starts.append(time.monotonic())
 
 
-async def test_model_read_pacing_spares_the_first_read_after_idle(hass, mocker):
+@pytest.mark.parametrize("delay", [0, 0.2])
+async def test_model_read_pacing_spares_the_first_read_after_idle(
+    hass, mocker, no_model_read_pacing, delay
+):
     """The pause spaces consecutive reads; the first of a cycle has nothing to space from (#126)."""
     from types import SimpleNamespace
 
-    mocker.patch("custom_components.sunspec2.api.MODEL_READ_PACING_SECONDS", 0.2)
+    no_model_read_pacing.stop()
     starts: list[float] = []
     client = SimpleNamespace(models={1: [_TimedModel(starts)], 103: [_TimedModel(starts)]})
-    api = SunSpecApiClient(host="test", port=123, unit_id=1, hass=hass)
+    api = SunSpecApiClient(host="test", port=123, unit_id=1, hass=hass, model_read_delay=delay)
     mocker.patch.object(api, "modbus_connect", return_value=client)
 
     begin = time.monotonic()
@@ -977,4 +983,23 @@ async def test_model_read_pacing_spares_the_first_read_after_idle(hass, mocker):
     await api.async_read_model(103)
 
     assert starts[0] - begin < 0.1
-    assert starts[1] - starts[0] >= 0.19
+    if delay == 0:
+        assert starts[1] - starts[0] < 0.1
+    else:
+        assert 0.19 <= starts[1] - starts[0] < 0.4
+
+
+def test_model_read_delay_defaults_to_the_existing_pause(hass):
+    api = SunSpecApiClient(host="test", port=123, unit_id=1, hass=hass)
+
+    assert api._model_read_delay == DEFAULT_MODEL_READ_DELAY_SECONDS == 0.6
+
+
+@pytest.mark.parametrize(
+    ("given", "expected"),
+    [(-1, MIN_MODEL_READ_DELAY_SECONDS), (99, MAX_MODEL_READ_DELAY_SECONDS)],
+)
+def test_model_read_delay_is_clamped(hass, given, expected):
+    api = SunSpecApiClient(host="test", port=123, unit_id=1, hass=hass, model_read_delay=given)
+
+    assert api._model_read_delay == expected

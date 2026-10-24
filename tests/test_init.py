@@ -16,8 +16,10 @@ from custom_components.sunspec2 import async_setup_entry
 from custom_components.sunspec2.api import SunSpecApiClient
 from custom_components.sunspec2.const import CONF_CAPTURE_RAW
 from custom_components.sunspec2.const import CONF_ENABLED_MODELS
+from custom_components.sunspec2.const import CONF_MODEL_READ_DELAY
 from custom_components.sunspec2.const import CONF_SCAN_DELAY
 from custom_components.sunspec2.const import CONF_SCAN_INTERVAL
+from custom_components.sunspec2.const import DEFAULT_MODEL_READ_DELAY_SECONDS
 from custom_components.sunspec2.const import DEFAULT_MODELS
 from custom_components.sunspec2.const import DEFAULT_SCAN_DELAY_SECONDS
 from custom_components.sunspec2.const import DOMAIN
@@ -35,6 +37,7 @@ from . import create_mock_sunspec_config_entry
 from . import setup_mock_sunspec_config_entry
 from .const import MOCK_CONFIG
 from .const import MOCK_CONFIG_PREFIX
+from .const import MOCK_CONFIG_RTU
 
 
 def set_entry_setup_in_progress(hass, config_entry: MockConfigEntry) -> None:
@@ -947,6 +950,31 @@ async def test_scan_delay_defaults_when_option_absent(hass, sunspec_client_mock)
     await hass.async_block_till_done()
 
     assert config_entry.runtime_data.api._scan_delay == DEFAULT_SCAN_DELAY_SECONDS
+
+
+@pytest.mark.parametrize("data", [MOCK_CONFIG, MOCK_CONFIG_RTU], ids=["tcp", "rtu"])
+@pytest.mark.parametrize("delay", [None, 0, 0.15])
+async def test_model_read_delay_survives_setup_and_options_reload(
+    hass, sunspec_client_mock, data, delay
+):
+    """An existing entry keeps its pacing until a saved option reloads it."""
+    entry = MockConfigEntry(domain=DOMAIN, data=data, options={CONF_SCAN_DELAY: 0.75})
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    original = entry.runtime_data
+    assert original.api._model_read_delay == DEFAULT_MODEL_READ_DELAY_SECONDS
+
+    if delay is not None:
+        hass.config_entries.async_update_entry(
+            entry, options={**entry.options, CONF_MODEL_READ_DELAY: delay}
+        )
+        await hass.async_block_till_done()
+        assert entry.runtime_data is not original
+
+    expected = DEFAULT_MODEL_READ_DELAY_SECONDS if delay is None else delay
+    assert entry.runtime_data.api._model_read_delay == expected
+    assert entry.runtime_data.api._scan_delay == 0.75
 
 
 async def test_setup_removes_orphaned_control_model_sensors(hass, sunspec_client_mock):
