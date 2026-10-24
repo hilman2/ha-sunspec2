@@ -55,6 +55,7 @@ setting, the entry links to a page with the details:
 **GoodWe** XS, DT, ET .  
 **KACO** Powador, blueplanet .  
 **Kostal** Plenticore, Piko (needs port 1502 and unit ID 71, see [docs/kostal.md](docs/kostal.md)) .  
+**SAJ** R6-T2 with the eSolar AIO3 module (see [docs/saj.md](docs/saj.md)) .  
 **SMA** Sunny Boy, Tripower (needs unit ID 126, see [docs/sma.md](docs/sma.md)) .  
 **SolarEdge** SE, HD-Wave, Energy Hub (see [docs/solaredge.md](docs/solaredge.md)) .  
 **Sungrow** SG, SH .  
@@ -203,6 +204,9 @@ get more than that:
   **[docs/kostal.md](docs/kostal.md)**.
 - **SMA** with a battery gets its battery data and a power setpoint for
   steering it. See **[docs/sma.md](docs/sma.md)**.
+- **SAJ R6-T2** with the eSolar AIO3 module gets today's and this month's
+  energy and the voltage, current and power of each solar input. See
+  **[docs/saj.md](docs/saj.md)**.
 
 **Export controls** appear when your inverter supports them:
 

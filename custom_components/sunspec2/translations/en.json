@@ -859,6 +859,30 @@
       },
       "apsystems_dc_power_8": {
         "name": "DC power input 8"
+      },
+      "saj_energy_today": {
+        "name": "Energy produced today"
+      },
+      "saj_energy_month": {
+        "name": "Energy produced this month"
+      },
+      "saj_dc_voltage_1": {
+        "name": "DC voltage input 1"
+      },
+      "saj_dc_voltage_2": {
+        "name": "DC voltage input 2"
+      },
+      "saj_dc_current_1": {
+        "name": "DC current input 1"
+      },
+      "saj_dc_current_2": {
+        "name": "DC current input 2"
+      },
+      "saj_dc_power_1": {
+        "name": "DC power input 1"
+      },
+      "saj_dc_power_2": {
+        "name": "DC power input 2"
       }
     }
   },
