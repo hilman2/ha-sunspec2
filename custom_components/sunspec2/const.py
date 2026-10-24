@@ -272,7 +272,8 @@ DEVICE_IDENTITY_POINTS = ("Mn", "Md", "SN")
 # sensor, because the two disagree during a write and the user has no
 # way to tell which one is lying. Keeping a second list in sync with
 # write_controls.py by hand is exactly the kind of bookkeeping that
-# quietly rots.
+# quietly rots. A spec with retain_sensor keeps an already shipped
+# sensor so adding a control does not orphan its automations and history.
 #
 # The unit problem that motivated half of the old hand-written set is
 # fixed properly in sensor.py as of v0.19.0: an unmapped SunSpec unit
@@ -299,7 +300,7 @@ def is_excluded_sensor_point(model_id: int, key: str) -> bool:
     if not specs:
         return False
     point_name = key.rsplit(":", 1)[-1]
-    return any(spec.point_name == point_name for spec in specs)
+    return any(spec.point_name == point_name and not spec.retain_sensor for spec in specs)
 
 
 # Service action names. The service handler reads the entry by

@@ -73,6 +73,8 @@ class WriteControlSpec:
     on_value: int = 1
     off_value: int = 0
     enabled_by_default: bool = True
+    #: Keep a sensor that shipped before this point became writable.
+    retain_sensor: bool = False
 
     @property
     def unique_key(self) -> str:
@@ -225,6 +227,17 @@ _MODEL_704: tuple[WriteControlSpec, ...] = (
         native_max=1000000,
         native_step=1,
         unit="W",
+    ),
+    WriteControlSpec(
+        model_id=704,
+        point_name="WSetPct",
+        platform=PLATFORM_NUMBER,
+        translation_key="active_power_setpoint_pct",
+        icon="mdi:flash",
+        native_min=-100,
+        native_max=100,
+        unit="%",
+        retain_sensor=True,
     ),
     WriteControlSpec(
         model_id=704,
