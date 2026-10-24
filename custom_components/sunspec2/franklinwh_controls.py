@@ -117,7 +117,7 @@ async def async_set_power(coordinator: SunSpecDataUpdateCoordinator, watts: floa
         raise HomeAssistantError("Battery power must be a finite number")
     try:
         async with coordinator.async_write_transaction():
-            controls = await coordinator.api.read(CONTROL_MODEL)
+            controls = await coordinator.api.async_get_data(CONTROL_MODEL)
             enabled = _enabled(controls)
             if watts is None:
                 if enabled:
@@ -130,7 +130,7 @@ async def async_set_power(coordinator: SunSpecDataUpdateCoordinator, watts: floa
                 )
             else:
                 if watts != 0:
-                    capacity = await coordinator.api.read(AC_CAPACITY_MODEL)
+                    capacity = await coordinator.api.async_get_data(AC_CAPACITY_MODEL)
                     limits = power_limits(capacity)
                     if limits is None:
                         raise DeviceError("The aGate reports no usable battery power ratings")
@@ -150,7 +150,7 @@ async def async_set_power(coordinator: SunSpecDataUpdateCoordinator, watts: floa
                     await asyncio.sleep(ENABLE_SETTLE_SECONDS)
                     await coordinator.api.async_write_points(CONTROL_MODEL, [("WSetEna", 1)])
             await asyncio.sleep(VERIFY_SETTLE_SECONDS)
-            confirmed = await coordinator.api.read(CONTROL_MODEL)
+            confirmed = await coordinator.api.async_get_data(CONTROL_MODEL)
             actual = _number(_point(confirmed, "WSet"))
             if watts is None:
                 applied = (

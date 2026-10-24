@@ -4,7 +4,9 @@ import asyncio
 
 import pytest
 from homeassistant.exceptions import HomeAssistantError
+from modbus_connection import IllegalDataAddressError
 from modbus_connection import IllegalDataValueError
+from modbus_connection import ModbusTimeoutError
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.sunspec2.api import SunSpecApiClient
@@ -189,6 +191,35 @@ async def test_device_refusal_is_not_retried(agate, mocker):
     assert writer.await_count == 1
     assert connection.connects == connects
     assert not entry.runtime_data._gateway_lock.locked()
+
+
+@pytest.mark.parametrize("stage", ["initial", "capacity", "verification"])
+@pytest.mark.parametrize("error", [ModbusTimeoutError, IllegalDataAddressError])
+async def test_command_read_errors_reach_the_ui_as_home_assistant_errors(
+    agate, mocker, stage, error
+):
+    """A read can fail before dispatch or after the target has already been enabled."""
+    entry, unit, connection = agate
+    read = unit.read_holding_registers
+
+    async def fail_at_stage(address, count):
+        should_fail = (
+            (stage == "initial" and address == 296 and not unit.writes)
+            or (stage == "capacity" and address == 225)
+            or (stage == "verification" and address == 296 and unit.holding[318] == 1)
+        )
+        if should_fail:
+            raise error()
+        return await read(address, count)
+
+    mocker.patch.object(unit, "read_holding_registers", side_effect=fail_at_stage)
+    with pytest.raises(HomeAssistantError, match="FranklinWH battery command failed: Modbus"):
+        await async_set_power(entry.runtime_data, 1000)
+
+    expected = [(319, [1, 0, 1000]), (318, [1])] if stage == "verification" else []
+    assert unit.writes == expected
+    assert not entry.runtime_data._gateway_lock.locked()
+    assert connection.disconnects > 0
 
 
 async def test_all_reads_writes_and_verification_share_one_lock_hold(agate, mocker):
