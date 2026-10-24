@@ -98,28 +98,28 @@
         "title": "Geräteoptionen",
         "description": "Wähle Sensoren und Abfrageintervall. Weitere Einstellungen findest du in den aufklappbaren Bereichen.",
         "data": {
-          "prefix": "Präfix für Sensornamen",
           "scan_interval": "Abfrageintervall",
-          "models_enabled": "Sensormodelle",
-          "max_ac_power_kw": "Plausibilitätsgrenze für Leistung"
+          "models_enabled": "Sensormodelle"
         },
         "data_description": {
-          "prefix": "Optionaler Zusatz vor den Sensornamen.",
           "scan_interval": "Abstand zwischen den Geräteabfragen. Kurze Intervalle belasten Gerät und Netzwerk stärker.",
-          "models_enabled": "Wähle die erkannten SunSpec-Modelle, für die Sensoren angelegt werden. Mindestens ein Modell muss ausgewählt sein.",
-          "max_ac_power_kw": "Verwirft unplausible Leistungswerte oberhalb dieser Grenze. Der Vorschlag enthält 20 % Reserve auf die AC-Nennleistung für DC-Leistung und Scheinleistung. Leeren verwendet die automatische Erkennung."
+          "models_enabled": "Wähle die erkannten SunSpec-Modelle, für die Sensoren angelegt werden. Mindestens ein Modell muss ausgewählt sein."
         },
         "sections": {
           "advanced": {
             "name": "Erweitert",
-            "description": "Standby, Geräteerkennung und Fehlersuche.",
+            "description": "Sensornamen, Leistungsfilter, Standby und Fehlersuche.",
             "data": {
+              "max_ac_power_kw": "Plausibilitätsgrenze für Leistung",
+              "prefix": "Präfix für Sensornamen",
               "standby_when_idle": "Abschalten im Leerlauf berücksichtigen",
               "scan_delay": "Pause beim Modellscan",
               "capture_raw_registers": "Diagnoseregister mitschneiden",
               "rearm_on_change": "Steuerung nach Wertänderung neu aktivieren"
             },
             "data_description": {
+              "max_ac_power_kw": "Verwirft unplausible Leistungswerte oberhalb dieser Grenze. Der Vorschlag enthält 20 % Reserve auf die AC-Nennleistung für DC-Leistung und Scheinleistung. Leeren verwendet die automatische Erkennung.",
+              "prefix": "Optionaler Zusatz vor den Sensornamen.",
               "standby_when_idle": "Unterdrückt Verbindungs-Reparaturmeldungen für Geräte, die ohne Standby-Meldung vom Netz gehen. Sensoren werden weiterhin nicht verfügbar. Gemeldeten Standby erkennt die Integration automatisch.",
               "scan_delay": "Pause zwischen Modellen bei der Geräteerkennung, nicht bei normalen Abfragen. Erhöhen, wenn die Erkennung auf langsamen Geräten fehlschlägt.",
               "capture_raw_registers": "Ergänzt Diagnose-Downloads zur Fehlersuche um rohe Modbus-Registerdaten.",

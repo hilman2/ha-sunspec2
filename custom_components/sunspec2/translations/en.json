@@ -98,28 +98,28 @@
         "title": "Device options",
         "description": "Adjust sensor selection and polling. Further settings are grouped below.",
         "data": {
-          "prefix": "Sensor name prefix",
           "scan_interval": "Polling interval",
-          "models_enabled": "Sensor models",
-          "max_ac_power_kw": "Power plausibility limit"
+          "models_enabled": "Sensor models"
         },
         "data_description": {
-          "prefix": "Optional prefix for sensor names.",
           "scan_interval": "Time between reading the device. Short intervals increase network and device load.",
-          "models_enabled": "Select the detected SunSpec models to expose as sensors. Select at least one.",
-          "max_ac_power_kw": "Discards implausible power readings above this limit. The suggested value includes 20% above the AC rating to allow for DC power and apparent power. Clear to use automatic detection."
+          "models_enabled": "Select the detected SunSpec models to expose as sensors. Select at least one."
         },
         "sections": {
           "advanced": {
             "name": "Advanced",
-            "description": "Standby, device discovery and troubleshooting.",
+            "description": "Sensor names, power filtering, standby and troubleshooting.",
             "data": {
+              "max_ac_power_kw": "Power plausibility limit",
+              "prefix": "Sensor name prefix",
               "standby_when_idle": "Allow the inverter to go offline when idle",
               "scan_delay": "Model scan pause",
               "capture_raw_registers": "Capture diagnostic registers",
               "rearm_on_change": "Re-enable controls after a setpoint change"
             },
             "data_description": {
+              "max_ac_power_kw": "Discards implausible power readings above this limit. The suggested value includes 20% above the AC rating to allow for DC power and apparent power. Clear to use automatic detection.",
+              "prefix": "Optional prefix for sensor names.",
               "standby_when_idle": "Suppresses connection Repairs for devices that go offline without reporting standby. Sensors still become unavailable. Reported standby is detected automatically.",
               "scan_delay": "Pause between models during discovery, not during normal polling. Increase it if discovery fails on slow devices.",
               "capture_raw_registers": "Adds raw Modbus register data to diagnostic downloads for troubleshooting.",

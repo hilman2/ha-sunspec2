@@ -926,6 +926,7 @@ class SunSpecOptionsFlowHandler(config_entries.OptionsFlow):
         if user_input is not None:
             # Sections only organize the form. Keep the stored options flat so
             # existing installations and HACS rollbacks read the same keys.
+            edit_power_limit = "advanced" in user_input
             user_input = dict(user_input)
             for name in ("advanced", "privacy", "fronius"):
                 user_input.update(user_input.pop(name, {}))
@@ -944,16 +945,10 @@ class SunSpecOptionsFlowHandler(config_entries.OptionsFlow):
                 password = user_input.pop(CONF_FRONIUS_WEB_PASSWORD, "")
                 forget_web_login = user_input.pop(CONF_FRONIUS_WEB_FORGET, False)
                 self.options.update(user_input)
-                # The UI promises "leave it empty to disable filtering",
-                # and until #45 that promise was a no-op. An emptied
-                # ``probatio.Optional`` field arrives as a MISSING key rather
-                # than None, and ``dict.update`` cannot express a
-                # deletion, so the previously stored ceiling survived
-                # every save. Clearing the box was therefore impossible
-                # short of hand-editing core.config_entries - which is
-                # exactly what a user does once the filter starts eating
-                # their legitimate readings. Delete explicitly.
-                if CONF_MAX_AC_POWER_KW not in user_input:
+                # A cleared optional field arrives without a key. Only a
+                # submitted advanced section can clear the stored override;
+                # omitting the section must preserve its existing settings.
+                if edit_power_limit and CONF_MAX_AC_POWER_KW not in user_input:
                     self.options.pop(CONF_MAX_AC_POWER_KW, None)
                 if forget_web_login:
                     self.options.pop(CONF_FRONIUS_WEB_TOKEN, None)
@@ -1054,12 +1049,16 @@ class SunSpecOptionsFlowHandler(config_entries.OptionsFlow):
                 CONF_REARM_ON_CHANGE, vendor.rearm_by_default if vendor is not None else False
             )
             advanced: dict[Any, Any] = {
+                probatio.Optional(CONF_PREFIX, default=prefix): str,
+                probatio.Optional(
+                    CONF_MAX_AC_POWER_KW,
+                    description={"suggested_value": max_ac_power_kw},
+                ): _MAX_AC_POWER_SELECTOR,
                 probatio.Optional(CONF_STANDBY_WHEN_IDLE, default=standby_when_idle): bool,
                 probatio.Optional(CONF_SCAN_DELAY, default=scan_delay): _SCAN_DELAY_SELECTOR,
                 probatio.Optional(CONF_CAPTURE_RAW, default=capture_raw): bool,
             }
             schema: dict[Any, Any] = {
-                probatio.Optional(CONF_PREFIX, default=prefix): str,
                 probatio.Optional(
                     CONF_SCAN_INTERVAL, default=scan_interval
                 ): _SCAN_INTERVAL_VALIDATOR,
@@ -1067,10 +1066,6 @@ class SunSpecOptionsFlowHandler(config_entries.OptionsFlow):
                     CONF_ENABLED_MODELS,
                     default=default_models,
                 ): _model_selector(model_filter),
-                probatio.Optional(
-                    CONF_MAX_AC_POWER_KW,
-                    description={"suggested_value": max_ac_power_kw},
-                ): _MAX_AC_POWER_SELECTOR,
             }
             # The off/on cycle for a new export limit exists for a
             # vendor that needs one, so the field only shows up there.
