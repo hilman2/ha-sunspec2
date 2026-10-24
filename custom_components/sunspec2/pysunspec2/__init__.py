@@ -42,8 +42,8 @@ Changes against upstream:
   that no longer fits a register, instead of walking on. An APsystems
   ECU-R declares its last model longer than it is, lands on blank memory
   and read zero headers up to register 65535 (#109).
-* When connections fail at every candidate base address, the scan keeps
-  the transport error. A peer rejecting one base still permits discovery
+* When every base address fails with a connection error or timeout, the
+  scan keeps the transport error. A peer rejecting one base still permits discovery
   at the others, including 0 and 50000 (#108).
 
 Why a fork rather than the pip package: the integration needs the model

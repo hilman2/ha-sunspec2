@@ -751,14 +751,19 @@ class SunSpecFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
         """
         _LOGGER.debug(f"Test TCP connection to {host}:{port} unit id {unit_id}")
         await self._close_probe_client()
+        connected = False
         try:
             self.client = SunSpecApiClient(host, port, unit_id, self.hass)
             async with asyncio.timeout(SETUP_TIMEOUT):
                 self._device_info = await self.client.async_get_device_info()
             _LOGGER.info(self._device_info)
+            connected = True
             return True
         except Exception as err:
             set_connection_error(self._errors, host, port, unit_id, err)
+        finally:
+            if not connected:
+                await self._close_probe_client()
         return False
 
     async def _test_connection_rtu(
@@ -781,6 +786,7 @@ class SunSpecFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
             unit_id,
         )
         await self._close_probe_client()
+        connected = False
         try:
             self.client = SunSpecApiClient(
                 host=serial_port,
@@ -795,9 +801,13 @@ class SunSpecFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
             async with asyncio.timeout(SETUP_TIMEOUT):
                 self._device_info = await self.client.async_get_device_info()
             _LOGGER.info(self._device_info)
+            connected = True
             return True
         except Exception as err:
             set_connection_error(self._errors, serial_port, baudrate, unit_id, err)
+        finally:
+            if not connected:
+                await self._close_probe_client()
         return False
 
     async def _close_probe_client(self) -> None:

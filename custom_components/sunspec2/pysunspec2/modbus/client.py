@@ -263,7 +263,7 @@ class SunSpecModbusClientDevice(device.Device):
                 await asyncio.sleep(delay)
 
         error_dict = {}
-        connection_errors = {}
+        transport_errors = {}
         if self.base_addr is None:
             for addr in self.base_addr_list:
                 error_dict[addr] = ''
@@ -279,10 +279,8 @@ class SunSpecModbusClientDevice(device.Device):
                         error_dict[addr] = 'Data time out'
                 except SunSpecModbusClientError as e:
                     error_dict[addr] = str(e)
-                except modbus_client.ModbusClientConnectionClosed as e:
-                    connection_errors[addr] = e
-                    error_dict[addr] = str(e)
-                except modbus_client.ModbusClientTimeout as e:
+                except (modbus_client.ModbusClientConnectionClosed, modbus_client.ModbusClientTimeout) as e:
+                    transport_errors[addr] = e
                     error_dict[addr] = str(e)
                 except modbus_client.ModbusClientException as e:
                     error_dict[addr] = str(e)
@@ -351,8 +349,8 @@ class SunSpecModbusClientDevice(device.Device):
         else:
             # No answer at any base address is a transport failure.
             # Keep trying other bases after a peer rejects one address.
-            if connection_errors and len(connection_errors) == len(error_dict):
-                raise next(iter(connection_errors.values()))
+            if transport_errors and len(transport_errors) == len(error_dict):
+                raise next(iter(transport_errors.values()))
             raise SunSpecModbusClientError(error)
 
         if connected:

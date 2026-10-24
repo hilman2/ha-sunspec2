@@ -154,6 +154,21 @@ async def test_refused_connection_is_a_transport_error(hass, socket_enabled, unu
         await api.async_shutdown()
 
 
+async def test_silent_connection_is_a_transport_error(hass, tcp_device):
+    port, registers, _, _, _ = tcp_device
+    registers.clear()
+    params = ModbusTcpParams(host="127.0.0.1", port=port)
+    holder = SharedConnection(hass, params, _entry(hass))
+    holder.for_unit(1).require_timeout(0.05)
+    api = SunSpecApiClient(host="127.0.0.1", port=port, unit_id=2, hass=hass, scan_delay=0)
+    try:
+        async with asyncio.timeout(1):
+            with pytest.raises(TransportError):
+                await api.async_get_models()
+    finally:
+        await api.async_shutdown()
+
+
 @pytest.mark.parametrize("transport", ["tcp", "rtu"])
 async def test_probe_has_a_total_timeout_budget(hass, transport):
     flow = _probe_flow(hass)
@@ -173,6 +188,34 @@ async def test_probe_has_a_total_timeout_budget(hass, transport):
                     result = await flow._test_connection_rtu("/dev/ttyTEST", 9600, "N", 1)
         assert result is False
         assert flow._errors == {"base": "timeout"}
+    finally:
+        await flow._close_probe_client()
+
+
+@pytest.mark.parametrize("transport", ["tcp", "rtu"])
+@pytest.mark.parametrize("cancelled", [False, True])
+async def test_unsuccessful_probe_releases_its_hold(hass, transport, cancelled):
+    flow = _probe_flow(hass)
+
+    async def fail(client):
+        await client._async_get_connection()
+        if cancelled:
+            raise asyncio.CancelledError
+        raise TransportError("probe failed")
+
+    try:
+        with patch.object(SunSpecApiClient, "async_get_device_info", fail):
+            if transport == "tcp":
+                probe = flow._test_connection_tcp("test", 502, 1)
+            else:
+                probe = flow._test_connection_rtu("/dev/ttyTEST", 9600, "N", 1)
+            if cancelled:
+                with pytest.raises(asyncio.CancelledError):
+                    await probe
+            else:
+                assert not await probe
+        assert not hass.data[DATA_MODBUS_CONNECTIONS]
+        assert flow.client is None
     finally:
         await flow._close_probe_client()
 
@@ -206,6 +249,7 @@ async def test_cancelling_setup_releases_its_temporary_hold(hass, tcp_device, ot
 
         shared = hass.data[DATA_MODBUS_CONNECTIONS]
         if other_holder:
+            assert unit is not None
             assert next(iter(shared.values())).consumers == 1
             assert await unit.read_holding_registers(40000, 2) == [0x5375, 0x6E53]
         else:
