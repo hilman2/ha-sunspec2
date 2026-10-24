@@ -9,7 +9,10 @@ from unittest.mock import patch
 
 import pytest
 from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers import entity_registry as er
 
+from custom_components.sunspec2 import get_sunspec_unique_id
+from custom_components.sunspec2.const import CONF_ENABLED_MODELS
 from custom_components.sunspec2.const import CONF_WRITE_BETA_ENABLED
 from custom_components.sunspec2.errors import DeviceError
 from custom_components.sunspec2.models import SunSpecModelWrapper
@@ -95,7 +98,26 @@ async def test_percent_setpoint_writes_704_with_its_scale_factor(hass, beta, per
     controls.WSetEna.value = 1
 
     with patch("custom_components.sunspec2.SunSpecApiClient.modbus_connect", return_value=client):
-        await _setup_write_entry(hass, beta=beta)
+        entry = create_mock_sunspec_config_entry(
+            hass,
+            data={**MOCK_CONFIG_WRITE, CONF_ENABLED_MODELS: [160, 704]},
+            options={CONF_WRITE_BETA_ENABLED: beta},
+        )
+        registry = er.async_get(hass)
+        original = registry.async_get_or_create(
+            "sensor",
+            "sunspec2",
+            get_sunspec_unique_id(entry.entry_id, "WSetPct", 704, 0),
+            config_entry=entry,
+            suggested_object_id="existing_percent_setpoint",
+        )
+        await setup_mock_sunspec_config_entry(hass, config_entry=entry)
+        registered = registry.async_get(original.entity_id)
+        assert registered is not None
+        assert registered.id == original.id
+        sensor = hass.states.get(original.entity_id)
+        assert sensor is not None
+        assert sensor.state == "25.0"
         numbers = [e for e in _live_entities(hass, "number") if e._point_name == "WSetPct"]
         if not beta:
             assert numbers == []
