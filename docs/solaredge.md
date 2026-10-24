@@ -178,8 +178,7 @@ entity to see whether the inverter really took the value.
 
 ## Limiting what you feed in
 
-Turn on the export controls first (see "Export controls" above).
-Then use:
+Use the export controls described above:
 
 - **Site limit mode**, **Site limit scope** and **Site limit** if
   your site has a meter that the inverter can use. The inverter keeps

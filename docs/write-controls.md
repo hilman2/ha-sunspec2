@@ -220,9 +220,10 @@ SunSpec marks 1586 points across 67 models as writable.
 
 ### Which models are polled
 
-The battery model (124) is polled whenever the inverter has it. The
-export models (123, 704) are polled while the option is on. All of them
-are kept out of the sensor list.
+The battery model (124) and export models (123, 704) are polled whenever
+the inverter has them, regardless of the model selection. Writable
+points become controls. The existing `WSetPct` sensor remains available
+alongside its control to preserve entity IDs and history.
 
 The diagnostics file lists the models the inverter has in its top-level
 `detected_models` array. Not `scanned_models`, which only lists what is
