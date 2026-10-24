@@ -40,8 +40,9 @@ without a battery gets no battery controls.
 | **Export limit revert value** | The percentage the inverter falls back to when the timer runs out. Switched off by default |
 | **Export limit stays on after revert** | Whether the limit stays on once the timer has run out. Switched off by default |
 | **Active power setpoint** | The same limit in watts instead of percent. Usually what you want for a "never export" automation, because with percent your automation has to know the rated power |
-| **Active power setpoint enabled** | The watt limit only applies while this is on |
-| **Active power setpoint mode** | Whether the watt limit or the percent limit counts. Switched off by default |
+| **Active power setpoint percent** | Sets active power from -100 to 100 % of rated power. Negative values request import on devices that support it |
+| **Active power setpoint enabled** | The active power setpoint only applies while this is on |
+| **Active power setpoint mode** | Select **Percent of maximum** to use **Active power setpoint percent**, or **Watts** to use **Active power setpoint**. Switched off by default |
 | **Power factor setpoint** | A value from -1 to 1 that sets how much reactive power the inverter produces. Most people never need it |
 | **Power factor enabled** | The power factor only applies while this is on |
 | **Inverter grid connection** | **The most dangerous one.** Off disconnects the inverter from the grid completely. Switched off by default: turn it on in the entity list if you need it |
@@ -185,6 +186,7 @@ control).
 | Export limit revert value | 704 `WMaxLimPctRvrt` |
 | Export limit stays on after revert | 704 `WMaxLimPctEnaRvrt` |
 | Active power setpoint | 704 `WSet` |
+| Active power setpoint percent | 704 `WSetPct` |
 | Active power setpoint enabled | 704 `WSetEna` |
 | Active power setpoint mode | 704 `WSetMod` |
 | Battery charge rate | 124 `InWRte` |

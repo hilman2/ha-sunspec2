@@ -228,6 +228,16 @@ _MODEL_704: tuple[WriteControlSpec, ...] = (
     ),
     WriteControlSpec(
         model_id=704,
+        point_name="WSetPct",
+        platform=PLATFORM_NUMBER,
+        translation_key="active_power_setpoint_pct",
+        icon="mdi:flash",
+        native_min=-100,
+        native_max=100,
+        unit="%",
+    ),
+    WriteControlSpec(
+        model_id=704,
         point_name="WSetEna",
         platform=PLATFORM_SWITCH,
         translation_key="active_power_setpoint_enabled",
