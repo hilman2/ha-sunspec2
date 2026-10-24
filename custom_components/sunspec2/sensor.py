@@ -284,6 +284,7 @@ async def async_setup_entry(
     # their module cannot be imported before this one is complete.
     from .dc_channels import dc_channel_sensors
     from .fronius_web_entities import fronius_web_sensors
+    from .lifetime_energy import CountedLifetimeEnergySensor
     from .vendor_blocks import raw_block_sensors
 
     coordinator = entry.runtime_data
@@ -342,6 +343,22 @@ async def async_setup_entry(
                         new_sensors.append(SunSpecEnergySensor(coordinator, entry, data))
                     else:
                         new_sensors.append(SunSpecSensor(coordinator, entry, data))
+                    if key in daily_points and device_info is not None:
+                        # The total the daily counter cannot give.
+                        counted = CountedLifetimeEnergySensor(
+                            coordinator,
+                            entry,
+                            device_info,
+                            model_wrapper,
+                            prefix,
+                            model_id,
+                            model_index,
+                            key,
+                        )
+                        counted_uid = counted.unique_id
+                        if counted_uid is not None and counted_uid not in known_unique_ids:
+                            known_unique_ids.add(counted_uid)
+                            new_sensors.append(counted)
         mppt_wrapper = coordinator.data.get(160)
         vendor_sensors: list[SensorEntity] = []
         if mppt_wrapper is not None and device_info is not None:

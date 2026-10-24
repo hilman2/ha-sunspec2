@@ -220,6 +220,27 @@ async def test_options_flow(hass, sunspec_client_mock):
     # assert entry.options == {BINARY_SENSOR: True, SENSOR: False, SWITCH: True}
 
 
+async def test_options_flow_keeps_the_usage_statistics_choice(hass, sunspec_client_mock):
+    """The statistics are on until the user turns them off, and the choice is stored."""
+    entry = MockConfigEntry(domain=DOMAIN, data=MOCK_CONFIG, entry_id="test")
+    entry.add_to_hass(hass)
+    entry.runtime_data = MockSunSpecDataUpdateCoordinator(hass, [1, 2])
+
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], user_input=MOCK_CONFIG_STEP_1
+    )
+    schema = next(f for f in _serialise_form(result["data_schema"]) if f["name"] == "usage_stats")
+    assert schema["default"] is True
+
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        user_input={CONF_ENABLED_MODELS: ["1"], CONF_SCAN_INTERVAL: 10, "usage_stats": False},
+    )
+    assert result["type"] == FlowResultType.CREATE_ENTRY
+    assert result["data"]["usage_stats"] is False
+
+
 async def test_options_flow_rejects_empty_model_selection(hass, sunspec_client_mock):
     """An empty models_enabled save must be refused with an inline error.
 

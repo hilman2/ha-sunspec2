@@ -37,6 +37,7 @@ from .const import CONF_SERIAL_PORT
 from .const import CONF_STANDBY_WHEN_IDLE
 from .const import CONF_TRANSPORT
 from .const import CONF_UNIT_ID
+from .const import CONF_USAGE_STATS
 from .const import CONF_WRITE_BETA_ENABLED
 from .const import DEFAULT_BAUDRATE
 from .const import DEFAULT_MODELS
@@ -935,6 +936,7 @@ class SunSpecOptionsFlowHandler(config_entries.OptionsFlow):
             CONF_SCAN_INTERVAL, self.config_entry.data.get(CONF_SCAN_INTERVAL)
         )
         capture_raw = self.config_entry.options.get(CONF_CAPTURE_RAW, False)
+        usage_stats = self.config_entry.options.get(CONF_USAGE_STATS, True)
         standby_when_idle = self.config_entry.options.get(CONF_STANDBY_WHEN_IDLE, False)
         scan_delay = self.config_entry.options.get(CONF_SCAN_DELAY, DEFAULT_SCAN_DELAY_SECONDS)
         # User-set value wins, and is shown back exactly as stored - the
@@ -1029,6 +1031,7 @@ class SunSpecOptionsFlowHandler(config_entries.OptionsFlow):
                 # platforms (Number / Switch / service action) and
                 # the matching SunSpec model 123 entities.
                 probatio.Optional(CONF_WRITE_BETA_ENABLED, default=write_beta_enabled): bool,
+                probatio.Optional(CONF_USAGE_STATS, default=usage_stats): bool,
             }
             # The off/on cycle for a new export limit exists for a
             # vendor that needs one, so the field only shows up there.

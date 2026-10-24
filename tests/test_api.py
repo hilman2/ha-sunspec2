@@ -925,3 +925,31 @@ async def test_reconnect_flag_is_cleared_even_without_a_live_client(hass, mocker
     assert first is second
     assert len(built) == 1
     dropped.assert_not_awaited()
+
+
+class _TimedModel:
+    """A model that notes when its read starts."""
+
+    def __init__(self, starts: list[float]) -> None:
+        self._starts = starts
+
+    async def async_read(self) -> None:
+        self._starts.append(time.monotonic())
+
+
+async def test_model_read_pacing_spares_the_first_read_after_idle(hass, mocker):
+    """The pause spaces consecutive reads; the first of a cycle has nothing to space from (#126)."""
+    from types import SimpleNamespace
+
+    mocker.patch("custom_components.sunspec2.api.MODEL_READ_PACING_SECONDS", 0.2)
+    starts: list[float] = []
+    client = SimpleNamespace(models={1: [_TimedModel(starts)], 103: [_TimedModel(starts)]})
+    api = SunSpecApiClient(host="test", port=123, unit_id=1, hass=hass)
+    mocker.patch.object(api, "modbus_connect", return_value=client)
+
+    begin = time.monotonic()
+    await api.async_read_model(1)
+    await api.async_read_model(103)
+
+    assert starts[0] - begin < 0.1
+    assert starts[1] - starts[0] >= 0.19

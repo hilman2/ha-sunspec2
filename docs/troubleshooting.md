@@ -1,41 +1,42 @@
-# Troubleshooting in detail
+# Troubleshooting
 
 The [README](../README.md#when-something-is-wrong) covers the common
 cases in a line or two each. This page is for when that was not enough.
+Find your symptom below.
 
-**Start with the diagnostics download.** *Settings -> Devices &
-Services -> SunSpec Modbus -> Download diagnostics*. The host is
-redacted automatically. Switch on **Capture raw registers** in the
-options first if you are chasing something that looks like a decoding
-problem, and the Modbus bytes end up in the file too.
+**Start with the diagnostics download.** It is a file that describes
+what the integration sees and what the inverter answered. Your IP
+address is removed automatically. Get it here:
 
-## The plausibility filter
+*Settings -> Devices & Services -> SunSpec Modbus -> Download
+diagnostics*
 
-Inverters report nonsense at dawn and dusk: megawatts of AC power,
-terawatt-hours of lifetime energy, single readings that end up in your
-long-term statistics forever. The **Peak AC power** option is the
-ceiling that keeps those out.
+If something looks like wrong numbers rather than missing numbers,
+switch on **Capture raw Modbus bytes for diagnostics** in the
+integration's options first, wait a minute, then download. The file
+then also holds what the inverter sent, unprocessed.
 
-It is prefilled from the inverter's own nameplate, read from SunSpec
-block 120 or 121 with 20 % added on top, so in most cases you can leave
-it alone. Older or vendor-stripped firmware publishes no nameplate, and
-then you enter the value once.
+Attach that file to every bug report.
 
-The number is an **AC active power** ceiling, and the other quantities
-are bounded by something else, so each gets its own room:
+## A sensor shows "unknown" on a bright day
 
-| Quantity | Ceiling | Why |
-|---|---|---|
-| AC active power | as configured | The value you set |
-| Apparent and reactive power | 25 % on top | Grid codes require operation down to cos phi 0.80 |
-| DC power | three times | The DC side is bounded by the MPPT inputs and the battery, not by the AC stage. Two MPPTs each rated at full AC power is already 2x, and a DC-coupled hybrid charges its battery on top |
+The integration throws away readings that cannot be true. Inverters
+report nonsense at dawn and dusk: megawatts of power, terawatt-hours of
+energy. Such a value would stay in your long-term statistics forever.
+The option **Peak AC power** sets the ceiling for what counts as
+believable.
 
-Only live measurements are filtered. Nameplate ratings, setpoints and
-limit registers are never touched.
+It is filled in from the inverter's own nameplate, plus 20 %. In most
+cases you can leave it alone. Some older inverters do not publish their
+nameplate. Then you enter the value once, in kilowatts.
 
-**If a sensor reads `unknown` on a bright day**, the ceiling is too
-low. The log says which sensor, which ceiling, and where the ceiling
-came from:
+If the ceiling is too low, real readings are thrown away and the sensor
+reads `unknown`. To fix it, open *Settings -> Devices & Services ->
+SunSpec Modbus -> Configure* and raise **Peak AC power**. Or clear the
+field to switch the filter off.
+
+To see which sensor was dropped and why, look in the Home Assistant log.
+You will find a line like this:
 
 ```
 Dropping implausible value for DCW: 9800.0 W is beyond the 7500.0 W
@@ -44,107 +45,127 @@ real reading, raise or clear 'Peak AC power' in the integration
 options.
 ```
 
-The line repeats once every 20 rejections, and one more line is logged
-when the sensor recovers. The `plausibility_filter` block in the
-diagnostics has the full picture, including the ceiling in force for
-each quantity.
+In plain words: the sensor, the value it was sent, the ceiling it was
+measured against, and what to do. The line repeats once every 20
+rejections. One more line appears when the sensor recovers.
 
-Raise the value, or clear the field entirely to switch the filter off.
+### How much room each kind of value gets
 
-### Energy counters get a second filter
+The number you enter is a ceiling for AC power. Other values are
+bounded by something different, so each gets its own room:
 
-A jump in a lifetime counter is dropped when it is larger than the peak
-power could have produced since the counter last moved, times two.
+| Value | Ceiling | Why |
+|---|---|---|
+| AC power | As entered | The value you set |
+| Apparent and reactive power | 25 % on top | Grid rules require inverters to work down to a power factor of 0.80 |
+| DC power (what the panels deliver) | Three times | The panels and the battery limit the DC side, not the AC output. Two panel inputs, each as strong as the whole AC side, already make double. A hybrid inverter also charges its battery on top |
 
-Measured since it last moved, not per poll: many inverters update that
-register only every few minutes and then jump by the whole amount at
-once. A `Dropping implausible energy delta` line in the log is
-therefore a real outlier, not a slow counter.
+Only live measurements are filtered. Nameplate values, settings and
+limits are never touched.
 
-A counter that goes down is held at its last value as well, whether or
-not a peak power is set: a lifetime counter has no legitimate way down,
-and a drop that got through would be booked as a meter reset. The log
-line for that is `Holding ... a lifetime counter does not go down`. A
-counter that stays low for three polls in a row is taken as a real
-reset and accepted.
+### Energy counters get a second check
 
-## The inverter disappears every night
+A lifetime energy counter that jumps up is thrown away if the jump is
+larger than the inverter could have produced since the counter last
+changed, times two.
 
-Normal for most PV inverters. Below a certain DC input they shut down
-and take the communication board with them, so the Modbus session dies
-until the sun is back.
+"Since the counter last changed" is not "since the last poll". Many
+inverters update that value only every few minutes and then jump by the
+whole amount at once. A log line `Dropping implausible energy delta` is
+therefore a real outlier, not just a slow counter.
 
-Since v0.28.0 the integration recognises this by itself. If the last
-successful poll reported the inverter as OFF, SLEEPING, SHUTTING_DOWN
-or STANDBY, no repair issue is raised and the log stays quiet until it
-wakes up. Sensors still go unavailable after a few minutes, which is
-the honest state for a device that is switched off.
+A lifetime counter that goes down is held at its last value too, with or
+without a Peak AC power set. A lifetime counter has no legitimate way
+down, and Home Assistant would book a drop as a meter reset. The log
+line for that reads `Holding ... a lifetime counter does not go down`.
+If the counter stays low for three polls in a row, the integration takes
+it as a real reset and accepts it.
 
-If your inverter vanishes without ever reporting one of those states,
-or publishes no operating state at all, switch on **Inverter powers
-down when idle** in the options. That suppresses the unreachable
-repair unconditionally.
+## The inverter is unreachable every night
 
-A device that answers with a Modbus error, or answers with something
-that is not SunSpec, still reports it either way. Those prove the
-inverter is awake.
+This is normal for most solar inverters. When the sun is gone they
+switch off, and the network board switches off with them. So the
+connection is gone until the sun is back.
 
-The `standby` block in the diagnostics shows both inputs to that
-decision, so you can see which path applied.
+The integration knows this. If the last reading before the connection
+was lost said the inverter was OFF, SLEEPING, SHUTTING_DOWN or STANDBY,
+it raises no repair notification and the log stays quiet. The sensors
+still go unavailable after a few minutes. That is correct: the device is
+switched off.
+
+If your inverter disappears without ever saying it is going to sleep, or
+does not report its state at all, switch on **Inverter powers down when
+idle** in the options. That stops the "Cannot reach SunSpec inverter"
+notification for good.
+
+An inverter that answers with an error, or with something that is not
+SunSpec, is still reported either way. It proves the inverter is awake.
+
+The diagnostics file shows in its `standby` section which of the two
+paths applied.
 
 ## Sensors drop out for a few minutes at a time
 
-The integration is built to absorb this: it retries a failed read after
-five seconds, and keeps serving the last good value for five more
-cycles, roughly three minutes at the default interval, before the
-sensors go unavailable.
+A short network hiccup should not show. The integration tries again
+after five seconds. If that fails too, the sensors keep showing the last
+good value for five more polls. At the default interval that is about
+three minutes. Only after that do they go unavailable.
 
-If the gaps are longer than that, something else is going on:
+If your gaps are longer, something else is going on:
 
-- Check whether another program outside Home Assistant reads the same
-  inverter. The integration holds one Modbus session open, which is
-  what Modbus TCP is built for and what inverters handle best (on a
-  KACO Powador 7.8 TL3 at a 30 s interval, one held session served 20
-  of 20 polls where reconnecting per poll failed 5 of 6). A single-slot
-  inverter has no room for a second reader, so put a Modbus proxy
-  between the inverter and everything that reads it, Home Assistant
-  included.
-- Otherwise the network link itself is dropping. Check the WiFi or the
-  cable to the inverter.
+- **Check whether another program reads the same inverter.** Home
+  Assistant shares one connection between its integrations. An external
+  program still needs its own connection, which a single-slot inverter
+  cannot accept. Use a Modbus proxy when several programs need access.
+- **Check the network link.** WiFi to the inverter is the usual
+  suspect. A cable is better.
 
-## "Cannot reach SunSpec inverter" in the Repairs panel
+## "Cannot reach SunSpec inverter" in Repairs
 
-Open the diagnostics and look at `recent_errors`. The repair fires
-after three consecutive transport or device errors, or after a single
-protocol error, so by the time you see it the inverter has genuinely
-not been answering.
+The inverter has not been answering. The notification appears after
+three failed polls in a row (network or device errors), or right away
+after one answer the integration cannot make sense of. So by the time
+you see it, the problem is real.
 
-Check power, check the network, and check that no other Modbus client
-is holding the connection. Most inverters accept exactly one.
+1. Is the inverter powered on, and is it day?
+2. Is it on the network? Can you open its web page?
+3. **Is another program holding the connection?** Most inverters accept
+   exactly one Modbus client at a time. That includes the old cjne
+   integration, openHAB and scripts.
 
-## Everything went unavailable after an options change
+Open the diagnostics file and look at the `recent_errors` section.
+It lists the last errors the integration saw.
 
-You saved the options form with no data blocks ticked. Re-open it and
-tick them again.
+## Everything went unavailable after changing the options
 
-Versions from v0.7.6 refuse to save an empty selection. If you managed
-to produce one, update first.
+You saved the options with no data blocks ticked, so there was nothing
+left to read. Open the options again and tick at least one. Current
+versions refuse an empty selection. If you managed to produce one, update
+first.
 
 ## Everything is unavailable and Repairs mentions cjne
 
 The old `cjne/ha-sunspec` integration is still loaded for the same
-inverter. Two integrations cannot poll a single-slot device at once.
-Uninstall cjne in HACS, restart Home Assistant, and the migration runs
-by itself.
+inverter. Two integrations cannot use a single-connection inverter at
+the same time. Uninstall cjne in HACS, restart Home Assistant, and the
+migration runs by itself. See
+[Coming from cjne/ha-sunspec](../README.md#coming-from-cjneha-sunspec).
 
-## Which data blocks does my inverter actually have?
+<a id="which-data-blocks-does-my-inverter-actually-have"></a>
 
-The top-level **`detected_models`** array in the diagnostics. That is
-the raw scan result, everything the device answered to.
+## Which data blocks does my inverter have?
 
-`scanned_models` is a different thing: it is built from the blocks
-being polled, so a block your inverter has but you never enabled is
-missing from it. Checking that one is what made a KACO Blueplanet look
-like it had no block 123 in
-[#17](https://github.com/hilman2/ha-sunspec2/issues/17), even though it
-had been answering writes to those registers for two years.
+Inverters publish their data in "blocks" (SunSpec calls them models).
+Each block covers one topic: the AC output, the meter, the battery, the
+controls. Which blocks your inverter has decides which sensors you can
+get.
+
+Look in the diagnostics file at the top-level list **`detected_models`**.
+That is everything the inverter answered with.
+
+Do not use `scanned_models` for this. It only lists the blocks the
+integration is currently reading. A block your inverter has but you have
+not ticked is missing there. That mix-up made a KACO Blueplanet look as
+if it had no power control block in
+[#17](https://github.com/hilman2/ha-sunspec2/issues/17), although it had
+been answering writes to those registers for two years.

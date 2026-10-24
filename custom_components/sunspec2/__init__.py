@@ -13,6 +13,7 @@ from collections import deque
 from collections.abc import Callable
 from datetime import datetime
 from datetime import timedelta
+from time import monotonic
 from typing import TYPE_CHECKING
 from typing import Any
 from typing import NoReturn
@@ -90,6 +91,7 @@ from .migration import migrate_from_cjne_sync
 from .models import SunSpecModelWrapper
 from .raw_blocks import RawBlockReader
 from .raw_blocks import encode_value
+from .usage_stats import async_start_usage_stats
 from .vendors import VendorProfile
 from .vendors import plan_write
 from .vendors import profile_for
@@ -253,7 +255,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: SunSpec2ConfigEntry) -> 
     # setup timeout on the slowest hardware.
     await coordinator.async_load_model_structure()
 
+    # Under the gateway lock, so on a gateway shared by several entries
+    # this includes the wait for the entries ahead (#126). The debug line
+    # says which part of a slow startup it is.
+    started = monotonic()
     await coordinator.async_config_entry_first_refresh()
+    log.debug("First refresh took %.1f s", monotonic() - started)
 
     coordinator.web = await _async_setup_web(hass, entry, coordinator, log)
 
@@ -302,6 +309,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: SunSpec2ConfigEntry) -> 
     # process (not per config entry). The handler routes by
     # config_entry_id passed in the call data.
     _async_register_services(hass)
+
+    async_start_usage_stats(hass, entry)
 
     return True
 

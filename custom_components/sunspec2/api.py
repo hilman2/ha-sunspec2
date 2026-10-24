@@ -204,6 +204,8 @@ class SunSpecApiClient:
         self._parity = parity
         self._reconnect = False
         self._client: SunSpecClient | None = None
+        # When the last model read finished, for _pace_model_read.
+        self._last_model_read_end: float | None = None
         # The connection outlives the client. A close drops the link and
         # the model objects; the next client connects on the same object,
         # which modbus-connection reconnects on demand.
@@ -1228,8 +1230,24 @@ class SunSpecApiClient:
         client = await self.async_get_client()
         models = client.models[model_id]
         for model in models:
-            if MODEL_READ_PACING_SECONDS:
-                await asyncio.sleep(MODEL_READ_PACING_SECONDS)
+            await self._pace_model_read()
             await model.async_read()
+            self._last_model_read_end = time.monotonic()
 
         return SunSpecModelWrapper(models)
+
+    async def _pace_model_read(self) -> None:
+        """Keep ``MODEL_READ_PACING_SECONDS`` between the end of one model read and the next.
+
+        The pause used to come before every read, the first of a cycle
+        included. That one follows an idle interval or a fresh connect and
+        has nothing to be spaced from, so on a gateway that hands the
+        slot back between polls it was a pure wait, once per entry. The
+        eight entries behind one APsystems ECU-R spent it eight times in
+        a row on startup (#126).
+        """
+        if not MODEL_READ_PACING_SECONDS or self._last_model_read_end is None:
+            return
+        remaining = MODEL_READ_PACING_SECONDS - (time.monotonic() - self._last_model_read_end)
+        if remaining > 0:
+            await asyncio.sleep(remaining)
