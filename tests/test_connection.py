@@ -32,6 +32,7 @@ from . import create_mock_sunspec_config_entry
 from .const import MOCK_CONFIG
 from .fake_unit import FakeUnit
 from .fake_unit import register_image
+from .test_config_flow import _open_manual_step
 
 PARAMS = ModbusTcpParams(host="gateway", port=502)
 
@@ -42,6 +43,7 @@ async def tcp_device(hass, socket_enabled):
     registers = register_image("./tests/test_data/inverter_fronius.json")
     writers = set()
     reads = []
+    closed = asyncio.Event()
 
     async def serve(reader, writer):
         writers.add(writer)
@@ -69,11 +71,13 @@ async def tcp_device(hass, socket_enabled):
         finally:
             writer.close()
             writers.discard(writer)
+            if not writers:
+                closed.set()
 
     server = await asyncio.start_server(serve, "127.0.0.1", 0)
     port = server.sockets[0].getsockname()[1]
     try:
-        yield port, registers, reads
+        yield port, registers, reads, writers, closed
     finally:
         for shared in hass.data.get(DATA_MODBUS_CONNECTIONS, {}).values():
             await shared.connection.close()
@@ -97,7 +101,7 @@ def _fast_client(*args, **kwargs):
 
 @pytest.mark.parametrize("base", [0, 50000])
 async def test_probe_finds_other_bases_when_40000_is_silent(hass, tcp_device, base):
-    port, registers, reads = tcp_device
+    port, registers, reads, _, _ = tcp_device
     shifted = register_image("./tests/test_data/inverter_fronius.json", base=base)
     registers.clear()
     registers.update(shifted)
@@ -117,7 +121,7 @@ async def test_probe_finds_other_bases_when_40000_is_silent(hass, tcp_device, ba
 
 @pytest.mark.parametrize("probe_unit", [1, 2])
 async def test_closing_probe_preserves_another_holders_timeout(hass, tcp_device, probe_unit):
-    port, _, _ = tcp_device
+    port, _, _, _, _ = tcp_device
     params = ModbusTcpParams(host="127.0.0.1", port=port)
     holder = SharedConnection(hass, params, _entry(hass))
     unit = holder.for_unit(1)
@@ -171,6 +175,47 @@ async def test_probe_has_a_total_timeout_budget(hass, transport):
         assert flow._errors == {"base": "timeout"}
     finally:
         await flow._close_probe_client()
+
+
+@pytest.mark.parametrize("other_holder", [False, True])
+async def test_cancelling_setup_releases_its_temporary_hold(hass, tcp_device, other_holder):
+    port, _, _, writers, closed = tcp_device
+    params = ModbusTcpParams(host="127.0.0.1", port=port)
+    unit = None
+    if other_holder:
+        holder = SharedConnection(hass, params, _entry(hass))
+        unit = holder.for_unit(1)
+    clients = []
+
+    def make_client(*args, **kwargs):
+        client = _fast_client(*args, **kwargs)
+        clients.append(client)
+        return client
+
+    try:
+        with patch("custom_components.sunspec2.config_flow.SunSpecApiClient", make_client):
+            result = await _open_manual_step(hass)
+            result = await hass.config_entries.flow.async_configure(
+                result["flow_id"], user_input={"host": "127.0.0.1", "port": port, "unit_id": 2}
+            )
+        assert result["step_id"] == "settings"
+        assert writers
+
+        hass.config_entries.flow.async_abort(result["flow_id"])
+        await hass.async_block_till_done()
+
+        shared = hass.data[DATA_MODBUS_CONNECTIONS]
+        if other_holder:
+            assert next(iter(shared.values())).consumers == 1
+            assert await unit.read_holding_registers(40000, 2) == [0x5375, 0x6E53]
+        else:
+            assert not shared
+            async with asyncio.timeout(1):
+                await closed.wait()
+            assert not writers
+    finally:
+        for client in clients:
+            await client.async_shutdown()
 
 
 def _entry(hass):

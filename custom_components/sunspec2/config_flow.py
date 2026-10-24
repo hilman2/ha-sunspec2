@@ -223,6 +223,14 @@ class SunSpecFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
         # picker without re-scanning.
         self._scan_results: list[SunSpecCandidate] = []
 
+    @callback
+    def async_remove(self) -> None:
+        """Release a probe when Home Assistant removes or aborts this flow."""
+        if self.client is not None:
+            self.hass.async_create_task(
+                self._close_probe_client(), "sunspec2 close config-flow probe"
+            )
+
     async def async_step_dhcp(self, discovery_info: DhcpServiceInfo) -> ConfigFlowResult:
         """Handle a DHCP discovery for a known SunSpec inverter vendor.
 
