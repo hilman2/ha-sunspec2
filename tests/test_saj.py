@@ -14,15 +14,48 @@ from .const import MOCK_CONFIG
 from .saj_registers import PV_ADDRESS
 
 
-def test_saj_is_matched_for_the_verified_r6():
-    assert profile_for("SAJ", "R6-15K-T2-32", "R6", "6.199") is SAJ
+@pytest.mark.parametrize(
+    "model",
+    [
+        "R6-3K-T2",
+        "R6-4K-T2",
+        "R6-5K-T2",
+        "R6-6K-T2",
+        "R6-8K-T2",
+        "R6-10K-T2",
+        "R6-12K-T2",
+        "R6-15K-T2",
+        "R6-15K-T2-32",
+        "R6-17K-T2-32",
+        "R6-20K-T2-32",
+        "R6-22K-T2-32",
+        "R6-25K-T2-32",
+        "R6-25K-T2-32-B",
+        "R6-10K-T2-AUS",
+    ],
+)
+def test_saj_matches_the_two_mppt_r6_family(model):
+    assert profile_for("SAJ", model, "R6", "6.199") is SAJ
+
+
+def test_saj_matching_normalizes_names_and_checks_the_manufacturer():
     assert profile_for(" SAJ ", " r6-15k-t2-32 ") is SAJ
     assert profile_for("Fronius", "R6-15K-T2-32") is not SAJ
 
 
 @pytest.mark.parametrize(
     "model",
-    ["R6-25K-T3-32-B", "R6-50K-T4-32", "R6-5K-S2", "R6-10K-T2", "H2-10K-T2", ""],
+    [
+        "R6-25K-T3-32-B",
+        "R6-50K-T4-32",
+        "R6-5K-S2",
+        "R6-15K-T20",
+        "R60-15K-T2",
+        "R6-unknown-T2",
+        "H2-10K-T2",
+        "R6",
+        "",
+    ],
 )
 def test_unverified_models_stay_generic_even_with_an_r6_option(model):
     assert profile_for("SAJ", model, "R6", "6.199") is None

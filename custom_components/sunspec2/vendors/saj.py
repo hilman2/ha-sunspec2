@@ -40,13 +40,19 @@ consecutive rejections, which costs a poll or two of the new year.
 
 Sources: register reads of an R6-15K-T2-32 on firmware 6.199 behind an
 AIO3, checked against model 103, SAJ's eSolar cloud and the Elekeeper
-app on 2026-10-17 and 18. Only the R6-15K-T2-32 is verified; other R6
-variants stay generic until their registers have been checked. Other
-SAJ models use different maps: the R5 and the H1/H2 hybrids put their
-real-time data at 0x0100 or 0x4000 over RS485.
+app on 2026-10-17 and 18. The profile applies to the R6-T2 family,
+whose two MPPT inputs SAJ documents across its power ratings:
+https://www.saj-electric.com/hubfs/Product%20Url/R6/R6%203-15K%20Three%20Phase%20On-Grid%20Inverter.pdf
+https://img.saj-electric.com/file/R6-T2-20210812105442329.pdf
+Only the R6-15K-T2-32 register image has been checked directly. R6-T3
+and R6-T4 variants have more inputs and stay generic. Other SAJ models
+use different maps: the R5 and the H1/H2 hybrids put their real-time
+data at 0x0100 or 0x4000 over RS485.
 """
 
 from __future__ import annotations
+
+import re
 
 from .profile import RawBlock
 from .profile import RawField
@@ -132,10 +138,10 @@ RAW_SENSORS: tuple[RawSensor, ...] = (
 
 
 def is_r6(model: str, option: str, version: str) -> bool:
-    """Whether common model 1 names the R6 variant whose registers have been checked."""
-    # Opt only says "R6" on the verified device. It cannot distinguish
-    # the larger R6 variants with three or four MPPT inputs.
-    return model.strip().upper() == "R6-15K-T2-32"
+    """Whether common model 1 names an R6 with two MPPT inputs."""
+    # T2 selects the two-input family, independently of its power rating
+    # and regional suffixes. Opt only says "R6" and cannot select it.
+    return re.fullmatch(r"R6-[1-9][0-9]*K-T2(?:-[A-Z0-9]+)*", model.strip().upper()) is not None
 
 
 SAJ = VendorProfile(
