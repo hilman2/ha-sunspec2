@@ -6,7 +6,7 @@ from __future__ import annotations
 NAME = "SunSpec 2"
 DOMAIN = "sunspec2"
 DOMAIN_DATA = f"{DOMAIN}_data"
-VERSION = "2026.10.10"
+VERSION = "2026.10.11"
 
 ATTRIBUTION = "Data provided by SunSpec alliance - https://sunspec.org"
 ISSUE_URL = "https://github.com/hilman2/ha-sunspec2/issues"
@@ -178,16 +178,20 @@ CONF_STANDBY_WHEN_IDLE = "standby_when_idle"
 #       the past. ``loop.call_at`` fires immediately, every time, for
 #       as long as Home Assistant is up.
 #
-# 5 s rather than 1 s because a single model read already costs the
-# MODEL_READ_PACING_SECONDS pause in api.py plus a round trip, and
-# INTERVAL_RETRY_DELAY_SECONDS is itself 5: below that the in-cycle
-# retry, not the configured interval, sets the real pace.
+# 5 s rather than 1 s because model reads can include a pacing pause
+# as well as a round trip, and INTERVAL_RETRY_DELAY_SECONDS is itself 5:
+# below that the in-cycle retry, not the configured interval, sets the real pace.
 MIN_SCAN_INTERVAL_SECONDS = 5
 
 CONF_SCAN_DELAY = "scan_delay"
 DEFAULT_SCAN_DELAY_SECONDS = 0.5
 MIN_SCAN_DELAY_SECONDS = 0.0
 MAX_SCAN_DELAY_SECONDS = 2.0
+
+CONF_MODEL_READ_DELAY = "model_read_delay"
+DEFAULT_MODEL_READ_DELAY_SECONDS = 0.6
+MIN_MODEL_READ_DELAY_SECONDS = 0.0
+MAX_MODEL_READ_DELAY_SECONDS = 2.0
 
 # Storage key and version for the persisted SunSpec model layout.
 #

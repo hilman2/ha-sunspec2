@@ -18,6 +18,17 @@ then also holds what the inverter sent, unprocessed.
 
 Attach that file to every bug report.
 
+## Write actions or updates take several seconds
+
+Open *Settings -> Devices & Services -> SunSpec Modbus -> Configure ->
+Advanced* and lower **Model read pause**. It accepts 0 to 2 seconds and
+defaults to 0.6 seconds between model reads. Set it to 0 to remove the
+pause. If communication becomes unreliable, raise it again.
+
+Write actions wait for a sensor refresh after the device acknowledges
+the write, so this pause also affects how quickly an action returns.
+**Model scan pause** is separate and only affects device discovery.
+
 ## A sensor shows "unknown" on a bright day
 
 The integration throws away readings that cannot be true. Inverters

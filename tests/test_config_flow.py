@@ -14,6 +14,7 @@ from custom_components.sunspec2.const import CONF_BAUDRATE
 from custom_components.sunspec2.const import CONF_ENABLED_MODELS
 from custom_components.sunspec2.const import CONF_HOST
 from custom_components.sunspec2.const import CONF_MAX_AC_POWER_KW
+from custom_components.sunspec2.const import CONF_MODEL_READ_DELAY
 from custom_components.sunspec2.const import CONF_PARITY
 from custom_components.sunspec2.const import CONF_PORT
 from custom_components.sunspec2.const import CONF_PREFIX
@@ -22,6 +23,7 @@ from custom_components.sunspec2.const import CONF_SERIAL_PORT
 from custom_components.sunspec2.const import CONF_STANDBY_WHEN_IDLE
 from custom_components.sunspec2.const import CONF_TRANSPORT
 from custom_components.sunspec2.const import CONF_UNIT_ID
+from custom_components.sunspec2.const import DEFAULT_MODEL_READ_DELAY_SECONDS
 from custom_components.sunspec2.const import DEFAULT_MODELS
 from custom_components.sunspec2.const import DOMAIN
 from custom_components.sunspec2.const import FLOAT_TWIN_OFFSET
@@ -820,12 +822,56 @@ async def test_options_flow_offers_standby_when_idle(hass, sunspec_client_mock, 
     assert _schema_default(advanced, CONF_STANDBY_WHEN_IDLE) is stored
 
 
+@pytest.mark.parametrize("stored", [None, 0, 0.25, 2])
+async def test_options_flow_model_read_delay_round_trips(hass, sunspec_client_mock, stored):
+    options = {} if stored is None else {CONF_MODEL_READ_DELAY: stored}
+    entry = MockConfigEntry(domain=DOMAIN, data=MOCK_CONFIG, options=options)
+    entry.add_to_hass(hass)
+    entry.runtime_data = MockSunSpecDataUpdateCoordinator(hass, [1, 2])
+    result = await _open_model_options(hass, entry)
+    expected = DEFAULT_MODEL_READ_DELAY_SECONDS if stored is None else stored
+    advanced = result["data_schema"].schema["advanced"].schema
+    assert _schema_default(advanced, CONF_MODEL_READ_DELAY) == expected
+
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        user_input={
+            CONF_ENABLED_MODELS: ["1"],
+            "advanced": {CONF_MODEL_READ_DELAY: expected},
+        },
+    )
+
+    assert result["type"] == FlowResultType.CREATE_ENTRY
+    assert result["data"][CONF_MODEL_READ_DELAY] == expected
+    assert "advanced" not in result["data"]
+
+
+@pytest.mark.parametrize("delay", [-0.1, 2.1])
+async def test_options_flow_rejects_model_read_delay_outside_the_range(
+    hass, sunspec_client_mock, delay
+):
+    entry = MockConfigEntry(domain=DOMAIN, data=MOCK_CONFIG)
+    entry.add_to_hass(hass)
+    entry.runtime_data = MockSunSpecDataUpdateCoordinator(hass, [1, 2])
+    result = await _open_model_options(hass, entry)
+
+    with pytest.raises(InvalidData):
+        await hass.config_entries.options.async_configure(
+            result["flow_id"],
+            user_input={
+                CONF_ENABLED_MODELS: ["1"],
+                "advanced": {CONF_MODEL_READ_DELAY: delay},
+            },
+        )
+
+
 @pytest.mark.parametrize("sections", [{}, {"advanced": {CONF_MAX_AC_POWER_KW: 4.2}, "privacy": {}}])
 async def test_options_flow_preserves_unedited_sections(hass, sunspec_client_mock, sections):
     """Collapsed or omitted sections preserve the installation's existing choices."""
     saved = {
         "capture_raw_registers": True,
         "scan_delay": 1.25,
+        CONF_MODEL_READ_DELAY: 0.15,
         CONF_MAX_AC_POWER_KW: 4.2,
         CONF_PREFIX: "roof",
         CONF_STANDBY_WHEN_IDLE: True,
@@ -870,6 +916,7 @@ async def test_options_flow_saves_section_edits_as_flat_options(hass, sunspec_cl
                 CONF_MAX_AC_POWER_KW: 6.9,
                 "capture_raw_registers": False,
                 "scan_delay": 0.75,
+                CONF_MODEL_READ_DELAY: 0,
                 CONF_STANDBY_WHEN_IDLE: False,
             },
             "privacy": {"usage_stats": False},
@@ -878,6 +925,7 @@ async def test_options_flow_saves_section_edits_as_flat_options(hass, sunspec_cl
 
     assert result["type"] == FlowResultType.CREATE_ENTRY
     assert result["data"]["scan_delay"] == 0.75
+    assert result["data"][CONF_MODEL_READ_DELAY] == 0
     assert result["data"][CONF_PREFIX] == "garage"
     assert result["data"][CONF_MAX_AC_POWER_KW] == 6.9
     assert result["data"]["capture_raw_registers"] is False
