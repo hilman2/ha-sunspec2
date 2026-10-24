@@ -12,7 +12,7 @@ address is removed automatically. Get it here:
 diagnostics*
 
 If something looks like wrong numbers rather than missing numbers,
-switch on **Capture raw Modbus bytes for diagnostics** in the
+switch on **Capture diagnostic registers** under **Advanced** in the
 integration's options first, wait a minute, then download. The file
 then also holds what the inverter sent, unprocessed.
 
@@ -32,8 +32,9 @@ nameplate. Then you enter the value once, in kilowatts.
 
 If the ceiling is too low, real readings are thrown away and the sensor
 reads `unknown`. To fix it, open *Settings -> Devices & Services ->
-SunSpec Modbus -> Configure* and raise **Peak AC power**. Or clear the
-field to switch the filter off.
+SunSpec Modbus -> Configure -> Advanced* and raise **Peak AC power**.
+Clearing the field returns to automatic nameplate detection. If the
+inverter does not publish a rating, no power ceiling is applied.
 
 To see which sensor was dropped and why, look in the Home Assistant log.
 You will find a line like this:
@@ -94,9 +95,9 @@ still go unavailable after a few minutes. That is correct: the device is
 switched off.
 
 If your inverter disappears without ever saying it is going to sleep, or
-does not report its state at all, switch on **Inverter powers down when
-idle** in the options. That stops the "Cannot reach SunSpec inverter"
-notification for good.
+does not report its state at all, switch on **Allow the inverter to go
+offline when idle** under **Advanced** in the options. That stops the
+"Cannot reach SunSpec inverter" notification for good.
 
 An inverter that answers with an error, or with something that is not
 SunSpec, is still reported either way. It proves the inverter is awake.

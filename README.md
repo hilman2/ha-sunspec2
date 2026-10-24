@@ -113,16 +113,19 @@ existing history.
 
 You can change these at any time under *Settings -> Devices & Services
 -> SunSpec Modbus -> Configure*. The defaults suit most setups.
+Polling and sensor selection appear first. Open **Advanced** for sensor
+names, power filtering, standby and diagnostics, or **Privacy** for
+usage statistics. Fronius web credentials have their own section.
 
 | Option | Default | What it does |
 |---|---|---|
 | Sensor name prefix | empty | Text put in front of the sensor names, for example `Garage`. Useful with several inverters |
-| Scan interval | 30 s | How often the inverter is asked for new values |
-| Enabled models | sensible defaults | Which groups of data become sensors. The inverter lists them, the integration reads them |
-| Peak AC power of the inverter | read from the inverter | Readings above this are thrown away as nonsense. Older inverters do not publish their power, then you enter it once. See [Troubleshooting](docs/troubleshooting.md#a-sensor-shows-unknown-on-a-bright-day) |
-| Pause between models while scanning | 0.5 s | A pause while the integration maps what the inverter offers. Raise it if setup fails on slow inverters |
-| Inverter powers down when idle | off | Stops the "unreachable" notification for inverters that vanish at night without saying so |
-| Capture raw Modbus bytes for diagnostics | off | Puts what the inverter sent, unprocessed, into the diagnostics download. For bug reports |
+| Polling interval | 30 s | How often the inverter is asked for new values |
+| Sensor models | sensible defaults | Which groups of data become sensors. The inverter lists them, the integration reads them |
+| Peak AC power | read from the inverter | AC rating used to filter implausible readings, with higher allowances for DC and apparent power. See [Troubleshooting](docs/troubleshooting.md#a-sensor-shows-unknown-on-a-bright-day) |
+| Model scan pause | 0.5 s | A pause while the integration maps what the inverter offers. Raise it if setup fails on slow inverters |
+| Allow the inverter to go offline when idle | off | Stops the "unreachable" notification for inverters that vanish at night without saying so |
+| Capture diagnostic registers | off | Puts what the inverter sent, unprocessed, into the diagnostics download. For bug reports |
 | Send anonymous usage statistics | on | One request a day that counts active installations. See [Usage statistics](#usage-statistics) |
 
 Host, port and unit ID are changed via **Reconfigure** in the same
@@ -133,7 +136,7 @@ menu.
 Once a day the integration sends one request to the author's server, so
 that the number of active installations can be counted. It is on by
 default. Turn it off with **Send anonymous usage statistics** under
-*Configure*, and nothing is sent.
+*Configure -> Privacy*, and nothing is sent.
 
 **What is sent:**
 
@@ -237,16 +240,16 @@ longer, check the WiFi or the cable to the inverter.
 **The inverter is unreachable every night.** Normal. Most inverters
 switch off when the sun is gone and take their network connection with
 them. The integration recognises this and stays quiet. If yours
-vanishes without announcing it first, switch on **Inverter powers down
-when idle** in the options.
+vanishes without announcing it first, switch on **Allow the inverter to
+go offline when idle** under **Advanced** in the options.
 
 **Everything is unavailable after changing the options.** You probably
 saved with no data ticked. Open the options again and tick some.
 
 **Power or energy shows `unknown` on a bright day.** The filter for
-nonsense readings is set too low. Raise **Peak AC power**, or clear the
-field to switch the filter off. The log names the sensor and the limit
-it used.
+nonsense readings is set too low. Raise **Peak AC power** under
+**Advanced**, or clear it to return to the automatically detected rating.
+The log names the sensor and the limit it used.
 
 **Spikes in your statistics at dawn or dusk.** The same filter again:
 either it did its job, or its limit is too high. It is filled in from
