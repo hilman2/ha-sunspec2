@@ -13,6 +13,7 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.sunspec2 import SunSpecDataUpdateCoordinator
 from custom_components.sunspec2 import async_setup_entry
+from custom_components.sunspec2.api import SunSpecApiClient
 from custom_components.sunspec2.const import CONF_CAPTURE_RAW
 from custom_components.sunspec2.const import CONF_ENABLED_MODELS
 from custom_components.sunspec2.const import CONF_SCAN_DELAY
@@ -648,6 +649,34 @@ async def test_empty_models_filter_falls_back_to_defaults(hass, sunspec_client_m
     # full DEFAULT_MODELS set so subsequent cycles actually poll
     # something.
     assert coordinator.option_model_filter == set(DEFAULT_MODELS)
+
+
+@pytest.mark.parametrize("common_selected", [True, False])
+async def test_first_refresh_reads_common_once(
+    hass, sunspec_apsystems_client_mock, mocker, common_selected
+):
+    """Metadata serves the first cycle's sensors; later selected polls still read it."""
+    reads = mocker.spy(SunSpecApiClient, "async_get_data")
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data=MOCK_CONFIG,
+        options={CONF_ENABLED_MODELS: [1, 103] if common_selected else [103]},
+    )
+    entry.add_to_hass(hass)
+
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    coordinator = entry.runtime_data
+
+    assert coordinator.device_info.getValue("Mn") == "APsystems"
+    assert (1 in coordinator.data) is common_selected
+    assert sum(call.args[1] == 1 for call in reads.call_args_list) == 1
+
+    reads.reset_mock()
+    await coordinator.async_refresh()
+
+    assert coordinator.last_update_success
+    assert sum(call.args[1] == 1 for call in reads.call_args_list) == int(common_selected)
 
 
 async def test_detected_models_cached_for_options_flow(hass, sunspec_client_mock):

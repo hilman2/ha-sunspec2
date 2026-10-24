@@ -1249,9 +1249,11 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator[dict[int, SunSpecModelW
         # without opening a second TCP slot. Re-reading it on
         # every cycle would be wasteful - the device info never
         # changes for a given physical inverter.
+        fresh_common: SunSpecModelWrapper | None = None
         if self.device_info is None:
             info = await self.api.async_get_data(1)
             self.device_info = info
+            fresh_common = info
 
             def common_text(point: str) -> str:
                 try:
@@ -1288,7 +1290,13 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator[dict[int, SunSpecModelW
             self.detected_max_ac_power_kw = await self._read_nameplate(all_models)
 
         for model_id in model_ids:
-            data[model_id] = await self.api.async_get_data(model_id)
+            # Model 1 was already read for identity on this cycle. Reuse it
+            # for its sensors without another request and pacing pause;
+            # later cycles still read it when the user selected it.
+            if model_id == 1 and fresh_common is not None:
+                data[model_id] = fresh_common
+            else:
+                data[model_id] = await self.api.async_get_data(model_id)
         # After the models, on the same session: what the vendor keeps
         # outside them. A block that fails never fails the cycle.
         if self.vendor is not None and self.vendor.raw_blocks:
