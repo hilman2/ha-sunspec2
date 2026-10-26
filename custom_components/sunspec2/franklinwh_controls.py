@@ -291,19 +291,30 @@ class FranklinBatteryState(FranklinEntity, SensorEntity):
 
 
 class FranklinHomeLoad(FranklinEntity, SensorEntity):
-    """Home consumption, preferring the high-resolution extension when it answers."""
+    """Home consumption from 16000 once it has proven finer than 15506, else from 15506."""
 
     _attr_device_class = SensorDeviceClass.POWER
     _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_native_unit_of_measurement = "W"
 
+    # 16000 measured in about 1 W steps on V10R01B04D00 and V12, where
+    # 15506 has 100 W steps on V10. On an aGate X reported as
+    # V10R11B40D00, 16000 moved in 1000 W steps and 15506 in 100 W steps
+    # (issue #149). A single reading cannot tell the two apart, so the
+    # sensor uses 15506 until 16000 has once reported a value that is not
+    # a multiple of 100, and 16000 from then on.
+    _high_resolution_proven = False
+
     @property
     def native_value(self) -> float | None:
-        for block in ("franklinwh_high_resolution", "franklinwh_extensions"):
-            value = _number(self.coordinator.raw_blocks.get(block, {}).get("home_load"))
-            if value is not None:
-                return value
-        return None
+        blocks = self.coordinator.raw_blocks
+        fine = _number(blocks.get("franklinwh_high_resolution", {}).get("home_load"))
+        coarse = _number(blocks.get("franklinwh_extensions", {}).get("home_load"))
+        if fine is not None and fine % 100:
+            self._high_resolution_proven = True
+        if self._high_resolution_proven or coarse is None:
+            return fine if fine is not None else coarse
+        return coarse
 
 
 def franklinwh_numbers(

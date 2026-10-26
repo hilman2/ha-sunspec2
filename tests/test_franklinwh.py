@@ -97,7 +97,8 @@ async def test_extensions_decode_measured_powers_modes_and_reserves(hass, agate)
     }
     assert _entities(hass, "sensor", FranklinHomeLoad)[0].native_value == 185
     assert sensors["franklinwh_native_mode"].native_value == "self_consumption"
-    assert sensors["franklinwh_self_reserve"].native_value == 8
+    assert sensors["franklinwh_active_reserve"].native_value == 8
+    assert "franklinwh_self_reserve" not in sensors
     assert sensors["franklinwh_pv_proximal"].native_value == 300
     assert entry.runtime_data.raw_blocks["franklinwh_extensions"]["pv_energy"] == 15882870
     assert (15500, 14) in unit.reads
@@ -285,6 +286,32 @@ async def test_zero_home_load_does_not_fall_back_to_an_older_coarse_reading(hass
 
     entry.runtime_data.raw_blocks.pop("franklinwh_high_resolution")
     assert sensor.native_value == 600
+
+
+async def test_home_load_keeps_the_100_w_reading_while_16000_moves_in_1000_w_steps(hass, agate):
+    # The pairs follow the history of an aGate X reported as V10R11B40D00 (issue #149).
+    entry, unit, _connection = agate
+    sensor = _entities(hass, "sensor", FranklinHomeLoad)[0]
+    sensor._high_resolution_proven = False
+    for fine, coarse in ((1000, 1100), (0, 900), (6000, 6500)):
+        unit.holding.update({16000: fine, 15506: coarse})
+        await entry.runtime_data.async_refresh()
+        assert sensor.native_value == coarse
+
+    unit.holding.update({16000: 1004, 15506: 1000})
+    await entry.runtime_data.async_refresh()
+    assert sensor.native_value == 1004
+    unit.holding.update({16000: 2000, 15506: 1900})
+    await entry.runtime_data.async_refresh()
+    assert sensor.native_value == 2000
+
+
+async def test_solar_powers_below_zero_stay_small(hass, agate):
+    entry, unit, _connection = agate
+    unit.holding.update({15502: 65534, 15503: 0xFFFF})
+    await entry.runtime_data.async_refresh()
+    block = entry.runtime_data.raw_blocks["franklinwh_extensions"]
+    assert (block["pv_total"], block["pv_proximal"]) == (-2, -1)
 
 
 async def test_unknown_native_modes_and_unavailable_power_stay_unknown(hass, agate):

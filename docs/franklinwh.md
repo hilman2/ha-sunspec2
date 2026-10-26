@@ -11,8 +11,11 @@ The profile recognises manufacturer names beginning with `FranklinWH`
 and model names beginning with `aGate`.
 
 The register knowledge comes from readbacks of an aGate X on
-V10R01B04D00 and V12R02B60D00. Other firmware versions need a comparison
-with the device's diagnostics and measurements.
+V10R01B04D00 and V12R02B60D00, and from a user report of an aGate X on
+V10R11B40D00. Other firmware versions need a comparison with the
+device's diagnostics and measurements. All readings so far come from
+sites without the SPAN panel's Modbus link; whether the extra sensors
+read the same with it is unknown.
 
 ## What you get
 
@@ -22,15 +25,21 @@ are present. It also shows battery activity as charging, discharging
 or idle, derived from the reported DC power.
 
 The extra sensors show local and remote solar power, home consumption,
-the aGate's native operating mode and its self-consumption reserve.
-Home consumption uses the finer reading when available, falling back
-to the coarse reading when necessary.
+the aGate's native operating mode and the reserve of the active mode.
+Without remote solar, local solar power matches the solar module's
+output power.
+
+Home consumption combines two readings. **Home load** is about 1 W
+fine on most firmware, but moved in 1000 W steps on V10R11B40D00.
+**Home load, coarse reading** moves in 100 W steps on V10. Home
+consumption uses the coarse reading until the fine one has shown a
+value between the 100 W steps, and the fine one from then on.
 
 Additional comparisons start disabled in the entity list: the raw
-home-consumption readings, solar totals from extension registers,
-the reported TOU reserve and the reported active reserve. V10's TOU
-reserve repeated its self-consumption reserve. The active reserve was
-confirmed on V12 only.
+home-consumption readings, solar totals from extension registers, the
+self-consumption reserve and the reported TOU reserve. On V10R01B04D00
+the TOU reserve repeated the self-consumption reserve. On V10R11B40D00
+both repeated the active reserve in every mode.
 
 ## Set battery power
 
