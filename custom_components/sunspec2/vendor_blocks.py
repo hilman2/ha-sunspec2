@@ -48,6 +48,7 @@ from .entity import Home
 from .entity import SunSpecEntity
 from .entity import home_for
 from .errors import SunSpecError
+from .models import SunSpecModelWrapper
 from .vendors.profile import RawDevice
 from .vendors.profile import RawKeepAlive
 from .vendors.profile import RawNumber
@@ -134,22 +135,7 @@ class RawBlockEntity(SunSpecEntity):
     def device_info(self) -> DeviceInfo:
         if self._device is None:
             return super().device_info
-        identity = self.coordinator.raw_blocks.get(self._device.info_block, {})
-        base = self._prefix or _text(self._device_data.getValue("Md"))
-        info = DeviceInfo(
-            # Three-element identifiers, like every device of this
-            # integration; see SunSpecEntity.device_info.
-            identifiers={
-                (DOMAIN, self.config_entry.entry_id, f"raw:{self._device.key}")  # type: ignore[arg-type]
-            },
-            name=f"{base} {self._device.name}" if base else self._device.name,
-            manufacturer=_text(identity.get(self._device.manufacturer)),
-            model=_device_model(self._device, identity),
-            serial_number=_serial(identity.get(self._device.serial)),
-        )
-        if self._device.version is not None:
-            info["sw_version"] = _text(identity.get(self._device.version))
-        return info
+        return raw_device_info(self.coordinator, self.config_entry, self._prefix, self._device)
 
 
 class RawBlockSensor(RawBlockEntity, SensorEntity):
@@ -416,6 +402,59 @@ class RawWriteCountSensor(SunSpecEntity, RestoreSensor):
             )
 
 
+def raw_device_info(
+    coordinator: SunSpecDataUpdateCoordinator,
+    config_entry: ConfigEntry,
+    prefix: str,
+    device: RawDevice,
+) -> DeviceInfo:
+    """The device registry payload for a vendor device of one entry.
+
+    Args:
+        coordinator (SunSpecDataUpdateCoordinator): The entry's coordinator.
+        config_entry (ConfigEntry): The entry the device belongs to.
+        prefix (str): The user's device name, or "".
+        device (RawDevice): The device.
+    """
+    common = coordinator.device_info
+    identity: Mapping[str, Any]
+    if device.info_block is None:
+        identity = _common_points(common, device)
+    else:
+        identity = coordinator.raw_blocks.get(device.info_block, {})
+    base = prefix or (_text(common.getValue("Md")) if common is not None else None)
+    info = DeviceInfo(
+        # Three-element identifiers, like every device of this
+        # integration; see SunSpecEntity.device_info.
+        identifiers={
+            (DOMAIN, config_entry.entry_id, f"raw:{device.key}")  # type: ignore[arg-type]
+        },
+        name=f"{base} {device.name}" if base else device.name,
+        manufacturer=_text(identity.get(device.manufacturer)),
+        model=_device_model(device, identity),
+        serial_number=_serial(identity.get(device.serial)),
+    )
+    if device.version is not None:
+        info["sw_version"] = _text(identity.get(device.version))
+    return info
+
+
+def _common_points(common: SunSpecModelWrapper | None, device: RawDevice) -> dict[str, Any]:
+    """The identity points ``device`` names, read from common model 1."""
+    names = (device.manufacturer, device.model, device.serial, device.version)
+    points: dict[str, Any] = {}
+    if common is None:
+        return points
+    for name in names:
+        if name is None:
+            continue
+        try:
+            points[name] = common.getValue(name)
+        except (KeyError, AttributeError):
+            points[name] = None
+    return points
+
+
 def _text(value: Any) -> str | None:
     return value if isinstance(value, str) and value else None
 
@@ -476,7 +515,7 @@ def _device_for(
     if device is None:
         _LOGGER.warning("Raw entity %s names an unknown device %s", key, device_key)
         return False, None
-    if device.info_block not in coordinator.raw_blocks or (
+    if (device.info_block is not None and device.info_block not in coordinator.raw_blocks) or (
         device.requires is not None and device.requires not in coordinator.raw_blocks
     ):
         return False, None

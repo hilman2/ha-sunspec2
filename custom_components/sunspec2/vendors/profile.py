@@ -194,7 +194,10 @@ class RawDevice:
     Args:
         key (str): Names the device; the entities on it carry it in
             their unique id.
-        info_block (str): The raw block with the identity strings.
+        info_block (str|None): The raw block with the identity strings,
+            or None for a device that is the SunSpec device itself, such
+            as a gateway whose own registers sit beside its models. Its
+            identity fields then name points of common model 1.
         name (str): What follows the inverter's name in the device name.
         manufacturer (str): Field of ``info_block`` with the manufacturer.
         model (str): Field with the model.
@@ -211,7 +214,7 @@ class RawDevice:
     """
 
     key: str
-    info_block: str
+    info_block: str | None
     name: str
     manufacturer: str
     model: str
