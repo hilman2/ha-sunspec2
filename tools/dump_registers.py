@@ -12,8 +12,8 @@ Before you run it:
 
 * Disable the integration first. A second Modbus connection can make the
   ECU stop answering.
-* The file holds the serial numbers of your micro inverters. Replace them
-  before you share it.
+* The serial numbers (register 40052 to 40067) are written as zeros, so
+  the file can be shared as it is.
 * It sends about 15 requests, one at a time, with a pause in between.
 
 The upper limit of 40261 is deliberate. On an ECU-R registers 40262 to
@@ -41,6 +41,8 @@ BLOCK_SIZES = (125, 60, 30)
 """Registers per request, tried in this order on the first unit."""
 PAUSE = 1.0
 """Seconds between two requests."""
+SERIAL_REGISTERS = range(40052, 40068)
+"""The serial number of model 1, 16 registers behind the header at 40002."""
 TIMEOUT = 15.0
 """Seconds to wait for one reply; the ECU can take several seconds."""
 
@@ -112,7 +114,12 @@ def dump_unit(session: Session, unit: int, block_size: int) -> dict[str, object]
             return {"registers": registers, "stopped_at": address, "error": str(err)}
         except (OSError, ValueError) as err:
             return {"registers": registers, "stopped_at": address, "error": repr(err)}
-        registers.update({str(address + i): value for i, value in enumerate(values)})
+        registers.update(
+            {
+                str(address + i): 0 if address + i in SERIAL_REGISTERS else value
+                for i, value in enumerate(values)
+            }
+        )
         address += count
         time.sleep(PAUSE)
     return {"registers": registers}
@@ -160,7 +167,7 @@ def main() -> int:
 
     target = args.out / f"apsystems-dump-{datetime.now(UTC):%Y%m%d-%H%M%S}.json"
     target.write_text(json.dumps(result, indent=2))
-    sys.stdout.write(f"Wrote {target}. Replace the serial numbers before you share it.\n")
+    sys.stdout.write(f"Wrote {target}.\n")
     return 0
 
 

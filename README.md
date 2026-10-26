@@ -48,7 +48,7 @@ likely yes. That covers most brands. Where a brand needs a special
 setting, the entry links to a page with the details:
 
 **ABB / FIMER / Power-One** Aurora, Trio, UNO, REACT .  
-**APsystems** ECU-R, ECU-C (micro inverters, see [docs/apsystems.md](docs/apsystems.md)) .  
+**APsystems** ECU-R, ECU-R Pro, ECU-C (micro inverters, see [docs/apsystems.md](docs/apsystems.md)) .  
 **Chint Power Systems**  
 **Delta** Solivia, RPI .  
 **FranklinWH** aGate gateways with aPower batteries (see [docs/franklinwh.md](docs/franklinwh.md)) .\
