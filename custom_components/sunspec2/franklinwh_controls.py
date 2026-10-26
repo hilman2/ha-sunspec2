@@ -39,10 +39,12 @@ HANDOFF_SECONDS = 1.0
 STATE_DEADBAND_W = 50.0
 
 # The smallest aPower is rated 5000 W, and the reference aGate reports
-# 5000 W in both rating points. An aGate X on V10R11B40D00 with two
-# batteries reported a charge rating of 160 and a discharge rating of
-# 192 at W_SF 0, beside WMaxRtg 19200 (issue #149). power_limits treats
-# a rating below this floor like a missing one and uses WMaxRtg instead.
+# 5000 W in both rating points. An aGate X with 30 kWh of batteries,
+# firmware V10R11B40D00 by its owner's account, reported a charge rating
+# of 160 and a discharge rating of 192 at W_SF 0, beside WMaxRtg 19200
+# (debug log on issue #145, reported as a bug in #149). power_limits
+# treats a rating below this floor like a missing one and uses WMaxRtg
+# instead.
 MIN_PLAUSIBLE_RATING_W = 1000.0
 
 

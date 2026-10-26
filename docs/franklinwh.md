@@ -65,10 +65,11 @@ It refused the tested negative targets at -500 W and -5 percent while
 control was disabled. This does not establish that every charge request
 is refused. A charging request can therefore fail on that firmware.
 
-An aGate X on V10R11B40D00 with two batteries reported a charge rating
-of 160 W and a discharge rating of 192 W, beside an active power rating
-of 19200 W. There the range is -19200 to 19200 W. That can exceed what
-the batteries deliver, so compare the measured power with the target.
+An aGate X with 30 kWh of batteries, reportedly on V10R11B40D00,
+reported a charge rating of 160 W and a discharge rating of 192 W,
+beside an active power rating of 19200 W. There the range is -19200 to
+19200 W. That can exceed what the batteries deliver or absorb, so
+compare the measured power with the target.
 
 The native operating mode and reserve extensions are read-only here.
 On V12, writes were acknowledged without changing the settings. Values

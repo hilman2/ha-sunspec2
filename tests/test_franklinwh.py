@@ -168,7 +168,7 @@ async def test_bounds_use_each_direction_instead_of_a_fixed_five_kw_limit(hass, 
 
 
 async def test_implausibly_small_ratings_fall_back_to_the_active_power_rating(hass, agate):
-    # Model 702 as an aGate X on V10R11B40D00 reported it in issue #149.
+    # Model 702 as an aGate X read it in the debug log on issue #145 (see #149).
     entry, unit, _connection = agate
     unit.holding.update({227: 19200, 235: 160, 236: 192})
     await entry.runtime_data.async_refresh()
@@ -182,6 +182,7 @@ async def test_implausibly_small_ratings_fall_back_to_the_active_power_rating(ha
     unit.holding[227] = 500
     await entry.runtime_data.async_refresh()
     assert power_limits(entry.runtime_data.data[702]) is None
+    assert hass.states.get(number.entity_id).state == "unavailable"
 
 
 async def test_acknowledged_but_ignored_commands_report_failure(agate, mocker):
