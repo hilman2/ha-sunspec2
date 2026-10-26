@@ -7,6 +7,7 @@ import logging
 import time
 from collections.abc import Awaitable
 from collections.abc import Callable
+from collections.abc import Mapping
 from typing import Any
 from typing import Literal
 
@@ -182,6 +183,9 @@ class SunSpecApiClient:
         self._parity = parity
         self._reconnect = False
         self._client: SunSpecClient | None = None
+        # The coordinator reads common model 1 once. Keep its profile's
+        # corrections when a reconnect rebuilds the SunSpec model objects.
+        self._point_transforms: Mapping[tuple[int, str], Callable[[Any], Any]] = {}
         # When the last model read finished, for _pace_model_read.
         self._last_model_read_end: float | None = None
         # The connection outlives the client. A close drops the link and
@@ -1210,7 +1214,24 @@ class SunSpecApiClient:
             await model.async_read()
             self._last_model_read_end = time.monotonic()
 
-        return SunSpecModelWrapper(models)
+        if model_id == 1:
+            common = SunSpecModelWrapper(models)
+
+            def common_text(point: str) -> str:
+                try:
+                    value = common.getValue(point)
+                except (KeyError, AttributeError):
+                    return ""
+                return value if isinstance(value, str) else ""
+
+            profile = profile_for(*(common_text(key) for key in ("Mn", "Md", "Opt", "Vr")))
+            self._point_transforms = profile.point_transforms if profile is not None else {}
+        transforms = {
+            point: transform
+            for (target_model, point), transform in self._point_transforms.items()
+            if target_model == model_id
+        }
+        return SunSpecModelWrapper(models, transforms)
 
     async def _pace_model_read(self) -> None:
         """Keep the configured pause between the end of one model read and the next.
