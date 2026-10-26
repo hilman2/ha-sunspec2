@@ -33,5 +33,5 @@
   "loggers": ["modbus_connection", "tmodbus"],
   "quality_scale": "gold",
   "requirements": ["modbus-connection[tmodbus]>=4.12.0,<5", "tmodbus>=0.6.2"],
-  "version": "2026.10.12"
+  "version": "2026.10.13"
 }
