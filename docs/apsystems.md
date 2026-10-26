@@ -18,12 +18,16 @@ inverter, all with the gateway's IP address and a different **unit ID**
    - ECU-C with a serial number starting 215, firmware C1.1.3 or later
 
    The ECU-B does not support it.
+
+   Users of the other integration report that an ECU-R Pro (firmware
+   2.1.32A) and an ECU-C work with DS3, QS1 and YC600 micro inverters.
 2. In EMA Manager open *Workspace -> Modbus Configuration*. Switch
    **SunSpec Modbus** on and give each micro inverter an address. Those
    addresses are the unit IDs you enter in Home Assistant.
 3. Use port 502 over the network (TCP), or the RS485 port of the ECU.
-   Over the network, Modbus only works on the **wired** port, so give
-   the ECU an Ethernet cable and a fixed IP address.
+   On an ECU-R, Modbus over the network only works on the **wired**
+   port, so give it an Ethernet cable and a fixed IP address. Users
+   report that an ECU-R Pro and an ECU-C also answer over Wi-Fi.
 4. Modbus is off in the factory settings, and the setting is in the
    installer part of EMA Manager. If you have no installer account, use
    the ECU's own access point: install EMA Manager on your phone, press
@@ -65,7 +69,10 @@ every 5 minutes, and Modbus only reads what the ECU has collected. Polling
 more often does not make the values fresher. With many micro inverters it
 overloads the ECU: testers with eight micro inverters behind one ECU-R
 got timeouts at a 20 second interval. If you see timeouts, raise the
-polling interval. Daily totals can differ by about 1 % from the EMA app.
+polling interval. One tester's ECU-R also became stable and fast again
+after the router stopped giving its wired connection internet access
+(the Wi-Fi connection can stay, so the EMA app keeps working). That is
+a single observation. Daily totals can differ by about 1 % from the EMA app.
 
 The ECU starts a round on the clock, about 10 seconds past every fifth
 minute, and works through the micro inverters one by one. With many of
@@ -126,10 +133,18 @@ What you get:
 |---|---|
 | **Export limit** | Caps the output in whole percent |
 | **Export limit enabled** | The limit only applies while this is on |
-| **Inverter grid connection** | Disconnects the inverter from the grid. In the entity list, off by default |
+| **Inverter grid connection** | Disconnects the inverter from the grid. In the entity list, off by default. See below: an ECU-R takes it back at its next round |
 
 The ECU has no timer after which the limit lapses and no power factor
 setting. So those entities do not exist for it.
+
+**Inverter grid connection does not stay off on an ECU-R.** One tester
+measured this on an ECU-R (firmware 1.3.23) with DS3 micro inverters.
+Writing 0 stops the micro inverters within half a minute, and the ECU
+keeps reading back 1. At its next round, within five minutes, the ECU
+turns them on again, and the revert time has no effect. To keep them off
+the 0 has to be written again before every round. The integration does
+not do that for you. Use the export limit for anything that must last.
 
 **Take the shown value with a grain of salt.** An ECU-R shows an export
 limit of 30 % with the limit enabled before anyone has set one, while
@@ -146,8 +161,11 @@ in the APsystems document, so treat it as an observation:
   value first (99 instead of 100), wait a few minutes, then the value
   you want.
 - Restarting the ECU clears the limit on the micro inverters, while the
-  ECU keeps showing the old value.
-- At 0 % each micro inverter still delivers about 15 to 31 W. At 20 %
+  ECU keeps showing the old value. After a power cut the ECU can go back
+  to its factory setting, 30 % with the limit enabled.
+- At 0 % each micro inverter still delivers about 15 to 31 W. A user
+  of an ECU-R Pro reports that it turns them fully off at 0 %, and that
+  output takes about 5 minutes to return after the limit is raised. At 20 %
   a DS3-L delivered up to 17 W more than 20 % of its rating. Read the
   limit as a ceiling with some give, not as an exact value.
 - Just before dusk the ECU can show 30 % for a single reading.
@@ -204,6 +222,15 @@ download in your report (see [Troubleshooting](troubleshooting.md)).
 - **ECU-R firmware 1.3.23:** the header of the controls model (123)
   reads 114, with 48 registers instead of 24. The integration reads the
   registers behind the header as model 123.
+- **Writes** go out as function code 16, "write multiple registers",
+  also for a single register. An ECU-R ignores function code 6 without
+  an error (issue 1 of the repository named below).
+- **ECU-R Pro:** the register addresses are the same. The header of the
+  controls reads 123 with 24 registers, so no relabelling is needed, the
+  enable flag reads as a plain 0 or 1 (an ECU-R reads back the ASCII
+  digit), and the version in model 1 holds the micro inverter firmware
+  (`V626003`) where an ECU-R reads `V0`. Source: the register dump of an
+  ECU-R Pro in discussion 2 of that repository.
 - **Controls:** *Export limit* is `WMaxLimPct`, *Export limit enabled*
   is `WMaxLim_Ena`, *Inverter grid connection* is `Conn`. The ECU has no
   `WMaxLimPct_RvrtTms` and no `OutPFSet`, so those entities are not
@@ -218,4 +245,8 @@ version 0.4.0. The round timing, the readings the ECU gets wrong, the
 02:15 reset and the flag that silenced the ECU are that author's
 observations too (issue 1 and the code of version 0.4.12 in that
 repository, ECU-R firmware 1.3.23). None of them is in the APsystems
-document, and we have not reproduced them.
+document, and we have not reproduced them. The behaviour of
+*Inverter grid connection*, the 30 % after a power cut, the Wi-Fi access
+of the ECU-R Pro and ECU-C and the fully off at 0 % on an ECU-R Pro are
+from the same repository, versions 0.5.0 to 0.5.6, its issue 1 and its
+discussion 2, and are reports of its users in the same way.
