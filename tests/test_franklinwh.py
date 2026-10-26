@@ -1,16 +1,21 @@
 """FranklinWH register decoding and battery commands through the real async SunSpec client."""
 
 import asyncio
+from typing import cast
 
 import pytest
 from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers import device_registry as dr
+from homeassistant.helpers import entity_registry as er
 from modbus_connection import IllegalDataAddressError
 from modbus_connection import IllegalDataValueError
 from modbus_connection import ModbusTimeoutError
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
+from custom_components.sunspec2 import get_sunspec_unique_id
 from custom_components.sunspec2.api import SunSpecApiClient
 from custom_components.sunspec2.const import CONF_ENABLED_MODELS
+from custom_components.sunspec2.const import CONF_PREFIX
 from custom_components.sunspec2.const import DOMAIN
 from custom_components.sunspec2.errors import DeviceError
 from custom_components.sunspec2.franklinwh_controls import FranklinBatteryButton
@@ -71,6 +76,56 @@ def test_agate_profile_matches_both_known_manufacturer_strings(manufacturer, mod
 @pytest.mark.parametrize("manufacturer,model", [("Other", "aGate X"), ("FranklinWH", "Unknown")])
 def test_other_devices_do_not_gain_franklin_register_reads(manufacturer, model):
     assert profile_for(manufacturer, model) is not FRANKLINWH
+
+
+@pytest.mark.parametrize("prefix,name", [("", "aGate X Gateway"), ("Garage", "Garage Gateway")])
+async def test_extension_sensors_move_to_a_gateway_device_and_keep_their_entity_ids(
+    hass, mocker, prefix, name
+):
+    connection = FakeConnection({1: FakeUnit(agate_registers())})
+    mocker.patch.object(SunSpecApiClient, "_get_connection", return_value=connection)
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={**MOCK_CONFIG, CONF_ENABLED_MODELS: [701], CONF_PREFIX: prefix},
+        options={"scan_delay": 0, "model_read_delay": 0},
+    )
+    entry.add_to_hass(hass)
+    # Up to 2026.10.12 the sensor sat on a SunSpec model device.
+    devices = dr.async_get(hass)
+    solar = devices.async_get_or_create(
+        config_entry_id=entry.entry_id,
+        identifiers={cast(tuple[str, str], (DOMAIN, entry.entry_id, "inverter_mppt"))},
+    )
+    unique_id = get_sunspec_unique_id(entry.entry_id, "raw:franklinwh_extensions:native_mode", 0, 0)
+    entities = er.async_get(hass)
+    entities.async_get_or_create(
+        "sensor",
+        DOMAIN,
+        unique_id,
+        config_entry=entry,
+        device_id=solar.id,
+        suggested_object_id="agate_x_solar_module_native_operating_mode",
+    )
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    gateway = devices.async_get_device_by_identifier(
+        cast(tuple[str, str], (DOMAIN, entry.entry_id, "raw:agate")), entry.entry_id
+    )
+    assert gateway is not None
+    assert (gateway.name, gateway.manufacturer, gateway.model) == (name, "FranklinWH", "aGate X")
+    assert (gateway.serial_number, gateway.sw_version) == ("test-franklinwh", "V12R02B60D00")
+    mode = entities.async_get("sensor.agate_x_solar_module_native_operating_mode")
+    assert mode is not None and mode.device_id == gateway.id
+    # Every extension sensor, including those disabled by default.
+    moved = [
+        registered
+        for registered in er.async_entries_for_config_entry(entities, entry.entry_id)
+        if "_raw:franklinwh_" in registered.unique_id
+        or registered.unique_id.endswith("franklinwh:franklinwh_home_consumption-0-0")
+    ]
+    assert len(moved) == len(FRANKLINWH.raw_sensors) + 1
+    assert {registered.device_id for registered in moved} == {gateway.id}
 
 
 async def test_profile_reads_battery_models_without_changing_the_users_selection(hass, agate):

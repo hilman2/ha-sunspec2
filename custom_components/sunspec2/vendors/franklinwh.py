@@ -19,6 +19,7 @@ import math
 from typing import Any
 
 from .profile import RawBlock
+from .profile import RawDevice
 from .profile import RawField
 from .profile import RawSensor
 from .profile import VendorProfile
@@ -67,6 +68,26 @@ RAW_BLOCKS: tuple[RawBlock, ...] = (
 )
 
 
+# The extension registers describe the gateway as a whole: solar, home
+# load, operating mode and reserves. Their sensors sit on a device of
+# their own instead of whichever model device happens to be the lowest
+# (issue #149). The aGate is the SunSpec device itself, so its identity
+# comes from common model 1.
+AGATE_DEVICE = "agate"
+
+GATEWAY = RawDevice(
+    key=AGATE_DEVICE,
+    info_block=None,
+    name="Gateway",
+    manufacturer="Mn",
+    model="Md",
+    serial="SN",
+    version="Vr",
+)
+
+RAW_DEVICES: tuple[RawDevice, ...] = (GATEWAY,)
+
+
 def percent(value: Any) -> float | None:
     """A reported reserve in percent, or None for an invalid value."""
     if isinstance(value, bool) or not isinstance(value, (int, float)):
@@ -78,6 +99,7 @@ RAW_SENSORS: tuple[RawSensor, ...] = (
     *(
         RawSensor(
             block="franklinwh_extensions",
+            device=AGATE_DEVICE,
             field=name,
             key=f"franklinwh_{name}",
             unit="W",
@@ -89,6 +111,7 @@ RAW_SENSORS: tuple[RawSensor, ...] = (
     ),
     RawSensor(
         block="franklinwh_high_resolution",
+        device=AGATE_DEVICE,
         field="home_load",
         key="franklinwh_home_load_high_resolution",
         unit="W",
@@ -98,6 +121,7 @@ RAW_SENSORS: tuple[RawSensor, ...] = (
     ),
     RawSensor(
         block="franklinwh_extensions",
+        device=AGATE_DEVICE,
         field="native_mode",
         key="franklinwh_native_mode",
         device_class="enum",
@@ -106,6 +130,7 @@ RAW_SENSORS: tuple[RawSensor, ...] = (
     *(
         RawSensor(
             block="franklinwh_extensions",
+            device=AGATE_DEVICE,
             field=name,
             key=f"franklinwh_{name}",
             unit="%",
@@ -121,6 +146,7 @@ RAW_SENSORS: tuple[RawSensor, ...] = (
     # enabled.
     RawSensor(
         block="franklinwh_high_resolution",
+        device=AGATE_DEVICE,
         field="active_reserve",
         key="franklinwh_active_reserve",
         unit="%",
@@ -130,6 +156,7 @@ RAW_SENSORS: tuple[RawSensor, ...] = (
     *(
         RawSensor(
             block="franklinwh_extensions",
+            device=AGATE_DEVICE,
             field=name,
             key=f"franklinwh_{name}",
             unit="Wh",
@@ -152,6 +179,7 @@ FRANKLINWH = VendorProfile(
     manufacturer_prefixes=("FranklinWH",),
     identifies=is_agate,
     raw_blocks=RAW_BLOCKS,
+    raw_devices=RAW_DEVICES,
     raw_sensors=RAW_SENSORS,
     required_models=frozenset({AC_CAPACITY_MODEL, STORAGE_MODEL, DC_MODEL}),
 )

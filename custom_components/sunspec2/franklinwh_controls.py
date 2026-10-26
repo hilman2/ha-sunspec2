@@ -20,6 +20,7 @@ from homeassistant.components.sensor import SensorEntity
 from homeassistant.components.sensor import SensorStateClass
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers.device_registry import DeviceInfo
 
 from . import SunSpecDataUpdateCoordinator
 from . import get_sunspec_unique_id
@@ -29,9 +30,11 @@ from .entity import home_for
 from .errors import DeviceError
 from .errors import SunSpecError
 from .models import SunSpecModelWrapper
+from .vendor_blocks import raw_device_info
 from .vendors.franklinwh import AC_CAPACITY_MODEL
 from .vendors.franklinwh import CONTROL_MODEL
 from .vendors.franklinwh import DC_MODEL
+from .vendors.franklinwh import GATEWAY
 
 ENABLE_SETTLE_SECONDS = 0.3
 VERIFY_SETTLE_SECONDS = 0.5
@@ -304,6 +307,11 @@ class FranklinHomeLoad(FranklinEntity, SensorEntity):
     # sensor uses 15506 until 16000 has once reported a value that is not
     # a multiple of 100, and 16000 from then on.
     _high_resolution_proven = False
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        # Beside the extension sensors it is computed from.
+        return raw_device_info(self.coordinator, self.config_entry, self._prefix, GATEWAY)
 
     @property
     def native_value(self) -> float | None:

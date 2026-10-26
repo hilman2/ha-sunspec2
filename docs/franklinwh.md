@@ -26,6 +26,12 @@ or idle, derived from the reported DC power.
 
 The extra sensors show local and remote solar power, home consumption,
 the aGate's native operating mode and the reserve of the active mode.
+They sit on a device of their own, named after the aGate with
+**Gateway** appended. Up to 2026.10.12 they sat on SunSpec model
+devices, mostly the solar module's. Their entity ids and history stay
+as they were. If you had put that device in an area, assign the
+Gateway device to it as well.
+
 The reserve of the active mode is confirmed on V12R02B60D00 and
 V10R11B40D00, and not yet checked on V10R01B04D00.
 
