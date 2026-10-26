@@ -43,7 +43,9 @@ Use **Battery power target**:
 | 0 | Hold the battery at zero power while retaining control |
 
 The allowed range comes from the device's charge and discharge ratings.
-If those are missing, the power control is not offered. The profile
+A rating below 1000 W is treated as missing, and the device's active
+power rating is used instead. If no usable rating remains, the power
+control is not offered. The profile
 sets watt mode and the target together, enables control if necessary,
 then reads the settings back. A rejected write or mismatching readback
 is reported as an error. Changing an active target keeps control enabled.
@@ -62,6 +64,11 @@ V12R02B60D00 accepted the tested positive watt targets up to 5000 W.
 It refused the tested negative targets at -500 W and -5 percent while
 control was disabled. This does not establish that every charge request
 is refused. A charging request can therefore fail on that firmware.
+
+An aGate X on V10R11B40D00 with two batteries reported a charge rating
+of 160 W and a discharge rating of 192 W, beside an active power rating
+of 19200 W. There the range is -19200 to 19200 W. That can exceed what
+the batteries deliver, so compare the measured power with the target.
 
 The native operating mode and reserve extensions are read-only here.
 On V12, writes were acknowledged without changing the settings. Values

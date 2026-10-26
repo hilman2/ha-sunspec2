@@ -3,6 +3,7 @@
 The watt sequence and zero-power handoff are adapted from
 david2069/franklinwh-modbus, commit 9afbb9f2c1b81cdea42784dd879e3fe4f75e892d.
 Copyright (c) 2026 david2069, MIT license; see LICENSE.
+Copyright (c) 2026 Manuel Hilgert <hilman2@gmail.com>
 """
 
 from __future__ import annotations
@@ -37,6 +38,13 @@ VERIFY_SETTLE_SECONDS = 0.5
 HANDOFF_SECONDS = 1.0
 STATE_DEADBAND_W = 50.0
 
+# The smallest aPower is rated 5000 W, and the reference aGate reports
+# 5000 W in both rating points. An aGate X on V10R11B40D00 with two
+# batteries reported a charge rating of 160 and a discharge rating of
+# 192 at W_SF 0, beside WMaxRtg 19200 (issue #149). power_limits treats
+# a rating below this floor like a missing one and uses WMaxRtg instead.
+MIN_PLAUSIBLE_RATING_W = 1000.0
+
 
 def _point(wrapper: SunSpecModelWrapper, name: str, index: int = 0) -> Any:
     try:
@@ -52,16 +60,25 @@ def _number(value: Any) -> float | None:
 
 
 def power_limits(wrapper: SunSpecModelWrapper | None) -> tuple[float, float] | None:
-    """Reported charge and discharge ratings in watts, or None without valid ratings."""
+    """Reported charge and discharge ratings in watts, or None without valid ratings.
+
+    A direction whose rating is missing or below MIN_PLAUSIBLE_RATING_W
+    takes WMaxRtg instead, subject to the same floor.
+    """
     if wrapper is None:
         return None
-    fallback = _number(_point(wrapper, "WMaxRtg"))
+
+    def plausible(name: str) -> float | None:
+        rating = _number(_point(wrapper, name))
+        return rating if rating is not None and rating >= MIN_PLAUSIBLE_RATING_W else None
+
+    fallback = plausible("WMaxRtg")
     ratings = []
     for name in ("WChaRteMaxRtg", "WDisChaRteMaxRtg"):
-        rating = _number(_point(wrapper, name))
-        if rating is None or rating <= 0:
+        rating = plausible(name)
+        if rating is None:
             rating = fallback
-        if rating is None or rating <= 0:
+        if rating is None:
             return None
         ratings.append(rating)
     return ratings[0], ratings[1]

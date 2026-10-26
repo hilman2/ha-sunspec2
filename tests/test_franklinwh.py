@@ -167,6 +167,23 @@ async def test_bounds_use_each_direction_instead_of_a_fixed_five_kw_limit(hass, 
     assert unit.writes == [(319, [1, 0, 6500]), (318, [1])]
 
 
+async def test_implausibly_small_ratings_fall_back_to_the_active_power_rating(hass, agate):
+    # Model 702 as an aGate X on V10R11B40D00 reported it in issue #149.
+    entry, unit, _connection = agate
+    unit.holding.update({227: 19200, 235: 160, 236: 192})
+    await entry.runtime_data.async_refresh()
+    number = _entities(hass, "number", FranklinPowerNumber)[0]
+    await hass.services.async_call(
+        "number", "set_value", {"entity_id": number.entity_id, "value": 1000}, blocking=True
+    )
+    assert (number.native_min_value, number.native_max_value) == (-19200, 19200)
+    assert unit.writes == [(319, [1, 0, 1000]), (318, [1])]
+
+    unit.holding[227] = 500
+    await entry.runtime_data.async_refresh()
+    assert power_limits(entry.runtime_data.data[702]) is None
+
+
 async def test_acknowledged_but_ignored_commands_report_failure(agate, mocker):
     entry, unit, _connection = agate
 
