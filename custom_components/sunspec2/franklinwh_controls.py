@@ -35,20 +35,12 @@ from .vendors.franklinwh import AC_CAPACITY_MODEL
 from .vendors.franklinwh import CONTROL_MODEL
 from .vendors.franklinwh import DC_MODEL
 from .vendors.franklinwh import GATEWAY
+from .vendors.franklinwh import MIN_PLAUSIBLE_RATING_W
 
 ENABLE_SETTLE_SECONDS = 0.3
 VERIFY_SETTLE_SECONDS = 0.5
 HANDOFF_SECONDS = 1.0
 STATE_DEADBAND_W = 50.0
-
-# The smallest aPower is rated 5000 W, and the reference aGate reports
-# 5000 W in both rating points. An aGate X with 30 kWh of batteries,
-# firmware V10R11B40D00 by its owner's account, reported a charge rating
-# of 160 and a discharge rating of 192 at W_SF 0, beside WMaxRtg 19200
-# (debug log on issue #145, reported as a bug in #149). power_limits
-# treats a rating below this floor like a missing one and uses WMaxRtg
-# instead.
-MIN_PLAUSIBLE_RATING_W = 1000.0
 
 
 def _point(wrapper: SunSpecModelWrapper, name: str, index: int = 0) -> Any:

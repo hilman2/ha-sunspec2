@@ -25,6 +25,8 @@ from custom_components.sunspec2.franklinwh_controls import FranklinPowerNumber
 from custom_components.sunspec2.franklinwh_controls import async_set_power
 from custom_components.sunspec2.franklinwh_controls import battery_power
 from custom_components.sunspec2.franklinwh_controls import power_limits
+from custom_components.sunspec2.pysunspec2 import mb
+from custom_components.sunspec2.sensor import SunSpecSensor
 from custom_components.sunspec2.vendor_blocks import RawBlockSensor
 from custom_components.sunspec2.vendors import profile_for
 from custom_components.sunspec2.vendors.franklinwh import FRANKLINWH
@@ -223,22 +225,81 @@ async def test_bounds_use_each_direction_instead_of_a_fixed_five_kw_limit(hass, 
     assert unit.writes == [(319, [1, 0, 6500]), (318, [1])]
 
 
-async def test_implausibly_small_ratings_fall_back_to_the_active_power_rating(hass, agate):
-    # Model 702 as an aGate X read it in the debug log on issue #145 (see #149).
+async def test_hundred_watt_ratings_reach_sensors_and_directional_control_limits(hass, agate):
     entry, unit, _connection = agate
     unit.holding.update({227: 19200, 235: 160, 236: 192})
     await entry.runtime_data.async_refresh()
+    capacity = entry.runtime_data.data[702]
+    assert capacity.getValue("WMaxRtg") == 19200
+    assert capacity.getValue("WChaRteMaxRtg") == 16000
+    assert capacity.getValue("WDisChaRteMaxRtg") == 19200
+    assert capacity.getPoint("WChaRteMaxRtg").value == 160
+    assert capacity.getPoint("WDisChaRteMaxRtg").value == 192
+    sensors = {
+        sensor.key: sensor.native_value
+        for sensor in _entities(hass, "sensor", SunSpecSensor)
+        if sensor.model_id == 702
+    }
+    assert sensors["WChaRteMaxRtg"] == 16000
+    assert sensors["WDisChaRteMaxRtg"] == 19200
     number = _entities(hass, "number", FranklinPowerNumber)[0]
-    await hass.services.async_call(
-        "number", "set_value", {"entity_id": number.entity_id, "value": 1000}, blocking=True
-    )
-    assert (number.native_min_value, number.native_max_value) == (-19200, 19200)
-    assert unit.writes == [(319, [1, 0, 1000]), (318, [1])]
+    assert (number.native_min_value, number.native_max_value) == (-16000, 19200)
 
+    with pytest.raises(HomeAssistantError, match="exceeds the reported range"):
+        await async_set_power(entry.runtime_data, -16001)
+    assert unit.writes == []
+
+    await hass.services.async_call(
+        "number", "set_value", {"entity_id": number.entity_id, "value": -16000}, blocking=True
+    )
+    assert unit.writes == [(319, [1, 65535, 49536]), (318, [1])]
+    await number.async_set_native_value(19200)
+    assert unit.writes[-1] == (319, [1, 0, 19200])
+
+    await entry.runtime_data.async_refresh()
+    assert power_limits(entry.runtime_data.data[702]) == (16000, 19200)
+
+
+@pytest.mark.parametrize("rating", [0, 65535])
+async def test_missing_ratings_still_fall_back_to_the_active_power_rating(hass, agate, rating):
+    entry, unit, _connection = agate
+    unit.holding.update({227: 19200, 235: rating, 236: rating})
+    await entry.runtime_data.async_refresh()
+    number = _entities(hass, "number", FranklinPowerNumber)[0]
+    assert (number.native_min_value, number.native_max_value) == (-19200, 19200)
     unit.holding[227] = 500
     await entry.runtime_data.async_refresh()
     assert power_limits(entry.runtime_data.data[702]) is None
     assert hass.states.get(number.entity_id).state == "unavailable"
+
+
+async def test_ratings_already_scaled_by_sunspec_are_not_multiplied_again(agate):
+    entry, unit, _connection = agate
+    unit.holding.update({227: 192, 235: 160, 236: 192, 270: 2})
+    entry.runtime_data.api.reconnect_next(rescan=False)
+    await entry.runtime_data.async_refresh()
+    capacity = entry.runtime_data.data[702]
+    assert capacity.getValue("WMaxRtg") == 19200
+    assert power_limits(capacity) == (16000, 19200)
+
+
+@pytest.mark.parametrize("manufacturer,model", [("Other", "aGate X"), ("FranklinWH", "Other")])
+async def test_short_ratings_of_other_devices_keep_their_sunspec_values(agate, manufacturer, model):
+    entry, unit, _connection = agate
+    for address, text in ((4, manufacturer), (20, model)):
+        data = mb.str_to_data(text, 32)
+        unit.holding.update(
+            {
+                address + offset // 2: int.from_bytes(data[offset : offset + 2], "big")
+                for offset in range(0, len(data), 2)
+            }
+        )
+    unit.holding.update({227: 19200, 235: 160, 236: 192})
+    await entry.runtime_data.api.async_get_data(1)
+    capacity = await entry.runtime_data.api.async_get_data(702)
+    assert capacity.getValue("WMaxRtg") == 19200
+    assert capacity.getValue("WChaRteMaxRtg") == 160
+    assert capacity.getValue("WDisChaRteMaxRtg") == 192
 
 
 async def test_acknowledged_but_ignored_commands_report_failure(agate, mocker):

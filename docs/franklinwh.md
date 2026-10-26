@@ -59,6 +59,7 @@ Use **Battery power target**:
 | 0 | Hold the battery at zero power while retaining control |
 
 The allowed range comes from the device's charge and discharge ratings.
+The profile converts ratings reported in 100 W units to watts.
 A rating below 1000 W is treated as missing, and the device's active
 power rating is used instead. If no usable rating remains, the power
 control is not offered. The profile
@@ -81,11 +82,12 @@ It refused the tested negative targets at -500 W and -5 percent while
 control was disabled. This does not establish that every charge request
 is refused. A charging request can therefore fail on that firmware.
 
-An aGate X with 30 kWh of batteries, reportedly on V10R11B40D00,
-reported a charge rating of 160 W and a discharge rating of 192 W,
-beside an active power rating of 19200 W. There the range is -19200 to
-19200 W. That can exceed what the batteries deliver or absorb, so
-compare the measured power with the target.
+An aGate X with two aPower 2 batteries, reportedly on V10R11B40D00
+while SunSpec identifies it as V10R01B04D00, reports charge/discharge
+ratings in 100 W units. The profile converts 160 and 192 to 16000 W
+and 19200 W for both sensors and control limits. Its allowed target
+range is therefore -16000 to 19200 W. Ratings already in watts, such
+as the reference aGate's 5000 W, retain their values.
 
 The native operating mode and reserve extensions are read-only here.
 On V12, writes were acknowledged without changing the settings. Values

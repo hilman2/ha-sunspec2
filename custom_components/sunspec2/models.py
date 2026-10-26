@@ -12,6 +12,8 @@ so the move is purely structural.
 
 from __future__ import annotations
 
+from collections.abc import Callable
+from collections.abc import Mapping
 from typing import Any
 
 
@@ -24,16 +26,23 @@ class SunSpecModelWrapper:
     ``num_models`` for callers that need to iterate.
     """
 
-    def __init__(self, models: list[Any]) -> None:
+    def __init__(
+        self,
+        models: list[Any],
+        point_transforms: Mapping[str, Callable[[Any], Any]] | None = None,
+    ) -> None:
         """Wrap every instance a device exposes for one model id.
 
         Args:
             models (list[Any]): The pysunspec2 model instances, in the
                 order the device reports them. Untyped because
                 pysunspec2 ships no py.typed marker.
+            point_transforms: Read corrections applied after SunSpec scaling,
+                keyed by point name. The underlying points stay unchanged.
         """
         self._models = models
         self.num_models = len(models)
+        self._point_transforms = point_transforms or {}
 
     def isValidPoint(self, point_name: str) -> bool:
         point = self.getPoint(point_name)
@@ -60,6 +69,9 @@ class SunSpecModelWrapper:
 
     def getValue(self, point_name: str, model_index: int = 0) -> Any:
         point = self.getPoint(point_name, model_index)
+        transform = self._point_transforms.get(point_name)
+        if transform is not None:
+            return transform(point.cvalue)
         return point.cvalue
 
     def getMeta(self, point_name: str) -> dict[str, Any]:

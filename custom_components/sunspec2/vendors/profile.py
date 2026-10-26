@@ -444,6 +444,10 @@ class VendorProfile:
             lifetime counter.
         required_models (frozenset[int]): Models a profile's controls and
             sensors need, polled when the device exposes them.
+        point_transforms (Mapping[tuple[int, str], Callable[[Any], Any]]):
+            Read corrections keyed by model id and point name. Called
+            with the SunSpec-scaled value, returning the corrected value.
+            Raw registers and write encoding retain their SunSpec meaning.
     """
 
     slug: str
@@ -468,6 +472,7 @@ class VendorProfile:
     control_steps: Mapping[str, float] = field(default_factory=dict)
     daily_energy_points: frozenset[str] = frozenset()
     required_models: frozenset[int] = frozenset()
+    point_transforms: Mapping[tuple[int, str], Callable[[Any], Any]] = field(default_factory=dict)
 
     def raw_block(self, key: str) -> RawBlock | None:
         """The raw block named ``key``, or None."""

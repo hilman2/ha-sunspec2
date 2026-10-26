@@ -29,6 +29,8 @@ CONTROL_MODEL = 704
 STORAGE_MODEL = 713
 DC_MODEL = 714
 
+MIN_PLAUSIBLE_RATING_W = 1000.0
+
 # The extension addresses are absolute PDU addresses, including when
 # discovery found the SunSpec mirror at 40000.
 EXTENSIONS_ADDRESS = 15500
@@ -174,6 +176,22 @@ def is_agate(model: str, option: str, version: str) -> bool:
     return model.strip().lower().startswith("agate")
 
 
+def battery_rating(value: Any) -> Any:
+    """A battery power rating in watts, correcting the aGate's 100 W units."""
+    # The aGate X with two aPower 2 units in issue #149 reports 160/192
+    # at W_SF 0 for its confirmed 16000/19200 W limits. Its SunSpec Vr
+    # is V10R01B04D00, which the reference aGate also reports with ratings
+    # already in watts. Distinguish the short ratings by magnitude so
+    # neither those watt ratings nor values scaled by W_SF are multiplied.
+    if (
+        not isinstance(value, bool)
+        and isinstance(value, (int, float))
+        and 0 < value < MIN_PLAUSIBLE_RATING_W
+    ):
+        return value * 100
+    return value
+
+
 FRANKLINWH = VendorProfile(
     slug="franklinwh",
     manufacturer_prefixes=("FranklinWH",),
@@ -182,4 +200,8 @@ FRANKLINWH = VendorProfile(
     raw_devices=RAW_DEVICES,
     raw_sensors=RAW_SENSORS,
     required_models=frozenset({AC_CAPACITY_MODEL, STORAGE_MODEL, DC_MODEL}),
+    point_transforms={
+        (AC_CAPACITY_MODEL, "WChaRteMaxRtg"): battery_rating,
+        (AC_CAPACITY_MODEL, "WDisChaRteMaxRtg"): battery_rating,
+    },
 )
