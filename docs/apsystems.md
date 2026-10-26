@@ -133,23 +133,24 @@ What you get:
 |---|---|
 | **Export limit** | Caps the output in whole percent |
 | **Export limit enabled** | The limit only applies while this is on |
-| **Inverter grid connection** | Disconnects the inverter from the grid. In the entity list, off by default. See below: an ECU-R takes it back at its next round |
+| **Inverter grid connection** | Disconnects the inverter from the grid. In the entity list, off by default. An ECU-R reportedly takes it back, see below |
 
 The ECU has no timer after which the limit lapses and no power factor
 setting. So those entities do not exist for it.
 
-**Inverter grid connection does not stay off on an ECU-R.** One tester
+**An ECU-R reportedly takes Inverter grid connection back.** One tester
 measured this on an ECU-R (firmware 1.3.23) with DS3 micro inverters.
 Writing 0 stops the micro inverters within half a minute, and the ECU
 keeps reading back 1. At its next round, within five minutes, the ECU
-turns them on again, and the revert time has no effect. To keep them off
-the 0 has to be written again before every round. The integration does
-not do that for you. Use the export limit for anything that must last.
+turns them on again. To keep them off, the 0 has to be written again
+about every five minutes, before each round. The integration does not
+do that for you. Use the export limit for anything that must last.
 
 **Take the shown value with a grain of salt.** An ECU-R shows an export
 limit of 30 % with the limit enabled before anyone has set one, while
 the micro inverters run at full power. Treat that as the ECU's default
-display, not as an active limit.
+display, not as an active limit. Users of the other integration report
+that the ECU can show it again after a power cut.
 
 **An ECU that does not pass the limit on.** An early tester measured this
 on one ECU-R (firmware 1.3.23) with eight DS3 micro inverters. It is not
@@ -161,8 +162,7 @@ in the APsystems document, so treat it as an observation:
   value first (99 instead of 100), wait a few minutes, then the value
   you want.
 - Restarting the ECU clears the limit on the micro inverters, while the
-  ECU keeps showing the old value. After a power cut the ECU can go back
-  to its factory setting, 30 % with the limit enabled.
+  ECU keeps showing the old value.
 - At 0 % each micro inverter still delivers about 15 to 31 W. A user
   of an ECU-R Pro reports that it turns them fully off at 0 %, and that
   output takes about 5 minutes to return after the limit is raised. At 20 %
@@ -229,7 +229,7 @@ download in your report (see [Troubleshooting](troubleshooting.md)).
   controls reads 123 with 24 registers, so no relabelling is needed, the
   enable flag reads as a plain 0 or 1 (an ECU-R reads back the ASCII
   digit), and the version in model 1 holds the micro inverter firmware
-  (`V626003`) where an ECU-R reads `V0`. Source: the register dump of an
+  (`V626003`). Source: the register dump of an
   ECU-R Pro in discussion 2 of that repository.
 - **Controls:** *Export limit* is `WMaxLimPct`, *Export limit enabled*
   is `WMaxLim_Ena`, *Inverter grid connection* is `Conn`. The ECU has no
@@ -245,8 +245,9 @@ version 0.4.0. The round timing, the readings the ECU gets wrong, the
 02:15 reset and the flag that silenced the ECU are that author's
 observations too (issue 1 and the code of version 0.4.12 in that
 repository, ECU-R firmware 1.3.23). None of them is in the APsystems
-document, and we have not reproduced them. The behaviour of
-*Inverter grid connection*, the 30 % after a power cut, the Wi-Fi access
-of the ECU-R Pro and ECU-C and the fully off at 0 % on an ECU-R Pro are
-from the same repository, versions 0.5.0 to 0.5.6, its issue 1 and its
-discussion 2, and are reports of its users in the same way.
+document, and we have not reproduced them. Also from that
+repository, and equally unreproduced here: the behaviour of *Inverter
+grid connection* (the code of versions 0.5.0 to 0.5.6), the ignored
+function code 6 and the 30 % after a power cut (issue 1), and what
+users of an ECU-R Pro and an ECU-C report about Wi-Fi, the register
+layout and the fully off at 0 % (discussion 2).
