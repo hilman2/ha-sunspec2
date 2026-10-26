@@ -75,17 +75,17 @@ RAW_BLOCKS: tuple[RawBlock, ...] = (
 # comes from common model 1.
 AGATE_DEVICE = "agate"
 
-RAW_DEVICES: tuple[RawDevice, ...] = (
-    RawDevice(
-        key=AGATE_DEVICE,
-        info_block=None,
-        name="Gateway",
-        manufacturer="Mn",
-        model="Md",
-        serial="SN",
-        version="Vr",
-    ),
+GATEWAY = RawDevice(
+    key=AGATE_DEVICE,
+    info_block=None,
+    name="Gateway",
+    manufacturer="Mn",
+    model="Md",
+    serial="SN",
+    version="Vr",
 )
+
+RAW_DEVICES: tuple[RawDevice, ...] = (GATEWAY,)
 
 
 def percent(value: Any) -> float | None:

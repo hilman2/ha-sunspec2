@@ -34,7 +34,7 @@ from .vendor_blocks import raw_device_info
 from .vendors.franklinwh import AC_CAPACITY_MODEL
 from .vendors.franklinwh import CONTROL_MODEL
 from .vendors.franklinwh import DC_MODEL
-from .vendors.franklinwh import RAW_DEVICES
+from .vendors.franklinwh import GATEWAY
 
 ENABLE_SETTLE_SECONDS = 0.3
 VERIFY_SETTLE_SECONDS = 0.5
@@ -311,7 +311,7 @@ class FranklinHomeLoad(FranklinEntity, SensorEntity):
     @property
     def device_info(self) -> DeviceInfo:
         # Beside the extension sensors it is computed from.
-        return raw_device_info(self.coordinator, self.config_entry, self._prefix, RAW_DEVICES[0])
+        return raw_device_info(self.coordinator, self.config_entry, self._prefix, GATEWAY)
 
     @property
     def native_value(self) -> float | None:
