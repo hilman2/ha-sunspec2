@@ -139,7 +139,7 @@ The ECU has no timer after which the limit lapses and no power factor
 setting. So those entities do not exist for it.
 
 **An ECU-R reportedly takes Inverter grid connection back.** One tester
-measured this on an ECU-R (firmware 1.3.23) with DS3 micro inverters.
+reports this from an ECU-R (firmware 1.3.23) with DS3 micro inverters.
 Writing 0 stops the micro inverters within half a minute, and the ECU
 keeps reading back 1. At its next round, within five minutes, the ECU
 turns them on again. To keep them off, the 0 has to be written again
@@ -249,5 +249,8 @@ document, and we have not reproduced them. Also from that
 repository, and equally unreproduced here: the behaviour of *Inverter
 grid connection* (the code of versions 0.5.0 to 0.5.6), the ignored
 function code 6 and the 30 % after a power cut (issue 1), and what
-users of an ECU-R Pro and an ECU-C report about Wi-Fi, the register
-layout and the fully off at 0 % (discussion 2).
+users of an ECU-R Pro and an ECU-C report about the models and firmware,
+Wi-Fi, the register layout of the ECU-R Pro and that it turns the micro
+inverters fully off at 0 % and needs about 5 minutes to bring them back
+(discussion 2). The router tip for an unstable ECU-R is from the same
+discussion.
