@@ -9,8 +9,6 @@ the V10R01B04D00 and V12R02B60D00 device snapshots in that repository.
 The watts sequence is covered by tests/unit/test_send_command_watts.py
 and the V12 conformance tests. Native mode and reserve writes were
 acknowledged without taking effect, so these extensions are read-only.
-V10's TOU reserve mirrors the self-consumption reserve; its sensor
-starts disabled. The active reserve at 16001 is confirmed on V12 only.
 
 https://github.com/david2069/franklinwh-modbus/tree/9afbb9f2c1b81cdea42784dd879e3fe4f75e892d
 """
@@ -45,10 +43,13 @@ RAW_BLOCKS: tuple[RawBlock, ...] = (
         fields=(
             RawField("pv_installed", 0, "uint16"),
             RawField("remote_pv_installed", 1, "uint16"),
-            RawField("pv_total", 2, "uint16"),
-            RawField("pv_proximal", 3, "uint16"),
-            RawField("pv_remote_1", 4, "uint16"),
-            RawField("pv_remote_2", 5, "uint16"),
+            # The reference documents the PV powers as uint16. An aGate
+            # X without sun read 65000 and more in pv_total, which is a
+            # small negative power as int16 (issue #149).
+            RawField("pv_total", 2, "int16"),
+            RawField("pv_proximal", 3, "int16"),
+            RawField("pv_remote_1", 4, "int16"),
+            RawField("pv_remote_2", 5, "int16"),
             RawField("home_load", 6, "uint16"),
             RawField("native_mode", 7, "uint16"),
             RawField("self_reserve", 8, "uint16"),
@@ -110,10 +111,14 @@ RAW_SENSORS: tuple[RawSensor, ...] = (
             unit="%",
             state_class="measurement",
             transform=percent,
-            enabled_by_default=name == "self_reserve",
+            enabled_by_default=False,
         )
         for name in ("self_reserve", "tou_reserve")
     ),
+    # 16001 followed the active mode's reserve on V12 and on an aGate X
+    # reported as V10R11B40D00. On the latter, 15508 and 15509 both
+    # repeated 16001 in every mode (issue #149), so only 16001 starts
+    # enabled.
     RawSensor(
         block="franklinwh_high_resolution",
         field="active_reserve",
@@ -121,7 +126,6 @@ RAW_SENSORS: tuple[RawSensor, ...] = (
         unit="%",
         state_class="measurement",
         transform=percent,
-        enabled_by_default=False,
     ),
     *(
         RawSensor(
