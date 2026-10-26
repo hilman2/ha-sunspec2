@@ -305,13 +305,19 @@ async def test_home_load_keeps_the_100_w_reading_while_16000_moves_in_1000_w_ste
     await entry.runtime_data.async_refresh()
     assert sensor.native_value == 2000
 
+    # Without the 100 W reading, 16000 still answers, proven or not.
+    sensor._high_resolution_proven = False
+    entry.runtime_data.raw_blocks.pop("franklinwh_extensions")
+    assert sensor.native_value == 2000
+
 
 async def test_solar_powers_below_zero_stay_small(hass, agate):
     entry, unit, _connection = agate
-    unit.holding.update({15502: 65534, 15503: 0xFFFF})
+    unit.holding.update({15502: 65534, 15503: 0xFFFF, 15504: 65000, 15505: 65535})
     await entry.runtime_data.async_refresh()
     block = entry.runtime_data.raw_blocks["franklinwh_extensions"]
-    assert (block["pv_total"], block["pv_proximal"]) == (-2, -1)
+    powers = ("pv_total", "pv_proximal", "pv_remote_1", "pv_remote_2")
+    assert [block[name] for name in powers] == [-2, -1, -536, -1]
 
 
 async def test_unknown_native_modes_and_unavailable_power_stay_unknown(hass, agate):

@@ -13,9 +13,9 @@ and model names beginning with `aGate`.
 The register knowledge comes from readbacks of an aGate X on
 V10R01B04D00 and V12R02B60D00, and from a user report of an aGate X on
 V10R11B40D00. Other firmware versions need a comparison with the
-device's diagnostics and measurements. All readings so far come from
-sites without the SPAN panel's Modbus link; whether the extra sensors
-read the same with it is unknown.
+device's diagnostics and measurements. The V10R11B40D00 site has the
+SPAN panel's Modbus link switched off. Whether the extra sensors read
+the same with it switched on is unknown.
 
 ## What you get
 
@@ -26,11 +26,12 @@ or idle, derived from the reported DC power.
 
 The extra sensors show local and remote solar power, home consumption,
 the aGate's native operating mode and the reserve of the active mode.
-Without remote solar, local solar power matches the solar module's
-output power.
+The reserve of the active mode is confirmed on V12R02B60D00 and
+V10R11B40D00, not on V10R01B04D00.
 
 Home consumption combines two readings. **Home load** is about 1 W
-fine on most firmware, but moved in 1000 W steps on V10R11B40D00.
+fine on V10R01B04D00 and V12R02B60D00, but moved in 1000 W steps on
+V10R11B40D00.
 **Home load, coarse reading** moves in 100 W steps on V10. Home
 consumption uses the coarse reading until the fine one has shown a
 value between the 100 W steps, and the fine one from then on.
