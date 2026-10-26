@@ -311,7 +311,7 @@ async def test_home_load_keeps_the_100_w_reading_while_16000_moves_in_1000_w_ste
     assert sensor.native_value == 2000
 
 
-async def test_solar_powers_below_zero_stay_small(hass, agate):
+async def test_solar_powers_below_zero_read_as_negative_watts(hass, agate):
     entry, unit, _connection = agate
     unit.holding.update({15502: 65534, 15503: 0xFFFF, 15504: 65000, 15505: 65535})
     await entry.runtime_data.async_refresh()

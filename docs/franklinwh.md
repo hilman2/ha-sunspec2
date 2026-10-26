@@ -27,7 +27,7 @@ or idle, derived from the reported DC power.
 The extra sensors show local and remote solar power, home consumption,
 the aGate's native operating mode and the reserve of the active mode.
 The reserve of the active mode is confirmed on V12R02B60D00 and
-V10R11B40D00, not on V10R01B04D00.
+V10R11B40D00, and not yet checked on V10R01B04D00.
 
 Home consumption combines two readings. **Home load** is about 1 W
 fine on V10R01B04D00 and V12R02B60D00, but moved in 1000 W steps on
