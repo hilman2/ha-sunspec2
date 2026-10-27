@@ -24,6 +24,7 @@ from .profile import RawField
 from .profile import RawSensor
 from .profile import VendorProfile
 
+AC_MEASUREMENT_MODEL = 701
 AC_CAPACITY_MODEL = 702
 CONTROL_MODEL = 704
 STORAGE_MODEL = 713

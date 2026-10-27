@@ -449,6 +449,25 @@ async def test_aggregate_battery_power_does_not_add_the_ports_again(agate):
     assert battery_power(wrapper) == -100
 
 
+async def test_battery_activity_follows_the_inverter_state_before_the_deadband(hass, agate):
+    entry, _unit, _connection = agate
+    data = entry.runtime_data.data
+    state = _entities(hass, "sensor", FranklinBatteryState)[0]
+    # Issue #149: DCW stood at 100 W, one step of its resolution, while
+    # InvSt reported STANDBY.
+    data[714].getPoint("DCW").value = 100
+    data[701].getPoint("InvSt").value = 7
+    assert state.native_value == "idle"
+
+    data[701].getPoint("InvSt").value = 3
+    assert state.native_value == "discharging"
+
+    del data[701]
+    assert state.native_value == "discharging"
+    data[714].getPoint("DCW").value = 40
+    assert state.native_value == "idle"
+
+
 async def test_cancelled_verification_releases_the_gateway_and_drops_the_session(agate, mocker):
     entry, _unit, connection = agate
     coordinator = entry.runtime_data

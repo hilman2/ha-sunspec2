@@ -32,6 +32,7 @@ from .errors import SunSpecError
 from .models import SunSpecModelWrapper
 from .vendor_blocks import raw_device_info
 from .vendors.franklinwh import AC_CAPACITY_MODEL
+from .vendors.franklinwh import AC_MEASUREMENT_MODEL
 from .vendors.franklinwh import CONTROL_MODEL
 from .vendors.franklinwh import DC_MODEL
 from .vendors.franklinwh import GATEWAY
@@ -40,6 +41,9 @@ from .vendors.franklinwh import MIN_PLAUSIBLE_RATING_W
 ENABLE_SETTLE_SECONDS = 0.3
 VERIFY_SETTLE_SECONDS = 0.5
 STATE_DEADBAND_W = 50.0
+# Model 701 InvSt values in which the inverter converts no power: OFF,
+# SLEEPING, FAULT and STANDBY.
+RESTING_INVERTER_STATES = (0, 1, 6, 7)
 
 
 def _point(wrapper: SunSpecModelWrapper, name: str, index: int = 0) -> Any:
@@ -266,7 +270,7 @@ class FranklinBatteryButton(FranklinEntity, ButtonEntity):
 
 
 class FranklinBatteryState(FranklinEntity, SensorEntity):
-    """Battery activity derived from measured aggregate DC power."""
+    """Battery activity: idle while the inverter rests, else from the DC power and a deadband."""
 
     _attr_device_class = SensorDeviceClass.ENUM
     _attr_options = ["charging", "discharging", "idle"]
@@ -277,6 +281,14 @@ class FranklinBatteryState(FranklinEntity, SensorEntity):
         power = battery_power(self.coordinator.data.get(DC_MODEL))
         if power is None:
             return None
+        # The inverter's own state decides idle where model 701 is read.
+        # The deadband alone could not: an aGate with two aPower 2 reported
+        # DCW in 100 W steps, and 100 W while InvSt said STANDBY (issue
+        # #149). A fixed band in watts also cannot fit one battery and
+        # several alike. The deadband stays for an entry without model 701.
+        measurement = self.coordinator.data.get(AC_MEASUREMENT_MODEL)
+        if measurement is not None and _point(measurement, "InvSt") in RESTING_INVERTER_STATES:
+            return "idle"
         if power < -STATE_DEADBAND_W:
             return "charging"
         if power > STATE_DEADBAND_W:
@@ -342,7 +354,7 @@ def franklinwh_buttons(
 def franklinwh_sensors(
     coordinator: SunSpecDataUpdateCoordinator, entry: ConfigEntry, prefix: str
 ) -> list[SensorEntity]:
-    home = home_for(coordinator, (701, DC_MODEL))
+    home = home_for(coordinator, (AC_MEASUREMENT_MODEL, DC_MODEL))
     if coordinator.vendor is None or coordinator.vendor.slug != "franklinwh" or home is None:
         return []
     sensors: list[SensorEntity] = []
