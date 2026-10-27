@@ -68,8 +68,9 @@ then reads the settings back. A rejected write or mismatching readback
 is reported as an error. Changing an active target keeps control enabled.
 
 **Hold battery in standby** requests zero watts. **Release battery
-control** first requests zero power, waits one second, then releases
-control so the aGate can resume its native operating mode.
+control** disables the power command and clears the watt and percent
+targets, so the aGate resumes its native operating mode. It does not
+request zero power first.
 
 These actions verify the settings, not the measured power response.
 The battery can take several seconds to reach the target. Compare
@@ -111,8 +112,8 @@ For slow actions, see [Model read pause](troubleshooting.md#write-actions-or-upd
 The profile adapts the register map and command sequences from
 [david2069/franklinwh-modbus, commit 9afbb9f](https://github.com/david2069/franklinwh-modbus/tree/9afbb9f2c1b81cdea42784dd879e3fe4f75e892d),
 under its MIT license. Attribution is included in this repository's
-LICENSE. The reference's controller, watt-command tests and standby
-handoff tests provide the command sequence. Its
+LICENSE. The reference's controller and watt-command tests provide
+the command sequence. Its
 [V12 snapshot](https://github.com/david2069/franklinwh-modbus/blob/9afbb9f2c1b81cdea42784dd879e3fe4f75e892d/docs/SUNSPEC_SNAPSHOT_2026-10-20_V12R02B60D00.md)
 and [conformance results](https://github.com/david2069/franklinwh-modbus/blob/9afbb9f2c1b81cdea42784dd879e3fe4f75e892d/docs/SUNSPEC_M704_V12_CONFORMANCE_RESULTS.md)
 provide the measured values and firmware limitations.

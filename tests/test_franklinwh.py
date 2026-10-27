@@ -39,7 +39,7 @@ from .franklinwh_registers import agate_registers
 
 @pytest.fixture(autouse=True)
 def no_control_settling(mocker):
-    for name in ("ENABLE_SETTLE_SECONDS", "VERIFY_SETTLE_SECONDS", "HANDOFF_SECONDS"):
+    for name in ("ENABLE_SETTLE_SECONDS", "VERIFY_SETTLE_SECONDS"):
         mocker.patch(f"custom_components.sunspec2.franklinwh_controls.{name}", 0)
 
 
@@ -183,7 +183,7 @@ async def test_changing_an_enabled_command_never_cycles_or_rewrites_enable(agate
     assert unit.writes == [(319, [1, 0, 2000])]
 
 
-async def test_standby_keeps_control_and_release_hands_it_back_after_zero_power(hass, agate):
+async def test_standby_keeps_control_and_release_hands_it_back_in_one_step(hass, agate):
     entry, unit, _connection = agate
     buttons = {
         entity.translation_key: entity
@@ -196,13 +196,7 @@ async def test_standby_keeps_control_and_release_hands_it_back_after_zero_power(
 
     await buttons["franklinwh_release"].async_press()
 
-    assert unit.writes == [
-        (320, [0, 0]),
-        (324, [0]),
-        (318, [0]),
-        (320, [0, 0]),
-        (324, [0]),
-    ]
+    assert unit.writes == [(318, [0]), (320, [0, 0]), (324, [0])]
     assert unit.holding[318] == 0
 
 
