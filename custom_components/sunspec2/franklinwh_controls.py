@@ -1,6 +1,6 @@
 """FranklinWH battery controls over the shared Home Assistant Modbus connection.
 
-The watt sequence and zero-power handoff are adapted from
+The watt sequence is adapted from
 david2069/franklinwh-modbus, commit 9afbb9f2c1b81cdea42784dd879e3fe4f75e892d.
 Copyright (c) 2026 david2069, MIT license; see LICENSE.
 Copyright (c) 2026 Manuel Hilgert <hilman2@gmail.com>
@@ -39,7 +39,6 @@ from .vendors.franklinwh import MIN_PLAUSIBLE_RATING_W
 
 ENABLE_SETTLE_SECONDS = 0.3
 VERIFY_SETTLE_SECONDS = 0.5
-HANDOFF_SECONDS = 1.0
 STATE_DEADBAND_W = 50.0
 
 
@@ -134,11 +133,10 @@ async def async_set_power(coordinator: SunSpecDataUpdateCoordinator, watts: floa
             controls = await coordinator.api.async_get_data(CONTROL_MODEL)
             enabled = _enabled(controls)
             if watts is None:
-                if enabled:
-                    await coordinator.api.async_write_points(
-                        CONTROL_MODEL, [("WSet", 0), ("WSetPct", 0)]
-                    )
-                    await asyncio.sleep(HANDOFF_SECONDS)
+                # Release in one step. Requesting 0 W first, as the reference
+                # did on an unmeasured transient concern, forced a needless dip
+                # when the native mode resumed in the same direction, and one
+                # second was too short to reach 0 W anyway (issue #149).
                 await coordinator.api.async_write_points(
                     CONTROL_MODEL, [("WSetEna", 0), ("WSet", 0), ("WSetPct", 0)]
                 )
