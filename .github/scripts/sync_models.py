@@ -153,7 +153,7 @@ def main():
         encoding="utf-8",
     )
     (args.out / "pr_body.md").write_text(
-        f"TL;DR: {len(changes)} SunSpec model definition(s) changed upstream "
+        f"{len(changes)} SunSpec model definition(s) changed upstream "
         f"{since}. Opened by the models workflow; version bumped to {version}.\n\n"
         f"Upstream commits:\n\n{log_block}\n\nFiles:\n\n{listing}\n\n"
         "CI was dispatched on this branch by the workflow, because a push made "

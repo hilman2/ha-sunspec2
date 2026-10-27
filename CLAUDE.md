@@ -397,9 +397,10 @@ fails. Tag with `git tag -a vX.Y.Z -m "..."`.
 Comments on issues and PRs, and issue bodies themselves, are for the person
 reading them, not for the archive.
 
-- **Any concrete question to the reporter goes at the very top**, right under
-  the TL;DR. Never buried mid-post, never at the end.
-- **Open with a TL;DR** as soon as the post runs longer than a few lines.
+- **Any concrete question to the reporter goes at the very top.** Never
+  buried mid-post, never at the end.
+- **No TL;DR label.** A longer post may open with a short summary
+  paragraph, written as plain text.
 - **Default to short and low on jargon.** Most people in this tracker are HA
   users with an inverter, not contributors to this repo.
 - Deep technical derivation (byte-level diffs of pysunspec2, exception
