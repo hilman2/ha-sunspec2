@@ -270,7 +270,7 @@ class FranklinBatteryButton(FranklinEntity, ButtonEntity):
 
 
 class FranklinBatteryState(FranklinEntity, SensorEntity):
-    """Battery activity: idle while the inverter rests, else the sign of the DC power."""
+    """Battery activity: idle while the inverter rests, else from the DC power and a deadband."""
 
     _attr_device_class = SensorDeviceClass.ENUM
     _attr_options = ["charging", "discharging", "idle"]

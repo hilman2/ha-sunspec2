@@ -23,8 +23,9 @@ The profile reads the battery's capacity, charge level, state of
 health, DC power and lifetime energy counters whenever those models
 are present. It also shows battery activity as charging, discharging
 or idle. Activity is idle while the inverter state of the DER AC
-measurement reports off, sleeping, fault or standby, and otherwise
-follows the sign of the reported DC power.
+measurement reports off, sleeping, fault or standby. Otherwise it
+follows the sign of the reported DC power, and a DC power within 50 W
+of zero counts as idle.
 
 The extra sensors show local and remote solar power, home consumption,
 the aGate's native operating mode and the reserve of the active mode.

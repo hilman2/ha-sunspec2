@@ -463,6 +463,7 @@ async def test_battery_activity_follows_the_inverter_state_before_the_deadband(h
     assert state.native_value == "discharging"
 
     del data[701]
+    assert state.native_value == "discharging"
     data[714].getPoint("DCW").value = 40
     assert state.native_value == "idle"
 
