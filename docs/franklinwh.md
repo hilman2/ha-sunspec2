@@ -69,8 +69,8 @@ is reported as an error. Changing an active target keeps control enabled.
 
 **Hold battery in standby** requests zero watts. **Release battery
 control** disables the power command and clears the watt and percent
-targets in one step, so the aGate resumes its native operating mode.
-It does not request zero power first.
+targets, so the aGate resumes its native operating mode. It does not
+request zero power first.
 
 These actions verify the settings, not the measured power response.
 The battery can take several seconds to reach the target. Compare

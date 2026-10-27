@@ -133,10 +133,11 @@ async def async_set_power(coordinator: SunSpecDataUpdateCoordinator, watts: floa
             controls = await coordinator.api.async_get_data(CONTROL_MODEL)
             enabled = _enabled(controls)
             if watts is None:
-                # Release in one step. Requesting 0 W first, as the reference
-                # did on an unmeasured transient concern, forced a needless dip
-                # when the native mode resumed in the same direction, and one
-                # second was too short to reach 0 W anyway (issue #149).
+                # Release without a zero-power step. Requesting 0 W first, as
+                # the reference did on an unmeasured transient concern, forced
+                # a needless dip when the native mode resumed in the same
+                # direction, and one second was too short to reach 0 W anyway
+                # (issue #149).
                 await coordinator.api.async_write_points(
                     CONTROL_MODEL, [("WSetEna", 0), ("WSet", 0), ("WSetPct", 0)]
                 )
