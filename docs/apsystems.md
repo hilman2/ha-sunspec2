@@ -143,8 +143,8 @@ lifetime total.
 
 The ECU does not start it again at midnight. It keeps yesterday's yield
 through the night and starts again at zero when the micro inverter
-first reports in the morning. The integration shows 0 from midnight
-until then.
+first reports in the morning. Until then the sensor still shows
+yesterday's yield.
 
 After an outage, the first value after midnight can still be yesterday's
 and higher than the last one Home Assistant saw. It is shown as it

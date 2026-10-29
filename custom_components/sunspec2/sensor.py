@@ -32,7 +32,6 @@ from homeassistant.const import UnitOfTime
 from homeassistant.core import HomeAssistant
 from homeassistant.core import callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.util import dt as dt_util
 
 from . import SunSpec2ConfigEntry
@@ -51,11 +50,6 @@ from .const import is_excluded_sensor_point
 from .const import measured_power_headroom
 from .entity import SunSpecEntity
 from .franklinwh_controls import franklinwh_sensors
-from .lifetime_energy import CountedLifetimeEnergySensor
-from .lifetime_energy import DailyCounterDisplay
-from .lifetime_energy import DisplayExtraData
-from .lifetime_energy import counter_day
-from .lifetime_energy import is_producing
 
 # Bronze rule parallel-updates: the coordinator already serialises all
 # I/O via its per-gateway asyncio.Lock, so platform entities never
@@ -291,6 +285,7 @@ async def async_setup_entry(
     # their module cannot be imported before this one is complete.
     from .dc_channels import dc_channel_sensors
     from .fronius_web_entities import fronius_web_sensors
+    from .lifetime_energy import CountedLifetimeEnergySensor
     from .vendor_blocks import raw_block_sensors
 
     coordinator = entry.runtime_data
@@ -303,10 +298,11 @@ async def async_setup_entry(
     prefix = entry.options.get(CONF_PREFIX, entry.data.get(CONF_PREFIX, ""))
 
     known_unique_ids: set[str] = set()
-    # Energy points that count one day, not the lifetime. They get no
-    # lifetime guards: those would hold yesterday's total against every
-    # morning's restart from zero and log a warning for it, while Home
-    # Assistant's total_increasing already reads a drop as a new cycle.
+    # Energy points that count one day, not the lifetime. They are plain
+    # sensors: the lifetime guards would hold the yesterday's total
+    # against every morning's restart from zero and log a warning for it,
+    # while Home Assistant's total_increasing already reads a drop as a
+    # new cycle.
     daily_points = coordinator.vendor.daily_energy_points if coordinator.vendor else frozenset()
 
     @callback
@@ -340,10 +336,9 @@ async def async_setup_entry(
                     sunspec_unit = meta.get("units", "")
                     ha_meta = HA_META.get(sunspec_unit, (sunspec_unit, None, None))
                     device_class = ha_meta[2]
-                    if key in daily_points:
-                        new_sensors.append(DailyEnergySensor(coordinator, entry, data))
-                    elif (
+                    if (
                         device_class == SensorDeviceClass.ENERGY
+                        and key not in daily_points
                         and key.split(":")[-1] not in STORED_ENERGY_POINTS
                     ):
                         new_sensors.append(SunSpecEnergySensor(coordinator, entry, data))
@@ -1005,54 +1000,3 @@ class SunSpecEnergySensor(SunSpecSensor, RestoreSensor):
                     self._counter_last_moved = last_state.last_changed
         else:
             _LOGGER.debug(f"{self.name} No previous state was found")
-
-
-class DailyEnergySensor(SunSpecSensor, RestoreEntity):
-    """A vendor's daily energy counter, zero from midnight until it starts its new day.
-
-    See ``DailyCounterDisplay``. What it remembers of the counter is kept
-    across a restart and restored before the first state is written, so a
-    restart at night does not show yesterday's value again after a zero.
-    """
-
-    def __init__(
-        self,
-        coordinator: SunSpecDataUpdateCoordinator,
-        config_entry: ConfigEntry,
-        data: dict[str, Any],
-    ) -> None:
-        super().__init__(coordinator, config_entry, data)
-        self._display = DailyCounterDisplay()
-
-    async def async_added_to_hass(self) -> None:
-        """Restore what the sensor knew of the counter, then take the current reading."""
-        await super().async_added_to_hass()
-        if (stored := await self.async_get_last_extra_data()) is not None:
-            self._display = DailyCounterDisplay.from_dict(stored.as_dict())
-        self._record()
-
-    @property
-    def extra_restore_state_data(self) -> DisplayExtraData:
-        """The display state, kept across a restart."""
-        return DisplayExtraData(self._display)
-
-    @callback
-    def _handle_coordinator_update(self) -> None:
-        self._record()
-        super()._handle_coordinator_update()
-
-    def _record(self) -> None:
-        reading = super().native_value
-        if not isinstance(reading, (int, float)) or isinstance(reading, bool):
-            return
-        now = dt_util.now()
-        wrapper = self.coordinator.data.get(self.model_id) if self.coordinator.data else None
-        producing = wrapper is not None and is_producing(wrapper, self.model_index)
-        self._display.record(float(reading), now.date().isoformat(), counter_day(now, producing))
-
-    @property
-    def native_value(self) -> Any:
-        reading = super().native_value
-        if isinstance(reading, (int, float)) and not isinstance(reading, bool):
-            return self._display.shown(float(reading))
-        return reading
