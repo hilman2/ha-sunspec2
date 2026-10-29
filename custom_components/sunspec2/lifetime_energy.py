@@ -236,10 +236,11 @@ class DailyCounterDisplay:
     ends only on the climb of the restart: a rise from below 90 % of it
     that stays below it. A stray is no such climb, however often the ECU
     repeats it in its 5 minute rhythm. While the value is carried, the
-    sensor shows 0 at night; on today's counter day (see ``counter_day``)
-    it shows what the counter added to it, which keeps the energy of a
-    counter that runs on past midnight or is first seen again in the
-    afternoon. A first reading after midnight that differs from the last
+    sensor shows 0 at night; once a reading of the date belongs to today's
+    counter day (see ``counter_day``) it shows what the counter added to
+    it, for the rest of that date, so a dip of the power before noon does
+    not drop it back to 0. That keeps the energy of a counter that runs on
+    past midnight or is first seen again in the afternoon. A first reading after midnight that differs from the last
     one is shown as it is, also when it is yesterday's counter seen for
     the first time after an outage.
     """
@@ -250,9 +251,8 @@ class DailyCounterDisplay:
     """Local date of the last reading, as ``YYYY-MM-DD``."""
     carried: float | None = None
     """Yesterday's value while the counter still holds it, else None."""
-    on_todays_counter: bool = field(default=False, compare=False)
-    """Whether the last reading belongs to today's counter day. Not stored:
-    the first reading after a restart sets it before anything is shown."""
+    todays_date: str | None = None
+    """The last local date with a reading on that day's counter day."""
 
     def record(self, watt_hours: float, date: str, day: str) -> None:
         """Take one reading of the daily counter.
@@ -278,13 +278,14 @@ class DailyCounterDisplay:
             self.carried = None
         self.last = watt_hours
         self.last_date = date
-        self.on_todays_counter = day == date
+        if day == date:
+            self.todays_date = date
 
     def shown(self, watt_hours: float) -> float:
         """The value to show for the reading last recorded."""
         if self.carried is None:
             return watt_hours
-        if not self.on_todays_counter:
+        if self.todays_date != self.last_date:
             return 0.0
         return max(0.0, watt_hours - self.carried)
 
@@ -295,6 +296,7 @@ class DailyCounterDisplay:
             "last": self.last,
             "last_date": self.last_date,
             "carried": self.carried,
+            "todays_date": self.todays_date,
         }
 
     @classmethod
@@ -308,11 +310,12 @@ class DailyCounterDisplay:
                 isinstance(value, bool) or not isinstance(value, (int, float))
             ):
                 return cls()
-        last_date = data.get("last_date")
+        last_date, todays_date = data.get("last_date"), data.get("todays_date")
         return cls(
             last=None if last is None else float(last),
             last_date=last_date if isinstance(last_date, str) else None,
             carried=None if carried is None else float(carried),
+            todays_date=todays_date if isinstance(todays_date, str) else None,
         )
 
 

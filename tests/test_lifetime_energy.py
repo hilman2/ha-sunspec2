@@ -336,6 +336,14 @@ def test_a_counter_running_past_midnight_shows_what_it_added():
     assert _read(display, [3802, 3825], DAY_2, DAY_2) == [2, 25]
 
 
+def test_a_dip_in_the_power_does_not_drop_todays_counter_back_to_zero():
+    """A drop to 0 is a reset to Home Assistant, which would count the next value again."""
+    display = _past_midnight()
+    _read(display, [3802], DAY_2, DAY_2)
+    assert _read(display, [3810], DAY_2, DAY_1) == [10]
+    assert _read(display, [3820], DAY_2, DAY_2) == [20]
+
+
 def test_back_in_the_afternoon_shows_what_the_counter_added():
     """Out from 01:00 to 14:00, today's counter past yesterday's: not lost, not counted twice."""
     display = _past_midnight()
@@ -344,7 +352,10 @@ def test_back_in_the_afternoon_shows_what_the_counter_added():
 
 def test_the_display_survives_its_stored_form():
     display = _past_midnight()
-    assert DailyCounterDisplay.from_dict(display.as_dict()) == display
+    _read(display, [3802], DAY_2, DAY_2)
+    restored = DailyCounterDisplay.from_dict(display.as_dict())
+    assert restored == display
+    assert _read(restored, [3810], DAY_2, DAY_1) == [10]
 
 
 @pytest.mark.parametrize(

@@ -18,6 +18,7 @@ from homeassistant.util import dt as dt_util
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.sunspec2 import SunSpecDataUpdateCoordinator
+from custom_components.sunspec2 import connection as connection_module
 from custom_components.sunspec2 import gateway_rest_until
 from custom_components.sunspec2.api import SunSpecApiClient
 from custom_components.sunspec2.api import is_unanswered
@@ -333,3 +334,18 @@ async def test_a_setup_retry_asks_for_the_timeout_again(hass):
         await second_attempt.async_require_timeout(1, 60.0)
 
     assert retry.disconnects == 1
+
+
+async def test_a_failed_setup_withdraws_its_timeout(hass):
+    """Home Assistant runs the on_unload callbacks of a setup that fails, not async_unload_entry."""
+    unit = FakeUnit()
+    entry = _connection_entry(hass)
+    with patch("custom_components.sunspec2.connection.async_get_unit", return_value=unit):
+        connection = SharedConnection(hass, PARAMS, entry)
+        connection.for_unit(1)
+        await connection.async_require_timeout(1, 60.0)
+
+    await entry._async_process_on_unload(hass)
+
+    assert unit.timeouts == [60.0, None]
+    assert connection_module._ASKED_TIMEOUTS[PARAMS.endpoint] == {}

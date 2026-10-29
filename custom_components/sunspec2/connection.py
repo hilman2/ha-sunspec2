@@ -20,6 +20,7 @@ only where nobody else will.
 from __future__ import annotations
 
 import contextlib
+import functools
 
 from homeassistant.components.modbus.connection import ModbusParams
 from homeassistant.components.modbus.connection import async_get_temporary_unit
@@ -31,9 +32,8 @@ from modbus_connection import ModbusUnit
 #: Per endpoint, the timeout each holder asked the link for, keyed by the
 #: config entry and unit id, until it withdraws it. A raise above all the
 #: other holders is the only one that needs a reconnect. Keyed by entry
-#: rather than by object: a setup that fails with ConfigEntryNotReady never
-#: unloads, so its connection never withdraws, and the next attempt must
-#: replace that record instead of being held back by it.
+#: rather than by object, so the next setup attempt of an entry replaces
+#: the record of the last one.
 _ASKED_TIMEOUTS: dict[tuple[str, str, int] | tuple[str, str], dict[tuple[str, int], float]] = {}
 
 
@@ -104,6 +104,10 @@ class SharedConnection:
         """
         if self._timeouts.get(unit_id) == seconds:
             return
+        if unit_id not in self._timeouts and self._entry is not None:
+            # Home Assistant runs these also when the setup fails, which
+            # never reaches async_unload_entry and the api's shutdown.
+            self._entry.async_on_unload(functools.partial(self.withdraw_timeout, unit_id))
         self._timeouts[unit_id] = seconds
         unit = self.for_unit(unit_id)
         connected = unit.connected
