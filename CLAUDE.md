@@ -377,6 +377,16 @@ If you ever change `available` to consult `last_update_success`, the
 manual listener call will fire while HA still has it set to True and
 the unavailable transition will silently break.
 
+A third mechanism applies only to a profile with
+`collection_round_seconds` (APsystems, #160): a gateway that keeps
+working on a request left unanswered. After such a request the in-cycle
+retry is skipped and the gateway rests, for every entry on the same
+`(host, port)`, until a minute into its next round
+(`_GATEWAY_RESTS`, `GATEWAY_REST_MIN_SECONDS`). Polls during the rest
+send nothing and count as failed cycles, so the stale-data tolerance
+keeps its timing; writes are refused with a "try again after" message.
+The same profile's `request_timeout` raises the link's timeout to 60 s.
+
 ## Releases
 
 Bump `VERSION` in **both** `custom_components/sunspec2/const.py` and

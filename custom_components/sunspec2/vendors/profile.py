@@ -439,15 +439,26 @@ class VendorProfile:
             step of its Number entity, for a device that takes whole
             units where the scale factor would offer tenths.
         daily_energy_points (frozenset[str]): Names of energy points that
-            count one day and start again at zero, where SunSpec says
-            lifetime. They are plain sensors, without the guards of a
-            lifetime counter.
+            count one day and start again at zero when the device first
+            produces on the next, where SunSpec says lifetime. They are
+            sensors without the guards of a lifetime counter.
         required_models (frozenset[int]): Models a profile's controls and
             sensors need, polled when the device exposes them.
         point_transforms (Mapping[tuple[int, str], Callable[[Any], Any]]):
             Read corrections keyed by model id and point name. Called
             with the SunSpec-scaled value, returning the corrected value.
             Raw registers and write encoding retain their SunSpec meaning.
+        request_timeout (float|None): Seconds the device may take to answer
+            one request, for a device known to need more than the
+            transport's default of 10. None for the default.
+        collection_round_seconds (int|None): The period of the rounds in
+            which a gateway collects new values from its devices, starting
+            on the clock. Set for a gateway that works through one request
+            at a time and goes on working on one it left unanswered. After
+            such a request nothing more is sent to the gateway, for any
+            entry behind it, until a minute into the first round that
+            starts at least a minute later. None for a device that can be
+            asked again at once.
     """
 
     slug: str
@@ -473,6 +484,8 @@ class VendorProfile:
     daily_energy_points: frozenset[str] = frozenset()
     required_models: frozenset[int] = frozenset()
     point_transforms: Mapping[tuple[int, str], Callable[[Any], Any]] = field(default_factory=dict)
+    request_timeout: float | None = None
+    collection_round_seconds: int | None = None
 
     def raw_block(self, key: str) -> RawBlock | None:
         """The raw block named ``key``, or None."""

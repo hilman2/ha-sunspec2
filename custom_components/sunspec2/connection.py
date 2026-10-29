@@ -20,6 +20,7 @@ only where nobody else will.
 from __future__ import annotations
 
 import contextlib
+import functools
 
 from homeassistant.components.modbus.connection import ModbusParams
 from homeassistant.components.modbus.connection import async_get_temporary_unit
@@ -27,6 +28,13 @@ from homeassistant.components.modbus.connection import async_get_unit
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from modbus_connection import ModbusUnit
+
+#: Per endpoint, the timeout each holder asked the link for, keyed by the
+#: config entry and unit id, until it withdraws it. A raise above all the
+#: other holders is the only one that needs a reconnect. Keyed by entry
+#: rather than by object, so the next setup attempt of an entry replaces
+#: the record of the last one.
+_ASKED_TIMEOUTS: dict[tuple[str, str, int] | tuple[str, str], dict[tuple[str, int], float]] = {}
 
 
 class SharedConnection:
@@ -50,6 +58,9 @@ class SharedConnection:
         self._entry = entry
         self._temporary = contextlib.AsyncExitStack() if entry is None else None
         self._units: dict[int, ModbusUnit] = {}
+        # The timeout each unit asked the link for, so asking again for the
+        # same one does not drop the link a second time.
+        self._timeouts: dict[int, float] = {}
 
     @property
     def connected(self) -> bool:
@@ -81,6 +92,54 @@ class SharedConnection:
             self._units[unit_id] = unit
             return unit
         return self.for_unit(unit_id)
+
+    async def async_require_timeout(self, unit_id: int, seconds: float) -> None:
+        """Have the link wait at least ``seconds`` for an answer to any request.
+
+        The link applies a raised timeout from its next connect on, and
+        modbus-connection drops a live link for that in a task of its own,
+        which cuts whatever request is in flight when it runs. The link is
+        therefore dropped here and awaited, so the caller's next request
+        reconnects with the new timeout instead of being cut.
+        """
+        if self._timeouts.get(unit_id) == seconds:
+            return
+        if unit_id not in self._timeouts and self._entry is not None:
+            # Home Assistant runs these also when the setup fails, which
+            # never reaches async_unload_entry and the api's shutdown.
+            self._entry.async_on_unload(functools.partial(self.withdraw_timeout, unit_id))
+        self._timeouts[unit_id] = seconds
+        unit = self.for_unit(unit_id)
+        connected = unit.connected
+        unit.require_timeout(seconds)
+        # The link waits for the highest timeout any unit asked for, so a
+        # second micro inverter behind the same gateway asking for the same
+        # minute changes nothing and must not cost every holder a reconnect.
+        asked = _ASKED_TIMEOUTS.setdefault(self._params.endpoint, {})
+        key = self._holder_key(unit_id)
+        raised = seconds > max(
+            (asked_for for holder, asked_for in asked.items() if holder != key), default=0.0
+        )
+        asked[key] = seconds
+        if connected and raised:
+            await unit.disconnect()
+
+    def withdraw_timeout(self, unit_id: int) -> None:
+        """Hand back a timeout asked for with ``async_require_timeout``.
+
+        modbus-connection keeps the requirement per unit id, not per holder,
+        so this also withdraws what another holder of the same unit id on the
+        same link asked for. The link falls back to its default after its
+        next connect.
+        """
+        _ASKED_TIMEOUTS.get(self._params.endpoint, {}).pop(self._holder_key(unit_id), None)
+        if self._timeouts.pop(unit_id, None) is not None and unit_id in self._units:
+            self._units[unit_id].require_timeout(None)
+
+    def _holder_key(self, unit_id: int) -> tuple[str, int]:
+        """Who asked for a timeout: the config entry, or this object for a probe."""
+        holder = self._entry.entry_id if self._entry is not None else f"probe-{id(self)}"
+        return (holder, unit_id)
 
     async def connect(self) -> None:
         """Let discovery or cached-layout validation open the link on its first read."""

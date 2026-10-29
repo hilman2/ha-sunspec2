@@ -44,7 +44,27 @@ takes about 13 minutes to reach every inverter, the ECU polling them
 over Zigbee every 5 minutes. The enable point reads back as 49 or 48
 once written, the ASCII digits. The revert time and the power factor
 points read 0xFFFF and 0x8000 and are not implemented. And WH of model
-103 is the yield of today, which starts again at zero every night.
+103 is the yield of one day, not a lifetime total.
+
+The daily counter does not restart at midnight. The ECU keeps serving
+yesterday's yield through the night and sets the counter back to zero
+when the micro inverter first reports in the morning; the history in
+issue #160 shows the yield flat overnight and back at zero between
+07:00 and 08:30. ``lifetime_energy.py`` works with that.
+
+How the ECU is polled. It answers one request at a time, a busy one can
+take close to a minute, and it goes on working on a request the client
+gave up on, so everything sent after it queues behind it. With the
+transport's 10 second default the integration gave up long before such
+an answer, retried five seconds later and polled on at the configured
+interval, every entry behind the ECU on its own. Issue #160 has the
+outages that went with it: the ECU silent for the same half hour six
+times in four days, then for a day until it was restarted. That the
+polling caused them is not established. The profile takes away what
+could have: it waits a minute for an answer and, after a request that
+still went unanswered, leaves the ECU alone until a minute past the
+first fifth minute of the clock that is at least a minute away; the
+ECU's round starts about 10 seconds past every fifth minute.
 """
 
 from __future__ import annotations
@@ -114,6 +134,11 @@ ASCII_FLAG_POINTS: frozenset[str] = frozenset({"123:WMaxLim_Ena"})
 #: needs minutes to pass it on.
 CONTROL_STEPS: dict[str, float] = {"123:WMaxLimPct": 1.0}
 
+#: A busy ECU takes close to a minute to answer; see the module docstring.
+REQUEST_TIMEOUT = 60.0
+#: The ECU collects from its micro inverters every five minutes, on the clock.
+COLLECTION_ROUND_SECONDS = 300
+
 APSYSTEMS = VendorProfile(
     slug="apsystems",
     manufacturer_prefixes=("APsystems",),
@@ -124,4 +149,6 @@ APSYSTEMS = VendorProfile(
     ascii_flag_points=ASCII_FLAG_POINTS,
     control_steps=CONTROL_STEPS,
     daily_energy_points=frozenset({"WH"}),
+    request_timeout=REQUEST_TIMEOUT,
+    collection_round_seconds=COLLECTION_ROUND_SECONDS,
 )

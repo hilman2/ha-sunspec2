@@ -74,6 +74,9 @@ type SunSpecClient = Any
 # coordinator (5s sleep then one more attempt) and the stale-data
 # tolerance in the entity available property cover the actual
 # flaky-network case much better than a long socket timeout ever did.
+# The exception is a gateway known to answer slowly when busy: its
+# vendor profile names a longer timeout (``VendorProfile.request_timeout``)
+# and the coordinator asks the link for it.
 # Total time allowed for a config-flow scan, not a per-request timeout.
 # A probe must not alter the timeout of Home Assistant's shared link.
 SETUP_TIMEOUT = 60
@@ -85,6 +88,27 @@ _LOGGER: logging.Logger = logging.getLogger(__package__)
 def progress(msg: str) -> bool:
     _LOGGER.debug(msg)
     return True
+
+
+def is_unanswered(exc: BaseException) -> bool:
+    """Whether ``exc`` comes from a gateway that did not answer in time.
+
+    That is a request that went out and got no answer, or a connect the
+    gateway did not take within the timeout: either way it is not taking
+    anything. A refused connection is an answer and does not count.
+
+    The timeout reaches the coordinator wrapped in whichever category the
+    layer that caught it chose: transient from a model read, transport
+    from a connect, protocol from a scan. The cause chain still holds it.
+    """
+    seen: set[int] = set()
+    current: BaseException | None = exc
+    while current is not None and id(current) not in seen:
+        if isinstance(current, (SunSpecModbusClientTimeout, ModbusClientTimeout)):
+            return True
+        seen.add(id(current))
+        current = current.__cause__ or current.__context__
+    return False
 
 
 def _discovered_model_count(client: SunSpecClient) -> int:
@@ -192,6 +216,9 @@ class SunSpecApiClient:
         # the model objects; the next client connects on the same object,
         # which modbus-connection reconnects on demand.
         self._connection: SharedConnection | None = None
+        # What the coordinator asked the link to wait for an answer, from
+        # the vendor profile. None for the transport's default.
+        self._request_timeout: float | None = None
         self._shutdown = False
         # The config entry whose unload lets go of the shared link. None
         # for the config flow's probe, which holds its own and closes it.
@@ -1029,6 +1056,19 @@ class SunSpecApiClient:
             self._log.debug("Dropping a suspect Modbus session")
         await self._async_disconnect(client)
 
+    async def async_require_timeout(self, seconds: float) -> None:
+        """Have the link wait ``seconds`` for an answer, from the next request on.
+
+        Called by the coordinator once the vendor profile is known. Before
+        the connection exists the value is only kept, and taken along when
+        the next client connects.
+        """
+        if self._request_timeout == seconds:
+            return
+        self._request_timeout = seconds
+        if self._connection is not None:
+            await self._connection.async_require_timeout(self._unit_id, seconds)
+
     async def async_shutdown(self) -> None:
         """Close the client and the connection for good: the entry is unloading."""
         self._shutdown = True
@@ -1037,6 +1077,8 @@ class SunSpecApiClient:
         self._connection = None
         if connection is None:
             return
+        # Another holder of the link has no reason to wait this long.
+        connection.withdraw_timeout(self._unit_id)
         try:
             await connection.close()
         except Exception as exc:  # noqa: BLE001 - cleanup must not raise
@@ -1086,6 +1128,8 @@ class SunSpecApiClient:
             # Another integration already talks to this endpoint with
             # other link settings, and one connection cannot be both.
             raise TransportError(str(err)) from err
+        if self._request_timeout is not None:
+            await connection.async_require_timeout(self._unit_id, self._request_timeout)
         return connection
 
     async def modbus_connect(self) -> SunSpecClient:

@@ -80,6 +80,48 @@ them the last one is up to a few minutes behind the first. A reply can
 take close to a minute when the ECU is busy, and a request you give up
 on keeps it busy.
 
+The integration allows for that. It waits up to a minute for each
+answer. If an answer does not come, it sends nothing more to the ECU,
+for every micro inverter behind it, for two to seven minutes: until a
+minute into the first round that starts at least a minute later. The
+polls in that time count as failed, so the sensors go unavailable after
+as many polls as when the ECU is off. Changing the export limit in that
+time fails with a message that says when to try again.
+
+## When the ECU stops answering until you restart it
+
+One user's ECU-R stopped answering for a whole day, while it went on
+collecting from the micro inverters and reporting to the EMA portal.
+Only a restart of the ECU brought it back. Shorter outages of about
+half an hour ended on their own.
+
+If this happens to you, a switchable plug in front of the ECU can do the
+restart. This automation switches it off for a minute once a sensor of
+the micro inverter has been unavailable for 45 minutes. Replace the two
+entity ids with yours:
+
+```yaml
+automation:
+  - alias: "Restart the APsystems ECU when it stops answering"
+    triggers:
+      - trigger: state
+        entity_id: sensor.ecu_inverter_single_phase_watts
+        to: unavailable
+        for: "00:45:00"
+    actions:
+      - action: switch.turn_off
+        target:
+          entity_id: switch.ecu_plug
+      - delay: "00:01:00"
+      - action: switch.turn_on
+        target:
+          entity_id: switch.ecu_plug
+```
+
+A restart clears an export limit on the micro inverters, see
+[Limiting what you feed in](#limiting-what-you-feed-in). If you use one,
+set it again after the restart.
+
 ## What the ECU does not report
 
 The following comes from one tester with eight DS3 on an ECU-R
@@ -92,13 +134,23 @@ an observation:
   cannot tell them apart.
 - There is no timestamp or round counter. A value that did not change
   can be new or old.
-- At night a micro inverter can keep showing 1 W with 0 V and 0 Hz, until
-  the ECU resets its counters at about 02:15.
+- At night a micro inverter can keep showing 1 W with 0 V and 0 Hz.
 
 ## Energy produced today
 
 **Energy produced today** is the yield of the current day. It is not a
-lifetime total, and it starts again at zero every night.
+lifetime total.
+
+The ECU does not start it again at midnight. It keeps yesterday's yield
+through the night and starts again at zero when the micro inverter
+first reports in the morning. Until then the sensor still shows
+yesterday's yield.
+
+After an outage, the first value after midnight can still be yesterday's
+and higher than the last one Home Assistant saw. It is shown as it
+comes, so the Energy dashboard books that energy to the hour it arrived
+in. You can move it to the right day under *Developer tools ->
+Statistics*.
 
 ## A total for the Energy dashboard
 
@@ -106,8 +158,8 @@ The ECU has no lifetime counter, so the integration counts one itself:
 **Lifetime energy produced (counted)**. It adds up the daily values of
 the micro inverter, day by day, and keeps the sum across restarts. Use it
 as solar production in the Energy dashboard if you want a total. The
-daily sensor also works there, because Home Assistant reads the nightly
-reset as the start of a new day.
+daily sensor also works there, because Home Assistant reads the drop to
+zero as the start of a new day.
 
 What to expect:
 
@@ -217,8 +269,15 @@ download in your report (see [Troubleshooting](troubleshooting.md)).
   for DC voltage, current and power, starting at register 40214. The
   integration reads it from there.
 - **Energy produced today** is the SunSpec point `WH`. The standard
-  defines it as a lifetime counter, the ECU delivers a daily value
-  that resets every night.
+  defines it as a lifetime counter, the ECU delivers a daily value. It
+  starts again when the micro inverter first reports in the morning and
+  holds yesterday's value until then.
+- **Polling:** a request may take 60 seconds. After a request without an
+  answer nothing goes to the ECU, from any entry behind it, until 60
+  seconds after the next five-minute mark that is at least a minute
+  away. The polls in that time send nothing and count as failed. The
+  diagnostics download shows the end of such a rest as
+  `gateway_rest_until`.
 - **ECU-R firmware 1.3.23:** the header of the controls model (123)
   reads 114, with 48 registers instead of 24. The integration reads the
   registers behind the header as model 123.
@@ -241,10 +300,10 @@ Source: APsystems, SunSpec Modbus, rev 3.3
 The 15 to 31 W at 0 % and the 17 W at 20 % are measurements on DS3-L
 micro inverters by the author of
 [homeassistant-apsystems_modbus](https://github.com/christianvaes/homeassistant-apsystems_modbus),
-version 0.4.0. The round timing, the readings the ECU gets wrong, the
-02:15 reset and the flag that silenced the ECU are that author's
-observations too (issue 1 and the code of version 0.4.12 in that
-repository, ECU-R firmware 1.3.23). None of them is in the APsystems
+version 0.4.0. The round timing, the readings the ECU gets wrong and
+the flag that silenced the ECU are that author's observations too
+(issue 1 and the code of version 0.4.12 in that repository, ECU-R
+firmware 1.3.23). None of them is in the APsystems
 document, and we have not reproduced them. Also from that
 repository, and equally unreproduced here: the behaviour of *Inverter
 grid connection* (the code of versions 0.5.0 to 0.5.6), the ignored
@@ -254,3 +313,7 @@ Wi-Fi, the register layout of the ECU-R Pro and that it turns the micro
 inverters fully off at 0 % and needs about 5 minutes to bring them back
 (discussion 2). The router tip for an unstable ECU-R is from the same
 discussion.
+
+The morning restart of the daily counter and the ECU that stopped
+answering until it was restarted are from the history attached to
+[issue #160](https://github.com/hilman2/ha-sunspec2/issues/160).

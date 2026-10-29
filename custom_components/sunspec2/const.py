@@ -448,6 +448,24 @@ ENERGY_DELTA_REJECT_RECOVERY_COUNT = 3
 # and HA's own exponential backoff takes over.
 INTERVAL_RETRY_DELAY_SECONDS = 5
 
+# Resilience for a gateway whose profile sets collection_round_seconds:
+# one that works through one request at a time and goes on working on a
+# request left unanswered. After such a request the gateway rests: no
+# entry behind it sends anything until the rest is over, and the in-cycle
+# retry above is skipped, because it would only queue behind the request
+# the gateway is still busy with. A connect that times out counts the
+# same: the gateway is not taking anything. A refused one does not.
+#
+# The rest lasts at least GATEWAY_REST_MIN_SECONDS, time for the gateway
+# to finish or drop that request, and then ends GATEWAY_REST_SETTLE_SECONDS
+# after the start of the gateway's next round. A gateway collecting from
+# its devices is slow to answer, and the margin keeps the next attempt out
+# of the first minute of the round. Polls that fall into a rest count as
+# failed cycles, so the stale-data tolerance below runs on the same clock
+# as without a rest.
+GATEWAY_REST_MIN_SECONDS = 60
+GATEWAY_REST_SETTLE_SECONDS = 60
+
 # How long a write waits for the per-gateway lock before giving up.
 #
 # Sizing this off the scan interval is tempting and wrong: the wait is

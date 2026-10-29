@@ -99,6 +99,14 @@ class FakeConnection:
     def for_unit(self, unit_id: int) -> FakeUnit:
         return self.units.setdefault(unit_id, FakeUnit(unit_id=unit_id))
 
+    async def async_require_timeout(self, unit_id: int, seconds: float) -> None:
+        self.for_unit(unit_id).require_timeout(seconds)
+
+    def withdraw_timeout(self, unit_id: int) -> None:
+        unit = self.units.get(unit_id)
+        if unit is not None and unit.timeouts and unit.timeouts[-1] is not None:
+            unit.require_timeout(None)
+
     async def async_for_unit(self, unit_id: int) -> FakeUnit:
         return self.for_unit(unit_id)
 
