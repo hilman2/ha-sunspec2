@@ -28,9 +28,12 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from modbus_connection import ModbusUnit
 
-#: Per endpoint, the highest timeout any SharedConnection asked the link for
-#: in this run. A raise above it is the only one that needs a reconnect.
-_ASKED_TIMEOUTS: dict[tuple[str, str, int] | tuple[str, str], float] = {}
+#: Per endpoint, the timeout each holder asked the link for, keyed by the
+#: SharedConnection and unit id, until it withdraws it. A raise above all
+#: the others is the only one that needs a reconnect.
+_ASKED_TIMEOUTS: dict[
+    tuple[str, str, int] | tuple[str, str], dict[tuple[SharedConnection, int], float]
+] = {}
 
 
 class SharedConnection:
@@ -107,10 +110,9 @@ class SharedConnection:
         # The link waits for the highest timeout any unit asked for, so a
         # second micro inverter behind the same gateway asking for the same
         # minute changes nothing and must not cost every holder a reconnect.
-        endpoint = self._params.endpoint
-        raised = seconds > _ASKED_TIMEOUTS.get(endpoint, 0.0)
-        if raised:
-            _ASKED_TIMEOUTS[endpoint] = seconds
+        asked = _ASKED_TIMEOUTS.setdefault(self._params.endpoint, {})
+        raised = seconds > max(asked.values(), default=0.0)
+        asked[(self, unit_id)] = seconds
         if connected and raised:
             await unit.disconnect()
 
@@ -122,6 +124,7 @@ class SharedConnection:
         same link asked for. The link falls back to its default after its
         next connect.
         """
+        _ASKED_TIMEOUTS.get(self._params.endpoint, {}).pop((self, unit_id), None)
         if self._timeouts.pop(unit_id, None) is not None and unit_id in self._units:
             self._units[unit_id].require_timeout(None)
 

@@ -54,6 +54,8 @@ from .franklinwh_controls import franklinwh_sensors
 from .lifetime_energy import CountedLifetimeEnergySensor
 from .lifetime_energy import DailyCounterDisplay
 from .lifetime_energy import DisplayExtraData
+from .lifetime_energy import counter_day
+from .lifetime_energy import is_producing
 
 # Bronze rule parallel-updates: the coordinator already serialises all
 # I/O via its per-gateway asyncio.Lock, so platform entities never
@@ -1041,8 +1043,12 @@ class DailyEnergySensor(SunSpecSensor, RestoreEntity):
 
     def _record(self) -> None:
         reading = super().native_value
-        if isinstance(reading, (int, float)) and not isinstance(reading, bool):
-            self._display.record(float(reading), dt_util.now().date().isoformat())
+        if not isinstance(reading, (int, float)) or isinstance(reading, bool):
+            return
+        now = dt_util.now()
+        wrapper = self.coordinator.data.get(self.model_id) if self.coordinator.data else None
+        producing = wrapper is not None and is_producing(wrapper, self.model_index)
+        self._display.record(float(reading), now.date().isoformat(), counter_day(now, producing))
 
     @property
     def native_value(self) -> Any:

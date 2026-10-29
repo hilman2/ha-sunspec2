@@ -127,6 +127,15 @@ def test_a_cloud_in_the_morning_does_not_take_the_day_back():
     assert ledger.total == 3000 + 2310
 
 
+def test_a_jump_confirmed_under_a_cloud_keeps_the_day_it_was_seen_on():
+    ledger = DailyCounterLedger()
+    ledger.record(1000, counter_day(datetime(2026, 10, 28, 17, 0), producing=False))
+    ledger.record(1000, counter_day(datetime(2026, 10, 29, 3, 0), producing=False))
+    ledger.record(3500, counter_day(datetime(2026, 10, 29, 10, 30), producing=True))
+    ledger.record(3510, counter_day(datetime(2026, 10, 29, 10, 35), producing=False))
+    assert ledger.total == 1000 + 3510
+
+
 def test_impossible_values_are_left_out():
     ledger = DailyCounterLedger()
     _feed(ledger, [100, float("nan"), -5, MAX_DAILY_WH + 1, float("inf")])
@@ -259,60 +268,82 @@ def _daily(hass):
     return next(e for e in component.entities if isinstance(e, DailyEnergySensor))
 
 
+def _read(display, readings, date, day):
+    """Record readings taken on ``date`` for counter ``day``; return what is shown."""
+    shown = []
+    for reading in readings:
+        display.record(reading, date, day)
+        shown.append(display.shown(reading))
+    return shown
+
+
+def _past_midnight(yesterday=3800):
+    """A display that has carried yesterday's value into the night."""
+    display = DailyCounterDisplay()
+    display.record(yesterday, DAY_1, DAY_1)
+    display.record(yesterday, DAY_2, DAY_1)
+    return display
+
+
 def test_yesterdays_counter_shows_zero_until_it_moves():
     display = DailyCounterDisplay()
-    display.record(2300, DAY_1)
-    assert display.shown(2300) == 2300
-
-    display.record(2300, DAY_2)
-    assert display.shown(2300) == 0
+    assert _read(display, [2300], DAY_1, DAY_1) == [2300]
+    assert _read(display, [2300], DAY_2, DAY_1) == [0]
     # The micro inverter reports: the counter starts again and climbs.
-    display.record(0, DAY_2)
-    assert display.shown(0) == 0
-    display.record(40, DAY_2)
-    assert display.shown(40) == 40
+    assert _read(display, [0], DAY_2, DAY_1) == [0]
+    assert _read(display, [40], DAY_2, DAY_2) == [40]
+
+
+def test_a_dull_morning_restart_ends_the_carried_value_by_its_climb():
+    display = _past_midnight()
+    assert _read(display, [0, 0, 3, 8], DAY_2, DAY_1) == [0, 0, 3, 8]
 
 
 def test_a_counter_that_moved_overnight_is_shown_as_read():
     """Back after an outage with yesterday's counter, higher than last seen: zero would lose it."""
     display = DailyCounterDisplay()
-    display.record(60, DAY_1)
-    display.record(1650, DAY_2)
-    assert display.shown(1650) == 1650
+    display.record(60, DAY_1, DAY_1)
+    assert _read(display, [1650], DAY_2, DAY_1) == [1650]
 
 
 def test_a_day_that_reaches_yesterdays_value_does_not_drop_to_zero():
-    display = DailyCounterDisplay()
-    display.record(2300, DAY_1)
-    display.record(2300, DAY_2)
-    for reading in (0, 15, 900, 2300):
-        display.record(reading, DAY_2)
-    assert display.shown(2300) == 2300
+    display = _past_midnight(2300)
+    _read(display, [0], DAY_2, DAY_1)
+    assert _read(display, [15, 900, 2300], DAY_2, DAY_2) == [15, 900, 2300]
 
 
-def test_a_stray_at_night_does_not_bring_yesterdays_value_back():
+@pytest.mark.parametrize(
+    "night",
+    [
+        # The ECU repeats a reading for its whole 5 minute round.
+        [3790, 3790, 3790, 3800],
+        # Two strays, the second above the first: no restart, which starts lower.
+        [3790, 3795, 3800],
+        [0, 0, 3800],
+        [3810, 3810, 3800],
+    ],
+)
+def test_strays_at_night_never_bring_yesterdays_value_back(night):
     """Home Assistant would count a rise from zero to 3790 as new energy."""
-    display = DailyCounterDisplay()
-    display.record(3800, DAY_1)
-    shown = []
-    for reading in (3800, 3790, 3800, 0, 40):
-        display.record(reading, DAY_2)
-        shown.append(display.shown(reading))
-    assert shown == [0, 0, 0, 0, 40]
+    display = _past_midnight()
+    shown = _read(display, night, DAY_2, DAY_1)
+    assert max(shown) <= 10
+    assert shown[-1] == 0
 
 
 def test_a_counter_still_moving_after_midnight_shows_what_it_added():
-    display = DailyCounterDisplay()
-    display.record(3800, DAY_1)
-    display.record(3800, DAY_2)
-    display.record(3802, DAY_2)
-    assert display.shown(3802) == 2
+    display = _past_midnight()
+    assert _read(display, [3802], DAY_2, DAY_1) == [2]
+
+
+def test_back_in_the_afternoon_the_counter_is_todays():
+    """Out from 01:00 to 14:00: today's counter has passed yesterday's."""
+    display = _past_midnight()
+    assert _read(display, [4500], DAY_2, DAY_2) == [4500]
 
 
 def test_the_display_survives_its_stored_form():
-    display = DailyCounterDisplay()
-    display.record(2300, DAY_1)
-    display.record(2300, DAY_2)
+    display = _past_midnight()
     assert DailyCounterDisplay.from_dict(display.as_dict()) == display
 
 

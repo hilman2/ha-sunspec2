@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
+from dataclasses import field
 from datetime import datetime
 from datetime import timedelta
 from typing import Any
@@ -68,13 +69,18 @@ MAX_STEP_WH = 2_000.0
 #: ECU can go on showing 1 W with 0 V and 0 Hz.
 PRODUCING_MIN_W = 5.0
 
+#: Home Assistant takes a drop of a total_increasing sensor below this share
+#: of the previous value for a reset. A climb from below it is the restart of
+#: the daily counter; a stray close to yesterday's value is not.
+RESTART_SHARE = 0.9
+
 #: Local hour from which a reading belongs to today's counter even while the
 #: micro inverter produces nothing: by noon it has reported, and the counter
 #: has started again, on any day it produced at all.
 COUNTER_DAY_HOUR = 12
 
 
-def _is_producing(wrapper: SunSpecModelWrapper, model_index: int) -> bool:
+def is_producing(wrapper: SunSpecModelWrapper, model_index: int) -> bool:
     """Whether the inverter model in ``wrapper`` reports AC power above PRODUCING_MIN_W."""
     try:
         power = wrapper.getValue("W", model_index)
@@ -118,6 +124,9 @@ class DailyCounterLedger:
     """The day ``last`` belongs to, as ``counter_day`` gives it."""
     pending: float | None = None
     """A reading that waits for the next one: a drop or a large jump."""
+    pending_day: str | None = field(default=None, compare=False)
+    """The day ``pending`` was read on. Not stored: after a restart the
+    confirming reading's day stands alone."""
 
     @property
     def total(self) -> float | None:
@@ -145,6 +154,7 @@ class DailyCounterLedger:
             # ``last`` a second time.
             day = self.last_day
         pending, self.pending = self.pending, None
+        pending_day, self.pending_day = self.pending_day, None
         last = self.last
         if last is None:
             self._accept(watt_hours, day)
@@ -153,11 +163,16 @@ class DailyCounterLedger:
                 self._accept(watt_hours, day)
             else:
                 self.pending = watt_hours
+                self.pending_day = day
         elif pending > last:
             # A large jump: real if the counter kept going from there.
             if watt_hours < pending:
                 self.record(watt_hours, day)
                 return
+            # The day the jump was seen on counts, should the confirming
+            # reading come under a cloud before noon.
+            if pending_day is not None and pending_day > day:
+                day = pending_day
             if self.last_day != day:
                 self.base += last
             self._accept(watt_hours, day)
@@ -170,6 +185,7 @@ class DailyCounterLedger:
             self._accept(watt_hours, day)
         else:
             self.pending = watt_hours
+            self.pending_day = day
 
     def _accept(self, watt_hours: float, day: str) -> None:
         self.last = watt_hours
@@ -212,17 +228,18 @@ class DailyCounterDisplay:
     The counter keeps yesterday's value until the micro inverter first
     reports in the morning. When the first reading after midnight is
     exactly the last one before it, that value is carried: today's energy
-    is what the counter has added to it, which at night is nothing. The
-    carried value ends once two readings in a row are below it, the
-    restart; a single lower reading is taken for a stray.
+    is what the counter has added to it, which at night is nothing.
 
     Home Assistant counts every rise of a ``total_increasing`` sensor and
     takes only a drop below 90 % for a reset, so the shown value must
-    never go from zero back up to yesterday's. That rules out a guess by
-    the time or the power, and it is why one stray must not end the
-    carried value. A first reading after midnight that differs from the
-    last one is shown as it is, also when it is yesterday's counter seen
-    for the first time after an outage.
+    never go from zero back up to yesterday's. The carried value therefore
+    ends only on evidence that the counter is today's: a different reading
+    on today's counter day (see ``counter_day``), or the climb of the
+    restart, a rise from below 90 % of the carried value that stays below
+    it. A stray is no such evidence, however often the ECU repeats it in
+    its 5 minute rhythm. A first reading after midnight that differs from
+    the last one is shown as it is, also when it is yesterday's counter
+    seen for the first time after an outage.
     """
 
     last: float | None = None
@@ -232,20 +249,37 @@ class DailyCounterDisplay:
     carried: float | None = None
     """Yesterday's value while the counter still holds it, else None."""
 
-    def record(self, watt_hours: float, date: str) -> None:
-        """Take one reading of the daily counter, taken on the local ``date``."""
+    def record(self, watt_hours: float, date: str, day: str) -> None:
+        """Take one reading of the daily counter.
+
+        Args:
+            watt_hours (float): The reading, in Wh.
+            date (str): The local date it was taken on, as ``YYYY-MM-DD``.
+            day (str): The counter day it belongs to, as ``counter_day``
+                gives it.
+        """
         if self.last_date is not None and date != self.last_date and watt_hours == self.last:
             if watt_hours > 0:
                 self.carried = watt_hours
-        elif (
-            self.carried is not None
-            and watt_hours < self.carried
-            and self.last is not None
-            and self.last < self.carried
-        ):
+        elif self._counter_is_todays(watt_hours, date, day):
             self.carried = None
         self.last = watt_hours
         self.last_date = date
+
+    def _counter_is_todays(self, watt_hours: float, date: str, day: str) -> bool:
+        """Whether a reading proves the counter has left the carried value for good."""
+        carried = self.carried
+        if carried is None or watt_hours == carried:
+            return False
+        if day == date:
+            return True
+        # The restart climbing: up from below 90 % of the carried value,
+        # and still below it.
+        return (
+            self.last is not None
+            and self.last < RESTART_SHARE * carried
+            and self.last < watt_hours < carried
+        )
 
     def shown(self, watt_hours: float) -> float:
         """The value to show for the reading last recorded."""
@@ -376,7 +410,7 @@ class CountedLifetimeEnergySensor(SunSpecEntity, SensorEntity, RestoreEntity):
         if isinstance(reading, bool) or not isinstance(reading, (int, float)):
             return
         self._ledger.record(
-            float(reading), counter_day(dt_util.now(), _is_producing(wrapper, self._model_index))
+            float(reading), counter_day(dt_util.now(), is_producing(wrapper, self._model_index))
         )
 
     @property

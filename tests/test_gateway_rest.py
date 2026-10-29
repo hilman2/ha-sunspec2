@@ -301,3 +301,19 @@ async def test_a_second_unit_on_the_same_gateway_does_not_drop_the_link_again(ha
     assert first.disconnects == 1
     assert second.disconnects == 0
     assert second.timeouts == [60.0]
+
+
+async def test_a_withdrawn_timeout_is_asked_for_afresh(hass):
+    """An entry set up again on a link that is up gets its minute at once."""
+    first, again = FakeUnit(), FakeUnit()
+    with patch("custom_components.sunspec2.connection.async_get_unit", side_effect=[first, again]):
+        one = SharedConnection(hass, PARAMS, _connection_entry(hass))
+        one.for_unit(1)
+        await one.async_require_timeout(1, 60.0)
+        one.withdraw_timeout(1)
+
+        other = SharedConnection(hass, PARAMS, _connection_entry(hass))
+        other.for_unit(1)
+        await other.async_require_timeout(1, 60.0)
+
+    assert again.disconnects == 1
