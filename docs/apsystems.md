@@ -81,12 +81,12 @@ take close to a minute when the ECU is busy, and a request you give up
 on keeps it busy.
 
 The integration allows for that. It waits up to a minute for each
-answer. If an answer does not come, it sends nothing more to the ECU
-until about a minute into the ECU's next round, for every micro inverter
-behind it. In that time the sensors keep their last value for a few
-polls and then go unavailable, as they do when the ECU is off. Changing
-the export limit in that time fails with a message that says when to
-try again.
+answer. If an answer does not come, it sends nothing more to the ECU,
+for every micro inverter behind it, for two to seven minutes: until a
+minute into the first round that starts at least a minute later. The
+polls in that time count as failed, so the sensors go unavailable after
+as many polls as when the ECU is off. Changing the export limit in that
+time fails with a message that says when to try again.
 
 ## When the ECU stops answering until you restart it
 

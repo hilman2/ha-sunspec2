@@ -456,7 +456,7 @@ class VendorProfile:
             on the clock. Set for a gateway that works through one request
             at a time and goes on working on one it left unanswered. After
             such a request nothing more is sent to the gateway, for any
-            entry behind it, until its next round has passed. None for a
+            entry behind it, until a minute into its next round. None for a
             device that can be asked again at once.
     """
 
