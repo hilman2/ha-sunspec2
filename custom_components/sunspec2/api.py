@@ -91,7 +91,11 @@ def progress(msg: str) -> bool:
 
 
 def is_unanswered(exc: BaseException) -> bool:
-    """Whether ``exc`` comes from a request that went out and got no answer.
+    """Whether ``exc`` comes from a gateway that did not answer in time.
+
+    That is a request that went out and got no answer, or a connect the
+    gateway did not take within the timeout: either way it is not taking
+    anything. A refused connection is an answer and does not count.
 
     The timeout reaches the coordinator wrapped in whichever category the
     layer that caught it chose: transient from a model read, transport

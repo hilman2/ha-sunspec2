@@ -138,6 +138,12 @@ class DailyCounterLedger:
         """
         if not math.isfinite(watt_hours) or not 0 <= watt_hours <= MAX_DAILY_WH:
             return
+        if self.last_day is not None and day < self.last_day:
+            # A cloud before noon can take the power under PRODUCING_MIN_W
+            # after the counter was already seen on its new day. The day
+            # does not go back for that, or a confirmed jump would book
+            # ``last`` a second time.
+            day = self.last_day
         pending, self.pending = self.pending, None
         last = self.last
         if last is None:
@@ -204,16 +210,19 @@ class DailyCounterDisplay:
     """Today's energy as the daily counter shows it: zero while it still holds yesterday.
 
     The counter keeps yesterday's value until the micro inverter first
-    reports in the morning. A reading that has not moved since before
-    midnight is that value, and today's energy is zero until the counter
-    moves. Any movement ends it, the restart at zero as much as a climb.
+    reports in the morning. When the first reading after midnight is
+    exactly the last one before it, that value is carried: today's energy
+    is what the counter has added to it, which at night is nothing. The
+    carried value ends once two readings in a row are below it, the
+    restart; a single lower reading is taken for a stray.
 
-    The test is equality with the last reading of the day before, not the
-    time or the power. A counter that shows zero and then yesterday's value
-    again would count that value twice in the long-term statistics, and
-    only an exact match rules a flip like that out. A reading that differs
-    is shown as it is, also when it is yesterday's counter seen for the
-    first time after an outage.
+    Home Assistant counts every rise of a ``total_increasing`` sensor and
+    takes only a drop below 90 % for a reset, so the shown value must
+    never go from zero back up to yesterday's. That rules out a guess by
+    the time or the power, and it is why one stray must not end the
+    carried value. A first reading after midnight that differs from the
+    last one is shown as it is, also when it is yesterday's counter seen
+    for the first time after an outage.
     """
 
     last: float | None = None
@@ -221,21 +230,28 @@ class DailyCounterDisplay:
     last_date: str | None = None
     """Local date of the last reading, as ``YYYY-MM-DD``."""
     carried: float | None = None
-    """Yesterday's value while the counter still shows it, else None."""
+    """Yesterday's value while the counter still holds it, else None."""
 
     def record(self, watt_hours: float, date: str) -> None:
         """Take one reading of the daily counter, taken on the local ``date``."""
         if self.last_date is not None and date != self.last_date and watt_hours == self.last:
             if watt_hours > 0:
                 self.carried = watt_hours
-        elif self.carried is not None and watt_hours != self.carried:
+        elif (
+            self.carried is not None
+            and watt_hours < self.carried
+            and self.last is not None
+            and self.last < self.carried
+        ):
             self.carried = None
         self.last = watt_hours
         self.last_date = date
 
     def shown(self, watt_hours: float) -> float:
         """The value to show for the reading last recorded."""
-        return 0.0 if self.carried is not None and watt_hours == self.carried else watt_hours
+        if self.carried is None:
+            return watt_hours
+        return max(0.0, watt_hours - self.carried)
 
     def as_dict(self) -> dict[str, Any]:
         """The stored form."""

@@ -28,6 +28,10 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from modbus_connection import ModbusUnit
 
+#: Per endpoint, the highest timeout any SharedConnection asked the link for
+#: in this run. A raise above it is the only one that needs a reconnect.
+_ASKED_TIMEOUTS: dict[tuple[str, str, int] | tuple[str, str], float] = {}
+
 
 class SharedConnection:
     """Units for one device on the connection Home Assistant shares for its endpoint.
@@ -100,11 +104,24 @@ class SharedConnection:
         unit = self.for_unit(unit_id)
         connected = unit.connected
         unit.require_timeout(seconds)
-        if connected:
+        # The link waits for the highest timeout any unit asked for, so a
+        # second micro inverter behind the same gateway asking for the same
+        # minute changes nothing and must not cost every holder a reconnect.
+        endpoint = self._params.endpoint
+        raised = seconds > _ASKED_TIMEOUTS.get(endpoint, 0.0)
+        if raised:
+            _ASKED_TIMEOUTS[endpoint] = seconds
+        if connected and raised:
             await unit.disconnect()
 
     def withdraw_timeout(self, unit_id: int) -> None:
-        """Hand back a timeout asked for with ``async_require_timeout``."""
+        """Hand back a timeout asked for with ``async_require_timeout``.
+
+        modbus-connection keeps the requirement per unit id, not per holder,
+        so this also withdraws what another holder of the same unit id on the
+        same link asked for. The link falls back to its default after its
+        next connect.
+        """
         if self._timeouts.pop(unit_id, None) is not None and unit_id in self._units:
             self._units[unit_id].require_timeout(None)
 

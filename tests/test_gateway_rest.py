@@ -20,6 +20,7 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 from custom_components.sunspec2 import SunSpecDataUpdateCoordinator
 from custom_components.sunspec2 import gateway_rest_until
 from custom_components.sunspec2.api import SunSpecApiClient
+from custom_components.sunspec2.api import is_unanswered
 from custom_components.sunspec2.connection import SharedConnection
 from custom_components.sunspec2.const import CONF_UNIT_ID
 from custom_components.sunspec2.const import DOMAIN
@@ -217,3 +218,86 @@ async def test_a_raised_timeout_drops_a_live_link_once(hass):
 
     assert unit.timeouts == [60.0, None]
     assert unit.disconnects == 1
+
+
+def test_a_timeout_anywhere_in_the_chain_is_unanswered():
+    try:
+        try:
+            raise ModbusClientTimeout("no answer")
+        except ModbusClientTimeout:
+            raise TransportError("connect failed") from None
+    except TransportError as err:
+        wrapped = TransientError("cycle failed")
+        wrapped.__context__ = err
+        # ``from None`` hides the timeout from __cause__, not from __context__.
+        assert is_unanswered(err)
+        assert is_unanswered(wrapped)
+    assert not is_unanswered(TransportError("refused"))
+
+
+async def test_a_rest_that_starts_during_the_retry_wait_stops_the_retry(
+    hass, sunspec_apsystems_client_mock, monkeypatch
+):
+    monkeypatch.setattr("custom_components.sunspec2.INTERVAL_RETRY_DELAY_SECONDS", 0)
+    entry = await _ecu_entry(hass)
+    coordinator = entry.runtime_data
+
+    def refused_while_another_entry_goes_unanswered(model_id):
+        SunSpecDataUpdateCoordinator._GATEWAY_RESTS[("test_host", 123)] = (
+            dt_util.utcnow() + timedelta(minutes=3)
+        )
+        raise TransportError("refused")
+
+    with patch.object(
+        coordinator.api,
+        "async_get_data",
+        side_effect=refused_while_another_entry_goes_unanswered,
+    ) as get_data:
+        await coordinator.async_refresh()
+
+    assert get_data.call_count == 1
+    assert coordinator.consecutive_failed_cycles == 1
+
+
+async def test_after_a_restart_the_first_request_already_gets_a_minute(
+    hass, sunspec_apsystems_client_mock
+):
+    entry = await _ecu_entry(hass)
+    coordinator = entry.runtime_data
+    # What a restart starts from: the vendor known only from the stored identity.
+    coordinator.vendor = None
+    coordinator._persisted_identity = {"Mn": "APsystems", "Md": "DS3"}
+    coordinator.api._request_timeout = None
+    calls = []
+    real_get_models = coordinator.api.async_get_models
+
+    async def require(seconds):
+        calls.append(("timeout", seconds))
+
+    async def get_models():
+        calls.append(("request", None))
+        return await real_get_models()
+
+    with (
+        patch.object(coordinator.api, "async_require_timeout", side_effect=require),
+        patch.object(coordinator.api, "async_get_models", side_effect=get_models),
+    ):
+        await coordinator.async_refresh()
+
+    assert calls[:2] == [("timeout", 60.0), ("request", None)]
+
+
+async def test_a_second_unit_on_the_same_gateway_does_not_drop_the_link_again(hass):
+    first, second = FakeUnit(unit_id=1), FakeUnit(unit_id=2)
+    with patch("custom_components.sunspec2.connection.async_get_unit", side_effect=[first, second]):
+        one = SharedConnection(hass, PARAMS, _connection_entry(hass))
+        other = SharedConnection(hass, PARAMS, _connection_entry(hass))
+        one.for_unit(1)
+        other.for_unit(2)
+
+        await one.async_require_timeout(1, 60.0)
+        await other.async_require_timeout(2, 60.0)
+
+    assert first.disconnects == 1
+    assert second.disconnects == 0
+    assert second.timeouts == [60.0]

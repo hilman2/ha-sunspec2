@@ -116,6 +116,17 @@ def test_an_outage_from_the_night_into_the_afternoon_books_yesterday():
     assert ledger.total == 1000 + 3500
 
 
+def test_a_cloud_in_the_morning_does_not_take_the_day_back():
+    ledger = DailyCounterLedger()
+    ledger.record(3000, counter_day(datetime(2026, 10, 28, 18, 0), producing=False))
+    ledger.record(0, counter_day(datetime(2026, 10, 29, 7, 30), producing=False))
+    ledger.record(100, counter_day(datetime(2026, 10, 29, 8, 0), producing=True))
+    # Back after an outage with a jump, confirmed under a cloud at 4 W.
+    ledger.record(2300, counter_day(datetime(2026, 10, 29, 10, 30), producing=True))
+    ledger.record(2310, counter_day(datetime(2026, 10, 29, 10, 35), producing=False))
+    assert ledger.total == 3000 + 2310
+
+
 def test_impossible_values_are_left_out():
     ledger = DailyCounterLedger()
     _feed(ledger, [100, float("nan"), -5, MAX_DAILY_WH + 1, float("inf")])
@@ -274,9 +285,28 @@ def test_a_day_that_reaches_yesterdays_value_does_not_drop_to_zero():
     display = DailyCounterDisplay()
     display.record(2300, DAY_1)
     display.record(2300, DAY_2)
-    display.record(0, DAY_2)
-    display.record(2300, DAY_2)
+    for reading in (0, 15, 900, 2300):
+        display.record(reading, DAY_2)
     assert display.shown(2300) == 2300
+
+
+def test_a_stray_at_night_does_not_bring_yesterdays_value_back():
+    """Home Assistant would count a rise from zero to 3790 as new energy."""
+    display = DailyCounterDisplay()
+    display.record(3800, DAY_1)
+    shown = []
+    for reading in (3800, 3790, 3800, 0, 40):
+        display.record(reading, DAY_2)
+        shown.append(display.shown(reading))
+    assert shown == [0, 0, 0, 0, 40]
+
+
+def test_a_counter_still_moving_after_midnight_shows_what_it_added():
+    display = DailyCounterDisplay()
+    display.record(3800, DAY_1)
+    display.record(3800, DAY_2)
+    display.record(3802, DAY_2)
+    assert display.shown(3802) == 2
 
 
 def test_the_display_survives_its_stored_form():

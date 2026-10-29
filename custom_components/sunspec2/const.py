@@ -453,7 +453,8 @@ INTERVAL_RETRY_DELAY_SECONDS = 5
 # request left unanswered. After such a request the gateway rests: no
 # entry behind it sends anything until the rest is over, and the in-cycle
 # retry above is skipped, because it would only queue behind the request
-# the gateway is still busy with.
+# the gateway is still busy with. A connect that times out counts the
+# same: the gateway is not taking anything. A refused one does not.
 #
 # The rest lasts at least GATEWAY_REST_MIN_SECONDS, time for the gateway
 # to finish or drop that request, and then ends GATEWAY_REST_SETTLE_SECONDS
