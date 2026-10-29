@@ -62,8 +62,9 @@ outages that went with it: the ECU silent for the same half hour six
 times in four days, then for a day until it was restarted. That the
 polling caused them is not established. The profile takes away what
 could have: it waits a minute for an answer and, after a request that
-still went unanswered, leaves the ECU alone until a minute into its
-next round, which starts about 10 seconds past every fifth minute.
+still went unanswered, leaves the ECU alone until a minute past the
+first fifth minute of the clock that is at least a minute away; the
+ECU's round starts about 10 seconds past every fifth minute.
 """
 
 from __future__ import annotations

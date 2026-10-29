@@ -20,8 +20,8 @@ face value when it is a drop or a large jump:
   low one was a stray. If the next reading is higher than the low one, a
   new day has started and the old day is finished. A restart at zero is
   therefore booked once the counter climbs, also when Home Assistant was
-  off while it restarted, as long as the first reading after that is
-  below the last one.
+  off while it restarted, unless the first reading after that lies
+  between the last one and ``MAX_STEP_WH`` above it.
 * A jump of more than ``MAX_STEP_WH`` waits as well, and counts once the
   next reading is at least as high, so one bad high reading never sticks.
   It starts a new day only if it is confirmed on another counter day: a
