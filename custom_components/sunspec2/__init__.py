@@ -1812,11 +1812,15 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator[dict[int, SunSpecModelW
         it.
 
         Leaving an ignored issue in the registry costs nothing visible.
-        The Repairs panel hides ignored issues, ``async_get_or_create``
-        keeps ``dismissed_version`` when the same issue is raised again,
-        and Home Assistant re-surfaces ignored issues after a core
-        version bump. That is exactly the contract the user accepted
-        when they pressed the button.
+        The Repairs panel hides ignored issues, and ``async_get_or_create``
+        keeps ``dismissed_version`` when the same issue is raised again.
+        A core update does not reset the ignore (#160). A reload or removal
+        of the entry does, because its unload deletes with ``force``.
+        "Show ignored repairs" lists only active issues, and the registry
+        loads every non-persistent issue as inactive after a restart, so
+        after a restart the user can lift the ignore only once this
+        integration raises the issue again. That is exactly the contract
+        the user accepted when they pressed the button.
         """
         if not force:
             issue = ir.async_get(self.hass).async_get_issue(DOMAIN, issue_id)
