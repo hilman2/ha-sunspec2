@@ -321,7 +321,7 @@ async def test_a_withdrawn_timeout_is_asked_for_afresh(hass):
 
 
 async def test_a_setup_retry_asks_for_the_timeout_again(hass):
-    """A failed setup never unloads, so its connection never withdraws its timeout."""
+    """The next setup attempt of an entry replaces the record of the last one."""
     failed, retry = FakeUnit(), FakeUnit()
     entry = _connection_entry(hass)
     with patch("custom_components.sunspec2.connection.async_get_unit", side_effect=[failed, retry]):

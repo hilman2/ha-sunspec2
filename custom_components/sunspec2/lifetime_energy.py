@@ -231,18 +231,23 @@ class DailyCounterDisplay:
     energy is zero until the counter restarts.
 
     Home Assistant counts every rise of a ``total_increasing`` sensor and
-    takes only a drop below 90 % for a reset, so the shown value must
-    never go from zero back up to yesterday's. The carried value therefore
-    ends only on the climb of the restart: a rise from below 90 % of it
-    that stays below it. A stray is no such climb, however often the ECU
-    repeats it in its 5 minute rhythm. While the value is carried, the
-    sensor shows 0 at night; once a reading of the date belongs to today's
-    counter day (see ``counter_day``) it shows what the counter added to
-    it, for the rest of that date, so a dip of the power before noon does
-    not drop it back to 0. That keeps the energy of a counter that runs on
-    past midnight or is first seen again in the afternoon. A first reading after midnight that differs from the last
-    one is shown as it is, also when it is yesterday's counter seen for
-    the first time after an outage.
+    takes only a drop below 90 % for a reset, after which it counts the
+    next value in full. So while a value is carried, the shown value never
+    goes down: not from yesterday's back to zero, and not from what today
+    added back to less. The carried value ends only on the climb of the
+    restart, a rise from below 90 % of it that stays below it. A stray is
+    no such climb, however often the ECU repeats it in its 5 minute
+    rhythm.
+
+    While the value is carried, the sensor shows 0 until the counter has
+    moved on today's counter day (see ``counter_day``). From then on, for
+    the rest of that date, it shows the most the counter has added to the
+    carried value. That keeps the energy of a counter that runs on past
+    midnight or is first seen again in the afternoon; a stray above it
+    adds once what it is above, never the whole value. A first reading
+    after midnight that differs from the last one is shown as it is, also
+    when it is yesterday's counter seen for the first time after an
+    outage.
     """
 
     last: float | None = None
@@ -252,7 +257,9 @@ class DailyCounterDisplay:
     carried: float | None = None
     """Yesterday's value while the counter still holds it, else None."""
     todays_date: str | None = None
-    """The last local date with a reading on that day's counter day."""
+    """The last local date on which the counter moved on that day's counter day."""
+    added: float = 0.0
+    """The most the counter added to ``carried`` on ``todays_date``."""
 
     def record(self, watt_hours: float, date: str, day: str) -> None:
         """Take one reading of the daily counter.
@@ -278,8 +285,15 @@ class DailyCounterDisplay:
             self.carried = None
         self.last = watt_hours
         self.last_date = date
-        if day == date:
+        carried = self.carried
+        if carried is None:
+            return
+        # A power reading alone is no proof: the ECU has strays there too.
+        if day == date and watt_hours != carried and self.todays_date != date:
             self.todays_date = date
+            self.added = 0.0
+        if self.todays_date == date:
+            self.added = max(self.added, watt_hours - carried)
 
     def shown(self, watt_hours: float) -> float:
         """The value to show for the reading last recorded."""
@@ -287,7 +301,7 @@ class DailyCounterDisplay:
             return watt_hours
         if self.todays_date != self.last_date:
             return 0.0
-        return max(0.0, watt_hours - self.carried)
+        return self.added
 
     def as_dict(self) -> dict[str, Any]:
         """The stored form."""
@@ -297,6 +311,7 @@ class DailyCounterDisplay:
             "last_date": self.last_date,
             "carried": self.carried,
             "todays_date": self.todays_date,
+            "added": self.added,
         }
 
     @classmethod
@@ -304,8 +319,8 @@ class DailyCounterDisplay:
         """Read the stored form; anything unreadable starts afresh, showing what is read."""
         if not data or data.get("revision") != STORAGE_REVISION:
             return cls()
-        last, carried = data.get("last"), data.get("carried")
-        for value in (last, carried):
+        last, carried, added = data.get("last"), data.get("carried"), data.get("added")
+        for value in (last, carried, added):
             if value is not None and (
                 isinstance(value, bool) or not isinstance(value, (int, float))
             ):
@@ -316,6 +331,7 @@ class DailyCounterDisplay:
             last_date=last_date if isinstance(last_date, str) else None,
             carried=None if carried is None else float(carried),
             todays_date=todays_date if isinstance(todays_date, str) else None,
+            added=0.0 if added is None else float(added),
         )
 
 

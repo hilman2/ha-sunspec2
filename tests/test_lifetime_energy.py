@@ -344,6 +344,18 @@ def test_a_dip_in_the_power_does_not_drop_todays_counter_back_to_zero():
     assert _read(display, [3820], DAY_2, DAY_2) == [20]
 
 
+def test_a_small_stray_does_not_take_back_what_today_added():
+    """4365 is 3 % under 4500, but 19 % under the 700 shown: a reset to Home Assistant."""
+    display = _past_midnight()
+    assert _read(display, [4500, 4365, 4600], DAY_2, DAY_2) == [700, 700, 800]
+
+
+def test_a_power_stray_at_night_does_not_start_today():
+    display = _past_midnight()
+    _read(display, [3800], DAY_2, DAY_2)
+    assert _read(display, [3900, 3800], DAY_2, DAY_1) == [0, 0]
+
+
 def test_back_in_the_afternoon_shows_what_the_counter_added():
     """Out from 01:00 to 14:00, today's counter past yesterday's: not lost, not counted twice."""
     display = _past_midnight()
