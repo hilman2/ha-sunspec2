@@ -356,6 +356,18 @@ def test_a_power_stray_at_night_does_not_start_today():
     assert _read(display, [3900, 3800], DAY_2, DAY_1) == [0, 0]
 
 
+def test_back_in_the_evening_after_the_counter_restarted_unseen():
+    """Out from 01:00 to 19:00: the counter restarted and stopped, below yesterday's."""
+    display = _past_midnight()
+    assert _read(display, [1929, 1929], DAY_2, DAY_2) == [1929, 1929]
+
+
+def test_a_restart_after_midnight_keeps_what_was_added_before_it():
+    """Midnight sun: 25 Wh after midnight on the old counter, then the new one counts."""
+    display = _past_midnight()
+    assert _read(display, [3825, 0, 5], DAY_2, DAY_2) == [25, 25, 30]
+
+
 def test_back_in_the_afternoon_shows_what_the_counter_added():
     """Out from 01:00 to 14:00, today's counter past yesterday's: not lost, not counted twice."""
     display = _past_midnight()

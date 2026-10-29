@@ -234,20 +234,24 @@ class DailyCounterDisplay:
     takes only a drop below 90 % for a reset, after which it counts the
     next value in full. So while a value is carried, the shown value never
     goes down: not from yesterday's back to zero, and not from what today
-    added back to less. The carried value ends only on the climb of the
-    restart, a rise from below 90 % of it that stays below it. A stray is
-    no such climb, however often the ECU repeats it in its 5 minute
-    rhythm.
+    added back to less.
+
+    The carried value ends when the counter has restarted: a reading
+    below 90 % of it on today's counter day (see ``counter_day``), or a
+    rise from below 90 % of it that stays below it, the climb of a
+    restart before the micro inverter produces 5 W. A stray near the
+    carried value is neither, however often the ECU repeats it in its
+    5 minute rhythm.
 
     While the value is carried, the sensor shows 0 until the counter has
-    moved on today's counter day (see ``counter_day``). From then on, for
-    the rest of that date, it shows the most the counter has added to the
-    carried value. That keeps the energy of a counter that runs on past
-    midnight or is first seen again in the afternoon; a stray above it
-    adds once what it is above, never the whole value. A first reading
-    after midnight that differs from the last one is shown as it is, also
-    when it is yesterday's counter seen for the first time after an
-    outage.
+    moved on today's counter day. From then on, for the rest of that date,
+    it shows the most the counter has added to the carried value, and
+    after a restart that amount plus the new counter. That keeps the
+    energy of a counter that runs on past midnight or is first seen again
+    in the afternoon; a stray above it adds once what it is above, never
+    the whole value. A first reading after midnight that differs from the
+    last one is shown as it is, also when it is yesterday's counter seen
+    for the first time after an outage.
     """
 
     last: float | None = None
@@ -259,7 +263,8 @@ class DailyCounterDisplay:
     todays_date: str | None = None
     """The last local date on which the counter moved on that day's counter day."""
     added: float = 0.0
-    """The most the counter added to ``carried`` on ``todays_date``."""
+    """The most the counter added to ``carried`` on ``todays_date``, kept
+    after the restart as the part of the date the new counter lacks."""
 
     def record(self, watt_hours: float, date: str, day: str) -> None:
         """Take one reading of the daily counter.
@@ -274,14 +279,7 @@ class DailyCounterDisplay:
         if self.last_date is not None and date != self.last_date and watt_hours == self.last:
             if watt_hours > 0:
                 self.carried = watt_hours
-        elif (
-            carried is not None
-            and self.last is not None
-            and self.last < RESTART_SHARE * carried
-            and self.last < watt_hours < carried
-        ):
-            # The restart climbing: up from below 90 % of the carried
-            # value, and still below it.
+        elif carried is not None and self._restarted(watt_hours, date, day, carried):
             self.carried = None
         self.last = watt_hours
         self.last_date = date
@@ -295,13 +293,23 @@ class DailyCounterDisplay:
         if self.todays_date == date:
             self.added = max(self.added, watt_hours - carried)
 
+    def _restarted(self, watt_hours: float, date: str, day: str, carried: float) -> bool:
+        """Whether a reading shows that the counter has left ``carried`` for its new day."""
+        if day == date and watt_hours < RESTART_SHARE * carried:
+            return True
+        # The restart climbing before the power counts as producing.
+        return (
+            self.last is not None
+            and self.last < RESTART_SHARE * carried
+            and self.last < watt_hours < carried
+        )
+
     def shown(self, watt_hours: float) -> float:
         """The value to show for the reading last recorded."""
-        if self.carried is None:
-            return watt_hours
-        if self.todays_date != self.last_date:
-            return 0.0
-        return self.added
+        added = self.added if self.todays_date == self.last_date else 0.0
+        if self.carried is not None:
+            return added
+        return added + watt_hours
 
     def as_dict(self) -> dict[str, Any]:
         """The stored form."""
