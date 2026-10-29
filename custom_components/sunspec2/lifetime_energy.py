@@ -227,19 +227,21 @@ class DailyCounterDisplay:
 
     The counter keeps yesterday's value until the micro inverter first
     reports in the morning. When the first reading after midnight is
-    exactly the last one before it, that value is carried: today's energy
-    is what the counter has added to it, which at night is nothing.
+    exactly the last one before it, that value is carried, and today's
+    energy is zero until the counter restarts.
 
     Home Assistant counts every rise of a ``total_increasing`` sensor and
     takes only a drop below 90 % for a reset, so the shown value must
     never go from zero back up to yesterday's. The carried value therefore
-    ends only on evidence that the counter is today's: a different reading
-    on today's counter day (see ``counter_day``), or the climb of the
-    restart, a rise from below 90 % of the carried value that stays below
-    it. A stray is no such evidence, however often the ECU repeats it in
-    its 5 minute rhythm. A first reading after midnight that differs from
-    the last one is shown as it is, also when it is yesterday's counter
-    seen for the first time after an outage.
+    ends only on the climb of the restart: a rise from below 90 % of it
+    that stays below it. A stray is no such climb, however often the ECU
+    repeats it in its 5 minute rhythm. While the value is carried, the
+    sensor shows 0 at night; on today's counter day (see ``counter_day``)
+    it shows what the counter added to it, which keeps the energy of a
+    counter that runs on past midnight or is first seen again in the
+    afternoon. A first reading after midnight that differs from the last
+    one is shown as it is, also when it is yesterday's counter seen for
+    the first time after an outage.
     """
 
     last: float | None = None
@@ -248,6 +250,9 @@ class DailyCounterDisplay:
     """Local date of the last reading, as ``YYYY-MM-DD``."""
     carried: float | None = None
     """Yesterday's value while the counter still holds it, else None."""
+    on_todays_counter: bool = field(default=False, compare=False)
+    """Whether the last reading belongs to today's counter day. Not stored:
+    the first reading after a restart sets it before anything is shown."""
 
     def record(self, watt_hours: float, date: str, day: str) -> None:
         """Take one reading of the daily counter.
@@ -258,33 +263,29 @@ class DailyCounterDisplay:
             day (str): The counter day it belongs to, as ``counter_day``
                 gives it.
         """
+        carried = self.carried
         if self.last_date is not None and date != self.last_date and watt_hours == self.last:
             if watt_hours > 0:
                 self.carried = watt_hours
-        elif self._counter_is_todays(watt_hours, date, day):
+        elif (
+            carried is not None
+            and self.last is not None
+            and self.last < RESTART_SHARE * carried
+            and self.last < watt_hours < carried
+        ):
+            # The restart climbing: up from below 90 % of the carried
+            # value, and still below it.
             self.carried = None
         self.last = watt_hours
         self.last_date = date
-
-    def _counter_is_todays(self, watt_hours: float, date: str, day: str) -> bool:
-        """Whether a reading proves the counter has left the carried value for good."""
-        carried = self.carried
-        if carried is None or watt_hours == carried:
-            return False
-        if day == date:
-            return True
-        # The restart climbing: up from below 90 % of the carried value,
-        # and still below it.
-        return (
-            self.last is not None
-            and self.last < RESTART_SHARE * carried
-            and self.last < watt_hours < carried
-        )
+        self.on_todays_counter = day == date
 
     def shown(self, watt_hours: float) -> float:
         """The value to show for the reading last recorded."""
         if self.carried is None:
             return watt_hours
+        if not self.on_todays_counter:
+            return 0.0
         return max(0.0, watt_hours - self.carried)
 
     def as_dict(self) -> dict[str, Any]:

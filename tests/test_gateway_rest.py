@@ -317,3 +317,19 @@ async def test_a_withdrawn_timeout_is_asked_for_afresh(hass):
         await other.async_require_timeout(1, 60.0)
 
     assert again.disconnects == 1
+
+
+async def test_a_setup_retry_asks_for_the_timeout_again(hass):
+    """A failed setup never unloads, so its connection never withdraws its timeout."""
+    failed, retry = FakeUnit(), FakeUnit()
+    entry = _connection_entry(hass)
+    with patch("custom_components.sunspec2.connection.async_get_unit", side_effect=[failed, retry]):
+        first_attempt = SharedConnection(hass, PARAMS, entry)
+        first_attempt.for_unit(1)
+        await first_attempt.async_require_timeout(1, 60.0)
+
+        second_attempt = SharedConnection(hass, PARAMS, entry)
+        second_attempt.for_unit(1)
+        await second_attempt.async_require_timeout(1, 60.0)
+
+    assert retry.disconnects == 1

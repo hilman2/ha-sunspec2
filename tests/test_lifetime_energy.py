@@ -321,25 +321,25 @@ def test_a_day_that_reaches_yesterdays_value_does_not_drop_to_zero():
         [3790, 3795, 3800],
         [0, 0, 3800],
         [3810, 3810, 3800],
+        [4200, 4200, 3800],
     ],
 )
 def test_strays_at_night_never_bring_yesterdays_value_back(night):
     """Home Assistant would count a rise from zero to 3790 as new energy."""
     display = _past_midnight()
-    shown = _read(display, night, DAY_2, DAY_1)
-    assert max(shown) <= 10
-    assert shown[-1] == 0
+    assert _read(display, night, DAY_2, DAY_1) == [0] * len(night)
 
 
-def test_a_counter_still_moving_after_midnight_shows_what_it_added():
+def test_a_counter_running_past_midnight_shows_what_it_added():
+    """Midnight sun: the micro inverter produces, the counter has not restarted yet."""
     display = _past_midnight()
-    assert _read(display, [3802], DAY_2, DAY_1) == [2]
+    assert _read(display, [3802, 3825], DAY_2, DAY_2) == [2, 25]
 
 
-def test_back_in_the_afternoon_the_counter_is_todays():
-    """Out from 01:00 to 14:00: today's counter has passed yesterday's."""
+def test_back_in_the_afternoon_shows_what_the_counter_added():
+    """Out from 01:00 to 14:00, today's counter past yesterday's: not lost, not counted twice."""
     display = _past_midnight()
-    assert _read(display, [4500], DAY_2, DAY_2) == [4500]
+    assert _read(display, [4500, 4600], DAY_2, DAY_2) == [700, 800]
 
 
 def test_the_display_survives_its_stored_form():

@@ -29,11 +29,12 @@ from homeassistant.core import HomeAssistant
 from modbus_connection import ModbusUnit
 
 #: Per endpoint, the timeout each holder asked the link for, keyed by the
-#: SharedConnection and unit id, until it withdraws it. A raise above all
-#: the others is the only one that needs a reconnect.
-_ASKED_TIMEOUTS: dict[
-    tuple[str, str, int] | tuple[str, str], dict[tuple[SharedConnection, int], float]
-] = {}
+#: config entry and unit id, until it withdraws it. A raise above all the
+#: other holders is the only one that needs a reconnect. Keyed by entry
+#: rather than by object: a setup that fails with ConfigEntryNotReady never
+#: unloads, so its connection never withdraws, and the next attempt must
+#: replace that record instead of being held back by it.
+_ASKED_TIMEOUTS: dict[tuple[str, str, int] | tuple[str, str], dict[tuple[str, int], float]] = {}
 
 
 class SharedConnection:
@@ -111,8 +112,11 @@ class SharedConnection:
         # second micro inverter behind the same gateway asking for the same
         # minute changes nothing and must not cost every holder a reconnect.
         asked = _ASKED_TIMEOUTS.setdefault(self._params.endpoint, {})
-        raised = seconds > max(asked.values(), default=0.0)
-        asked[(self, unit_id)] = seconds
+        key = self._holder_key(unit_id)
+        raised = seconds > max(
+            (asked_for for holder, asked_for in asked.items() if holder != key), default=0.0
+        )
+        asked[key] = seconds
         if connected and raised:
             await unit.disconnect()
 
@@ -124,9 +128,14 @@ class SharedConnection:
         same link asked for. The link falls back to its default after its
         next connect.
         """
-        _ASKED_TIMEOUTS.get(self._params.endpoint, {}).pop((self, unit_id), None)
+        _ASKED_TIMEOUTS.get(self._params.endpoint, {}).pop(self._holder_key(unit_id), None)
         if self._timeouts.pop(unit_id, None) is not None and unit_id in self._units:
             self._units[unit_id].require_timeout(None)
+
+    def _holder_key(self, unit_id: int) -> tuple[str, int]:
+        """Who asked for a timeout: the config entry, or this object for a probe."""
+        holder = self._entry.entry_id if self._entry is not None else f"probe-{id(self)}"
+        return (holder, unit_id)
 
     async def connect(self) -> None:
         """Let discovery or cached-layout validation open the link on its first read."""
