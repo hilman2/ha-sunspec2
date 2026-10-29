@@ -403,6 +403,9 @@ def clear_gateway_locks():
     from custom_components.sunspec2 import SunSpecDataUpdateCoordinator
 
     SunSpecDataUpdateCoordinator._GATEWAY_LOCKS.clear()
+    # The gateway rests are class-level too, and one left over would skip
+    # every poll of the next test that uses the same host and port.
+    SunSpecDataUpdateCoordinator._GATEWAY_RESTS.clear()
     yield
     SunSpecDataUpdateCoordinator._GATEWAY_LOCKS.clear()
 

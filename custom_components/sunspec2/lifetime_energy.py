@@ -1,11 +1,17 @@
 """A lifetime total for devices that only report the yield of the current day.
 
-An APsystems ECU serves the SunSpec point ``WH`` as a counter that starts
-again at zero every night. SunSpec defines ``WH`` as a lifetime counter, so
-the generic sensor shows the daily value as "Energy produced today" and
-there is nothing to bind to for a total. This module adds the total by
-counting: it keeps the energy of all finished days and the last daily value
-it accepted.
+An APsystems ECU serves the SunSpec point ``WH`` as a counter of one day.
+SunSpec defines ``WH`` as a lifetime counter, so the generic sensor shows
+the daily value as "Energy produced today" and there is nothing to bind to
+for a total. This module adds the total by counting: it keeps the energy of
+all finished days and the last daily value it accepted.
+
+The counter does not restart at midnight. It keeps yesterday's value
+through the night and starts again at zero when the micro inverter first
+reports in the morning (#160). A reading therefore belongs to the day of
+the counter, which ``counter_day`` tells, rather than to the date it was
+taken on, and between midnight and that first report today's energy is
+still zero, which ``DailyCounterDisplay`` shows.
 
 The daily counter is read through a gateway that now and then reports a
 reading that does not fit a counter going up, so a reading is not taken at
@@ -13,17 +19,22 @@ face value when it is a drop or a large jump:
 
 * A lower reading waits. If the next reading is back at the old level, the
   low one was a stray. If the next reading is higher than the low one, a
-  new day has started and the old day is finished. A night at zero is
-  therefore booked when the sun comes up, also when Home Assistant was off
-  during the nightly reset.
+  new day has started and the old day is finished. A restart at zero is
+  therefore booked once the counter climbs, also when Home Assistant was
+  off while it restarted.
 * A jump of more than ``MAX_STEP_WH`` waits as well, and counts once the
   next reading is at least as high, so one bad high reading never sticks.
+  It starts a new day only if it is confirmed on another counter day: a
+  Home Assistant that comes back at night, after missing the afternoon,
+  finds the same day's counter, only higher.
 """
 
 from __future__ import annotations
 
 import math
 from dataclasses import dataclass
+from datetime import datetime
+from datetime import timedelta
 from typing import Any
 
 from homeassistant.components.sensor import SensorDeviceClass
@@ -53,6 +64,47 @@ MAX_DAILY_WH = 50_000.0
 #: leaves room for a Home Assistant restart of a few hours.
 MAX_STEP_WH = 2_000.0
 
+#: AC power above which a micro inverter counts as producing. At night the
+#: ECU can go on showing 1 W with 0 V and 0 Hz.
+PRODUCING_MIN_W = 5.0
+
+#: Local hour from which a reading belongs to today's counter even while the
+#: micro inverter produces nothing: by noon it has reported, and the counter
+#: has started again, on any day it produced at all.
+COUNTER_DAY_HOUR = 12
+
+
+def _is_producing(wrapper: SunSpecModelWrapper, model_index: int) -> bool:
+    """Whether the inverter model in ``wrapper`` reports AC power above PRODUCING_MIN_W."""
+    try:
+        power = wrapper.getValue("W", model_index)
+    except (KeyError, AttributeError, OverflowError):
+        return False
+    if isinstance(power, bool) or not isinstance(power, (int, float)):
+        return False
+    return power > PRODUCING_MIN_W
+
+
+def counter_day(now: datetime, producing: bool) -> str:
+    """The day the daily counter's reading belongs to.
+
+    The counter starts again when the micro inverter first reports in the
+    morning, so until then it still holds yesterday. A reading is today's
+    while the micro inverter produces, or from noon on; before that it is
+    yesterday's.
+
+    Args:
+        now (datetime): The moment of the reading, in local time.
+        producing (bool): Whether the micro inverter produces at that moment.
+
+    Returns:
+        str: The day, as ``YYYY-MM-DD``.
+    """
+    day = now.date()
+    if not producing and now.hour < COUNTER_DAY_HOUR:
+        day -= timedelta(days=1)
+    return day.isoformat()
+
 
 @dataclass
 class DailyCounterLedger:
@@ -63,7 +115,7 @@ class DailyCounterLedger:
     last: float | None = None
     """Last accepted value of the daily counter."""
     last_day: str | None = None
-    """Local date on which ``last`` was accepted, as ``YYYY-MM-DD``."""
+    """The day ``last`` belongs to, as ``counter_day`` gives it."""
     pending: float | None = None
     """A reading that waits for the next one: a drop or a large jump."""
 
@@ -79,9 +131,9 @@ class DailyCounterLedger:
 
         Args:
             watt_hours (float): The reading, in Wh.
-            day (str): The local date of the reading, as ``YYYY-MM-DD``.
-                A jump that is confirmed on another date than the last
-                accepted reading is a new day whose value already is
+            day (str): The day the reading belongs to, as ``counter_day``
+                gives it. A jump that is confirmed on another day than the
+                last accepted reading is a new day whose value already is
                 higher than yesterday's.
         """
         if not math.isfinite(watt_hours) or not 0 <= watt_hours <= MAX_DAILY_WH:
@@ -145,6 +197,83 @@ class DailyCounterLedger:
             last_day=last_day if isinstance(last_day, str) else None,
             pending=None if values["pending"] is None else float(values["pending"]),
         )
+
+
+@dataclass
+class DailyCounterDisplay:
+    """Today's energy as the daily counter shows it: zero while it still holds yesterday.
+
+    The counter keeps yesterday's value until the micro inverter first
+    reports in the morning. A reading that has not moved since before
+    midnight is that value, and today's energy is zero until the counter
+    moves. Any movement ends it, the restart at zero as much as a climb.
+
+    The test is equality with the last reading of the day before, not the
+    time or the power. A counter that shows zero and then yesterday's value
+    again would count that value twice in the long-term statistics, and
+    only an exact match rules a flip like that out. A reading that differs
+    is shown as it is, also when it is yesterday's counter seen for the
+    first time after an outage.
+    """
+
+    last: float | None = None
+    """The last reading."""
+    last_date: str | None = None
+    """Local date of the last reading, as ``YYYY-MM-DD``."""
+    carried: float | None = None
+    """Yesterday's value while the counter still shows it, else None."""
+
+    def record(self, watt_hours: float, date: str) -> None:
+        """Take one reading of the daily counter, taken on the local ``date``."""
+        if self.last_date is not None and date != self.last_date and watt_hours == self.last:
+            if watt_hours > 0:
+                self.carried = watt_hours
+        elif self.carried is not None and watt_hours != self.carried:
+            self.carried = None
+        self.last = watt_hours
+        self.last_date = date
+
+    def shown(self, watt_hours: float) -> float:
+        """The value to show for the reading last recorded."""
+        return 0.0 if self.carried is not None and watt_hours == self.carried else watt_hours
+
+    def as_dict(self) -> dict[str, Any]:
+        """The stored form."""
+        return {
+            "revision": STORAGE_REVISION,
+            "last": self.last,
+            "last_date": self.last_date,
+            "carried": self.carried,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any] | None) -> DailyCounterDisplay:
+        """Read the stored form; anything unreadable starts afresh, showing what is read."""
+        if not data or data.get("revision") != STORAGE_REVISION:
+            return cls()
+        last, carried = data.get("last"), data.get("carried")
+        for value in (last, carried):
+            if value is not None and (
+                isinstance(value, bool) or not isinstance(value, (int, float))
+            ):
+                return cls()
+        last_date = data.get("last_date")
+        return cls(
+            last=None if last is None else float(last),
+            last_date=last_date if isinstance(last_date, str) else None,
+            carried=None if carried is None else float(carried),
+        )
+
+
+@dataclass
+class DisplayExtraData(ExtraStoredData):
+    """What Home Assistant keeps of the daily sensor across a restart."""
+
+    display: DailyCounterDisplay
+
+    def as_dict(self) -> dict[str, Any]:
+        """The display state in its stored form."""
+        return self.display.as_dict()
 
 
 @dataclass
@@ -226,11 +355,13 @@ class CountedLifetimeEnergySensor(SunSpecEntity, SensorEntity, RestoreEntity):
         value = wrapper.getValue(self._key, self._model_index)
         # SunSpec reserves 0 of an acc32 for "not implemented", and the
         # library reads it as None. The counter sits at exactly that value
-        # from its nightly reset until the sun is up.
+        # from its restart in the morning until the first watt-hour.
         reading = 0.0 if value is None else value
         if isinstance(reading, bool) or not isinstance(reading, (int, float)):
             return
-        self._ledger.record(float(reading), dt_util.now().date().isoformat())
+        self._ledger.record(
+            float(reading), counter_day(dt_util.now(), _is_producing(wrapper, self._model_index))
+        )
 
     @property
     def native_value(self) -> float | None:

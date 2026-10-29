@@ -13,6 +13,7 @@ from collections import deque
 from collections.abc import AsyncIterator
 from collections.abc import Callable
 from contextlib import asynccontextmanager
+from datetime import UTC
 from datetime import datetime
 from datetime import timedelta
 from time import monotonic
@@ -39,6 +40,7 @@ from homeassistant.helpers.update_coordinator import UpdateFailed
 from homeassistant.util import dt as dt_util
 
 from .api import SunSpecApiClient
+from .api import is_unanswered
 from .const import CONF_BAUDRATE
 from .const import CONF_CAPTURE_RAW
 from .const import CONF_ENABLED_MODELS
@@ -60,6 +62,8 @@ from .const import DEFAULT_MODELS
 from .const import DEFAULT_SCAN_DELAY_SECONDS
 from .const import DEVICE_IDENTITY_POINTS
 from .const import DOMAIN
+from .const import GATEWAY_REST_MIN_SECONDS
+from .const import GATEWAY_REST_SETTLE_SECONDS
 from .const import INTERVAL_RETRY_DELAY_SECONDS
 from .const import MIN_SCAN_INTERVAL_SECONDS
 from .const import NAMEPLATE_FILTER_HEADROOM
@@ -577,6 +581,32 @@ def get_sunspec_unique_id(config_entry_id: str, key: str, model_id: int, model_i
     return f"{config_entry_id}_{key}-{model_id}-{model_index}"
 
 
+def gateway_rest_until(now: datetime, round_seconds: int) -> datetime:
+    """When a gateway that left a request unanswered may be asked again.
+
+    See GATEWAY_REST_MIN_SECONDS for the reasoning.
+
+    Args:
+        now (datetime): The moment the request went unanswered, timezone-aware.
+        round_seconds (int): The period of the gateway's collection rounds,
+            which start on the clock, counted from the Unix epoch.
+
+    Returns:
+        datetime: The end of the rest, in UTC.
+    """
+    earliest = now.timestamp() + GATEWAY_REST_MIN_SECONDS
+    next_round = (earliest // round_seconds + 1) * round_seconds
+    return datetime.fromtimestamp(next_round + GATEWAY_REST_SETTLE_SECONDS, tz=UTC)
+
+
+class _GatewayResting(Exception):
+    """A poll fell into the gateway's rest. Never leaves the coordinator."""
+
+    def __init__(self, until: datetime) -> None:
+        super().__init__(until)
+        self.until = until
+
+
 class SunSpecDataUpdateCoordinator(DataUpdateCoordinator[dict[int, SunSpecModelWrapper]]):
     """Class to manage fetching data from the API."""
 
@@ -593,6 +623,11 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator[dict[int, SunSpecModelW
     # Single-gateway users see no behavioural change because the lock is
     # always free.
     _GATEWAY_LOCKS: dict[tuple[str, int], asyncio.Lock] = {}
+    # Per gateway, the end of its rest after a request it left unanswered
+    # (see GATEWAY_REST_MIN_SECONDS). Class-level like the locks, because
+    # the gateway is busy for every entry behind it, not only for the one
+    # whose request it did not answer.
+    _GATEWAY_RESTS: dict[tuple[str, int], datetime] = {}
 
     @classmethod
     def _get_gateway_lock(cls, host: str, port: int) -> asyncio.Lock:
@@ -673,7 +708,8 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator[dict[int, SunSpecModelW
         # than being retried on every cycle for a device that simply does
         # not expose model 120 or 121.
         self._nameplate_probed = False
-        self._gateway_lock = self._get_gateway_lock(entry.data[CONF_HOST], entry.data[CONF_PORT])
+        self._gateway_key: tuple[str, int] = (entry.data[CONF_HOST], entry.data[CONF_PORT])
+        self._gateway_lock = self._get_gateway_lock(*self._gateway_key)
         self._log = get_adapter(
             entry.data[CONF_HOST],
             entry.data[CONF_PORT],
@@ -999,6 +1035,7 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator[dict[int, SunSpecModelW
         first_err: BaseException | None = None
         try:
             async with self._gateway_lock:
+                self._raise_if_gateway_rests()
                 try:
                     data = await self._run_one_update_cycle()
                 except BaseException:
@@ -1009,13 +1046,17 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator[dict[int, SunSpecModelW
             result = self._after_successful_cycle(data)
             await self._async_save_model_structure()
             return result
+        except _GatewayResting as rest:
+            self._skip_resting_cycle(rest.until)
         except Exception as exc:  # noqa: BLE001 - dispatched below
             first_err = exc
 
         # First refresh: no prior data exists, no point sleeping for
         # an in-cycle retry. Fail fast and let HA handle the retry via
-        # ConfigEntryNotReady's exponential backoff.
-        if self.data is None:
+        # ConfigEntryNotReady's exponential backoff. Nor after a request
+        # the gateway left unanswered, where the retry would queue
+        # behind it (see GATEWAY_REST_MIN_SECONDS).
+        if self.data is None or self._rests_after(first_err):
             return await self._after_failed_cycle(first_err)
 
         # Issue #52: this line fires once per poll, so on an inverter
@@ -1037,11 +1078,15 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator[dict[int, SunSpecModelW
         await asyncio.sleep(INTERVAL_RETRY_DELAY_SECONDS)
         try:
             async with self._gateway_lock:
+                # Another entry's request may have gone unanswered meanwhile.
+                self._raise_if_gateway_rests()
                 try:
                     data = await self._run_one_update_cycle()
                 except BaseException:
                     await self.api.async_close(force=True)
                     raise
+        except _GatewayResting:
+            return await self._after_failed_cycle(first_err)
         except Exception as second_err:  # noqa: BLE001 - dispatched below
             return await self._after_failed_cycle(second_err)
         result = self._after_successful_cycle(data)
@@ -1140,10 +1185,21 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator[dict[int, SunSpecModelW
                 f"Timed out after {WRITE_LOCK_TIMEOUT_SECONDS}s waiting for the Modbus "
                 f"gateway to become free; the inverter is busy, try again"
             ) from exc
+        if (until := self.gateway_rest_end()) is not None:
+            self._gateway_lock.release()
+            raise TransientError(
+                "The device is still busy with a request it left unanswered; try again after "
+                f"{dt_util.as_local(until).strftime('%H:%M:%S')}"
+            )
         successful = False
         try:
             yield
             successful = True
+        except BaseException as exc:
+            # A write the gateway did not answer keeps it busy like a read.
+            if self._rests_after(exc):
+                self._start_gateway_rest()
+            raise
         finally:
             try:
                 # A failed transaction can leave a late response on the
@@ -1210,6 +1266,7 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator[dict[int, SunSpecModelW
         inflating the per-category thresholds.
         """
         data = {}
+        await self._async_apply_link_profile()
         all_models = set(await self.api.async_get_models())
         # Track which previously-known models have just gone missing
         # (cjne issue #202). The repair-issue check happens in
@@ -1271,6 +1328,9 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator[dict[int, SunSpecModelW
             )
             if self.vendor is not None:
                 self._log.info("Vendor profile %s applies to this device", self.vendor.slug)
+                # A first run without a stored identity learns the vendor
+                # only now, so the rest of this cycle already gets its timeout.
+                await self._async_apply_link_profile()
         # Only meaningful once model 1 has been read, and it is read on
         # the first cycle, so this lands exactly where it can act.
         rescan_after_cycle = await self._check_device_identity()
@@ -1518,6 +1578,8 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator[dict[int, SunSpecModelW
             wrapped = TransportError(f"Unclassified: {exc.__class__.__name__}: {exc}")
             wrapped.__cause__ = exc
         self._record_error(wrapped)
+        if self._rests_after(exc):
+            self._start_gateway_rest()
         # Drop the session now rather than flagging it for the next
         # get_client(). Whatever went wrong, this socket is a suspect: a
         # half-open TCP session to an inverter that rebooted looks
@@ -1529,6 +1591,11 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator[dict[int, SunSpecModelW
         # request. The embedded transport checks the transaction id now.)
         await self.api.async_close(force=True)
         self.api.reconnect_next(rescan=not isinstance(wrapped, (TransportError, TransientError)))
+        self._count_failed_cycle()
+        raise UpdateFailed(str(wrapped)) from exc
+
+    def _count_failed_cycle(self) -> None:
+        """Count one failed cycle towards the stale-data tolerance."""
         self.consecutive_failed_cycles += 1
         # HA's DataUpdateCoordinator._async_refresh stops dispatching
         # listeners on consecutive failures (it early-returns when both
@@ -1540,7 +1607,80 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator[dict[int, SunSpecModelW
         # go unavailable when the inverter has been gone too long.
         if self.consecutive_failed_cycles == STALE_DATA_TOLERANCE_CYCLES + 1:
             self.async_update_listeners()
-        raise UpdateFailed(str(wrapped)) from exc
+
+    def _link_profile(self) -> VendorProfile | None:
+        """The vendor profile that decides how the link is used.
+
+        The one read from the device this run, or before that the one of
+        the identity stored with the layout. That way a restart asks the
+        link for the profile's timeout before the first request, instead
+        of after the first cycle has run on the default.
+        """
+        if self.vendor is not None or self._persisted_identity is None:
+            return self.vendor
+        identity = self._persisted_identity
+        return profile_for(identity.get("Mn"), identity.get("Md", ""), "", identity.get("Vr", ""))
+
+    async def _async_apply_link_profile(self) -> None:
+        """Ask the link for the timeout the vendor profile names. Caller holds the gateway lock."""
+        profile = self._link_profile()
+        if profile is not None and profile.request_timeout is not None:
+            await self.api.async_require_timeout(profile.request_timeout)
+
+    def _rests_after(self, exc: BaseException | None) -> bool:
+        """Whether ``exc`` sends the gateway into a rest (see GATEWAY_REST_MIN_SECONDS)."""
+        profile = self._link_profile()
+        return (
+            exc is not None
+            and profile is not None
+            and profile.collection_round_seconds is not None
+            and is_unanswered(exc)
+        )
+
+    def _start_gateway_rest(self) -> None:
+        """Leave the gateway alone, for every entry behind it, until its next round."""
+        profile = self._link_profile()
+        if profile is None or profile.collection_round_seconds is None:
+            return
+        until = gateway_rest_until(dt_util.utcnow(), profile.collection_round_seconds)
+        self._GATEWAY_RESTS[self._gateway_key] = until
+        self._log.info(
+            "The device left a request unanswered. Nothing more is sent to it until %s, "
+            "so it can finish the request first",
+            dt_util.as_local(until).strftime("%H:%M:%S"),
+        )
+
+    def gateway_rest_end(self) -> datetime | None:
+        """The end of the gateway's current rest, or None when it is not resting."""
+        until = self._GATEWAY_RESTS.get(self._gateway_key)
+        if until is None:
+            return None
+        if dt_util.utcnow() >= until:
+            del self._GATEWAY_RESTS[self._gateway_key]
+            return None
+        return until
+
+    def _raise_if_gateway_rests(self) -> None:
+        """Raise ``_GatewayResting`` while the gateway rests. Caller holds the gateway lock."""
+        if (until := self.gateway_rest_end()) is not None:
+            raise _GatewayResting(until)
+
+    def _skip_resting_cycle(self, until: datetime) -> NoReturn:
+        """Fail a poll that fell into the gateway's rest, without sending anything.
+
+        It counts as a failed cycle, so the sensors go unavailable after as
+        many polls as they would if the poll had gone out and failed. It is
+        not recorded as an error, because nothing new was learned.
+        """
+        if self._shutdown_requested:
+            raise asyncio.CancelledError("SunSpec entry was unloaded")
+        self._count_failed_cycle()
+        until_text = dt_util.as_local(until).strftime("%H:%M:%S")
+        self._log.debug("Gateway rests until %s, poll skipped", until_text)
+        raise UpdateFailed(
+            f"The device is still busy with a request it left unanswered; "
+            f"the next poll goes out after {until_text}"
+        )
 
     def _record_error(self, exc: SunSpecError) -> None:
         """Append a categorised error to the matching ring buffer.

@@ -110,6 +110,9 @@ async def async_get_config_entry_diagnostics(
             if hasattr(coordinator, "_downtime_is_expected")
             else None,
         },
+        # #160: the end of the gateway's rest after a request it left
+        # unanswered, in UTC, or None. The polls in between send nothing.
+        "gateway_rest_until": _gateway_rest_dump(coordinator),
         "raw_captures": list(getattr(coordinator.api, "_captured_reads", [])),
         "versions": {
             "homeassistant": HA_VERSION,
@@ -195,6 +198,13 @@ def _recent_errors_dump(
         "device": [],
         "transient": [],
     }
+
+
+def _gateway_rest_dump(coordinator: SunSpecDataUpdateCoordinator) -> str | None:
+    """The end of the gateway's rest as ISO text, or None."""
+    rest_end = getattr(coordinator, "gateway_rest_end", None)
+    until = rest_end() if rest_end is not None else None
+    return None if until is None else until.isoformat()
 
 
 def _web_dump(coordinator: SunSpecDataUpdateCoordinator) -> dict[str, Any] | None:

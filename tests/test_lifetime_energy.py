@@ -1,16 +1,22 @@
 """The lifetime total counted from a daily energy counter."""
 
+from datetime import datetime
+
 import pytest
 from homeassistant.components.sensor import SensorStateClass
 from homeassistant.core import State
 from homeassistant.helpers import entity_registry as er
+from homeassistant.util import dt as dt_util
 from pytest_homeassistant_custom_component.common import mock_restore_cache_with_extra_data
 
 from custom_components.sunspec2 import get_sunspec_unique_id
 from custom_components.sunspec2.api import SunSpecApiClient
 from custom_components.sunspec2.lifetime_energy import MAX_DAILY_WH
 from custom_components.sunspec2.lifetime_energy import CountedLifetimeEnergySensor
+from custom_components.sunspec2.lifetime_energy import DailyCounterDisplay
 from custom_components.sunspec2.lifetime_energy import DailyCounterLedger
+from custom_components.sunspec2.lifetime_energy import counter_day
+from custom_components.sunspec2.sensor import DailyEnergySensor
 
 from . import create_mock_sunspec_config_entry
 from . import setup_mock_sunspec_config_entry
@@ -77,6 +83,37 @@ def test_a_restart_in_the_morning_books_yesterday():
     _feed(ledger, [3000])
     _feed(ledger, [40, 90], DAY_2)
     assert ledger.total == 3090
+
+
+def test_a_reading_is_yesterdays_until_the_inverter_produces_or_it_is_noon():
+    assert counter_day(datetime(2026, 10, 29, 1, 0), producing=False) == "2026-10-28"
+    assert counter_day(datetime(2026, 10, 29, 8, 0), producing=True) == "2026-10-29"
+    assert counter_day(datetime(2026, 10, 29, 14, 0), producing=False) == "2026-10-29"
+
+
+def test_a_jump_seen_at_night_is_still_the_same_day():
+    """#160: the ECU keeps yesterday's counter until the inverter reports in the morning.
+
+    Home Assistant saw 500 Wh in the morning and nothing more until 01:00,
+    when the counter still showed the 3800 Wh of the whole day.
+    """
+    ledger = DailyCounterLedger()
+    ledger.record(500, counter_day(datetime(2026, 10, 28, 9, 0), producing=True))
+    ledger.record(3800, counter_day(datetime(2026, 10, 29, 1, 0), producing=False))
+    ledger.record(3800, counter_day(datetime(2026, 10, 29, 1, 5), producing=False))
+    ledger.record(0, counter_day(datetime(2026, 10, 29, 7, 40), producing=False))
+    ledger.record(1000, counter_day(datetime(2026, 10, 29, 12, 30), producing=True))
+    assert ledger.total == 3800 + 1000
+
+
+def test_an_outage_from_the_night_into_the_afternoon_books_yesterday():
+    ledger = DailyCounterLedger()
+    ledger.record(1000, counter_day(datetime(2026, 10, 28, 17, 0), producing=False))
+    # The last poll before the outage, after midnight: yesterday's counter.
+    ledger.record(1000, counter_day(datetime(2026, 10, 29, 3, 0), producing=False))
+    ledger.record(3500, counter_day(datetime(2026, 10, 29, 14, 0), producing=True))
+    ledger.record(3500, counter_day(datetime(2026, 10, 29, 14, 5), producing=True))
+    assert ledger.total == 1000 + 3500
 
 
 def test_impossible_values_are_left_out():
@@ -169,3 +206,133 @@ async def test_the_total_is_kept_across_a_restart(hass, sunspec_apsystems_client
     entry.runtime_data.data[103].getPoint("WH").value = 1500
     entry.runtime_data.async_update_listeners()
     assert sensor.native_value == 1001.5
+
+
+def _local(day: int, hour: int, minute: int = 0) -> datetime:
+    """A moment in October 2026 in Home Assistant's time zone."""
+    return datetime(2026, 10, day, hour, minute, tzinfo=dt_util.get_default_time_zone())
+
+
+def _poll(entry, watt_hours, watts):
+    """What a poll leaves in the coordinator: the daily counter and the AC power."""
+    model = entry.runtime_data.data[103]
+    model.getPoint("WH").value = watt_hours
+    model.getPoint("W").value = watts
+    entry.runtime_data.async_update_listeners()
+
+
+async def test_the_total_books_a_night_reading_for_the_day_before(
+    hass, sunspec_apsystems_client_mock, freezer
+):
+    """#160: back at 01:00 after missing the afternoon, the counter is still yesterday's."""
+    freezer.move_to(_local(28, 9))
+    entry = await _entry(hass)
+    sensor = _counted(hass)
+    _poll(entry, 500, 300)
+
+    freezer.move_to(_local(29, 1))
+    _poll(entry, 3800, 0)
+    freezer.move_to(_local(29, 1, 5))
+    _poll(entry, 3800, 0)
+    # At dawn the micro inverter reports, the counter starts again and climbs.
+    freezer.move_to(_local(29, 7, 40))
+    _poll(entry, 0, 2)
+    freezer.move_to(_local(29, 12, 30))
+    _poll(entry, 1000, 250)
+
+    assert sensor.native_value == 4.8
+
+
+def _daily(hass):
+    component = hass.data["entity_components"]["sensor"]
+    return next(e for e in component.entities if isinstance(e, DailyEnergySensor))
+
+
+def test_yesterdays_counter_shows_zero_until_it_moves():
+    display = DailyCounterDisplay()
+    display.record(2300, DAY_1)
+    assert display.shown(2300) == 2300
+
+    display.record(2300, DAY_2)
+    assert display.shown(2300) == 0
+    # The micro inverter reports: the counter starts again and climbs.
+    display.record(0, DAY_2)
+    assert display.shown(0) == 0
+    display.record(40, DAY_2)
+    assert display.shown(40) == 40
+
+
+def test_a_counter_that_moved_overnight_is_shown_as_read():
+    """Back after an outage with yesterday's counter, higher than last seen: zero would lose it."""
+    display = DailyCounterDisplay()
+    display.record(60, DAY_1)
+    display.record(1650, DAY_2)
+    assert display.shown(1650) == 1650
+
+
+def test_a_day_that_reaches_yesterdays_value_does_not_drop_to_zero():
+    display = DailyCounterDisplay()
+    display.record(2300, DAY_1)
+    display.record(2300, DAY_2)
+    display.record(0, DAY_2)
+    display.record(2300, DAY_2)
+    assert display.shown(2300) == 2300
+
+
+def test_the_display_survives_its_stored_form():
+    display = DailyCounterDisplay()
+    display.record(2300, DAY_1)
+    display.record(2300, DAY_2)
+    assert DailyCounterDisplay.from_dict(display.as_dict()) == display
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [None, {}, {"revision": 99, "carried": 5}, {"revision": 1, "last": "lots", "carried": 5}],
+)
+def test_a_display_payload_that_does_not_fit_starts_afresh(payload):
+    assert DailyCounterDisplay.from_dict(payload) == DailyCounterDisplay()
+
+
+async def test_the_daily_sensor_shows_zero_after_midnight(
+    hass, sunspec_apsystems_client_mock, freezer
+):
+    freezer.move_to(_local(28, 17))
+    entry = await _entry(hass)
+    sensor = _daily(hass)
+    assert sensor.unique_id == get_sunspec_unique_id(entry.entry_id, "WH", 103, 0)
+    _poll(entry, 2300, 0)
+    assert sensor.native_value == 2300
+
+    freezer.move_to(_local(29, 0, 10))
+    _poll(entry, 2300, 0)
+    assert hass.states.get(sensor.entity_id).state == "0.0"
+
+    freezer.move_to(_local(29, 7, 40))
+    _poll(entry, 0, 3)
+    _poll(entry, 15, 40)
+    assert sensor.native_value == 15
+
+
+async def test_a_restart_at_night_keeps_the_daily_sensor_at_zero(
+    hass, sunspec_apsystems_client_mock, freezer
+):
+    """Showing yesterday's value again after a zero would count it twice in the statistics."""
+    freezer.move_to(_local(29, 2))
+    sunspec_apsystems_client_mock.models[103][0].points["WH"].value = 2300
+    entry = create_mock_sunspec_config_entry(hass, data=MOCK_CONFIG)
+    registered = er.async_get(hass).async_get_or_create(
+        "sensor",
+        "sunspec2",
+        get_sunspec_unique_id(entry.entry_id, "WH", 103, 0),
+        config_entry=entry,
+        suggested_object_id="energy_today",
+    )
+    stored = DailyCounterDisplay(last=2300.0, last_date="2026-10-29", carried=2300.0)
+    mock_restore_cache_with_extra_data(
+        hass, ((State(registered.entity_id, "0.0"), stored.as_dict()),)
+    )
+    client = SunSpecApiClient(host="test", port=123, unit_id=1, hass=hass)
+    await setup_mock_sunspec_config_entry(hass, config_entry=entry, client=client)
+
+    assert hass.states.get(registered.entity_id).state == "0.0"

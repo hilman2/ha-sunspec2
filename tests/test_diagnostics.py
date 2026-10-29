@@ -34,6 +34,7 @@ async def test_diagnostics_basic_shape(hass, sunspec_client_mock):
         "recent_errors",
         "consecutive_failures",
         "standby",
+        "gateway_rest_until",
         "raw_captures",
         "versions",
     }

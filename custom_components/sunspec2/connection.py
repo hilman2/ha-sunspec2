@@ -50,6 +50,9 @@ class SharedConnection:
         self._entry = entry
         self._temporary = contextlib.AsyncExitStack() if entry is None else None
         self._units: dict[int, ModbusUnit] = {}
+        # The timeout each unit asked the link for, so asking again for the
+        # same one does not drop the link a second time.
+        self._timeouts: dict[int, float] = {}
 
     @property
     def connected(self) -> bool:
@@ -81,6 +84,29 @@ class SharedConnection:
             self._units[unit_id] = unit
             return unit
         return self.for_unit(unit_id)
+
+    async def async_require_timeout(self, unit_id: int, seconds: float) -> None:
+        """Have the link wait at least ``seconds`` for an answer to any request.
+
+        The link applies a raised timeout from its next connect on, and
+        modbus-connection drops a live link for that in a task of its own,
+        which cuts whatever request is in flight when it runs. The link is
+        therefore dropped here and awaited, so the caller's next request
+        reconnects with the new timeout instead of being cut.
+        """
+        if self._timeouts.get(unit_id) == seconds:
+            return
+        self._timeouts[unit_id] = seconds
+        unit = self.for_unit(unit_id)
+        connected = unit.connected
+        unit.require_timeout(seconds)
+        if connected:
+            await unit.disconnect()
+
+    def withdraw_timeout(self, unit_id: int) -> None:
+        """Hand back a timeout asked for with ``async_require_timeout``."""
+        if self._timeouts.pop(unit_id, None) is not None and unit_id in self._units:
+            self._units[unit_id].require_timeout(None)
 
     async def connect(self) -> None:
         """Let discovery or cached-layout validation open the link on its first read."""
