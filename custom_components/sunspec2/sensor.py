@@ -285,6 +285,7 @@ async def async_setup_entry(
     # their module cannot be imported before this one is complete.
     from .dc_channels import dc_channel_sensors
     from .fronius_web_entities import fronius_web_sensors
+    from .lifetime_energy import CountedDailyEnergySensor
     from .lifetime_energy import CountedLifetimeEnergySensor
     from .vendor_blocks import raw_block_sensors
 
@@ -298,11 +299,10 @@ async def async_setup_entry(
     prefix = entry.options.get(CONF_PREFIX, entry.data.get(CONF_PREFIX, ""))
 
     known_unique_ids: set[str] = set()
-    # Energy points that count one day, not the lifetime. They are plain
-    # sensors: the lifetime guards would hold the yesterday's total
-    # against every morning's restart from zero and log a warning for it,
-    # while Home Assistant's total_increasing already reads a drop as a
-    # new cycle.
+    # Energy points that count one day, not the lifetime. They get no
+    # lifetime guards: those would hold yesterday's total against every
+    # morning's restart from zero and log a warning for it, while Home
+    # Assistant's total_increasing already reads a drop as a new cycle.
     daily_points = coordinator.vendor.daily_energy_points if coordinator.vendor else frozenset()
 
     @callback
@@ -336,9 +336,10 @@ async def async_setup_entry(
                     sunspec_unit = meta.get("units", "")
                     ha_meta = HA_META.get(sunspec_unit, (sunspec_unit, None, None))
                     device_class = ha_meta[2]
-                    if (
+                    if key in daily_points:
+                        new_sensors.append(CountedDailyEnergySensor(coordinator, entry, data))
+                    elif (
                         device_class == SensorDeviceClass.ENERGY
-                        and key not in daily_points
                         and key.split(":")[-1] not in STORED_ENERGY_POINTS
                     ):
                         new_sensors.append(SunSpecEnergySensor(coordinator, entry, data))

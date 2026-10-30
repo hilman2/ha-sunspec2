@@ -5,6 +5,7 @@ from homeassistant.helpers import entity_registry as er
 
 from custom_components.sunspec2 import get_sunspec_unique_id
 from custom_components.sunspec2.api import SunSpecApiClient
+from custom_components.sunspec2.lifetime_energy import CountedDailyEnergySensor
 from custom_components.sunspec2.sensor import SunSpecEnergySensor
 from custom_components.sunspec2.sensor import SunSpecSensor
 from custom_components.sunspec2.vendor_blocks import RawBlockSensor
@@ -148,13 +149,19 @@ async def test_the_daily_yield_is_not_held_like_a_lifetime_counter(
     assert state.attributes["friendly_name"].endswith(" Energy produced today")
 
     # Every morning starts at zero. A lifetime guard would hold yesterday's value.
-    entry.runtime_data.data[103].getPoint("WH").value = 0
+    point = entry.runtime_data.data[103].getPoint("WH")
+    point.value = 0
+    entry.runtime_data.async_update_listeners()
     assert wh.native_value == 0
 
-    # At night the register holds 0, which an acc32 reserves for "not
+    # In the morning the register holds 0, which an acc32 reserves for "not
     # implemented" and the library hands back as None. The counter reads 0.
-    entry.runtime_data.data[103].getPoint("WH")._value = None
-    assert wh.native_value == 0
+    point.value = 2000
+    entry.runtime_data.async_update_listeners()
+    point._value = None
+    entry.runtime_data.async_update_listeners()
+    assert isinstance(wh, CountedDailyEnergySensor)
+    assert wh._ledger.pending == 0
 
 
 async def test_the_daily_energy_name_keeps_the_registered_entity_id(
