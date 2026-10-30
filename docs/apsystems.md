@@ -141,16 +141,17 @@ an observation:
 **Energy produced today** is the yield of the current day. It is not a
 lifetime total.
 
-The ECU does not start it again at midnight. It keeps yesterday's yield
-through the night and starts again at zero when the micro inverter
-first reports in the morning. Until then the sensor still shows
-yesterday's yield.
+The ECU does not start its daily counter again at midnight. It keeps
+yesterday's yield through the night and starts again at zero when the
+micro inverter first reports in the morning. The integration therefore
+counts the day itself: the sensor goes to 0 at midnight and rises with
+what the micro inverter makes after that. On a day without production it
+stays at 0.
 
-After an outage, the first value after midnight can still be yesterday's
-and higher than the last one Home Assistant saw. It is shown as it
-comes, so the Energy dashboard books that energy to the hour it arrived
-in. You can move it to the right day under *Developer tools ->
-Statistics*.
+After an outage that ends at night, yesterday's energy can arrive after
+midnight. The sensor shows it as part of today, and the Energy dashboard
+books it to the hour it arrived in. You can move it to the right day
+under *Developer tools -> Statistics*.
 
 ## A total for the Energy dashboard
 
@@ -166,8 +167,10 @@ What to expect:
 - It starts when the sensor is added, with what the micro inverter has
   made so far that day. Your total in the EMA app is not part of it.
 - A reading that does not fit a counter that only goes up waits for the
-  next one. A single wrong reading from the ECU therefore never ends up
-  in the total.
+  next ECU round, about five and a half minutes. A wrong reading that
+  lasts one round therefore does not end up in the total or in **Energy
+  produced today**. Both can lag by that much in the morning and after
+  an outage.
 - If Home Assistant is off over a night, the part of the day it missed
   is not counted.
 - Every micro inverter has its own total, because every micro inverter

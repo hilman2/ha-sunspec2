@@ -148,12 +148,15 @@ async def test_the_daily_yield_is_not_held_like_a_lifetime_counter(
     assert state.attributes["friendly_name"].endswith(" Energy produced today")
 
     # Every morning starts at zero. A lifetime guard would hold yesterday's value.
-    entry.runtime_data.data[103].getPoint("WH").value = 0
+    point = entry.runtime_data.data[103].getPoint("WH")
+    point.value = 0
+    entry.runtime_data.async_update_listeners()
     assert wh.native_value == 0
 
     # At night the register holds 0, which an acc32 reserves for "not
     # implemented" and the library hands back as None. The counter reads 0.
-    entry.runtime_data.data[103].getPoint("WH")._value = None
+    point._value = None
+    entry.runtime_data.async_update_listeners()
     assert wh.native_value == 0
 
 

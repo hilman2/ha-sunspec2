@@ -12,21 +12,42 @@ reports in the morning (#160). A reading therefore belongs to the day of
 the counter, which ``counter_day`` tells, rather than to the date it was
 taken on.
 
-The daily counter is read through a gateway that now and then reports a
-reading that does not fit a counter going up, so a reading is not taken at
-face value when it is a drop or a large jump:
+The same rhythm decides what "today" is. Energy produced today is the rise
+of the counted total since midnight, not the counter itself: until the
+counter restarts the total stands still and today reads 0, also on a day
+without production, and a counter that runs on past midnight under a
+midnight sun adds only what it makes after it. Home Assistant's statistics
+count every rise of that sensor, and each rise is a rise of the total, so
+the sensor can book nothing that the total does not book.
 
-* A lower reading waits. If the next reading is back at the old level, the
-  low one was a stray. If the next reading is higher than the low one, a
-  new day has started and the old day is finished. A restart at zero is
-  therefore booked once the counter climbs, also when Home Assistant was
-  off while it restarted, unless the first reading after that lies
-  between the last one and ``MAX_STEP_WH`` above it.
-* A jump of more than ``MAX_STEP_WH`` waits as well, and counts once the
-  next reading is at least as high, so one bad high reading never sticks.
-  It starts a new day only if it is confirmed on another counter day: a
-  Home Assistant that comes back at night, after missing the afternoon,
-  finds the same day's counter, only higher.
+The daily counter is read through a gateway that now and then reports a
+reading that does not fit a counter going up, and it serves that reading
+for a whole collection round. So a reading is not taken at face value when
+it is a drop or a large jump, and only a reading from a later round decides
+about it (``CONFIRM_SECONDS``):
+
+* A drop on the same counter day counts only from below ``RESTART_SHARE``
+  of the last value. Anything above that is noise and is left out. A drop
+  on a later counter day can be a restart nobody saw, whatever its size.
+* A drop waits. If a later round is back at the old level, the low reading
+  was a stray. If a later round is higher than the low one but still a
+  drop, a new day has started and the old day is finished. A restart at
+  zero is therefore booked once the counter climbs, also when Home
+  Assistant was off while it restarted. A drop on a later counter day that
+  stays flat for ``SETTLED_SECONDS`` is a new day as well: an outage that
+  ends in the evening finds a counter that no longer climbs.
+* A jump of more than ``MAX_STEP_WH`` waits as well, and counts once a later
+  round is at least as high, so a bad high reading never sticks. It starts
+  a new day only if it is confirmed on another counter day: a Home Assistant
+  that comes back at night, after missing the afternoon, finds the same
+  day's counter, only higher.
+* A smaller rise waits too while the micro inverter produces nothing. There
+  is nothing to count then, so a stray at night cannot lift ``last`` above
+  the counter and pass for a drop on a day without production.
+* A smaller rise on a later counter day counts as a jump after an outage of
+  ``OUTAGE_SECONDS``: today's counter has passed yesterday's value. Without
+  an outage it is the same counter, which goes on past midnight while a
+  midnight sun keeps the micro inverter reporting.
 """
 
 from __future__ import annotations
@@ -52,6 +73,7 @@ from . import SunSpecDataUpdateCoordinator
 from . import get_sunspec_unique_id
 from .entity import SunSpecEntity
 from .models import SunSpecModelWrapper
+from .sensor import SunSpecSensor
 
 #: Revision of the stored shape. A payload with another revision is dropped
 #: and counting starts again, rather than misread.
@@ -64,6 +86,27 @@ MAX_DAILY_WH = 50_000.0
 #: A micro inverter makes about 100 Wh in the ECU's 5 minute rhythm, so this
 #: leaves room for a Home Assistant restart of a few hours.
 MAX_STEP_WH = 2_000.0
+
+#: Seconds after a reading that does not fit until a reading decides about
+#: it. The ECU serves one value for its whole 5 minute round, so the polls
+#: inside a round repeat a stray; this is one round and a margin for a micro
+#: inverter that the ECU reaches a little later than the round before.
+CONFIRM_SECONDS = 330
+
+#: Seconds a drop on a later counter day has to stay flat to count as a new
+#: day without climbing. Six rounds: a stray goes with its round, and one
+#: that outlasts the next round must not book the whole day a second time.
+SETTLED_SECONDS = 1800
+
+#: Seconds without an accepted reading after which a rise on a later counter
+#: day is taken for today's counter, not for yesterday's going on. Long enough
+#: that a restart of Home Assistant under a midnight sun is no such outage.
+OUTAGE_SECONDS = 3 * 3600
+
+#: Share of the last value below which a drop can be the restart of the
+#: counter. Home Assistant reads a drop of a total_increasing sensor the
+#: same way.
+RESTART_SHARE = 0.9
 
 #: AC power above which a micro inverter counts as producing. At night the
 #: ECU can go on showing 1 W with 0 V and 0 Hz.
@@ -117,11 +160,20 @@ class DailyCounterLedger:
     """Last accepted value of the daily counter."""
     last_day: str | None = None
     """The day ``last`` belongs to, as ``counter_day`` gives it."""
+    last_at: float | None = None
+    """When ``last`` was last read, as a Unix time."""
     pending: float | None = None
-    """A reading that waits for the next one: a drop or a large jump."""
+    """A reading that waits for a later round: a drop or a large jump."""
     pending_day: str | None = field(default=None, compare=False)
     """The day ``pending`` was read on. Not stored: after a restart the
     confirming reading's day stands alone."""
+    pending_at: float | None = field(default=None, compare=False)
+    """When ``pending`` was first read, as a Unix time. Not stored: after a
+    restart the wait for a later round starts again."""
+    date: str | None = None
+    """The local date ``total_at_midnight`` belongs to, as ``YYYY-MM-DD``."""
+    total_at_midnight: float | None = None
+    """The total before the first reading on ``date``."""
 
     @property
     def total(self) -> float | None:
@@ -130,39 +182,63 @@ class DailyCounterLedger:
             return None
         return self.base + self.last
 
-    def record(self, watt_hours: float, day: str) -> None:
+    @property
+    def today(self) -> float | None:
+        """Energy since local midnight in Wh, or None before the first reading."""
+        total = self.total
+        if total is None or self.total_at_midnight is None:
+            return None
+        return total - self.total_at_midnight
+
+    def record(self, watt_hours: float, now: datetime, producing: bool) -> None:
         """Take one reading of the daily counter.
 
         Args:
             watt_hours (float): The reading, in Wh.
-            day (str): The day the reading belongs to, as ``counter_day``
-                gives it. A jump that is confirmed on another day than the
-                last accepted reading is a new day whose value already is
-                higher than yesterday's.
+            now (datetime): The moment of the reading, in local time.
+            producing (bool): Whether the micro inverter produces at that
+                moment, see ``counter_day``.
         """
         if not math.isfinite(watt_hours) or not 0 <= watt_hours <= MAX_DAILY_WH:
             return
+        date = now.date().isoformat()
+        if date != self.date:
+            self.date = date
+            self.total_at_midnight = self.total
+        day = counter_day(now, producing)
         if self.last_day is not None and day < self.last_day:
             # A cloud before noon can take the power under PRODUCING_MIN_W
             # after the counter was already seen on its new day. The day
             # does not go back for that, or a confirmed jump would book
             # ``last`` a second time.
             day = self.last_day
-        pending, self.pending = self.pending, None
-        pending_day, self.pending_day = self.pending_day, None
+        self._take(watt_hours, day, now.timestamp(), producing)
+        if self.total_at_midnight is None:
+            # The very first reading. It is today's energy unless the counter
+            # still holds yesterday, and then today has not started.
+            self.total_at_midnight = self.base if day == date else self.total
+
+    def _take(self, watt_hours: float, day: str, at: float, producing: bool) -> None:
+        """Accept a reading, hold it back, or let it decide about the held one."""
         last = self.last
-        if last is None:
-            self._accept(watt_hours, day)
-        elif pending is None:
-            if last <= watt_hours <= last + MAX_STEP_WH:
-                self._accept(watt_hours, day)
-            else:
-                self.pending = watt_hours
-                self.pending_day = day
-        elif pending > last:
+        if last is None or self._fits(watt_hours, last, day, at, producing):
+            self._release()
+            self._accept(watt_hours, day, at)
+            return
+        pending, pending_day = self.pending, self.pending_day
+        if pending is None:
+            self._hold(watt_hours, last, day, at)
+            return
+        if self.pending_at is None:
+            self.pending_at = at
+        waited = at - self.pending_at
+        if waited < CONFIRM_SECONDS:
+            return
+        if pending > last:
             # A large jump: real if the counter kept going from there.
+            self._release()
             if watt_hours < pending:
-                self.record(watt_hours, day)
+                self._hold(watt_hours, last, day, at)
                 return
             # The day the jump was seen on counts, should the confirming
             # reading come under a cloud before noon.
@@ -170,21 +246,51 @@ class DailyCounterLedger:
                 day = pending_day
             if self.last_day != day:
                 self.base += last
-            self._accept(watt_hours, day)
-        elif watt_hours >= last:
-            # Back at the old level: the drop was a stray reading.
-            self.record(watt_hours, day)
-        elif watt_hours > pending:
-            # Running up again from the low value: a new day has started.
+            self._accept(watt_hours, day, at)
+        elif watt_hours > last or not self._is_drop(watt_hours, last, day):
+            # Back near the old level or above it: the low reading was a stray.
+            self._release()
+            self._hold(watt_hours, last, day, at)
+        elif watt_hours > pending or (
+            watt_hours == pending and day != self.last_day and waited >= SETTLED_SECONDS
+        ):
+            # Running up again from the low value, or at rest on a day the
+            # counter has moved on to: a new day has started.
+            self._release()
             self.base += last
-            self._accept(watt_hours, day)
-        else:
+            self._accept(watt_hours, day, at)
+        elif watt_hours < pending:
+            self._release()
+            self._hold(watt_hours, last, day, at)
+
+    def _fits(self, watt_hours: float, last: float, day: str, at: float, producing: bool) -> bool:
+        """Whether a reading goes on from ``last`` as a counter on one day does."""
+        if watt_hours == last:
+            return True
+        if not producing or not last < watt_hours <= last + MAX_STEP_WH:
+            return False
+        return day == self.last_day or self.last_at is None or at - self.last_at < OUTAGE_SECONDS
+
+    def _is_drop(self, watt_hours: float, last: float, day: str) -> bool:
+        """Whether a reading below ``last`` can be the restart of the counter."""
+        return watt_hours < RESTART_SHARE * last or day != self.last_day
+
+    def _hold(self, watt_hours: float, last: float, day: str, at: float) -> None:
+        """Keep a reading for a later round, unless it is a dip of no meaning."""
+        if watt_hours > last or self._is_drop(watt_hours, last, day):
             self.pending = watt_hours
             self.pending_day = day
+            self.pending_at = at
 
-    def _accept(self, watt_hours: float, day: str) -> None:
+    def _release(self) -> None:
+        self.pending = None
+        self.pending_day = None
+        self.pending_at = None
+
+    def _accept(self, watt_hours: float, day: str, at: float) -> None:
         self.last = watt_hours
         self.last_day = day
+        self.last_at = at
 
     def as_dict(self) -> dict[str, Any]:
         """The stored form."""
@@ -193,7 +299,10 @@ class DailyCounterLedger:
             "base": self.base,
             "last": self.last,
             "last_day": self.last_day,
+            "last_at": self.last_at,
             "pending": self.pending,
+            "date": self.date,
+            "total_at_midnight": self.total_at_midnight,
         }
 
     @classmethod
@@ -201,18 +310,24 @@ class DailyCounterLedger:
         """Read the stored form; anything unreadable starts a fresh ledger."""
         if not data or data.get("revision") != STORAGE_REVISION:
             return cls()
-        values = {key: data.get(key) for key in ("base", "last", "pending")}
+        keys = ("base", "last", "last_at", "pending", "total_at_midnight")
+        values = {key: data.get(key) for key in keys}
         for value in values.values():
             if value is not None and (
                 isinstance(value, bool) or not isinstance(value, (int, float))
             ):
                 return cls()
         last_day = data.get("last_day")
+        date = data.get("date")
+        last_at, midnight = values["last_at"], values["total_at_midnight"]
         return cls(
             base=float(values["base"] or 0.0),
             last=None if values["last"] is None else float(values["last"]),
             last_day=last_day if isinstance(last_day, str) else None,
+            last_at=None if last_at is None else float(last_at),
             pending=None if values["pending"] is None else float(values["pending"]),
+            date=date if isinstance(date, str) else None,
+            total_at_midnight=None if midnight is None else float(midnight),
         )
 
 
@@ -227,7 +342,86 @@ class LedgerExtraData(ExtraStoredData):
         return self.ledger.as_dict()
 
 
-class CountedLifetimeEnergySensor(SunSpecEntity, SensorEntity, RestoreEntity):
+class _LedgerFed(SunSpecEntity, RestoreEntity):
+    """A sensor that feeds a daily counter to a ledger it keeps across restarts.
+
+    Each sensor keeps its own ledger, so disabling one of them in the entity
+    settings leaves the other one complete.
+    """
+
+    _ledger: DailyCounterLedger
+    _counter_model_id: int
+    _counter_model_index: int
+    _counter_key: str
+
+    async def async_added_to_hass(self) -> None:
+        """Restore the ledger, then take the reading the coordinator holds."""
+        await super().async_added_to_hass()
+        if (stored := await self.async_get_last_extra_data()) is not None:
+            self._ledger = DailyCounterLedger.from_dict(stored.as_dict())
+        self._record()
+
+    @property
+    def extra_restore_state_data(self) -> LedgerExtraData:
+        """The ledger, kept across a restart."""
+        return LedgerExtraData(self._ledger)
+
+    @callback
+    def _handle_coordinator_update(self) -> None:
+        self._record()
+        super()._handle_coordinator_update()
+
+    def _record(self) -> None:
+        """Feed the daily counter's current value to the ledger."""
+        # After a failed poll the coordinator still holds the last values.
+        # Taking one of them again would pass for a later ECU round and
+        # confirm the stray it may be.
+        if self.coordinator.consecutive_failed_cycles:
+            return
+        wrapper = (
+            self.coordinator.data.get(self._counter_model_id) if self.coordinator.data else None
+        )
+        if wrapper is None:
+            return
+        value = wrapper.getValue(self._counter_key, self._counter_model_index)
+        # SunSpec reserves 0 of an acc32 for "not implemented", and the
+        # library reads it as None. The counter sits at exactly that value
+        # from its restart in the morning until the first watt-hour.
+        reading = 0.0 if value is None else value
+        if isinstance(reading, bool) or not isinstance(reading, (int, float)):
+            return
+        self._ledger.record(
+            float(reading), dt_util.now(), is_producing(wrapper, self._counter_model_index)
+        )
+
+
+class CountedDailyEnergySensor(_LedgerFed, SunSpecSensor):
+    """Energy produced today, counted from a daily energy point.
+
+    The sensor keeps the unique id, name and ``total_increasing`` state class
+    of the plain sensor of the point. It shows the rise of the counted total
+    since midnight rather than the counter, see the module docstring.
+    """
+
+    def __init__(
+        self,
+        coordinator: SunSpecDataUpdateCoordinator,
+        config_entry: ConfigEntry,
+        data: dict[str, Any],
+    ) -> None:
+        super().__init__(coordinator, config_entry, data)
+        self._ledger = DailyCounterLedger()
+        self._counter_model_id = data["model_id"]
+        self._counter_model_index = data["model_index"]
+        self._counter_key = data["key"]
+
+    @property
+    def native_value(self) -> float | None:
+        """Energy since local midnight in Wh."""
+        return self._ledger.today
+
+
+class CountedLifetimeEnergySensor(_LedgerFed, SensorEntity):
     """The lifetime total counted from a daily energy point.
 
     Counts from the moment the sensor is added, including what the daily
@@ -260,47 +454,12 @@ class CountedLifetimeEnergySensor(SunSpecEntity, SensorEntity, RestoreEntity):
             prefix=prefix,
             model_id=model_id,
         )
-        self._counted_model_id = model_id
-        self._model_index = model_index
-        self._key = key
         self._ledger = DailyCounterLedger()
+        self._counter_model_id = model_id
+        self._counter_model_index = model_index
+        self._counter_key = key
         self._attr_unique_id = get_sunspec_unique_id(
             config_entry.entry_id, f"lifetime:{key}", model_id, model_index
-        )
-
-    async def async_added_to_hass(self) -> None:
-        """Restore the ledger, then take the reading the coordinator holds."""
-        await super().async_added_to_hass()
-        if (stored := await self.async_get_last_extra_data()) is not None:
-            self._ledger = DailyCounterLedger.from_dict(stored.as_dict())
-        self._record()
-
-    @property
-    def extra_restore_state_data(self) -> LedgerExtraData:
-        """The ledger, kept across a restart."""
-        return LedgerExtraData(self._ledger)
-
-    @callback
-    def _handle_coordinator_update(self) -> None:
-        self._record()
-        super()._handle_coordinator_update()
-
-    def _record(self) -> None:
-        """Feed the daily counter's current value to the ledger."""
-        wrapper = (
-            self.coordinator.data.get(self._counted_model_id) if self.coordinator.data else None
-        )
-        if wrapper is None:
-            return
-        value = wrapper.getValue(self._key, self._model_index)
-        # SunSpec reserves 0 of an acc32 for "not implemented", and the
-        # library reads it as None. The counter sits at exactly that value
-        # from its restart in the morning until the first watt-hour.
-        reading = 0.0 if value is None else value
-        if isinstance(reading, bool) or not isinstance(reading, (int, float)):
-            return
-        self._ledger.record(
-            float(reading), counter_day(dt_util.now(), is_producing(wrapper, self._model_index))
         )
 
     @property
@@ -312,4 +471,4 @@ class CountedLifetimeEnergySensor(SunSpecEntity, SensorEntity, RestoreEntity):
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         """The point the total is counted from."""
-        return {"counted_from": self._key}
+        return {"counted_from": self._counter_key}
