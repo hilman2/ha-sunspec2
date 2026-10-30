@@ -26,28 +26,30 @@ for a whole collection round. So a reading is not taken at face value when
 it is a drop or a large jump, and only a reading from a later round decides
 about it (``CONFIRM_SECONDS``):
 
-* A drop on the same counter day counts only from below ``RESTART_SHARE``
-  of the last value. Anything above that is noise and is left out. A drop
-  on a later counter day can be a restart nobody saw, whatever its size.
+* A drop counts only from below ``RESTART_SHARE`` of the last value. Anything
+  above that is noise and is left out: with polls running, a restart shows
+  as a low reading, so a counter that merely ends under ``last`` is no new
+  day. Only after an outage of ``OUTAGE_SECONDS`` over a change of counter
+  day can a smaller drop be a restart nobody saw.
 * A drop waits. If a later round is back at the old level, the low reading
   was a stray. If a later round is higher than the low one but still a
   drop, a new day has started and the old day is finished. A restart at
   zero is therefore booked once the counter climbs, also when Home
-  Assistant was off while it restarted. A drop on a later counter day that
-  stays flat for ``SETTLED_SECONDS`` is a new day as well: an outage that
-  ends in the evening finds a counter that no longer climbs.
+  Assistant was off while it restarted, and also when it has climbed past
+  ``last`` by the time polls come back ``SETTLED_SECONDS`` later. After an
+  outage, a drop that stays flat for ``SETTLED_SECONDS`` is a new day as
+  well: an outage that ends in the evening finds a counter at rest.
 * A jump of more than ``MAX_STEP_WH`` waits as well, and counts once a later
   round is at least as high, so a bad high reading never sticks. It starts
-  a new day only if it is confirmed on another counter day: a Home Assistant
-  that comes back at night, after missing the afternoon, finds the same
-  day's counter, only higher.
-* A smaller rise waits too while the micro inverter produces nothing. There
-  is nothing to count then, so a stray at night cannot lift ``last`` above
-  the counter and pass for a drop on a day without production.
-* A smaller rise on a later counter day counts as a jump after an outage of
-  ``OUTAGE_SECONDS``: today's counter has passed yesterday's value. Without
-  an outage it is the same counter, which goes on past midnight while a
-  midnight sun keeps the micro inverter reporting.
+  a new day only if it is confirmed on another counter day than ``last``:
+  a Home Assistant that comes back at night, after missing the afternoon,
+  finds the same day's counter, only higher.
+* A smaller rise waits too while the micro inverter produces nothing, as
+  there is nothing to count then.
+* A smaller rise on a later counter day counts as a jump after an outage:
+  today's counter has passed yesterday's value. Without an outage it is the
+  same counter, which goes on past midnight while a midnight sun keeps the
+  micro inverter reporting.
 """
 
 from __future__ import annotations
@@ -93,14 +95,14 @@ MAX_STEP_WH = 2_000.0
 #: inverter that the ECU reaches a little later than the round before.
 CONFIRM_SECONDS = 330
 
-#: Seconds a drop on a later counter day has to stay flat to count as a new
-#: day without climbing. Six rounds: a stray goes with its round, and one
+#: Seconds a low reading has to stand before it is taken for a restart without
+#: having climbed from it. Six rounds: a stray goes with its round, and one
 #: that outlasts the next round must not book the whole day a second time.
 SETTLED_SECONDS = 1800
 
-#: Seconds without an accepted reading after which a rise on a later counter
-#: day is taken for today's counter, not for yesterday's going on. Long enough
-#: that a restart of Home Assistant under a midnight sun is no such outage.
+#: Seconds without any reading after which the counter may have restarted
+#: unseen. Long enough that a restart of Home Assistant under a midnight sun,
+#: with a counter that goes on past midnight, is no such outage.
 OUTAGE_SECONDS = 3 * 3600
 
 #: Share of the last value below which a drop can be the restart of the
@@ -160,8 +162,11 @@ class DailyCounterLedger:
     """Last accepted value of the daily counter."""
     last_day: str | None = None
     """The day ``last`` belongs to, as ``counter_day`` gives it."""
-    last_at: float | None = None
-    """When ``last`` was last read, as a Unix time."""
+    seen_at: float | None = None
+    """When the counter was last read, as a Unix time, whether or not the
+    reading was accepted."""
+    outage: bool = False
+    """Whether an outage lies between ``last`` and now."""
     pending: float | None = None
     """A reading that waits for a later round: a drop or a large jump."""
     pending_day: str | None = field(default=None, compare=False)
@@ -212,7 +217,11 @@ class DailyCounterLedger:
             # does not go back for that, or a confirmed jump would book
             # ``last`` a second time.
             day = self.last_day
-        self._take(watt_hours, day, now.timestamp(), producing)
+        at = now.timestamp()
+        if self.seen_at is not None and at - self.seen_at >= OUTAGE_SECONDS:
+            self.outage = True
+        self.seen_at = at
+        self._take(watt_hours, day, at, producing)
         if self.total_at_midnight is None:
             # The very first reading. It is today's energy unless the counter
             # still holds yesterday, and then today has not started.
@@ -221,59 +230,78 @@ class DailyCounterLedger:
     def _take(self, watt_hours: float, day: str, at: float, producing: bool) -> None:
         """Accept a reading, hold it back, or let it decide about the held one."""
         last = self.last
-        if last is None or self._fits(watt_hours, last, day, at, producing):
-            self._release()
-            self._accept(watt_hours, day, at)
+        if last is None:
+            self._accept(watt_hours, day)
             return
         pending, pending_day = self.pending, self.pending_day
-        if pending is None:
-            self._hold(watt_hours, last, day, at)
-            return
-        if self.pending_at is None:
+        if pending is not None and self.pending_at is None:
             self.pending_at = at
-        waited = at - self.pending_at
-        if waited < CONFIRM_SECONDS:
+        waited = 0.0 if self.pending_at is None else at - self.pending_at
+        if (
+            pending is not None
+            and pending < last < watt_hours
+            and producing
+            and waited >= SETTLED_SECONDS
+        ):
+            # The restart was seen, and then the polls stopped until the
+            # counter had climbed past yesterday's value. A stray is gone
+            # within a round, so it cannot have waited this long.
+            self._release()
+            self.base += last
+            self._accept(watt_hours, day)
             return
-        if pending > last:
+        if self._fits(watt_hours, last, day, producing):
+            self._release()
+            self._accept(watt_hours, day)
+        elif pending is None:
+            self._hold(watt_hours, last, day, at)
+        elif waited < CONFIRM_SECONDS:
+            return
+        elif pending > last:
             # A large jump: real if the counter kept going from there.
             self._release()
             if watt_hours < pending:
                 self._hold(watt_hours, last, day, at)
                 return
-            # The day the jump was seen on counts, should the confirming
-            # reading come under a cloud before noon.
-            if pending_day is not None and pending_day > day:
+            # The jump belongs to the day it was seen on. A confirming
+            # reading can fall on the next one, by noon or the first
+            # production, and must not book ``last`` a second time for that.
+            if pending_day is not None:
                 day = pending_day
             if self.last_day != day:
                 self.base += last
-            self._accept(watt_hours, day, at)
+            self._accept(watt_hours, day)
         elif watt_hours > last or not self._is_drop(watt_hours, last, day):
             # Back near the old level or above it: the low reading was a stray.
             self._release()
             self._hold(watt_hours, last, day, at)
         elif watt_hours > pending or (
-            watt_hours == pending and day != self.last_day and waited >= SETTLED_SECONDS
+            watt_hours == pending and self._outage_over(day) and waited >= SETTLED_SECONDS
         ):
-            # Running up again from the low value, or at rest on a day the
-            # counter has moved on to: a new day has started.
+            # Running up again from the low value, or at rest after an
+            # outage: a new day has started.
             self._release()
             self.base += last
-            self._accept(watt_hours, day, at)
+            self._accept(watt_hours, day)
         elif watt_hours < pending:
             self._release()
             self._hold(watt_hours, last, day, at)
 
-    def _fits(self, watt_hours: float, last: float, day: str, at: float, producing: bool) -> bool:
+    def _fits(self, watt_hours: float, last: float, day: str, producing: bool) -> bool:
         """Whether a reading goes on from ``last`` as a counter on one day does."""
         if watt_hours == last:
             return True
         if not producing or not last < watt_hours <= last + MAX_STEP_WH:
             return False
-        return day == self.last_day or self.last_at is None or at - self.last_at < OUTAGE_SECONDS
+        return not self._outage_over(day)
 
     def _is_drop(self, watt_hours: float, last: float, day: str) -> bool:
         """Whether a reading below ``last`` can be the restart of the counter."""
-        return watt_hours < RESTART_SHARE * last or day != self.last_day
+        return watt_hours < RESTART_SHARE * last or self._outage_over(day)
+
+    def _outage_over(self, day: str) -> bool:
+        """Whether an outage hides a change to the counter day ``day``."""
+        return self.outage and day != self.last_day
 
     def _hold(self, watt_hours: float, last: float, day: str, at: float) -> None:
         """Keep a reading for a later round, unless it is a dip of no meaning."""
@@ -287,10 +315,10 @@ class DailyCounterLedger:
         self.pending_day = None
         self.pending_at = None
 
-    def _accept(self, watt_hours: float, day: str, at: float) -> None:
+    def _accept(self, watt_hours: float, day: str) -> None:
         self.last = watt_hours
         self.last_day = day
-        self.last_at = at
+        self.outage = False
 
     def as_dict(self) -> dict[str, Any]:
         """The stored form."""
@@ -299,7 +327,8 @@ class DailyCounterLedger:
             "base": self.base,
             "last": self.last,
             "last_day": self.last_day,
-            "last_at": self.last_at,
+            "seen_at": self.seen_at,
+            "outage": self.outage,
             "pending": self.pending,
             "date": self.date,
             "total_at_midnight": self.total_at_midnight,
@@ -310,7 +339,7 @@ class DailyCounterLedger:
         """Read the stored form; anything unreadable starts a fresh ledger."""
         if not data or data.get("revision") != STORAGE_REVISION:
             return cls()
-        keys = ("base", "last", "last_at", "pending", "total_at_midnight")
+        keys = ("base", "last", "seen_at", "pending", "total_at_midnight")
         values = {key: data.get(key) for key in keys}
         for value in values.values():
             if value is not None and (
@@ -319,12 +348,13 @@ class DailyCounterLedger:
                 return cls()
         last_day = data.get("last_day")
         date = data.get("date")
-        last_at, midnight = values["last_at"], values["total_at_midnight"]
+        seen_at, midnight = values["seen_at"], values["total_at_midnight"]
         return cls(
             base=float(values["base"] or 0.0),
             last=None if values["last"] is None else float(values["last"]),
             last_day=last_day if isinstance(last_day, str) else None,
-            last_at=None if last_at is None else float(last_at),
+            seen_at=None if seen_at is None else float(seen_at),
+            outage=data.get("outage") is True,
             pending=None if values["pending"] is None else float(values["pending"]),
             date=date if isinstance(date, str) else None,
             total_at_midnight=None if midnight is None else float(midnight),

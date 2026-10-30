@@ -148,10 +148,13 @@ counts the day itself: the sensor goes to 0 at midnight and rises with
 what the micro inverter makes after that. On a day without production it
 stays at 0.
 
-After an outage that ends at night, yesterday's energy can arrive after
-midnight. The sensor shows it as part of today, and the Energy dashboard
-books it to the hour it arrived in. You can move it to the right day
-under *Developer tools -> Statistics*.
+After an outage, energy can arrive on the wrong day. If the outage ends
+at night, yesterday's energy arrives after midnight and the sensor shows
+it as part of today. If it lasted a whole day without production and the
+counter stands higher than Home Assistant last saw it, the sensor takes
+that for today's yield. The Energy dashboard books such energy to the
+hour it arrived in. You can move it to the right day under *Developer
+tools -> Statistics*.
 
 ## A total for the Energy dashboard
 
@@ -167,10 +170,13 @@ What to expect:
 - It starts when the sensor is added, with what the micro inverter has
   made so far that day. Your total in the EMA app is not part of it.
 - A reading that does not fit a counter that only goes up waits for the
-  next ECU round, about five and a half minutes. A wrong reading that
-  lasts one round therefore does not end up in the total or in **Energy
-  produced today**. Both can lag by that much in the morning and after
-  an outage.
+  next ECU round, about five and a half minutes. A reading far off the
+  counter that lasts one round therefore does not end up in the total or
+  in **Energy produced today**. A small rise while the micro inverter
+  produces is taken at once, so the ECU can still add a little too much.
+- The total and **Energy produced today** can lag by those minutes in
+  the morning, and by up to half an hour after an outage that ends once
+  the micro inverter has stopped producing.
 - If Home Assistant is off over a night, the part of the day it missed
   is not counted.
 - Every micro inverter has its own total, because every micro inverter

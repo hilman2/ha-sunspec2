@@ -64,12 +64,12 @@ def _day_of_polls(ledger, script):
     """Feed ``(moment, reading, producing)`` every 30 s, as the default poll does.
 
     Returns the sensor's state after every poll. Each entry of ``script``
-    holds until the moment of the next one.
+    holds until the moment of the next one; a reading of None is an outage.
     """
     shown = [ledger.today]
     for (start, reading, producing), (stop, _, _) in pairwise(script):
         now = start
-        while now < stop:
+        while reading is not None and now < stop:
             ledger.record(reading, now, producing)
             shown.append(ledger.today)
             now += timedelta(seconds=30)
@@ -373,12 +373,12 @@ END = _at(28, 23, 30)
         pytest.param(
             [
                 (_at(28, 0, 1), 3810, True),
-                (_at(28, 1), 3950, True),
-                (_at(28, 5), 4000, True),
+                (_at(28, 1), None, True),
+                (_at(28, 3), 4000, True),
                 (END, 4000, False),
             ],
             200,
-            id="production at midnight, and a restart of Home Assistant in it",
+            id="production at midnight, and two hours without a poll",
         ),
     ],
 )
@@ -387,6 +387,93 @@ def test_todays_energy_books_the_day_once(script, today):
     shown, booked = _produced_today(script)
     assert shown == today
     assert booked == today
+
+
+def _yesterday_and_a_day_without_production(afternoon):
+    """Run ``afternoon``, then a whole flat day at its last reading."""
+    last = afternoon[-1][1]
+    script = [*afternoon, (_at(28, 23), last, False), (_at(28, 23, 30), last, False)]
+    ledger = DailyCounterLedger()
+    return ledger, _day_of_polls(ledger, script)
+
+
+@pytest.mark.parametrize(
+    ("afternoon", "booked"),
+    [
+        pytest.param(
+            [(_at(27, 15), 3790, True), (_at(27, 16), 3900, True), (_at(27, 16, 5), 3800, False)],
+            110,
+            id="a stray within a step, the day before",
+        ),
+        pytest.param(
+            [(_at(27, 15), 3800, True), (_at(27, 16), 3795, False)],
+            -5,
+            id="a counter that ends a little under the last value",
+        ),
+        pytest.param(
+            [(_at(27, 15), 3800, False), (_at(28, 2), 4000, False), (_at(28, 2, 12), 3800, False)],
+            200,
+            id="a stray for two rounds at night",
+        ),
+    ],
+)
+def test_a_counter_under_the_last_value_is_no_new_day_without_an_outage(afternoon, booked):
+    ledger, shown = _yesterday_and_a_day_without_production(afternoon)
+    assert ledger.total == afternoon[0][1] + max(booked, 0)
+    assert ledger.base == 0
+
+
+def test_an_outage_on_one_counter_day_is_no_new_day():
+    ledger = DailyCounterLedger()
+    ledger.record(3800, _at(27, 14), True)
+    for minute in range(0, 60, 6):
+        ledger.record(3795, _at(27, 18, minute), False)
+    assert ledger.total == 3800
+
+
+def test_an_outage_that_found_the_counter_unchanged_is_over():
+    ledger = DailyCounterLedger()
+    ledger.record(3800, _at(27, 23), False)
+    ledger.record(3800, _at(28, 3), False)
+    ledger.record(3800, _at(28, 5), False)
+    ledger.record(3810, _at(28, 7), True)
+    assert ledger.total == 3810
+
+
+def test_an_outage_is_remembered_across_a_restart_of_home_assistant():
+    ledger = DailyCounterLedger()
+    ledger.record(3800, _at(27, 18), False)
+    ledger.record(3500, _at(28, 14), True)
+    restored = DailyCounterLedger.from_dict(ledger.as_dict())
+    restored.record(3550, _at(28, 14, 6), True)
+    restored.record(3560, _at(28, 14, 12), True)
+    assert restored.total == 3800 + 3560
+
+
+def test_a_restart_that_was_seen_is_booked_after_a_short_outage():
+    ledger = DailyCounterLedger()
+    ledger.record(300, _at(27, 18), False)
+    ledger.record(0, _at(28, 8, 30), False)
+    # An hour without a poll, and the counter has passed yesterday's value.
+    ledger.record(350, _at(28, 9, 31), True)
+    assert ledger.total == 300 + 350
+    assert ledger.today == 350
+
+
+@pytest.mark.parametrize(
+    ("seen", "confirmed"),
+    [
+        pytest.param(_at(28, 11, 57), _at(28, 12, 3), id="across noon"),
+        pytest.param(_at(28, 7, 30), _at(28, 7, 36), id="across the first production"),
+    ],
+)
+def test_a_jump_keeps_the_day_it_was_seen_on(seen, confirmed):
+    ledger = DailyCounterLedger()
+    ledger.record(500, _at(27, 17), False)
+    ledger.record(500, _at(28, 3), False)
+    ledger.record(3800, seen, False)
+    ledger.record(3800, confirmed, confirmed.hour < 12)
+    assert ledger.total == 3800
 
 
 def test_today_is_zero_until_the_counter_restarts():
@@ -598,9 +685,7 @@ async def test_energy_produced_today_shows_0_until_the_counter_restarts(
     assert sensor.state_class == SensorStateClass.TOTAL_INCREASING
 
 
-async def test_energy_produced_today_stays_out_of_the_way_of_the_entity_id(
-    hass, sunspec_apsystems_client_mock
-):
+async def test_energy_produced_today_keeps_the_unique_id(hass, sunspec_apsystems_client_mock):
     entry = await _entry(hass)
     sensor = _daily(hass)
     assert sensor.unique_id == get_sunspec_unique_id(entry.entry_id, "WH", 103, 0)
