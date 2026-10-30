@@ -461,6 +461,80 @@ def test_an_outage_that_found_the_counter_unchanged_is_over_on_the_next_day_too(
     assert ledger.total == 3800
 
 
+@pytest.mark.parametrize(
+    ("gap_start", "gap_end"),
+    [
+        pytest.param(_at(28, 13), _at(28, 17), id="on the flat day"),
+        pytest.param(_at(27, 18), _at(27, 22), id="the evening before"),
+    ],
+)
+def test_a_gap_after_the_morning_hides_no_restart(gap_start, gap_end):
+    """The counter ended under ``last`` and the next day stays flat."""
+    ledger = DailyCounterLedger()
+    ledger.record(3800, _at(27, 17), True)
+    now = _at(27, 17, 5)
+    while now < _at(28, 23):
+        if not gap_start <= now < gap_end:
+            ledger.record(3795, now, False)
+        now += timedelta(minutes=10)
+    assert ledger.total == 3800
+    assert ledger.base == 0
+
+
+def test_a_restart_hidden_by_a_gap_from_the_small_hours_is_booked():
+    ledger = DailyCounterLedger()
+    ledger.record(3000, _at(27, 18), False)
+    for hour in range(0, 6):
+        ledger.record(3000, _at(28, hour), False)
+    ledger.record(2900, _at(28, 14), True)
+    ledger.record(3100, _at(28, 14, 6), True)
+    ledger.record(3200, _at(28, 14, 12), True)
+    assert ledger.total == 3000 + 3200
+
+
+@pytest.mark.parametrize(
+    "readings",
+    [
+        pytest.param([(3000, 18, 0), (2995, 18, 10), (2995, 18, 40)], id="a dip while it settles"),
+        pytest.param([(3000, 18, 0), (3000, 21, 10), (3000, 21, 40)], id="a gap while it settles"),
+    ],
+)
+def test_a_low_reading_after_an_outage_settles_as_a_new_day(readings):
+    ledger = DailyCounterLedger()
+    ledger.record(3800, _at(27, 18), False)
+    for reading, hour, minute in readings:
+        ledger.record(reading, _at(28, hour, minute), False)
+    assert ledger.total == 3800 + readings[-1][0]
+
+
+def test_a_low_reading_keeps_settling_across_a_restart_of_home_assistant():
+    ledger = DailyCounterLedger()
+    ledger.record(3800, _at(27, 18), False)
+    ledger.record(3000, _at(28, 18), False)
+    restored = DailyCounterLedger.from_dict(ledger.as_dict())
+    restored.record(3000, _at(28, 18, 40), False)
+    assert restored.total == 3800 + 3000
+
+
+def test_two_dips_after_a_gap_at_night_are_no_new_day():
+    ledger = DailyCounterLedger()
+    ledger.record(3800, _at(27, 18), False)
+    ledger.record(3790, _at(28, 3), False)
+    ledger.record(3795, _at(28, 3, 6), False)
+    assert ledger.total == 3800
+    assert ledger.base == 0
+
+
+def test_a_stray_for_two_rounds_after_an_outage_that_found_the_counter_unchanged():
+    ledger = DailyCounterLedger()
+    ledger.record(3800, _at(27, 18), False)
+    ledger.record(3800, _at(28, 14), False)
+    ledger.record(30, _at(28, 15), False)
+    ledger.record(30, _at(28, 15, 6), False)
+    ledger.record(3800, _at(28, 15, 12), False)
+    assert ledger.total == 3800
+
+
 def test_two_dips_on_a_later_counter_day_are_no_new_day():
     ledger = DailyCounterLedger()
     ledger.record(3800, _at(27, 23, 59), False)
