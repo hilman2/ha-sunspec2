@@ -150,11 +150,10 @@ stays at 0.
 
 After an outage, energy can arrive on the wrong day. If the outage ends
 at night, yesterday's energy arrives after midnight and the sensor shows
-it as part of today. If it lasted a whole day without production and the
-counter stands higher than Home Assistant last saw it, the sensor takes
-that for today's yield. The Energy dashboard books such energy to the
-hour it arrived in. You can move it to the right day under *Developer
-tools -> Statistics*.
+it as part of today. If it ran into a day without production, the sensor
+can take the counter for today's yield. The Energy dashboard books such
+energy to the hour it arrived in. You can move it to the right day under
+*Developer tools -> Statistics*.
 
 ## A total for the Energy dashboard
 

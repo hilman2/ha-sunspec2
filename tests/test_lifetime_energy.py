@@ -507,6 +507,26 @@ def test_a_low_reading_after_an_outage_settles_as_a_new_day(readings):
     assert ledger.total == 3800 + readings[-1][0]
 
 
+@pytest.mark.parametrize(
+    ("back", "evening", "expected"),
+    [
+        pytest.param(2800, 3400, 3000 + 3400, id="climbing past yesterday"),
+        pytest.param(2900, 2900, 3000 + 2900, id="at rest under yesterday"),
+    ],
+)
+def test_an_outage_that_begins_while_a_restart_waits(back, evening, expected):
+    ledger = DailyCounterLedger()
+    ledger.record(3000, _at(27, 22), False)
+    for hour in (1, 3, 5, 7):
+        ledger.record(3000, _at(28, hour), False)
+    ledger.record(0, _at(28, 7, 40), True)
+    ledger.record(0, _at(28, 7, 45), True)
+    ledger.record(back, _at(28, 14), True)
+    ledger.record(evening, _at(28, 16), True)
+    ledger.record(evening, _at(28, 16, 40), True)
+    assert ledger.total == expected
+
+
 def test_a_low_reading_keeps_settling_across_a_restart_of_home_assistant():
     ledger = DailyCounterLedger()
     ledger.record(3800, _at(27, 18), False)

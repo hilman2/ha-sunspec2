@@ -228,11 +228,13 @@ class DailyCounterLedger:
         # The counter restarts in the morning of ``date``. An outage can only
         # hide that if the last poll before it still read an earlier counter
         # day, so one that begins after the restart, or in the evening before
-        # and ends the same evening, hides nothing.
+        # and ends the same evening, hides nothing. A restart can also have
+        # been read but not booked yet, and then it waits in ``pending``.
+        restart_waits = self.pending is not None and self.pending < (self.last or 0.0)
         if (
             self.seen_at is not None
             and at - self.seen_at >= OUTAGE_SECONDS
-            and self.seen_day != date
+            and (self.seen_day != date or restart_waits)
         ):
             self.outage = True
             if day != self.last_day:
