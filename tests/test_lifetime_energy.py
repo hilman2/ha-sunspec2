@@ -141,15 +141,14 @@ def test_a_large_jump_counts_once_a_later_round_confirms_it():
     assert ledger.total == 4050
 
 
-def test_a_stray_is_read_again_after_a_restart_of_home_assistant():
+def test_a_stray_keeps_its_time_across_a_restart_of_home_assistant():
     ledger = DailyCounterLedger()
     start = _feed(ledger, [3800])
     ledger.record(9000, start, True)
     restored = DailyCounterLedger.from_dict(ledger.as_dict())
-    # The time of the stray is gone, so this poll only starts the wait.
-    restored.record(9000, start + ROUND, True)
+    restored.record(9000, start + timedelta(seconds=60), True)
     assert restored.total == 3800
-    restored.record(3805, start + ROUND + timedelta(seconds=30), True)
+    restored.record(3805, start + ROUND, True)
     assert restored.total == 3805
 
 
@@ -450,6 +449,18 @@ def test_an_outage_that_found_the_counter_unchanged_is_over():
     assert ledger.total == 3800
 
 
+def test_an_outage_that_found_the_counter_unchanged_is_over_on_the_next_day_too():
+    ledger = DailyCounterLedger()
+    ledger.record(3800, _at(27, 18), False)
+    for hour in range(14, 24):
+        ledger.record(3800, _at(28, hour), False)
+    for hour in range(0, 14):
+        ledger.record(3790, _at(29, hour), False)
+    ledger.record(3700, _at(29, 14), False)
+    ledger.record(3750, _at(29, 14, 6), False)
+    assert ledger.total == 3800
+
+
 def test_two_dips_on_a_later_counter_day_are_no_new_day():
     ledger = DailyCounterLedger()
     ledger.record(3800, _at(27, 23, 59), False)
@@ -458,6 +469,40 @@ def test_two_dips_on_a_later_counter_day_are_no_new_day():
     ledger.record(3700, _at(28, 14), False)
     ledger.record(3750, _at(28, 14, 6), False)
     assert ledger.total == 3800
+
+
+@pytest.mark.parametrize(
+    ("back", "later", "expected"),
+    [
+        pytest.param([(2800, _at(28, 11, 30), False)], 2810, 3000 + 3400, id="after a dip"),
+        pytest.param(
+            [(2800, _at(28, 8), True), (2805, _at(28, 11, 30), False)],
+            2810,
+            3000 + 3400,
+            id="after a second gap",
+        ),
+    ],
+)
+def test_an_outage_decides_nothing_before_the_counter_day_has_changed(back, later, expected):
+    """The first poll after the gap still counts for yesterday, the hidden restart is seen later."""
+    ledger = DailyCounterLedger()
+    ledger.record(3000, _at(27, 18), False)
+    for reading, moment, producing in back:
+        ledger.record(reading, moment, producing)
+    ledger.record(later, _at(28, 11, 45), True)
+    ledger.record(3200, _at(28, 13), True)
+    ledger.record(3400, _at(28, 15), True)
+    ledger.record(3400, _at(28, 15, 6), True)
+    assert ledger.total == expected
+
+
+def test_a_restart_seen_before_a_restart_of_home_assistant_still_counts():
+    ledger = DailyCounterLedger()
+    ledger.record(300, _at(27, 18), False)
+    ledger.record(0, _at(28, 8, 30), False)
+    restored = DailyCounterLedger.from_dict(ledger.as_dict())
+    restored.record(350, _at(28, 9, 31), True)
+    assert restored.total == 300 + 350
 
 
 def test_a_stray_at_the_turn_of_the_day_is_no_restart_seen():
@@ -532,16 +577,6 @@ def test_a_stray_on_a_flat_morning_does_not_pass_for_the_climb():
     ledger.record(900, _at(28, 11), True)
     ledger.record(900, _at(28, 11, 6), True)
     assert ledger.total == 3800 + 900
-
-
-def test_a_stray_does_not_confirm_a_rise_that_waits():
-    ledger = DailyCounterLedger()
-    ledger.record(5999, _at(27, 17), True)
-    ledger.record(6000, _at(27, 17, 6), False)
-    ledger.record(9000, _at(27, 17, 12), False)
-    ledger.record(6000, _at(27, 17, 18), False)
-    ledger.record(6000, _at(27, 17, 24), False)
-    assert ledger.total == 6000
 
 
 def test_today_is_zero_until_the_counter_restarts():

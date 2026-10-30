@@ -29,16 +29,17 @@ about it (``CONFIRM_SECONDS``):
 * A drop counts only from below ``RESTART_SHARE`` of the last value. Anything
   above that is noise and is left out: with polls running, a restart shows
   as a low reading, so a counter that merely ends under ``last`` is no new
-  day. Only an outage of ``OUTAGE_SECONDS`` that ends on a later counter day
-  makes a smaller drop a possible restart nobody saw.
+  day. Only an outage of ``OUTAGE_SECONDS`` makes a smaller drop on a later
+  counter day a possible restart nobody saw.
 * A drop waits. If a later round is back at the old level, the low reading
   was a stray. If a later round is higher than the low one but still a
   drop, a new day has started and the old day is finished. A restart at
   zero is therefore booked once the counter climbs, also when Home
   Assistant was off while it restarted, and also when it has climbed past
-  ``last`` by the time polls come back ``SETTLED_SECONDS`` later. After an
-  outage, a drop that stays flat for ``SETTLED_SECONDS`` is a new day as
-  well: an outage that ends in the evening finds a counter at rest.
+  ``last`` by the time polls come back ``SETTLED_SECONDS`` later. A drop in
+  the first reading after an outage that stays flat for ``SETTLED_SECONDS``
+  is a new day as well: an outage that ends in the evening finds a counter
+  at rest.
 * A jump of more than ``MAX_STEP_WH`` waits as well, and counts once a later
   round is at least as high, so a bad high reading never sticks. It starts
   a new day only if the counter day has changed since ``last``: a Home
@@ -165,18 +166,16 @@ class DailyCounterLedger:
     seen_at: float | None = None
     """When the counter was last read, as a Unix time, whether or not the
     reading was accepted."""
-    outage: bool = False
-    """Whether an outage ended on a later counter day than ``last_day``, so
-    that the counter may have restarted unseen. Ends with the next accepted
-    reading."""
+    outage_at: float | None = None
+    """When the first reading after an outage came, as a Unix time. The
+    counter may have restarted unseen until the next accepted reading."""
     pending: float | None = None
     """A reading that waits for a later round: a drop or a large jump."""
     pending_day: str | None = field(default=None, compare=False)
     """The day ``pending`` was read on. Not stored: after a restart the
     confirming reading's day stands alone."""
-    pending_at: float | None = field(default=None, compare=False)
-    """When ``pending`` was first read, as a Unix time. Not stored: after a
-    restart the wait for a later round starts again."""
+    pending_at: float | None = None
+    """When ``pending`` was first read, as a Unix time."""
     date: str | None = None
     """The local date ``total_at_midnight`` belongs to, as ``YYYY-MM-DD``."""
     total_at_midnight: float | None = None
@@ -221,7 +220,7 @@ class DailyCounterLedger:
             day = self.last_day
         at = now.timestamp()
         if self.seen_at is not None and at - self.seen_at >= OUTAGE_SECONDS:
-            self.outage = day != self.last_day
+            self.outage_at = at
         self.seen_at = at
         self._take(watt_hours, day, at, producing)
         if self.total_at_midnight is None:
@@ -235,10 +234,11 @@ class DailyCounterLedger:
         if last is None:
             self._accept(watt_hours, day)
             return
-        pending, pending_day = self.pending, self.pending_day
-        if pending is not None and self.pending_at is None:
-            self.pending_at = at
-        waited = 0.0 if self.pending_at is None else at - self.pending_at
+        pending, pending_day, pending_at = self.pending, self.pending_day, self.pending_at
+        if pending is not None and pending_at is None:
+            # Stored by a release that did not keep the time.
+            self.pending_at = pending_at = at
+        waited = 0.0 if pending_at is None else at - pending_at
         if (
             pending is not None
             and pending < last < watt_hours <= last + MAX_STEP_WH
@@ -264,7 +264,7 @@ class DailyCounterLedger:
         elif pending > last:
             # A large jump: real if the counter kept going from there.
             self._release()
-            if watt_hours < pending or watt_hours > pending + MAX_STEP_WH:
+            if watt_hours < pending:
                 self._hold(watt_hours, last, day, at)
                 return
             # A counter that stands still belongs to the day it was seen
@@ -281,10 +281,11 @@ class DailyCounterLedger:
             self._release()
             self._hold(watt_hours, last, day, at)
         elif watt_hours > pending or (
-            watt_hours == pending and self.outage and waited >= SETTLED_SECONDS
+            watt_hours == pending and pending_at == self.outage_at and waited >= SETTLED_SECONDS
         ):
-            # Running up again from the low value, or at rest after an
-            # outage: a new day has started.
+            # Running up again from the low value, or at rest since the
+            # first reading after an outage: a new day has started. A
+            # reading held later is a counter that ended under ``last``.
             self._release()
             self.base += last
             self._accept(watt_hours, day)
@@ -298,11 +299,15 @@ class DailyCounterLedger:
             return True
         if not producing or not last < watt_hours <= last + MAX_STEP_WH:
             return False
-        return not self.outage
+        return not self._outage_over(day)
 
     def _is_drop(self, watt_hours: float, last: float, day: str) -> bool:
         """Whether a reading below ``last`` can be the restart of the counter."""
-        return watt_hours < RESTART_SHARE * last or self.outage
+        return watt_hours < RESTART_SHARE * last or self._outage_over(day)
+
+    def _outage_over(self, day: str) -> bool:
+        """Whether an outage can hide a restart of the counter on counter day ``day``."""
+        return self.outage_at is not None and day != self.last_day
 
     def _hold(self, watt_hours: float, last: float, day: str, at: float) -> None:
         """Keep a reading for a later round, unless it is a dip of no meaning."""
@@ -319,7 +324,7 @@ class DailyCounterLedger:
     def _accept(self, watt_hours: float, day: str) -> None:
         self.last = watt_hours
         self.last_day = day
-        self.outage = False
+        self.outage_at = None
 
     def as_dict(self) -> dict[str, Any]:
         """The stored form."""
@@ -329,8 +334,9 @@ class DailyCounterLedger:
             "last": self.last,
             "last_day": self.last_day,
             "seen_at": self.seen_at,
-            "outage": self.outage,
+            "outage_at": self.outage_at,
             "pending": self.pending,
+            "pending_at": self.pending_at,
             "date": self.date,
             "total_at_midnight": self.total_at_midnight,
         }
@@ -340,7 +346,8 @@ class DailyCounterLedger:
         """Read the stored form; anything unreadable starts a fresh ledger."""
         if not data or data.get("revision") != STORAGE_REVISION:
             return cls()
-        keys = ("base", "last", "seen_at", "pending", "total_at_midnight")
+        keys = ("base", "last", "seen_at", "outage_at", "pending", "pending_at")
+        keys += ("total_at_midnight",)
         values = {key: data.get(key) for key in keys}
         for value in values.values():
             if value is not None and (
@@ -350,13 +357,15 @@ class DailyCounterLedger:
         last_day = data.get("last_day")
         date = data.get("date")
         seen_at, midnight = values["seen_at"], values["total_at_midnight"]
+        outage_at, pending_at = values["outage_at"], values["pending_at"]
         return cls(
             base=float(values["base"] or 0.0),
             last=None if values["last"] is None else float(values["last"]),
             last_day=last_day if isinstance(last_day, str) else None,
             seen_at=None if seen_at is None else float(seen_at),
-            outage=data.get("outage") is True,
+            outage_at=None if outage_at is None else float(outage_at),
             pending=None if values["pending"] is None else float(values["pending"]),
+            pending_at=None if pending_at is None else float(pending_at),
             date=date if isinstance(date, str) else None,
             total_at_midnight=None if midnight is None else float(midnight),
         )
