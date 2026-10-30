@@ -171,9 +171,10 @@ What to expect:
   made so far that day. Your total in the EMA app is not part of it.
 - A reading that does not fit a counter that only goes up waits for the
   next ECU round, about five and a half minutes. A reading far off the
-  counter that lasts one round therefore does not end up in the total or
-  in **Energy produced today**. A small rise while the micro inverter
-  produces is taken at once, so the ECU can still add a little too much.
+  counter that lasts one round therefore normally stays out of the total
+  and out of **Energy produced today**. A small rise while the micro
+  inverter produces is taken at once, so the ECU can still add a little
+  too much.
 - The total and **Energy produced today** can lag by those minutes in
   the morning, and by up to half an hour after an outage that ends once
   the micro inverter has stopped producing.

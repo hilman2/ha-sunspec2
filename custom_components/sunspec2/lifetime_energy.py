@@ -29,8 +29,8 @@ about it (``CONFIRM_SECONDS``):
 * A drop counts only from below ``RESTART_SHARE`` of the last value. Anything
   above that is noise and is left out: with polls running, a restart shows
   as a low reading, so a counter that merely ends under ``last`` is no new
-  day. Only after an outage of ``OUTAGE_SECONDS`` over a change of counter
-  day can a smaller drop be a restart nobody saw.
+  day. Only an outage of ``OUTAGE_SECONDS`` that ends on a later counter day
+  makes a smaller drop a possible restart nobody saw.
 * A drop waits. If a later round is back at the old level, the low reading
   was a stray. If a later round is higher than the low one but still a
   drop, a new day has started and the old day is finished. A restart at
@@ -41,9 +41,9 @@ about it (``CONFIRM_SECONDS``):
   well: an outage that ends in the evening finds a counter at rest.
 * A jump of more than ``MAX_STEP_WH`` waits as well, and counts once a later
   round is at least as high, so a bad high reading never sticks. It starts
-  a new day only if it is confirmed on another counter day than ``last``:
-  a Home Assistant that comes back at night, after missing the afternoon,
-  finds the same day's counter, only higher.
+  a new day only if the counter day has changed since ``last``: a Home
+  Assistant that comes back at night, after missing the afternoon, finds
+  the same day's counter, only higher.
 * A smaller rise waits too while the micro inverter produces nothing, as
   there is nothing to count then.
 * A smaller rise on a later counter day counts as a jump after an outage:
@@ -166,7 +166,9 @@ class DailyCounterLedger:
     """When the counter was last read, as a Unix time, whether or not the
     reading was accepted."""
     outage: bool = False
-    """Whether an outage lies between ``last`` and now."""
+    """Whether an outage ended on a later counter day than ``last_day``, so
+    that the counter may have restarted unseen. Ends with the next accepted
+    reading."""
     pending: float | None = None
     """A reading that waits for a later round: a drop or a large jump."""
     pending_day: str | None = field(default=None, compare=False)
@@ -219,7 +221,7 @@ class DailyCounterLedger:
             day = self.last_day
         at = now.timestamp()
         if self.seen_at is not None and at - self.seen_at >= OUTAGE_SECONDS:
-            self.outage = True
+            self.outage = day != self.last_day
         self.seen_at = at
         self._take(watt_hours, day, at, producing)
         if self.total_at_midnight is None:
@@ -239,13 +241,15 @@ class DailyCounterLedger:
         waited = 0.0 if self.pending_at is None else at - self.pending_at
         if (
             pending is not None
-            and pending < last < watt_hours
+            and pending < last < watt_hours <= last + MAX_STEP_WH
             and producing
+            and day != self.last_day
             and waited >= SETTLED_SECONDS
         ):
             # The restart was seen, and then the polls stopped until the
             # counter had climbed past yesterday's value. A stray is gone
-            # within a round, so it cannot have waited this long.
+            # within a round, so it cannot have waited this long, and this
+            # is the first reading on the new counter day.
             self._release()
             self.base += last
             self._accept(watt_hours, day)
@@ -260,13 +264,14 @@ class DailyCounterLedger:
         elif pending > last:
             # A large jump: real if the counter kept going from there.
             self._release()
-            if watt_hours < pending:
+            if watt_hours < pending or watt_hours > pending + MAX_STEP_WH:
                 self._hold(watt_hours, last, day, at)
                 return
-            # The jump belongs to the day it was seen on. A confirming
-            # reading can fall on the next one, by noon or the first
-            # production, and must not book ``last`` a second time for that.
-            if pending_day is not None:
+            # A counter that stands still belongs to the day it was seen
+            # on. A confirming reading can fall on the next day, by noon or
+            # the first production, and must not book ``last`` a second
+            # time for that. A cloud can do the same the other way round.
+            if pending_day is not None and (watt_hours == pending or pending_day > day):
                 day = pending_day
             if self.last_day != day:
                 self.base += last
@@ -276,7 +281,7 @@ class DailyCounterLedger:
             self._release()
             self._hold(watt_hours, last, day, at)
         elif watt_hours > pending or (
-            watt_hours == pending and self._outage_over(day) and waited >= SETTLED_SECONDS
+            watt_hours == pending and self.outage and waited >= SETTLED_SECONDS
         ):
             # Running up again from the low value, or at rest after an
             # outage: a new day has started.
@@ -293,15 +298,11 @@ class DailyCounterLedger:
             return True
         if not producing or not last < watt_hours <= last + MAX_STEP_WH:
             return False
-        return not self._outage_over(day)
+        return not self.outage
 
     def _is_drop(self, watt_hours: float, last: float, day: str) -> bool:
         """Whether a reading below ``last`` can be the restart of the counter."""
-        return watt_hours < RESTART_SHARE * last or self._outage_over(day)
-
-    def _outage_over(self, day: str) -> bool:
-        """Whether an outage hides a change to the counter day ``day``."""
-        return self.outage and day != self.last_day
+        return watt_hours < RESTART_SHARE * last or self.outage
 
     def _hold(self, watt_hours: float, last: float, day: str, at: float) -> None:
         """Keep a reading for a later round, unless it is a dip of no meaning."""

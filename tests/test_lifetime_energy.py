@@ -431,12 +431,40 @@ def test_an_outage_on_one_counter_day_is_no_new_day():
     assert ledger.total == 3800
 
 
+def test_an_outage_on_one_counter_day_leaves_nothing_for_the_next_day():
+    ledger = DailyCounterLedger()
+    ledger.record(3800, _at(27, 14), True)
+    ledger.record(3795, _at(27, 18), False)
+    for hour in range(0, 24):
+        ledger.record(3795, _at(28, hour), False)
+    assert ledger.total == 3800
+    assert ledger.base == 0
+
+
 def test_an_outage_that_found_the_counter_unchanged_is_over():
     ledger = DailyCounterLedger()
-    ledger.record(3800, _at(27, 23), False)
-    ledger.record(3800, _at(28, 3), False)
-    ledger.record(3800, _at(28, 5), False)
-    ledger.record(3810, _at(28, 7), True)
+    ledger.record(3800, _at(27, 18), False)
+    ledger.record(3800, _at(28, 14), False)
+    for minute in range(0, 60, 6):
+        ledger.record(3795, _at(28, 15, minute), False)
+    assert ledger.total == 3800
+
+
+def test_two_dips_on_a_later_counter_day_are_no_new_day():
+    ledger = DailyCounterLedger()
+    ledger.record(3800, _at(27, 23, 59), False)
+    for hour in range(0, 14):
+        ledger.record(3790, _at(28, hour), False)
+    ledger.record(3700, _at(28, 14), False)
+    ledger.record(3750, _at(28, 14, 6), False)
+    assert ledger.total == 3800
+
+
+def test_a_stray_at_the_turn_of_the_day_is_no_restart_seen():
+    ledger = DailyCounterLedger()
+    ledger.record(3800, _at(27, 23, 59), True)
+    ledger.record(30, _at(28, 0, 0, 30), True)
+    ledger.record(3810, _at(28, 0, 6), True)
     assert ledger.total == 3810
 
 
@@ -468,12 +496,52 @@ def test_a_restart_that_was_seen_is_booked_after_a_short_outage():
     ],
 )
 def test_a_jump_keeps_the_day_it_was_seen_on(seen, confirmed):
+    """Back from an outage to yesterday's whole counter, on a morning that stays flat."""
     ledger = DailyCounterLedger()
-    ledger.record(500, _at(27, 17), False)
-    ledger.record(500, _at(28, 3), False)
+    ledger.record(500, _at(27, 9), True)
     ledger.record(3800, seen, False)
     ledger.record(3800, confirmed, confirmed.hour < 12)
     assert ledger.total == 3800
+
+
+def test_a_jump_that_goes_on_after_noon_is_a_new_day():
+    ledger = DailyCounterLedger()
+    ledger.record(3000, _at(27, 18), False)
+    ledger.record(3000, _at(28, 3), False)
+    ledger.record(5500, _at(28, 11, 57), False)
+    ledger.record(5550, _at(28, 12, 3), True)
+    assert ledger.total == 3000 + 5550
+
+
+def test_a_stray_and_a_gap_on_one_counter_day_are_no_new_day():
+    ledger = DailyCounterLedger()
+    ledger.record(3800, _at(27, 13), True)
+    ledger.record(30, _at(27, 13, 5), True)
+    ledger.record(3850, _at(27, 13, 36), True)
+    ledger.record(4050, _at(27, 14), True)
+    assert ledger.total == 4050
+
+
+def test_a_stray_on_a_flat_morning_does_not_pass_for_the_climb():
+    ledger = DailyCounterLedger()
+    ledger.record(3800, _at(27, 18), False)
+    ledger.record(0, _at(28, 7, 30), False)
+    ledger.record(9000, _at(28, 8, 5), True)
+    ledger.record(0, _at(28, 8, 11), True)
+    ledger.record(3, _at(28, 8, 17), True)
+    ledger.record(900, _at(28, 11), True)
+    ledger.record(900, _at(28, 11, 6), True)
+    assert ledger.total == 3800 + 900
+
+
+def test_a_stray_does_not_confirm_a_rise_that_waits():
+    ledger = DailyCounterLedger()
+    ledger.record(5999, _at(27, 17), True)
+    ledger.record(6000, _at(27, 17, 6), False)
+    ledger.record(9000, _at(27, 17, 12), False)
+    ledger.record(6000, _at(27, 17, 18), False)
+    ledger.record(6000, _at(27, 17, 24), False)
+    assert ledger.total == 6000
 
 
 def test_today_is_zero_until_the_counter_restarts():
