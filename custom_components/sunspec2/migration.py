@@ -267,7 +267,7 @@ def cleanup_superseded_control_entities(
     log: LoggerLike,
     vendor: VendorProfile | None = None,
 ) -> list[str]:
-    """Delete control entities no longer backed by an active spec.
+    """Delete SunSpec control entities no longer backed by an active spec.
 
     A device exposing both model 123 and model 704 gets its controls
     from 704 as of v0.19.0, which leaves the model 123 Number and Switch
@@ -300,6 +300,9 @@ def cleanup_superseded_control_entities(
         if parsed is None:
             continue
         model_id, key = parsed
+        # Vendor raw controls are independent of the SunSpec control specs.
+        if key.startswith("raw:"):
+            continue
         if (model_id, key.rsplit(":", 1)[-1]) in live:
             continue
         registry.async_remove(re_entry.entity_id)

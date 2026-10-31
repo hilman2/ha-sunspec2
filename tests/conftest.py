@@ -334,7 +334,7 @@ def sunspec_kostal_no_battery_client_mock():
 
 @pytest.fixture
 def sunspec_sma_client_mock():
-    """An SMA Tripower Smart Energy: models 1 and 103 on unit 126, SMA's own registers on 3.
+    """An SMA Tripower Smart Energy: models 1, 103 and 123 on unit 126, SMA's own registers on 3.
 
     See tests/sma_registers.py for what the registers hold. The api
     client has to be built with unit id 126 for the offset of -123 to
