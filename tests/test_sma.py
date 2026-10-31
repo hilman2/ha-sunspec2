@@ -8,8 +8,13 @@ id 126 so the profile's offset of -123 lands on unit 3.
 from unittest.mock import call
 from unittest.mock import patch
 
+import pytest
 from homeassistant.data_entry_flow import FlowResultType
+from homeassistant.helpers import area_registry as ar
+from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers import label_registry as lr
 from homeassistant.helpers.service_info.dhcp import DhcpServiceInfo
+from pytest_homeassistant_custom_component.common import async_capture_events
 from pytest_homeassistant_custom_component.common import async_fire_time_changed
 
 from custom_components.sunspec2 import get_sunspec_unique_id
@@ -100,6 +105,65 @@ async def test_the_setpoint_entities_exist_without_a_readable_block(hass, sunspe
     # Nothing to read back: unknown until Home Assistant writes.
     assert control.current_option is None
     assert setpoint.native_value is None
+
+
+@pytest.mark.parametrize("disabled_by", [None, er.RegistryEntryDisabler.USER])
+async def test_control_customizations_survive_setup_and_reload(
+    hass, sunspec_sma_client_mock, disabled_by
+):
+    """Existing SMA controls keep their registry identity and user settings (#167)."""
+    entry = create_mock_sunspec_config_entry(hass, data=SMA_CONFIG)
+    registry = er.async_get(hass)
+    area = ar.async_get(hass).async_create("Solar")
+    label = lr.async_get(hass).async_create("Inverter controls")
+    controls = []
+    for domain, key in (
+        ("select", "raw:sma_setpoint:control"),
+        ("number", "raw:sma_setpoint:setpoint"),
+        ("switch", "raw:sma_setpoint:sma_power_setpoint_keepalive"),
+    ):
+        registered = registry.async_get_or_create(
+            domain,
+            DOMAIN,
+            get_sunspec_unique_id(entry.entry_id, key, 0, 0),
+            config_entry=entry,
+            suggested_object_id=f"custom_{domain}",
+        )
+        controls.append(
+            registry.async_update_entity(
+                registered.entity_id,
+                disabled_by=disabled_by,
+                name=f"My {domain}",
+                icon="mdi:solar-power",
+                area_id=area.id,
+                labels={label.label_id},
+            )
+        )
+
+    control_ids = {control.entity_id for control in controls}
+    registry_events = async_capture_events(hass, er.EVENT_ENTITY_REGISTRY_UPDATED)
+    for setup in (hass.config_entries.async_setup, hass.config_entries.async_reload):
+        assert await setup(entry.entry_id)
+        await hass.async_block_till_done()
+        assert entry.runtime_data.vendor is SMA
+        assert 123 in entry.runtime_data.detected_models
+        assert not [
+            event.data
+            for event in registry_events
+            if event.data["action"] in ("remove", "create")
+            and event.data["entity_id"] in control_ids
+        ]
+        for before in controls:
+            after = registry.async_get(before.entity_id)
+            assert after is not None
+            assert after.id == before.id
+            assert after.unique_id == before.unique_id
+            assert after.disabled_by == before.disabled_by
+            assert after.name == before.name
+            assert after.icon == before.icon
+            assert after.area_id == before.area_id
+            assert after.labels == before.labels
+            assert (hass.states.get(before.entity_id) is None) == (disabled_by is not None)
 
 
 async def test_writes_land_on_unit_3_in_sma_word_order_and_are_not_counted(

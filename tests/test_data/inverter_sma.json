@@ -39,6 +39,16 @@
       "Evt1": 3
     },
     {
+      "ID": 123,
+      "L": null,
+      "WMaxLimPct": 10000,
+      "WMaxLimPct_SF": -2,
+      "WMaxLim_Ena": 0,
+      "OutPFSet": 1000,
+      "OutPFSet_SF": -3,
+      "OutPFSet_Ena": 0
+    },
+    {
       "ID": 65535,
       "L": 0
     }

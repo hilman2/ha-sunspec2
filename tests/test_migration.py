@@ -452,6 +452,7 @@ async def test_cleanup_removes_model_123_controls_when_704_wins(hass):
     this: registry rows nothing feeds, rendered Unavailable forever.
     """
     entry = _our_entry(hass)
+    raw_number = _register_ours(hass, entry, "number", "raw:vendor_block:setpoint-0-0")
     old_number = _register_ours(hass, entry, "number", "WMaxLimPct-123-0")
     old_switch = _register_ours(hass, entry, "switch", "WMaxLim_Ena-123-0")
     live_number = _register_ours(hass, entry, "number", "WMaxLimPct-704-0")
@@ -460,6 +461,7 @@ async def test_cleanup_removes_model_123_controls_when_704_wins(hass):
 
     assert sorted(removed) == sorted([old_number, old_switch])
     registry = er.async_get(hass)
+    assert registry.async_get(raw_number) is not None
     assert registry.async_get(live_number) is not None
 
 
