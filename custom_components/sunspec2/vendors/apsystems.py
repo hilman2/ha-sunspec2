@@ -65,9 +65,22 @@ could have: it waits a minute for an answer and, after a request that
 still went unanswered, leaves the ECU alone until a minute past the
 first fifth minute of the clock that is at least a minute away; the
 ECU's round starts about 10 seconds past every fifth minute.
+
+The event flags. SunSpec makes ``Evt1`` a bitfield32 over 40110 and
+40111 and defines its 16 flags in the low word, the second register.
+The APsystems document reads the flags from 40110 alone, one register,
+and gets 0x8123 (rev 3.3, the examples for the single and the three
+phase monitoring table). Read as the 32-bit value the point declares,
+those flags sit in bits 16 to 31, where SunSpec defines none, and the
+sensor would show "no event" for an inverter that has one. The author of
+christianvaes/homeassistant-apsystems_modbus reads both registers
+since version 0.6.0. We have no dump of an ECU with an active event, so
+the profile takes the flags from either word.
 """
 
 from __future__ import annotations
+
+from typing import Any
 
 from .profile import ModelRelabel
 from .profile import RawBlock
@@ -134,6 +147,33 @@ ASCII_FLAG_POINTS: frozenset[str] = frozenset({"123:WMaxLim_Ena"})
 #: needs minutes to pass it on.
 CONTROL_STEPS: dict[str, float] = {"123:WMaxLimPct": 1.0}
 
+#: The inverter models that carry ``Evt1`` (single phase, split phase,
+#: three phase, and the same three with float values).
+EVENT_MODELS: tuple[int, ...] = (101, 102, 103, 111, 112, 113)
+#: A 16-bit register SunSpec reserves for "not implemented".
+NOT_IMPLEMENTED_WORD = 0xFFFF
+
+
+def either_word(value: Any) -> Any:
+    """Return the event flags, wherever in the two registers the ECU put them.
+
+    Args:
+        value (int|None): ``Evt1`` as the 32-bit value SunSpec declares.
+            None where the library found it not implemented.
+
+    Returns:
+        int|None: The flags of both words combined, so they are the same
+            whichever register carries them. None when either word reads
+            0xFFFF, so a half-implemented point never shows as "every event".
+    """
+    if not isinstance(value, int):
+        return value
+    high, low = value >> 16, value & 0xFFFF
+    if NOT_IMPLEMENTED_WORD in (high, low):
+        return None
+    return high | low
+
+
 #: A busy ECU takes close to a minute to answer; see the module docstring.
 REQUEST_TIMEOUT = 60.0
 #: The ECU collects from its micro inverters every five minutes, on the clock.
@@ -149,6 +189,7 @@ APSYSTEMS = VendorProfile(
     ascii_flag_points=ASCII_FLAG_POINTS,
     control_steps=CONTROL_STEPS,
     daily_energy_points=frozenset({"WH"}),
+    point_transforms={(model, "Evt1"): either_word for model in EVENT_MODELS},
     request_timeout=REQUEST_TIMEOUT,
     collection_round_seconds=COLLECTION_ROUND_SECONDS,
 )

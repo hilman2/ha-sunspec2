@@ -1,5 +1,6 @@
 """The APsystems profile: the DC floats behind the end marker, read from their fixed addresses."""
 
+import pytest
 from homeassistant.components.sensor import SensorStateClass
 from homeassistant.helpers import entity_registry as er
 
@@ -11,6 +12,7 @@ from custom_components.sunspec2.sensor import SunSpecSensor
 from custom_components.sunspec2.vendor_blocks import RawBlockSensor
 from custom_components.sunspec2.vendors import profile_for
 from custom_components.sunspec2.vendors.apsystems import APSYSTEMS
+from custom_components.sunspec2.vendors.apsystems import either_word
 
 from . import create_mock_sunspec_config_entry
 from . import setup_mock_sunspec_config_entry
@@ -187,3 +189,38 @@ async def test_the_daily_energy_name_keeps_the_registered_entity_id(
     registered = registry.async_get(wh.entity_id)
     assert registered is not None
     assert registered.original_name == "Energy produced today"
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        (0x0200_0000, 0x0200),  # where the APsystems document reads them
+        (0x0000_0200, 0x0200),  # where SunSpec puts them
+        (0x0080_0200, 0x0280),
+        (0, 0),
+        (0xFFFF_0000, None),  # not implemented, never "every event"
+        (0x0000_FFFF, None),
+        (None, None),
+    ],
+)
+def test_the_event_flags_are_taken_from_either_register(value, expected):
+    assert either_word(value) == expected
+
+
+async def test_the_event_sensor_names_flags_from_the_first_register(
+    hass, sunspec_apsystems_client_mock
+):
+    entry = await _entry(hass)
+    component = hass.data["entity_components"]["sensor"]
+    events = next(e for e in component.entities if isinstance(e, SunSpecSensor) and e.key == "Evt1")
+    point = entry.runtime_data.data[103].getPoint("Evt1")
+
+    point.value = 0x0200_0000
+    assert events.native_value == "UNDER_FREQUENCY"
+    point.value = 0x0000_0200
+    assert events.native_value == "UNDER_FREQUENCY"
+    point.value = 0
+    assert events.native_value == ""
+    point.value = 0x0000_FFFF
+    assert events.native_value is None
+    assert events.extra_state_attributes["active_flags"] == []

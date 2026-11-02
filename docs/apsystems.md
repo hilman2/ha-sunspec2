@@ -130,6 +130,10 @@ an observation:
 
 - **Operating state** always reads MPPT, also at night, and the **event
   flags** always read 0. Do not build an automation on either.
+  The APsystems document puts the event flags in the first of the two
+  registers, where SunSpec has them in the second. The integration reads
+  both, so a flag shows wherever the ECU sets it. No dump of an ECU with
+  an active event has been shared with us yet.
 - A **DS3-L** and a **DS3** both report the model DS3, so the integration
   cannot tell them apart.
 - There is no timestamp or round counter. A value that did not change
