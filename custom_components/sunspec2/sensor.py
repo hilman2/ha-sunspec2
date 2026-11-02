@@ -743,6 +743,10 @@ class SunSpecSensor(SunSpecEntity, SensorEntity):
                 else:
                     return None
             else:
+                if val is None:
+                    # A vendor transform answers None for a value it knows to be
+                    # not implemented.
+                    return None
                 symbols = list(filter(lambda s: (val >> int(s["value"])) & 1 == 1, symbols))
                 if len(symbols) > 0:
                     return ",".join(map(lambda s: s["name"], symbols))[:255]
