@@ -155,6 +155,13 @@ The request goes to `analytics.fs-sys.de`, a Matomo server of the author.
 It keeps no visitor log of these requests, only the counts. The code is in
 [`usage_stats.py`](custom_components/sunspec2/usage_stats.py).
 
+Matomo is set to maximum privancy. No IP, no profile.
+
+<img width="2287" height="1849" alt="image" src="https://github.com/user-attachments/assets/9a783c9b-3ec4-4db2-b3c5-978a54fe3673" />
+
+<img width="2509" height="1830" alt="image" src="https://github.com/user-attachments/assets/f48d58f9-ccc2-4fd1-a98b-c7ebcf9a8824" />
+
+
 ## Several inverters on one connection
 
 Add the integration once per inverter, each time with the same IP
