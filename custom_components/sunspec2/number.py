@@ -148,6 +148,9 @@ def build_specs(
         if step is not None and spec.native_step is None:
             spec = replace(spec, native_step=step)
         model_wrapper = (coordinator.data or {}).get(spec.model_id)
+        if model_wrapper is None and spec.model_id in coordinator.refused_control_models:
+            # The coordinator already warned when the device refused it.
+            continue
         if model_wrapper is None:
             # Unreachable in the normal path since v0.14.0: the
             # coordinator adds every model it builds controls for to

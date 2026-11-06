@@ -84,6 +84,7 @@ from .const import TRANSPORT_TCP
 from .const import WRITE_CAPABLE_MODEL_IDS
 from .const import WRITE_LOCK_TIMEOUT_SECONDS
 from .errors import CATEGORIES
+from .errors import DeviceError
 from .errors import SunSpecError
 from .errors import TransientError
 from .errors import TransportError
@@ -857,6 +858,15 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator[dict[int, SunSpecModelW
         # it would render a tick the user never made and then persist
         # it on their next save.
         self.write_model_filter: set[int] = set(WRITE_CAPABLE_MODEL_IDS)
+        # Control models the device answered with a Modbus exception
+        # while they were polled only for their controls. An Enphase IQ
+        # Gateway lists model 704 in its scan and answers every read of
+        # it with exception 6, "busy", even after the transport has
+        # retried for a minute (#172). Such a model leaves the polled
+        # set until the entry reloads, and the cycle carries on without
+        # it: the user never asked for it, so it must not keep the
+        # models they did ask for from loading.
+        self.refused_control_models: set[int] = set()
         self.unsub = entry.add_update_listener(async_reload_entry)
         self._log.debug(
             "Setup entry with models %s, scan interval %s",
@@ -1299,6 +1309,7 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator[dict[int, SunSpecModelW
         # expose is still never read, but the control models get in
         # without polluting the user's own selection.
         model_ids = (self.option_model_filter | self.write_model_filter) & all_models
+        model_ids -= self.refused_control_models
 
         # Fetch common model 1 once per process under the lock so
         # the sensor platform setup can read device metadata
@@ -1357,6 +1368,19 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator[dict[int, SunSpecModelW
             # later cycles still read it when the user selected it.
             if model_id == 1 and fresh_common is not None:
                 data[model_id] = fresh_common
+            elif self._polled_only_for_controls(model_id):
+                try:
+                    data[model_id] = await self.api.async_get_data(model_id)
+                except DeviceError as exc:
+                    # Only a Modbus exception, which is the device
+                    # answering "no". A timeout or a dropped link says
+                    # nothing about this model and still fails the
+                    # cycle like any other read.
+                    self.refused_control_models.add(model_id)
+                    self._log.warning(
+                        "%s. Its controls stay unavailable until the integration reloads",
+                        exc,
+                    )
             else:
                 data[model_id] = await self.api.async_get_data(model_id)
         # After the models, on the same session: what the vendor keeps
@@ -1371,6 +1395,17 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator[dict[int, SunSpecModelW
             # model list was computed against the old client.
             self.api.reconnect_next()
         return data
+
+    def _polled_only_for_controls(self, model_id: int) -> bool:
+        """Whether the model is read only because its controls might be built.
+
+        True for a write-capable model the user did not select and the
+        vendor profile does not require. Such a model may be refused
+        without failing the cycle.
+        """
+        if model_id not in self.write_model_filter or model_id in self.option_model_filter:
+            return False
+        return self.vendor is None or model_id not in self.vendor.required_models
 
     async def _read_nameplate(self, all_models: set[int]) -> float | None:
         """Read continuous AC power capability from model 120 / 121.
