@@ -498,6 +498,11 @@ WRITE_LOCK_TIMEOUT_SECONDS = 120
 # statistics graphs to "unknown".
 STALE_DATA_TOLERANCE_CYCLES = 5
 
+# A model polled only for its controls is skipped after this many
+# Modbus exceptions in a row, with no successful read in between and
+# never one read by the current coordinator (#172).
+CONTROL_REFUSALS_BEFORE_SKIP = 2
+
 # Issue #52: SunSpec models that carry the inverter operating state
 # point, and the values of that point which mean "I am powering
 # myself down".

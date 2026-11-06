@@ -226,9 +226,10 @@ points become controls. The existing `WSetPct` sensor remains available
 alongside its control to preserve entity IDs and history.
 
 Some devices list one of these models but refuse to read it. An Enphase
-IQ Gateway does this with 704. If you did not select that model, the
-integration skips it, logs a warning, and has no controls from it. Your
-selected models load as usual. It tries the model again after a reload.
+IQ Gateway does this with 704. If you did not select that model and
+the device refuses it twice in a row, the integration skips it, logs a
+warning, and has no controls from it. Your selected models load as
+usual. It tries the model again after a reload.
 The diagnostics file lists a skipped model under
 `refused_control_models`.
 

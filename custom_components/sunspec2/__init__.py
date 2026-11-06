@@ -56,6 +56,7 @@ from .const import CONF_SERIAL_PORT
 from .const import CONF_STANDBY_WHEN_IDLE
 from .const import CONF_TRANSPORT
 from .const import CONF_UNIT_ID
+from .const import CONTROL_REFUSALS_BEFORE_SKIP
 from .const import DEFAULT_BAUDRATE
 from .const import DEFAULT_MODEL_READ_DELAY_SECONDS
 from .const import DEFAULT_MODELS
@@ -114,6 +115,11 @@ from .write_controls import export_limit_points
 SCAN_INTERVAL = timedelta(seconds=30)
 
 _LOGGER: logging.Logger = logging.getLogger(__package__)
+
+# Modbus exceptions in a row per (entry id, model id), for the control
+# models that are polled without being selected. Read and reset by
+# SunSpecDataUpdateCoordinator._read_control_model.
+_CONTROL_REFUSALS_KEY = f"{DOMAIN}_control_refusals"
 
 # Bronze rule runtime-data: typed config entry alias so platforms,
 # diagnostics and the options flow can read the coordinator off
@@ -858,15 +864,17 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator[dict[int, SunSpecModelW
         # it would render a tick the user never made and then persist
         # it on their next save.
         self.write_model_filter: set[int] = set(WRITE_CAPABLE_MODEL_IDS)
-        # Control models the device answered with a Modbus exception
-        # while they were polled only for their controls. An Enphase IQ
-        # Gateway lists model 704 in its scan and answers every read of
-        # it with exception 6, "busy", even after the transport has
-        # retried for a minute (#172). Such a model leaves the polled
-        # set until the entry reloads, and the cycle carries on without
-        # it: the user never asked for it, so it must not keep the
-        # models they did ask for from loading.
+        # Control models the device refuses to read while they are
+        # polled only for their controls. An Enphase IQ Gateway lists
+        # model 704 in its scan and answers every read of it with
+        # exception 6, "busy", even after the transport has retried for
+        # a minute (#172). Such a model leaves the polled set until the
+        # entry reloads, so it cannot keep the models the user did
+        # select from loading. _read_control_model decides when a
+        # Modbus exception counts as a refusal.
         self.refused_control_models: set[int] = set()
+        # Control models this coordinator has read at least once.
+        self._control_models_read: set[int] = set()
         self.unsub = entry.add_update_listener(async_reload_entry)
         self._log.debug(
             "Setup entry with models %s, scan interval %s",
@@ -1369,18 +1377,9 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator[dict[int, SunSpecModelW
             if model_id == 1 and fresh_common is not None:
                 data[model_id] = fresh_common
             elif self._polled_only_for_controls(model_id):
-                try:
-                    data[model_id] = await self.api.async_get_data(model_id)
-                except DeviceError as exc:
-                    # Only a Modbus exception, which is the device
-                    # answering "no". A timeout or a dropped link says
-                    # nothing about this model and still fails the
-                    # cycle like any other read.
-                    self.refused_control_models.add(model_id)
-                    self._log.warning(
-                        "%s. Its controls stay unavailable until the integration reloads",
-                        exc,
-                    )
+                wrapper = await self._read_control_model(model_id)
+                if wrapper is not None:
+                    data[model_id] = wrapper
             else:
                 data[model_id] = await self.api.async_get_data(model_id)
         # After the models, on the same session: what the vendor keeps
@@ -1406,6 +1405,46 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator[dict[int, SunSpecModelW
         if model_id not in self.write_model_filter or model_id in self.option_model_filter:
             return False
         return self.vendor is None or model_id not in self.vendor.required_models
+
+    async def _read_control_model(self, model_id: int) -> SunSpecModelWrapper | None:
+        """Read a model that is polled only for its controls.
+
+        Returns None when the device refuses the model. The model is
+        then in ``refused_control_models`` and is not read again.
+
+        Raises:
+            SunSpecError: The read failed, and the cycle fails with it.
+        """
+        refusals: dict[tuple[str, int], int] = self.hass.data.setdefault(_CONTROL_REFUSALS_KEY, {})
+        key = (self.entry.entry_id, model_id)
+        try:
+            wrapper = await self.api.async_get_data(model_id)
+        except DeviceError as exc:
+            # Only a Modbus exception gets here. A timeout or a dropped
+            # link says the device is not answering at all and fails the
+            # cycle like any other read.
+            #
+            # A model this coordinator has read before had a hiccup: the
+            # cycle fails, and the retry and the stale-data tolerance
+            # keep its values. A model never read counts as refused only
+            # at the second exception in a row, so one bad answer during
+            # setup ends in a setup retry, not in an entry without that
+            # model's controls. The count lives in hass.data because
+            # every setup retry and every reload builds a new
+            # coordinator, and a success in between resets it.
+            if model_id in self._control_models_read:
+                raise
+            refusals[key] = refusals.get(key, 0) + 1
+            if refusals[key] < CONTROL_REFUSALS_BEFORE_SKIP:
+                raise
+            self.refused_control_models.add(model_id)
+            self._log.warning(
+                "%s. Its controls stay unavailable until the integration reloads", exc
+            )
+            return None
+        refusals.pop(key, None)
+        self._control_models_read.add(model_id)
+        return wrapper
 
     async def _read_nameplate(self, all_models: set[int]) -> float | None:
         """Read continuous AC power capability from model 120 / 121.

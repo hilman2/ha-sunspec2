@@ -82,30 +82,40 @@ async def test_control_models_are_polled_without_selecting_them(hass, sunspec_wr
     assert 123 in coordinator.data
 
 
-def _refuse_704(mocker, error):
-    """Make every read of model 704 raise ``error``, like the Enphase gateway in #172."""
-    read = SunSpecApiClient.read
-    reads: list[int] = []
+class _Refusal:
+    """Makes reads of model 704 raise ``error`` while it is set, like the Enphase gateway in #172."""
 
-    async def refusing(self, model_id):
-        reads.append(model_id)
-        if model_id == 704:
-            raise error
-        return await read(self, model_id)
+    def __init__(self, mocker, error):
+        self.error = error
+        self.reads: list[int] = []
+        read = SunSpecApiClient.read
 
-    mocker.patch.object(SunSpecApiClient, "read", refusing)
-    return reads
+        async def refusing(api, model_id):
+            self.reads.append(model_id)
+            if model_id == 704 and self.error is not None:
+                raise self.error
+            return await read(api, model_id)
+
+        mocker.patch.object(SunSpecApiClient, "read", refusing)
+
+
+async def _retry_setup(hass, entry):
+    """Set the entry up again and return its new state."""
+    await hass.config_entries.async_reload(entry.entry_id)
+    await hass.async_block_till_done()
+    return entry.state
 
 
 async def test_a_refused_control_model_leaves_the_selected_models_working(
     hass, sunspec_client_mock, mocker
 ):
-    reads = _refuse_704(mocker, ModbusClientException("Modbus exception 6"))
+    refusal = _Refusal(mocker, ModbusClientException("Modbus exception 6"))
 
     entry = await setup_mock_sunspec_config_entry(hass)
+    assert entry.state is ConfigEntryState.SETUP_RETRY
+    assert await _retry_setup(hass, entry) is ConfigEntryState.LOADED
     coordinator = entry.runtime_data
 
-    assert entry.state is ConfigEntryState.LOADED
     assert coordinator.refused_control_models == {704}
     assert {103, 160} <= set(coordinator.data)
     assert 704 not in coordinator.data
@@ -113,7 +123,45 @@ async def test_a_refused_control_model_leaves_the_selected_models_working(
 
     await coordinator.async_refresh()
     assert coordinator.last_update_success
-    assert reads.count(704) == 1
+    assert refusal.reads.count(704) == 2
+
+
+async def test_one_refusal_during_setup_only_retries_it(hass, sunspec_client_mock, mocker):
+    refusal = _Refusal(mocker, ModbusClientException("Modbus exception 11"))
+    entry = await setup_mock_sunspec_config_entry(hass)
+    assert entry.state is ConfigEntryState.SETUP_RETRY
+
+    refusal.error = None
+    assert await _retry_setup(hass, entry) is ConfigEntryState.LOADED
+    assert 704 in entry.runtime_data.data
+    assert [e for e in _live_entities(hass, "number") if e._spec.model_id == 704]
+
+    # The success reset the count: one more refusal at the next setup
+    # is a setup retry again, not a skipped model.
+    refusal.error = ModbusClientException("Modbus exception 11")
+    assert await _retry_setup(hass, entry) is ConfigEntryState.SETUP_RETRY
+
+
+async def test_a_control_model_read_before_keeps_failing_the_cycle(
+    hass, sunspec_client_mock, mocker, monkeypatch
+):
+    monkeypatch.setattr("custom_components.sunspec2.INTERVAL_RETRY_DELAY_SECONDS", 0)
+    refusal = _Refusal(mocker, None)
+    entry = await setup_mock_sunspec_config_entry(hass)
+    coordinator = entry.runtime_data
+    assert 704 in coordinator.data
+
+    refusal.error = ModbusClientException("Modbus exception 11")
+    for _ in range(3):
+        await coordinator.async_refresh()
+        assert not coordinator.last_update_success
+    assert coordinator.refused_control_models == set()
+    assert 704 in coordinator.data
+
+    refusal.error = None
+    await coordinator.async_refresh()
+    assert coordinator.last_update_success
+    assert coordinator.consecutive_failed_cycles == 0
 
 
 @pytest.mark.parametrize(
@@ -128,14 +176,15 @@ async def test_a_refused_control_model_leaves_the_selected_models_working(
 async def test_a_control_model_still_fails_the_cycle_otherwise(
     hass, sunspec_client_mock, mocker, models, error
 ):
-    _refuse_704(mocker, error)
+    _Refusal(mocker, error)
     entry = create_mock_sunspec_config_entry(
         hass, data={**MOCK_CONFIG, CONF_ENABLED_MODELS: models}
     )
 
     await setup_mock_sunspec_config_entry(hass, config_entry=entry)
-
     assert entry.state is ConfigEntryState.SETUP_RETRY
+    assert await _retry_setup(hass, entry) is ConfigEntryState.SETUP_RETRY
+    assert await _retry_setup(hass, entry) is ConfigEntryState.SETUP_RETRY
 
 
 @pytest.mark.parametrize("legacy_beta", [None, False, True])
