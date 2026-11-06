@@ -88,6 +88,9 @@ async def async_get_config_entry_diagnostics(
             "option_model_filter": sorted(getattr(coordinator, "option_model_filter", set()) or []),
             "write_model_filter": sorted(getattr(coordinator, "write_model_filter", set()) or []),
             "polled_models": sorted(coordinator.data or {}),
+            "refused_control_models": sorted(
+                getattr(coordinator, "refused_control_models", set()) or []
+            ),
         },
         "scanned_models": scanned_models,
         "latest_values": latest_values,
