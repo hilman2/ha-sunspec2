@@ -285,3 +285,31 @@ async def test_unique_ids_of_the_sma_entities_carry_the_block(hass, sunspec_sma_
     assert sensors["battery_state_of_charge"].unique_id == get_sunspec_unique_id(
         entry.entry_id, "raw:sma_battery:state_of_charge", 0, 0
     )
+
+
+async def test_a_phase_current_the_inverter_fills_with_0x8000_reads_as_no_value(
+    hass, sunspec_sma_client_mock
+):
+    """A sleeping Tripower 25000 put 0x8000 in its uint16 phase currents (#176).
+
+    SunSpec marks an unimplemented uint16 with 0xFFFF, so the library took
+    0x8000 for 32768 and A_SF made it 3276.8 A. A real reading of the same
+    points, and the total current next to them, stay numbers.
+    """
+    entry = await _entry(hass)
+    model = sunspec_sma_client_mock.models[103][0]
+    model.points["AphA"].value = 0x8000
+    model.points["AphB"].value = 0x8000
+    await entry.runtime_data.async_refresh()
+    await hass.async_block_till_done()
+
+    component = hass.data["entity_components"]["sensor"]
+    currents = {
+        e.key: e.native_value
+        for e in component.entities
+        if getattr(e, "model_id", None) == 103 and e.key in ("A", "AphA", "AphB", "AphC")
+    }
+    assert currents["AphA"] is None
+    assert currents["AphB"] is None
+    assert currents["AphC"] == 6
+    assert currents["A"] == 20

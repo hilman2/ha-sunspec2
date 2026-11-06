@@ -16,6 +16,9 @@ from collections.abc import Callable
 from collections.abc import Mapping
 from typing import Any
 
+#: The raw word SunSpec reserves for "not implemented" in an int16.
+SIGNED_NAN_WORD = 0x8000
+
 
 class SunSpecModelWrapper:
     """Wraps the list of pysunspec2 model instances for a single model id.
@@ -30,6 +33,7 @@ class SunSpecModelWrapper:
         self,
         models: list[Any],
         point_transforms: Mapping[str, Callable[[Any], Any]] | None = None,
+        signed_nan_points: frozenset[str] = frozenset(),
     ) -> None:
         """Wrap every instance a device exposes for one model id.
 
@@ -39,10 +43,13 @@ class SunSpecModelWrapper:
                 pysunspec2 ships no py.typed marker.
             point_transforms: Read corrections applied after SunSpec scaling,
                 keyed by point name. The underlying points stay unchanged.
+            signed_nan_points: Unsigned points whose raw 0x8000 means no
+                reading, by point name. See ``VendorProfile.signed_nan_points``.
         """
         self._models = models
         self.num_models = len(models)
         self._point_transforms = point_transforms or {}
+        self._signed_nan_points = signed_nan_points
 
     def isValidPoint(self, point_name: str) -> bool:
         point = self.getPoint(point_name)
@@ -69,6 +76,8 @@ class SunSpecModelWrapper:
 
     def getValue(self, point_name: str, model_index: int = 0) -> Any:
         point = self.getPoint(point_name, model_index)
+        if point_name in self._signed_nan_points and point.value == SIGNED_NAN_WORD:
+            return None
         transform = self._point_transforms.get(point_name)
         if transform is not None:
             return transform(point.cvalue)

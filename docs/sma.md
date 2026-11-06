@@ -121,7 +121,9 @@ firmware seen so far. Its control is not built in.
   data vanishes and comes back at dawn. Older Sunny Boys refuse the
   connection at night. The integration keeps the last values and does
   not raise the "unreachable" repair for a device that said it was going
-  to sleep.
+  to sleep. A sleeping Tripower 25000 marks its phase currents as
+  having no value in a way the SunSpec standard does not use for them.
+  The integration shows them as unknown until morning.
 - **Some data comes and goes** on Tripower X after firmware updates.
   The integration notices when it disappears and picks it up again.
 - **Energy meters.** The SMA Energy Meter and the Sunny Home Manager
