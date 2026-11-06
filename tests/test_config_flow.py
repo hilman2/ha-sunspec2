@@ -224,33 +224,6 @@ async def test_options_flow(hass, sunspec_client_mock):
     # assert entry.options == {BINARY_SENSOR: True, SENSOR: False, SWITCH: True}
 
 
-async def test_options_flow_keeps_the_usage_statistics_choice(hass, sunspec_client_mock):
-    """The statistics are on until the user turns them off, and the choice is stored."""
-    entry = MockConfigEntry(domain=DOMAIN, data=MOCK_CONFIG, entry_id="test")
-    entry.add_to_hass(hass)
-    entry.runtime_data = MockSunSpecDataUpdateCoordinator(hass, [1, 2])
-
-    result = await hass.config_entries.options.async_init(entry.entry_id)
-    result = await hass.config_entries.options.async_configure(
-        result["flow_id"], user_input=MOCK_CONFIG_STEP_1
-    )
-    privacy = next(f for f in _serialise_form(result["data_schema"]) if f["name"] == "privacy")
-    assert privacy["expanded"] is False
-    schema = next(f for f in privacy["schema"] if f["name"] == "usage_stats")
-    assert schema["default"] is True
-
-    result = await hass.config_entries.options.async_configure(
-        result["flow_id"],
-        user_input={
-            CONF_ENABLED_MODELS: ["1"],
-            CONF_SCAN_INTERVAL: 10,
-            "privacy": {"usage_stats": False},
-        },
-    )
-    assert result["type"] == FlowResultType.CREATE_ENTRY
-    assert result["data"]["usage_stats"] is False
-
-
 async def test_options_flow_rejects_empty_model_selection(hass, sunspec_client_mock):
     """An empty models_enabled save must be refused with an inline error.
 
@@ -865,7 +838,7 @@ async def test_options_flow_rejects_model_read_delay_outside_the_range(
         )
 
 
-@pytest.mark.parametrize("sections", [{}, {"advanced": {CONF_MAX_AC_POWER_KW: 4.2}, "privacy": {}}])
+@pytest.mark.parametrize("sections", [{}, {"advanced": {CONF_MAX_AC_POWER_KW: 4.2}}])
 async def test_options_flow_preserves_unedited_sections(hass, sunspec_client_mock, sections):
     """Collapsed or omitted sections preserve the installation's existing choices."""
     saved = {
@@ -875,6 +848,8 @@ async def test_options_flow_preserves_unedited_sections(hass, sunspec_client_moc
         CONF_MAX_AC_POWER_KW: 4.2,
         CONF_PREFIX: "roof",
         CONF_STANDBY_WHEN_IDLE: True,
+        # The setting of the former usage ping. It stays, so a rollback
+        # to 2026.10.17 still honours an opt-out.
         "usage_stats": False,
         "fronius_web_token": {"stored": "login"},
     }
@@ -891,7 +866,7 @@ async def test_options_flow_preserves_unedited_sections(hass, sunspec_client_moc
     assert result["type"] == FlowResultType.CREATE_ENTRY
     for key, value in saved.items():
         assert result["data"][key] == value
-    assert {"advanced", "privacy", "fronius"}.isdisjoint(result["data"])
+    assert {"advanced", "fronius"}.isdisjoint(result["data"])
     assert result["data"][CONF_SCAN_INTERVAL] == 15
 
 
@@ -900,7 +875,7 @@ async def test_options_flow_saves_section_edits_as_flat_options(hass, sunspec_cl
     entry = MockConfigEntry(
         domain=DOMAIN,
         data=MOCK_CONFIG,
-        options={"capture_raw_registers": True, CONF_STANDBY_WHEN_IDLE: True, "usage_stats": True},
+        options={"capture_raw_registers": True, CONF_STANDBY_WHEN_IDLE: True},
     )
     entry.add_to_hass(hass)
     entry.runtime_data = MockSunSpecDataUpdateCoordinator(hass, [1, 2])
@@ -919,7 +894,6 @@ async def test_options_flow_saves_section_edits_as_flat_options(hass, sunspec_cl
                 CONF_MODEL_READ_DELAY: 0,
                 CONF_STANDBY_WHEN_IDLE: False,
             },
-            "privacy": {"usage_stats": False},
         },
     )
 
@@ -930,8 +904,7 @@ async def test_options_flow_saves_section_edits_as_flat_options(hass, sunspec_cl
     assert result["data"][CONF_MAX_AC_POWER_KW] == 6.9
     assert result["data"]["capture_raw_registers"] is False
     assert result["data"][CONF_STANDBY_WHEN_IDLE] is False
-    assert result["data"]["usage_stats"] is False
-    assert {"advanced", "privacy", "fronius"}.isdisjoint(result["data"])
+    assert {"advanced", "fronius"}.isdisjoint(result["data"])
 
 
 async def test_options_flow_rejects_models_outside_the_detected_list(hass, sunspec_client_mock):

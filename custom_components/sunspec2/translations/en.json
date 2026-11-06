@@ -128,16 +128,6 @@
               "rearm_on_change": "Fronius GEN24 requires an off/on cycle to apply changed limits. While a control is enabled, its switch is turned off, the value is written, and the switch is turned on one second later. The limit is inactive during that second."
             }
           },
-          "privacy": {
-            "name": "Privacy",
-            "description": "Choose whether to send usage statistics.",
-            "data": {
-              "usage_stats": "Send anonymous usage statistics"
-            },
-            "data_description": {
-              "usage_stats": "Sends a random installation ID, integration and HA versions, vendor profile and entry count to the author once a day. Sends no address, serial number, location or readings. Disable to send nothing."
-            }
-          },
           "fronius": {
             "name": "Fronius web interface",
             "description": "Optional access to additional device data.",

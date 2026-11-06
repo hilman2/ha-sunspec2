@@ -116,8 +116,8 @@ existing history.
 You can change these at any time under *Settings -> Devices & Services
 -> SunSpec Modbus -> Configure*. The defaults suit most setups.
 Polling and sensor selection appear first. Open **Advanced** for sensor
-names, power filtering, standby and diagnostics, or **Privacy** for
-usage statistics. Fronius web credentials have their own section.
+names, power filtering, standby and diagnostics. Fronius web credentials
+have their own section.
 
 | Option | Default | What it does |
 |---|---|---|
@@ -128,39 +128,9 @@ usage statistics. Fronius web credentials have their own section.
 | Model scan pause | 0.5 s | A pause while the integration maps what the inverter offers. Raise it if setup fails on slow inverters |
 | Allow the inverter to go offline when idle | off | Stops the "unreachable" notification for inverters that vanish at night without saying so |
 | Capture diagnostic registers | off | Puts what the inverter sent, unprocessed, into the diagnostics download. For bug reports |
-| Send anonymous usage statistics | on | One request a day that counts active installations. See [Usage statistics](#usage-statistics) |
 
 Host, port and unit ID are changed via **Reconfigure** in the same
 menu.
-
-## Usage statistics
-
-Once a day the integration sends one request to the author's server, so
-that the number of active installations can be counted. It is on by
-default. Turn it off with **Send anonymous usage statistics** under
-*Configure -> Privacy*, and nothing is sent.
-
-**What is sent:**
-
-- a random install ID, made on the first start and kept in
-  `.storage/sunspec2.usage_stats`
-- the version of the integration and of Home Assistant
-- the vendor profile in use, for example `fronius`
-- the number of entries
-
-**What is not sent:** host, port, serial number, model, location and
-readings.
-
-The request goes to `analytics.fs-sys.de`, a Matomo server of the author.
-It keeps no visitor log of these requests, only the counts. The code is in
-[`usage_stats.py`](custom_components/sunspec2/usage_stats.py).
-
-Matomo is set to maximum privancy. No IP, no profile.
-
-<img width="2287" height="1849" alt="image" src="https://github.com/user-attachments/assets/9a783c9b-3ec4-4db2-b3c5-978a54fe3673" />
-
-<img width="2509" height="1830" alt="image" src="https://github.com/user-attachments/assets/f48d58f9-ccc2-4fd1-a98b-c7ebcf9a8824" />
-
 
 ## Several inverters on one connection
 

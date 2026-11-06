@@ -1577,3 +1577,19 @@ async def test_reconfigure_reloads_the_entry_once(hass, sunspec_client_mock):
 
     assert entry.data["host"] == "test_host_new"
     assert reload.call_count == 1
+
+
+async def test_setup_removes_the_install_id_of_the_former_usage_ping(
+    hass, hass_storage, sunspec_client_mock
+):
+    hass_storage["sunspec2.usage_stats"] = {
+        "version": 1,
+        "minor_version": 1,
+        "key": "sunspec2.usage_stats",
+        "data": {"install_id": "0123456789abcdef"},
+    }
+
+    entry = await setup_mock_sunspec_config_entry(hass)
+
+    assert entry.state is ConfigEntryState.LOADED
+    assert "sunspec2.usage_stats" not in hass_storage

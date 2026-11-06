@@ -100,7 +100,6 @@ from .migration import migrate_from_cjne_sync
 from .models import SunSpecModelWrapper
 from .raw_blocks import RawBlockReader
 from .raw_blocks import encode_value
-from .usage_stats import async_start_usage_stats
 from .vendors import VendorProfile
 from .vendors import plan_write
 from .vendors import profile_for
@@ -121,6 +120,9 @@ _LOGGER: logging.Logger = logging.getLogger(__package__)
 # SunSpecDataUpdateCoordinator._read_control_model.
 _CONTROL_REFUSALS_KEY = f"{DOMAIN}_control_refusals"
 
+# The store of the former usage ping, see async_setup.
+_USAGE_STATS_STORAGE_KEY = f"{DOMAIN}.usage_stats"
+
 # Bronze rule runtime-data: typed config entry alias so platforms,
 # diagnostics and the options flow can read the coordinator off
 # ``entry.runtime_data`` with a real type instead of fishing it out
@@ -134,6 +136,10 @@ CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
 async def async_setup(hass: HomeAssistant, config: Config) -> bool:
     """Set up this integration using YAML is not supported."""
+    # 2026.10.8 to 2026.10.17 sent a daily usage ping and kept a random
+    # install id for it in this store. The ping is gone, so the id goes
+    # with it. Removing a store that does not exist is a no-op.
+    await Store[Any](hass, 1, _USAGE_STATS_STORAGE_KEY).async_remove()
     return True
 
 
@@ -322,8 +328,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: SunSpec2ConfigEntry) -> 
     # process (not per config entry). The handler routes by
     # config_entry_id passed in the call data.
     _async_register_services(hass)
-
-    async_start_usage_stats(hass, entry)
 
     return True
 
