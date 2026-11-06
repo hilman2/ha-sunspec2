@@ -1593,3 +1593,15 @@ async def test_setup_removes_the_install_id_of_the_former_usage_ping(
 
     assert entry.state is ConfigEntryState.LOADED
     assert "sunspec2.usage_stats" not in hass_storage
+
+
+async def test_a_usage_ping_store_that_cannot_be_removed_does_not_block_setup(
+    hass, sunspec_client_mock
+):
+    with patch(
+        "homeassistant.helpers.storage.Store.async_remove",
+        side_effect=PermissionError("read-only"),
+    ):
+        entry = await setup_mock_sunspec_config_entry(hass)
+
+    assert entry.state is ConfigEntryState.LOADED

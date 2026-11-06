@@ -138,8 +138,13 @@ async def async_setup(hass: HomeAssistant, config: Config) -> bool:
     """Set up this integration using YAML is not supported."""
     # 2026.10.8 to 2026.10.17 sent a daily usage ping and kept a random
     # install id for it in this store. The ping is gone, so the id goes
-    # with it. Removing a store that does not exist is a no-op.
-    await Store[Any](hass, 1, _USAGE_STATS_STORAGE_KEY).async_remove()
+    # with it. Removing a store that does not exist is a no-op, and a
+    # file that cannot be removed must not keep the integration from
+    # loading.
+    try:
+        await Store[Any](hass, 1, _USAGE_STATS_STORAGE_KEY).async_remove()
+    except OSError as err:
+        _LOGGER.debug("Could not remove the former usage ping store: %s", err)
     return True
 
 
