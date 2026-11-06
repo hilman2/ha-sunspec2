@@ -79,6 +79,17 @@ ACTIVE_POWER_MODES: dict[int, str] = {
 POWER_CONTROL: dict[int, str] = {803: "inactive", 802: "active"}
 POWER_CONTROL_ACTIVE = 802
 
+#: The phase currents of the inverter models 101 to 103. They are
+#: uint16, where SunSpec marks "not implemented" with 0xFFFF. A Sunny
+#: Tripower 25000 on firmware 2.83.03.R fills them with 0x8000 instead
+#: while it sleeps, SMA's own "no value" for a signed register, and A_SF
+#: of -1 turned that into 3276.8 A all night (#176). The total current A
+#: and the power W of the same model went unknown at the same moment, so
+#: only these three points need the correction.
+PHASE_CURRENT_POINTS: frozenset[tuple[int, str]] = frozenset(
+    (model, point) for model in (101, 102, 103) for point in ("AphA", "AphB", "AphC")
+)
+
 #: How often the setpoint is written again while its switch is on.
 #: Well inside the shortest factory timeout; users run 15 to 60 s.
 SETPOINT_KEEPALIVE_SECONDS = 30.0
@@ -350,4 +361,5 @@ SMA = VendorProfile(
     # The setpoints are what SMA lets a controller write cyclically;
     # nothing else this profile writes.
     volatile_registers=frozenset({address(40149), address(40151)}),
+    signed_nan_points=PHASE_CURRENT_POINTS,
 )

@@ -448,6 +448,12 @@ class VendorProfile:
             Read corrections keyed by model id and point name. Called
             with the SunSpec-scaled value, returning the corrected value.
             Raw registers and write encoding retain their SunSpec meaning.
+        signed_nan_points (frozenset[tuple[int, str]]): Unsigned points,
+            keyed by model id and point name, that the firmware fills
+            with 0x8000 when it has no reading. SunSpec reserves 0x8000
+            for "not implemented" only in signed registers; in a uint16
+            it is the number 32768, which the scale factor turns into a
+            reading. These points read as no value instead.
         request_timeout (float|None): Seconds the device may take to answer
             one request, for a device known to need more than the
             transport's default of 10. None for the default.
@@ -484,6 +490,7 @@ class VendorProfile:
     daily_energy_points: frozenset[str] = frozenset()
     required_models: frozenset[int] = frozenset()
     point_transforms: Mapping[tuple[int, str], Callable[[Any], Any]] = field(default_factory=dict)
+    signed_nan_points: frozenset[tuple[int, str]] = frozenset()
     request_timeout: float | None = None
     collection_round_seconds: int | None = None
 
