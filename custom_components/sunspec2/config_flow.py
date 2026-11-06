@@ -39,7 +39,6 @@ from .const import CONF_SERIAL_PORT
 from .const import CONF_STANDBY_WHEN_IDLE
 from .const import CONF_TRANSPORT
 from .const import CONF_UNIT_ID
-from .const import CONF_USAGE_STATS
 from .const import DEFAULT_BAUDRATE
 from .const import DEFAULT_MODEL_READ_DELAY_SECONDS
 from .const import DEFAULT_MODELS
@@ -942,7 +941,7 @@ class SunSpecOptionsFlowHandler(config_entries.OptionsFlow):
             # existing installations and HACS rollbacks read the same keys.
             edit_power_limit = "advanced" in user_input
             user_input = dict(user_input)
-            for name in ("advanced", "privacy", "fronius"):
+            for name in ("advanced", "fronius"):
                 user_input.update(user_input.pop(name, {}))
             # Reject empty model selections - silently saving
             # ``models_enabled: []`` was the v0.7.3 -> v0.7.5 regression
@@ -986,7 +985,6 @@ class SunSpecOptionsFlowHandler(config_entries.OptionsFlow):
             CONF_SCAN_INTERVAL, self.config_entry.data.get(CONF_SCAN_INTERVAL)
         )
         capture_raw = self.config_entry.options.get(CONF_CAPTURE_RAW, False)
-        usage_stats = self.config_entry.options.get(CONF_USAGE_STATS, True)
         standby_when_idle = self.config_entry.options.get(CONF_STANDBY_WHEN_IDLE, False)
         scan_delay = self.config_entry.options.get(CONF_SCAN_DELAY, DEFAULT_SCAN_DELAY_SECONDS)
         model_read_delay = self.config_entry.options.get(
@@ -1093,10 +1091,6 @@ class SunSpecOptionsFlowHandler(config_entries.OptionsFlow):
                 advanced[probatio.Optional(CONF_REARM_ON_CHANGE, default=rearm_on_change)] = bool
             schema[probatio.Optional("advanced")] = section(
                 probatio.Schema(advanced), {"collapsed": True}
-            )
-            schema[probatio.Optional("privacy")] = section(
-                probatio.Schema({probatio.Optional(CONF_USAGE_STATS, default=usage_stats): bool}),
-                {"collapsed": True},
             )
             # The web interface login, for a vendor whose web API the
             # integration speaks, on a TCP entry: the web page lives on

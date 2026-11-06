@@ -128,16 +128,6 @@
               "rearm_on_change": "Fronius GEN24 benötigt einen Aus-/Ein-Zyklus für geänderte Grenzwerte. Bei aktiver Steuerung wird der Schalter ausgeschaltet, der Wert geschrieben und der Schalter eine Sekunde später eingeschaltet. In dieser Sekunde wirkt das Limit nicht."
             }
           },
-          "privacy": {
-            "name": "Datenschutz",
-            "description": "Übertragung der Nutzungsstatistik festlegen.",
-            "data": {
-              "usage_stats": "Anonyme Nutzungsstatistik senden"
-            },
-            "data_description": {
-              "usage_stats": "Sendet einmal täglich eine zufällige Installations-ID, Integrations- und HA-Version, Herstellerprofil und Anzahl der Einträge an den Autor. Keine Adresse, Seriennummer, Standort- oder Messwerte. Ausschalten beendet die Übertragung."
-            }
-          },
           "fronius": {
             "name": "Fronius-Weboberfläche",
             "description": "Optionaler Zugang zu zusätzlichen Gerätedaten.",

@@ -4,7 +4,6 @@
       "model_options": {
         "sections": {
           "advanced": "mdi:tune",
-          "privacy": "mdi:shield-account-outline",
           "fronius": "mdi:web"
         }
       }
