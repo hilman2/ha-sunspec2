@@ -352,7 +352,9 @@ def _raised_user_errors() -> dict[str, set[str]]:
         for node in ast.walk(ast.parse(source.read_text(encoding="utf-8"))):
             if isinstance(node, ast.Call) and getattr(node.func, "id", None) == "user_error":
                 key = ast.literal_eval(node.args[0])
-                raised.setdefault(key, set()).update(keyword.arg for keyword in node.keywords)
+                raised.setdefault(key, set()).update(
+                    keyword.arg for keyword in node.keywords if keyword.arg is not None
+                )
     return raised
 
 
