@@ -238,3 +238,36 @@ async def test_unload_removes_all_write_entities(hass, sunspec_write_client_mock
 
     assert _live_entities(hass, "number") == []
     assert _live_entities(hass, "switch") == []
+
+
+async def test_a_switch_is_neither_on_nor_off_once_the_device_stops_listing_its_model(
+    hass, sunspec_write_client_mock
+):
+    """A firmware update can take a model away; the next scan then leaves it out of the data."""
+    entry = await _setup_write_entry(hass)
+    coordinator = entry.runtime_data
+    switch = next(e for e in _live_entities(hass, "switch") if e._point_name == "WMaxLim_Ena")
+    assert switch.is_on is True
+
+    del sunspec_write_client_mock.models[123]
+    await coordinator.async_refresh()
+
+    assert coordinator.last_update_success
+    assert 123 not in coordinator.data
+    assert switch.is_on is None
+
+
+async def test_a_switch_is_neither_on_nor_off_while_its_register_reports_nothing(
+    hass, sunspec_write_client_mock
+):
+    """An unimplemented enable register must not read as "off"."""
+    entry = await _setup_write_entry(hass)
+    switch = next(e for e in _live_entities(hass, "switch") if e._point_name == "WMaxLim_Ena")
+
+    sunspec_write_client_mock.models[123][0].WMaxLim_Ena.value = None
+    await entry.runtime_data.async_refresh()
+
+    assert switch.is_on is None
+    state = hass.states.get(switch.entity_id)
+    assert state is not None
+    assert state.state == "unknown"

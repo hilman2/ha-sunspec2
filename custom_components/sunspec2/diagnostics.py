@@ -178,29 +178,8 @@ def _plausibility_filter_dump(
 def _recent_errors_dump(
     coordinator: SunSpecDataUpdateCoordinator,
 ) -> dict[str, list[dict[str, Any]]]:
-    """Serialise the per-category recent_errors dict for the JSON dump.
-
-    Phase 3 stores _recent_errors as ``dict[str, deque[dict]]`` keyed by
-    category. We turn each deque into a plain list so the dump is
-    JSON-serialisable.
-
-    Defensive against the Phase-2 shape (a single ``deque``) in case a
-    test stub coordinator hands us the older form: in that case we wrap
-    it under "transport" and leave the others empty. The integration
-    itself never produces the old shape any more.
-    """
-    raw = getattr(coordinator, "_recent_errors", None)
-    if raw is None:
-        return {}
-    if isinstance(raw, dict):
-        return {cat: list(buf) for cat, buf in raw.items()}
-    # Phase-2 fallback: a flat sequence-like buffer.
-    return {
-        "transport": list(raw),
-        "protocol": [],
-        "device": [],
-        "transient": [],
-    }
+    """The recent errors of each category, as lists the JSON dump can hold."""
+    return {category: list(errors) for category, errors in coordinator._recent_errors.items()}
 
 
 def _gateway_rest_dump(coordinator: SunSpecDataUpdateCoordinator) -> str | None:

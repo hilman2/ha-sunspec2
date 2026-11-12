@@ -1052,6 +1052,24 @@ async def test_stored_energy_is_not_held_like_a_lifetime_counter(
     assert avail.native_value == 18552
 
 
+async def test_an_enum_sensor_is_unknown_while_its_model_is_missing_from_a_cycle(
+    hass, sunspec_client_mock, caplog
+):
+    """The raw value in the attributes comes from the same model as the state."""
+    entry = await setup_mock_sunspec_config_entry(hass)
+    coordinator = entry.runtime_data
+    assert hass.states.get(TEST_INVERTER_SENSOR_STATE_ENTITY_ID).attributes["raw"] is not None
+
+    del coordinator.data[103]
+    coordinator.async_update_listeners()
+    await hass.async_block_till_done()
+
+    state = hass.states.get(TEST_INVERTER_SENSOR_STATE_ENTITY_ID)
+    assert state.state == "unknown"
+    assert state.attributes["raw"] is None
+    assert "Traceback" not in caplog.text
+
+
 @pytest.mark.parametrize(
     "client_mock",
     [

@@ -43,9 +43,9 @@ def no_control_settling(mocker):
         mocker.patch(f"custom_components.sunspec2.franklinwh_controls.{name}", 0)
 
 
-@pytest.fixture
-async def agate(hass, mocker):
-    unit = FakeUnit(agate_registers())
+async def _set_up(hass, mocker, registers):
+    """An entry over an aGate that holds ``registers``."""
+    unit = FakeUnit(registers)
     connection = FakeConnection({1: unit})
     mocker.patch.object(SunSpecApiClient, "_get_connection", return_value=connection)
     entry = MockConfigEntry(
@@ -58,6 +58,11 @@ async def agate(hass, mocker):
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
     return entry, unit, connection
+
+
+@pytest.fixture
+async def agate(hass, mocker):
+    return await _set_up(hass, mocker, agate_registers())
 
 
 def _entities(hass, domain, cls):
@@ -269,6 +274,33 @@ async def test_missing_ratings_still_fall_back_to_the_active_power_rating(hass, 
     assert hass.states.get(number.entity_id).state == "unavailable"
 
 
+async def test_an_agate_without_usable_ratings_gets_no_power_target(hass, mocker):
+    """Nothing bounds the number then; standby and release need no bounds."""
+    registers = agate_registers()
+    registers.update({227: 500, 235: 0, 236: 0})
+    await _set_up(hass, mocker, registers)
+
+    assert _entities(hass, "number", FranklinPowerNumber) == []
+    buttons = _entities(hass, "button", FranklinBatteryButton)
+    assert {button.translation_key for button in buttons} == {
+        "franklinwh_standby",
+        "franklinwh_release",
+    }
+
+
+async def test_ratings_that_became_unusable_refuse_a_power_and_still_allow_standby(hass, agate):
+    entry, unit, _connection = agate
+    unit.holding.update({227: 500, 235: 0, 236: 0})
+
+    with pytest.raises(HomeAssistantError, match="reports no usable battery power ratings"):
+        await async_set_power(entry.runtime_data, 1000)
+    assert unit.writes == []
+
+    # Zero watts lie inside any range, so the ratings are not asked for.
+    await async_set_power(entry.runtime_data, 0)
+    assert unit.writes == [(319, [1, 0, 0]), (318, [1])]
+
+
 async def test_ratings_already_scaled_by_sunspec_are_not_multiplied_again(agate):
     entry, unit, _connection = agate
     unit.holding.update({227: 192, 235: 160, 236: 192, 270: 2})
@@ -309,6 +341,40 @@ async def test_acknowledged_but_ignored_commands_report_failure(agate, mocker):
         await async_set_power(entry.runtime_data, 1000)
     assert len(unit.writes) == 2
     assert not entry.runtime_data._gateway_lock.locked()
+
+
+async def test_an_enable_register_that_reads_neither_on_nor_off_stops_the_command(agate):
+    """Whether the enable register has to be written depends on what it holds."""
+    entry, unit, _connection = agate
+    # SunSpec's "not implemented" for an enum16.
+    unit.holding[318] = 0xFFFF
+
+    with pytest.raises(
+        HomeAssistantError, match="did not report whether battery control is enabled"
+    ):
+        await async_set_power(entry.runtime_data, 1000)
+
+    assert unit.writes == []
+    assert not entry.runtime_data._gateway_lock.locked()
+
+
+async def test_a_command_without_the_control_model_is_refused_before_any_request(hass, agate):
+    """A scan after a firmware update can find a model list without model 704."""
+    entry, unit, _connection = agate
+    release = next(
+        button
+        for button in _entities(hass, "button", FranklinBatteryButton)
+        if button.translation_key == "franklinwh_release"
+    )
+    del entry.runtime_data.data[704]
+    unit.reads.clear()
+
+    with pytest.raises(HomeAssistantError) as refused:
+        await release.async_press()
+
+    assert refused.value.translation_key == "franklinwh_unavailable"
+    assert unit.reads == []
+    assert unit.writes == []
 
 
 async def test_device_refusal_is_not_retried(agate, mocker):
@@ -468,6 +534,23 @@ async def test_battery_activity_follows_the_inverter_state_before_the_deadband(h
     assert state.native_value == "discharging"
     data[714].getPoint("DCW").value = 40
     assert state.native_value == "idle"
+
+
+async def test_models_missing_from_a_poll_leave_the_battery_entities_without_a_value(hass, agate):
+    """A scan after a firmware update can find a shorter model list than the entities were built on."""
+    entry, _unit, _connection = agate
+    data = entry.runtime_data.data
+    state = _entities(hass, "sensor", FranklinBatteryState)[0]
+    number = _entities(hass, "number", FranklinPowerNumber)[0]
+    assert state.native_value == "charging"
+    assert number.available
+
+    del data[714]
+    assert state.native_value is None
+
+    del data[702]
+    assert not number.available
+    assert (number.native_min_value, number.native_max_value) == (0, 0)
 
 
 async def test_cancelled_verification_releases_the_gateway_and_drops_the_session(agate, mocker):

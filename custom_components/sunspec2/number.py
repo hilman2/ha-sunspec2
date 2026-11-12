@@ -72,20 +72,6 @@ _PERCENT_UNITS = frozenset(
 )
 
 
-def has_point(wrapper: SunSpecModelWrapper, point_name: str) -> bool:
-    """True if the device actually implements this point.
-
-    A device can implement a model without implementing every optional
-    point in it. Building a control for a missing point would give the
-    user an entity whose every write fails.
-    """
-    try:
-        wrapper.getPoint(point_name)
-    except (KeyError, AttributeError, IndexError, TypeError):
-        return False
-    return True
-
-
 def _step_from_scale_factor(wrapper: SunSpecModelWrapper, point_name: str) -> float:
     """Derive the UI step from the point's SunSpec scale factor.
 
@@ -163,8 +149,6 @@ def build_specs(
                 spec.model_id,
                 getattr(coordinator, "write_model_filter", None),
             )
-            continue
-        if not has_point(model_wrapper, spec.point_name):
             continue
         yield spec, model_wrapper
 

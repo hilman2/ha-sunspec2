@@ -1,6 +1,7 @@
 """Tests for SunSpec api."""
 
 import asyncio
+import logging
 import time
 from unittest.mock import AsyncMock
 from unittest.mock import Mock
@@ -510,6 +511,42 @@ async def test_failed_validation_read_falls_back_to_scanning(hass):
     assert fresh.scan_calls == 1
 
 
+async def test_a_base_address_without_the_sunspec_marker_triggers_a_rescan(hass):
+    """Only the marker tells a SunSpec map from registers that happen to hold a 1 behind it."""
+    api = await _api_with_structure(hass, _FakeClient())
+
+    other = _FakeClient()
+    original_read = other.read
+
+    def _read(addr, count):
+        if addr == other.base_addr:
+            return b"\x00\x00\x00\x00" + mb.u16_to_data(1)
+        return original_read(addr, count)
+
+    other.read = _read
+    await api._async_scan_or_restore(other)
+
+    assert other.scan_calls == 1
+
+
+async def test_a_chain_tail_the_device_refuses_to_read_triggers_a_rescan(hass):
+    """Unlike the register behind the chain, the last block is one the device has to serve."""
+    api = await _api_with_structure(hass, _FakeClient())
+
+    refusing = _FakeClient()
+    original_read = refusing.read
+
+    def _read(addr, count):
+        if addr == 40070:
+            raise SunSpecModbusClientException("Modbus exception 2")
+        return original_read(addr, count)
+
+    refusing.read = _read
+    await api._async_scan_or_restore(refusing)
+
+    assert refusing.scan_calls == 1
+
+
 async def test_reconnect_next_drops_the_cached_structure(hass):
     """After a failure the layout is a suspect, not an asset."""
     client = _FakeClient()
@@ -560,6 +597,21 @@ async def test_cache_validation_timeout_does_not_start_a_scan(hass, address):
     with pytest.raises(ModbusClientTimeout):
         await api._async_scan_or_restore(fresh)
     assert fresh.scan_calls == 0
+
+
+async def test_a_timeout_while_the_layout_is_rebuilt_does_not_start_a_scan(hass):
+    """A model with counted groups is read from once more while it is rebuilt."""
+    api = await _api_with_structure(hass, _FakeClient())
+
+    class _SilentClient(_FakeClient):
+        async def async_model_data(self, model_id, addr, data):
+            raise ModbusClientTimeout("Response timeout")
+
+    fresh = _SilentClient()
+    with pytest.raises(ModbusClientTimeout):
+        await api._async_scan_or_restore(fresh)
+    assert fresh.scan_calls == 0
+    assert fresh.models == {}
 
 
 async def test_close_keeps_the_cached_structure(hass, sunspec_modbus_client_mock):
@@ -740,29 +792,38 @@ async def test_scan_that_found_nothing_still_fails(hass, mocker):
         await api.async_get_client()
 
 
-async def test_partial_scan_falls_back_to_the_last_known_layout(hass):
-    """A scan that stops early must not shorten the model list.
+async def test_scan_that_stops_early_continues_with_a_layout_that_validates_again(hass, caplog):
+    """One refused read must not cost the models behind the block the scan stopped at.
 
-    A truncated list drops the affected entities to "unknown" on a cycle
-    that still counts as a success, so the stale-data tolerance never
-    gets to hold the last good value and the user sees a gap that looks
-    exactly like a connection drop (#42). The layout we already have
-    still validates against the device, so it is strictly better than
-    what the failed scan produced.
+    The first validation of the cached layout is refused, so the scan
+    runs, and the device refuses a block partway through that as well.
+    By then it answers the validating reads again, and the layout it
+    confirms is complete where the scan result is not.
     """
     api = await _api_with_structure(hass, _FakeClient())
+    revision = api.structure_revision
 
-    class _TruncatingClient(_FakeClient):
+    class _RefusingOnceThenTruncating(_FakeClient):
+        def read(self, addr, count):
+            if not self.reads:
+                self.reads.append((addr, count))
+                raise SunSpecModbusClientException("Modbus exception 6")
+            return super().read(addr, count)
+
         def scan(self, **kwargs):
             self.scan_calls += 1
             self.models = {1: [_FakeModel(1, 40002, 66)]}
-            raise SunSpecModbusClientException("Illegal data address")
+            raise SunSpecModbusClientException("Modbus exception 2")
 
-    truncated = _TruncatingClient()
-    await api._async_scan_or_restore(truncated)
+    busy = _RefusingOnceThenTruncating()
+    with caplog.at_level(logging.WARNING):
+        await api._async_scan_or_restore(busy)
 
-    assert sorted(k for k in truncated.models) == [1, 103]
+    assert busy.scan_calls == 1
+    assert sorted(busy.models) == [1, 103]
     assert api.last_scan_was_partial is False
+    assert api.structure_revision == revision
+    assert "Continuing with the last known good layout of 2 model(s)" in caplog.text
 
 
 async def test_scan_timeout_is_never_swallowed(hass):
@@ -1003,3 +1064,53 @@ def test_model_read_delay_is_clamped(hass, given, expected):
     api = SunSpecApiClient(host="test", port=123, unit_id=1, hass=hass, model_read_delay=given)
 
     assert api._model_read_delay == expected
+
+
+# ---------- the link's timeout and the shutdown ------------------------------
+
+
+async def test_a_required_timeout_reaches_the_link_once(hass, mocker):
+    connection = FakeConnection()
+    mocker.patch("custom_components.sunspec2.api.SharedConnection", return_value=connection)
+    api = SunSpecApiClient(host="test", port=123, unit_id=7, hass=hass)
+    api._get_connection()
+
+    await api.async_require_timeout(60.0)
+    await api.async_require_timeout(60.0)
+
+    assert connection.for_unit(7).timeouts == [60.0]
+
+
+async def test_a_timeout_required_before_the_first_connect_is_asked_for_with_it(hass, mocker):
+    """The coordinator knows the vendor from the stored identity before any link exists."""
+    unit = FakeUnit(register_image("./tests/test_data/inverter_apsystems.json"))
+    mocker.patch(
+        "custom_components.sunspec2.api.SharedConnection", return_value=FakeConnection({1: unit})
+    )
+    api = SunSpecApiClient(host="test", port=502, unit_id=1, hass=hass, scan_delay=0)
+
+    await api.async_require_timeout(60.0)
+    assert unit.timeouts == []
+
+    assert await api.async_get_models() == [1, 103]
+    assert unit.timeouts == [60.0]
+
+    # The unload hands the minute back, so another holder does not wait it out.
+    await api.async_shutdown()
+    assert unit.timeouts == [60.0, None]
+
+
+async def test_shutdown_survives_a_connection_that_fails_to_close(hass, mocker):
+    class _FailingToClose(FakeConnection):
+        async def close(self):
+            raise OSError("socket is already gone")
+
+    mocker.patch("custom_components.sunspec2.api.SharedConnection", return_value=_FailingToClose())
+    api = SunSpecApiClient(host="test", port=123, unit_id=1, hass=hass)
+    api._get_connection()
+
+    await api.async_shutdown()
+
+    assert api._connection is None
+    with pytest.raises(TransportError, match="shut down"):
+        await api.async_get_client()

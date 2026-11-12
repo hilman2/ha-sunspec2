@@ -700,15 +700,6 @@ class SunSpecFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
         # values are technically there. Sorted list = stable order
         # in the UI and reliable pre-selection.
         default_enabled = sorted(str(model) for model in default_models_for(models))
-        # Preserve the user's previous picks across re-entry into the
-        # settings step (e.g. when we bounce them back with the
-        # no_models_selected error). Falling back to default_enabled
-        # otherwise.
-        if user_input is not None and user_input.get(CONF_ENABLED_MODELS):
-            current_selection = sorted(
-                str(m) for m in user_input[CONF_ENABLED_MODELS] if int(m) in models
-            )
-            default_enabled = current_selection or default_enabled
 
         suggested_peak = _suggested_peak_power_kw(await self._probe_nameplate(models))
 

@@ -5,8 +5,13 @@ unit device, its async scan and model reads, and the register packing,
 with only the connection faked (tests/fake_unit.py).
 """
 
+import logging
+
 import pytest
+from modbus_connection import IllegalDataAddressError
 from modbus_connection import ModbusConnectionError
+from modbus_connection import ModbusExceptionError
+from modbus_connection import ModbusProtocolError
 from modbus_connection import ModbusTimeoutError
 
 from custom_components.sunspec2.api import SunSpecApiClient
@@ -14,7 +19,9 @@ from custom_components.sunspec2.errors import DeviceError
 from custom_components.sunspec2.errors import ProtocolError
 from custom_components.sunspec2.errors import TransientError
 from custom_components.sunspec2.errors import TransportError
+from custom_components.sunspec2.pysunspec2.modbus.modbus import FUNC_READ_INPUT
 from custom_components.sunspec2.pysunspec2.modbus.modbus import REQ_COUNT_MAX
+from custom_components.sunspec2.pysunspec2.modbus.modbus import ModbusClientError
 from custom_components.sunspec2.pysunspec2.modbus.unit_device import SunSpecModbusClientDeviceUnit
 
 from .fake_unit import FakeConnection
@@ -294,3 +301,230 @@ async def test_a_114_of_48_registers_from_another_maker_stays_114(hass):
     api = _api(hass, FakeConnection({1: FakeUnit(image)}))
 
     assert await api.async_get_models() == [1, 103, 114]
+
+
+# ---------- errors, by the category the coordinator acts on ------------------
+
+
+async def test_a_malformed_answer_while_reading_a_model_is_a_transport_error(hass):
+    """The library has no finer class for it, and neither a retry nor the device is to blame."""
+    unit = FakeUnit(register_image(FRONIUS))
+    api = _api(hass, FakeConnection({1: unit}), scan_delay=0)
+    await api.async_get_models()
+
+    unit.fail_next = ModbusProtocolError("Invalid register count: expected 68, got 3")
+    with pytest.raises(
+        TransportError,
+        match="Modbus transport error while reading model 1: Invalid register count",
+    ):
+        await api.async_get_data(1)
+
+
+async def test_a_modbus_exception_code_the_library_has_no_class_for_is_still_a_device_error(hass):
+    unit = FakeUnit(register_image(FRONIUS))
+    api = _api(hass, FakeConnection({1: unit}), scan_delay=0)
+    await api.async_get_models()
+
+    unit.fail_next = ModbusExceptionError.from_code(0x30)
+    with pytest.raises(DeviceError, match="register 40000: Modbus exception 48$"):
+        await api.async_read_block(40000, 2)
+
+
+@pytest.mark.parametrize(
+    ("failure", "category", "message"),
+    [
+        (ModbusTimeoutError("no answer"), TransientError, "Modbus read timeout at register 40000"),
+        (
+            ModbusConnectionError("connection lost"),
+            TransportError,
+            "Modbus read failed at register 40000: connection lost",
+        ),
+    ],
+)
+async def test_a_failed_raw_block_read_lands_in_its_category(hass, failure, category, message):
+    unit = FakeUnit(register_image(FRONIUS))
+    api = _api(hass, FakeConnection({1: unit}), scan_delay=0)
+    await api.async_get_models()
+
+    unit.fail_next = failure
+    with pytest.raises(category, match=message):
+        await api.async_read_block(40000, 2)
+
+
+@pytest.mark.parametrize(
+    ("failure", "category", "message"),
+    [
+        (ModbusTimeoutError("no answer"), TransientError, "Modbus write timeout at register 40148"),
+        (
+            IllegalDataAddressError(),
+            DeviceError,
+            "Modbus exception writing register 40148: Modbus exception 2",
+        ),
+        (
+            ModbusConnectionError("connection lost"),
+            TransportError,
+            "Modbus write failed at register 40148: connection lost",
+        ),
+    ],
+)
+async def test_a_failed_raw_block_write_lands_in_its_category(hass, failure, category, message):
+    unit = FakeUnit(register_image(FRONIUS))
+    api = _api(hass, FakeConnection({1: unit}), scan_delay=0)
+    await api.async_get_models()
+
+    unit.fail_next = failure
+    with pytest.raises(category, match=message):
+        await api.async_write_block(40148, b"\xff\xff\xf4\x48")
+
+    assert unit.writes == []
+
+
+# ---------- writes -----------------------------------------------------------
+
+
+async def test_a_float_register_keeps_the_fraction_of_the_value_written(hass):
+    """Only a whole-number register gets its value rounded to an int.
+
+    No fixture has a writable float point, and pysunspec2 does not
+    enforce the access of a point, so the AC current of the float
+    inverter model 113 stands in for one.
+    """
+    unit = FakeUnit(register_image("./tests/test_data/inverter_kostal.json"))
+    api = _api(hass, FakeConnection({1: unit}), scan_delay=0)
+    await api.async_get_models()
+    model = api._client.models[113][0]
+
+    await api.async_write_points(113, [("A", 12.5)])
+
+    # 12.5 as an IEEE 754 single is 0x41480000; rounded it would be 12, 0x41400000.
+    assert unit.writes == [(model.model_addr + model.points["A"].offset, [0x4148, 0x0000])]
+
+
+class _FunctionCodeUnit(FakeUnit):
+    """Notes the function code each write request went out with."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.requests: list[tuple[int, int, list[int]]] = []
+
+    async def write_register(self, address: int, value: int) -> None:
+        self.requests.append((6, address, [value]))
+
+    async def write_registers(self, address: int, values: list[int]) -> None:
+        self.requests.append((16, address, list(values)))
+
+
+@pytest.mark.parametrize(("single_register_write", "function_code"), [(True, 6), (False, 16)])
+async def test_one_register_goes_out_with_function_code_6_only_when_asked_to(
+    single_register_write, function_code
+):
+    unit = _FunctionCodeUnit()
+    device = SunSpecModbusClientDeviceUnit(
+        FakeConnection({1: unit}), slave_id=1, single_register_write=single_register_write
+    )
+
+    await device.async_write(40010, b"\x00\x07")
+    await device.async_write(40020, b"\x00\x07\x00\x08")
+
+    assert unit.requests == [(function_code, 40010, [7]), (16, 40020, [7, 8])]
+
+
+# ---------- the device's own interface ---------------------------------------
+
+
+class _InputRegisterUnit(FakeUnit):
+    """A unit whose input registers hold something else than its holding registers."""
+
+    def __init__(self, holding: dict[int, int], inputs: dict[int, int]) -> None:
+        super().__init__(holding)
+        self.inputs = inputs
+
+    async def read_input_registers(self, address: int, count: int) -> list[int]:
+        return [self.inputs[register] for register in range(address, address + count)]
+
+
+async def test_a_read_goes_to_the_input_registers_when_the_caller_names_them():
+    unit = _InputRegisterUnit({30000: 0x1111, 30001: 0x2222}, {30000: 0x1234, 30001: 0x5678})
+    device = SunSpecModbusClientDeviceUnit(FakeConnection({1: unit}), slave_id=1)
+
+    assert await device.async_read(30000, 2) == b"\x11\x11\x22\x22"
+    assert await device.async_read(30000, 2, FUNC_READ_INPUT) == b"\x12\x34\x56\x78"
+
+
+@pytest.mark.parametrize(
+    ("call", "twin"),
+    [
+        (lambda device: device.connect(), "async_connect"),
+        (lambda device: device.disconnect(), "async_disconnect"),
+        (lambda device: device.read(40000, 3), "async_read"),
+        (lambda device: device.write(40000, b"\x00\x01"), "async_write"),
+    ],
+)
+def test_the_sync_methods_refuse_and_name_their_async_twin(call, twin):
+    """Upstream's entry points block a thread on the socket, and here there is neither."""
+    unit = FakeUnit(register_image(FRONIUS))
+    connection = FakeConnection({1: unit})
+    device = SunSpecModbusClientDeviceUnit(connection, slave_id=1)
+
+    with pytest.raises(ModbusClientError, match=f"use {twin}"):
+        call(device)
+
+    assert (connection.connects, connection.disconnects) == (0, 0)
+    assert (unit.reads, unit.writes) == ([], [])
+
+
+async def test_closing_the_device_closes_the_connection_where_a_disconnect_only_drops_the_link():
+    connection = FakeConnection()
+    device = SunSpecModbusClientDeviceUnit(connection, slave_id=1)
+    await device.async_connect()
+
+    await device.async_disconnect()
+    assert (connection.disconnects, connection.closed) == (1, False)
+
+    await device.async_close()
+    assert connection.closed
+
+
+# ---------- the cached layout ------------------------------------------------
+
+
+class _RefusingOnce(FakeUnit):
+    """Answers the first read that starts at ``refused`` with Modbus exception 2."""
+
+    def __init__(self, holding: dict[int, int], refused: int) -> None:
+        super().__init__(holding)
+        self.refused: int | None = refused
+
+    async def read_holding_registers(self, address: int, count: int) -> list[int]:
+        if address == self.refused:
+            self.refused = None
+            self.reads.append((address, count))
+            raise IllegalDataAddressError()
+        return await super().read_holding_registers(address, count)
+
+
+async def test_a_layout_whose_models_cannot_be_rebuilt_is_scanned_afresh(hass, caplog):
+    """A cache that validates but does not rebuild must cost a scan, not the connect.
+
+    Model 705 sizes its curves from two counts behind its header, and
+    the rebuild reads them. The device refuses that one read, after
+    the three validating reads went through.
+    """
+    image = register_image("./tests/test_data/inverter.json")
+    first = _api(hass, FakeConnection({1: FakeUnit(image)}), scan_delay=0)
+    models = await first.async_get_models()
+    payload = first.export_model_structure()
+    counts_of_705 = next(addr for model_id, addr, _ in payload["models"] if model_id == 705) + 2
+
+    unit = _RefusingOnce(image, refused=counts_of_705)
+    api = _api(hass, FakeConnection({1: unit}), scan_delay=0)
+    assert api.import_model_structure(payload) is True
+
+    with caplog.at_level(logging.DEBUG):
+        assert await api.async_get_models() == models
+
+    assert "Rebuilding models from cache failed, falling back to scan" in caplog.text
+    # The base address is read twice: to validate the cache, then by the scan.
+    assert unit.reads.count((40000, 3)) == 2
+    assert api.export_model_structure()["models"] == payload["models"]
+    assert (await api.async_get_data(705)).getValue("NCrv") == 3

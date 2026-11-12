@@ -37,7 +37,7 @@ def translate_error(err):
     if isinstance(err, ModbusTimeoutError):
         return ModbusClientTimeout(str(err))
     if isinstance(err, ModbusExceptionError):
-        code = getattr(err, 'code', None)
+        code = getattr(err, 'exception_code', None)
         try:
             code = int(code)
         except (TypeError, ValueError):

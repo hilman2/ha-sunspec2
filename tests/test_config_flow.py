@@ -1,5 +1,7 @@
 """Test SunSpec config flow."""
 
+import json
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
@@ -10,6 +12,7 @@ from homeassistant.data_entry_flow import InvalidData
 from homeassistant.helpers import config_validation as cv
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
+from custom_components.sunspec2.api import SunSpecApiClient
 from custom_components.sunspec2.const import CONF_BAUDRATE
 from custom_components.sunspec2.const import CONF_ENABLED_MODELS
 from custom_components.sunspec2.const import CONF_HOST
@@ -29,11 +32,15 @@ from custom_components.sunspec2.const import DOMAIN
 from custom_components.sunspec2.const import FLOAT_TWIN_OFFSET
 from custom_components.sunspec2.const import INTEGER_MEASUREMENT_MODELS
 from custom_components.sunspec2.const import MIN_SCAN_INTERVAL_SECONDS
+from custom_components.sunspec2.const import PARITY_EVEN
 from custom_components.sunspec2.const import PARITY_NONE
 from custom_components.sunspec2.const import TRANSPORT_RTU
 from custom_components.sunspec2.const import default_models_for
+from custom_components.sunspec2.errors import DeviceError
+from custom_components.sunspec2.errors import TransportError
 
 from . import MockSunSpecDataUpdateCoordinator
+from .conftest import MockFileClientDevice
 from .const import MOCK_CONFIG
 from .const import MOCK_CONFIG_RTU
 from .const import MOCK_CONFIG_STEP_1
@@ -1207,3 +1214,213 @@ async def test_options_flow_keeps_the_serial_configuration(hass):
     assert entry.data[CONF_SERIAL_PORT] == "/dev/ttyUSB0"
     assert entry.data[CONF_BAUDRATE] == 19200
     assert entry.data[CONF_PARITY] == PARITY_NONE
+
+
+# ---------------------------------------------------------------------------
+# Failed probes, fallbacks and what the forms show
+# ---------------------------------------------------------------------------
+
+
+async def test_a_serial_probe_that_fails_shows_the_serial_form_again_with_the_entries(hass):
+    """The user corrects one field and does not type the other three again."""
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": config_entries.SOURCE_USER}
+    )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], user_input={"next_step_id": "serial"}
+    )
+    entered = {
+        CONF_SERIAL_PORT: "/dev/ttyUSB7",
+        CONF_BAUDRATE: 19200,
+        CONF_PARITY: PARITY_EVEN,
+        CONF_UNIT_ID: 3,
+    }
+
+    with patch(
+        "custom_components.sunspec2.SunSpecApiClient.async_get_device_info",
+        side_effect=TransportError("could not open port /dev/ttyUSB7"),
+    ):
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], user_input=entered
+        )
+
+    assert result["type"] == FlowResultType.FORM
+    assert result["step_id"] == "serial"
+    assert result["errors"] == {"base": "connection"}
+    assert {str(key): key.default() for key in result["data_schema"].schema} == entered
+
+
+async def test_scan_results_show_the_mac_address_and_mark_the_inverter_vendors(hass):
+    from custom_components.sunspec2.discovery import SunSpecCandidate
+
+    candidates = [
+        SunSpecCandidate(ip="192.168.1.50", mac="00:27:02:aa:bb:cc", vendor_match=True),
+        SunSpecCandidate(ip="192.168.1.60", mac="aa:bb:cc:dd:ee:ff", vendor_match=False),
+        SunSpecCandidate(ip="192.168.1.99", mac=None, vendor_match=False),
+    ]
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": config_entries.SOURCE_USER}
+    )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], user_input={"next_step_id": "scan"}
+    )
+    with patch(
+        "custom_components.sunspec2.config_flow.async_discover_sunspec_candidates",
+        return_value=candidates,
+    ):
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], user_input={"subnet": "192.168.1.0/24"}
+        )
+
+    assert result["step_id"] == "scan_results"
+    (host,) = _serialise_form(result["data_schema"])
+    assert dict(host["options"]) == {
+        "192.168.1.50": "192.168.1.50 - 00:27:02:aa:bb:cc (SunSpec vendor)",
+        "192.168.1.60": "192.168.1.60 - aa:bb:cc:dd:ee:ff",
+        "192.168.1.99": "192.168.1.99",
+    }
+
+
+@pytest.mark.parametrize(
+    ("entered", "options"),
+    [({CONF_MAX_AC_POWER_KW: 6.5}, {CONF_MAX_AC_POWER_KW: 6.5}), ({}, {})],
+)
+async def test_setup_flow_stores_an_entered_peak_power_as_an_option(
+    hass, bypass_get_data, sunspec_client_mock, entered, options
+):
+    """An option and not data, so the options form edits the same value later."""
+    result = await _open_manual_step(hass)
+    flow_id = result["flow_id"]
+    await hass.config_entries.flow.async_configure(flow_id, user_input=MOCK_CONFIG_STEP_1)
+
+    result = await hass.config_entries.flow.async_configure(
+        flow_id, user_input={**MOCK_SETTINGS, **entered}
+    )
+
+    assert result["type"] == FlowResultType.CREATE_ENTRY
+    assert result["options"] == options
+    assert CONF_MAX_AC_POWER_KW not in result["data"]
+
+
+def _inverter_with(tmp_path, *models):
+    """The standard test inverter with ``models`` added to the end of its model chain."""
+    layout = json.loads(Path("./tests/test_data/inverter.json").read_text())
+    end_marker = layout["models"].pop()
+    assert end_marker["ID"] == 65535
+    layout["models"] += [*models, end_marker]
+    path = tmp_path / "inverter_with_nameplate.json"
+    path.write_text(json.dumps(layout))
+    client = MockFileClientDevice(str(path))
+    client.scan()
+    return client
+
+
+NAMEPLATE_5_KW = {"ID": 120, "L": 26, "DERTyp": 4, "WRtg": 5000, "WRtg_SF": 0}
+NAMEPLATE_WITHOUT_RATING = {"ID": 120, "L": 26, "DERTyp": 4}
+NAMEPLATE_RATED_ZERO = {"ID": 120, "L": 26, "DERTyp": 4, "WRtg": 0, "WRtg_SF": 0}
+SETTINGS_4_KW = {"ID": 121, "L": 30, "WMax": 4000, "WMax_SF": 0}
+
+
+@pytest.mark.parametrize(
+    ("models", "suggested"),
+    [
+        pytest.param([NAMEPLATE_5_KW, SETTINGS_4_KW], 6.0, id="the nameplate before the setting"),
+        pytest.param(
+            [NAMEPLATE_WITHOUT_RATING, SETTINGS_4_KW], 4.8, id="the setting without a rating"
+        ),
+        pytest.param([NAMEPLATE_RATED_ZERO, SETTINGS_4_KW], 4.8, id="a rating of zero is none"),
+        pytest.param([SETTINGS_4_KW], 4.8, id="the setting without a nameplate"),
+        pytest.param([NAMEPLATE_WITHOUT_RATING], None, id="neither"),
+    ],
+)
+async def test_setup_flow_reads_the_peak_power_from_the_device(hass, tmp_path, models, suggested):
+    """Model 120 ``WRtg`` is the rating, model 121 ``WMax`` what the installer set; both in W."""
+    client = _inverter_with(tmp_path, *models)
+    with patch("custom_components.sunspec2.SunSpecApiClient.modbus_connect", return_value=client):
+        result = await _open_manual_step(hass)
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], user_input=MOCK_CONFIG_STEP_1
+        )
+
+    assert result["step_id"] == "settings"
+    assert _suggested_value(result["data_schema"], CONF_MAX_AC_POWER_KW) == suggested
+
+
+async def test_setup_flow_reads_the_setting_when_the_nameplate_cannot_be_read(hass, tmp_path):
+    """The suggestion is a convenience; a refused model 120 must not end the setup."""
+    client = _inverter_with(tmp_path, NAMEPLATE_5_KW, SETTINGS_4_KW)
+    read = SunSpecApiClient.async_get_data
+
+    async def refuse_the_nameplate(self, model_id):
+        if model_id == 120:
+            raise DeviceError("Modbus exception 2")
+        return await read(self, model_id)
+
+    with (
+        patch("custom_components.sunspec2.SunSpecApiClient.modbus_connect", return_value=client),
+        patch.object(SunSpecApiClient, "async_get_data", refuse_the_nameplate),
+    ):
+        result = await _open_manual_step(hass)
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], user_input=MOCK_CONFIG_STEP_1
+        )
+
+    assert result["step_id"] == "settings"
+    assert result["errors"] == {}
+    assert _suggested_value(result["data_schema"], CONF_MAX_AC_POWER_KW) == 4.8
+
+
+async def test_setup_flow_creates_the_entry_when_closing_the_probe_fails(
+    hass, bypass_get_data, sunspec_client_mock
+):
+    """The probe is only being let go of; a link that is already down is no reason to fail."""
+    result = await _open_manual_step(hass)
+    flow_id = result["flow_id"]
+    await hass.config_entries.flow.async_configure(flow_id, user_input=MOCK_CONFIG_STEP_1)
+
+    with patch(
+        "custom_components.sunspec2.SunSpecApiClient.async_shutdown",
+        side_effect=OSError("connection already closed"),
+    ) as shutdown:
+        result = await hass.config_entries.flow.async_configure(flow_id, user_input=MOCK_SETTINGS)
+
+    shutdown.assert_awaited_once()
+    assert result["type"] == FlowResultType.CREATE_ENTRY
+    assert result["data"] == MOCK_CONFIG
+
+
+async def test_options_flow_offers_the_models_of_the_live_session_before_the_first_poll(hass):
+    """The coordinator has no model list until its first cycle, the connected client has one."""
+    entry = MockConfigEntry(version=2, domain=DOMAIN, data=MOCK_CONFIG, entry_id="test")
+    entry.add_to_hass(hass)
+    coordinator = MockSunSpecDataUpdateCoordinator(hass, [])
+    entry.runtime_data = coordinator
+
+    with patch.object(coordinator.api, "known_models", return_value=[1, 103, 160, 701]):
+        result = await _open_model_options(hass, entry)
+
+    offered = result["data_schema"].schema[CONF_ENABLED_MODELS].config["options"]
+    # 701 is not among the models the entry stores, so it can only come from the session.
+    assert {option["value"] for option in offered} == {"1", "103", "160", "701"}
+
+
+async def test_options_flow_returns_to_the_host_form_when_the_model_form_cannot_be_built(hass):
+    """The error shows on the host form, together with what the user entered there."""
+    entry = MockConfigEntry(version=2, domain=DOMAIN, data=MOCK_CONFIG, entry_id="test")
+    entry.add_to_hass(hass)
+    entry.runtime_data = MockSunSpecDataUpdateCoordinator(hass, [1, 2])
+    entered = {CONF_HOST: "192.168.1.99", CONF_PORT: 502, CONF_UNIT_ID: 4}
+
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    with patch(
+        "custom_components.sunspec2.config_flow.sunspec_model_labels",
+        side_effect=OSError("model definitions unreadable"),
+    ):
+        result = await hass.config_entries.options.async_configure(
+            result["flow_id"], user_input=entered
+        )
+
+    assert result["type"] == FlowResultType.FORM
+    assert result["step_id"] == "host_options"
+    assert result["errors"] == {"base": "device_error"}
+    assert {str(key): key.default() for key in result["data_schema"].schema} == entered

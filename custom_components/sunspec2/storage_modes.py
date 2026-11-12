@@ -39,7 +39,6 @@ from .vendors.profile import StorageMode
 from .vendors.profile import StorageModeProfile
 from .vendors.profile import resolve_rate
 from .write_controls import STORAGE_CONTROL_MODEL
-from .write_controls import storage_bits_to_int
 
 _LOGGER: logging.Logger = logging.getLogger(__package__)
 
@@ -83,8 +82,6 @@ def device_rates(wrapper: SunSpecModelWrapper) -> tuple[int, float, float] | Non
         out_pct = wrapper.getValue("OutWRte")
     except (KeyError, AttributeError):
         return None
-    if isinstance(ctl, list):
-        ctl = storage_bits_to_int(ctl)
     if not isinstance(ctl, (int, float)) or isinstance(ctl, bool):
         return None
     if not isinstance(in_pct, (int, float)) or not isinstance(out_pct, (int, float)):

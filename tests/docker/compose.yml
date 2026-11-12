@@ -28,7 +28,7 @@ services:
   # Same suite in parallel. Faster, but the output interleaves.
   tests-fast:
     <<: *common
-    command: ["pytest", "tests/", "-q", "-n", "auto"]
+    command: ["pytest", "tests/", "-q", "-n", "auto", "--cov"]
 
   # Live output while it runs, for a test that hangs or logs its way to
   # an answer. Not for the routine run: it is loud.

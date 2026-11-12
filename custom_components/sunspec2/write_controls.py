@@ -363,28 +363,6 @@ _MODEL_124: tuple[WriteControlSpec, ...] = (
 )
 
 
-def storage_bits_to_int(symbols: list[str]) -> int:
-    """Fold a decoded ``StorCtl_Mod`` bitfield back into its raw integer.
-
-    pysunspec2 hands back the names of the set bits rather than the
-    value. Bit 0 is charge, bit 1 is discharge.
-
-    Matched by prefix and case-insensitively on purpose:
-    model_124.json spells the second symbol "DiSCHARGE", and a device
-    is free to report either the spec's spelling or its own. Checking
-    the discharge prefix first matters, because "DISCHARGE" also starts
-    with the letters of "CHARGE" under a naive substring test.
-    """
-    raw = 0
-    for name in symbols:
-        upper = name.upper()
-        if upper.startswith("DISCHA"):
-            raw |= 2
-        elif upper.startswith("CHA"):
-            raw |= 1
-    return raw
-
-
 _SPECS_BY_MODEL: dict[int, tuple[WriteControlSpec, ...]] = {
     123: _MODEL_123,
     704: _MODEL_704,

@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from collections.abc import Awaitable
 from collections.abc import Callable
 from collections.abc import Mapping
 from typing import Any
@@ -83,6 +82,12 @@ type SunSpecClient = Any
 SETUP_TIMEOUT = 60
 
 _LOGGER: logging.Logger = logging.getLogger(__package__)
+
+# What says the link failed while the stored layout was being checked or
+# rebuilt, as opposed to the layout being wrong. A wrong layout is
+# scanned afresh. A failed link is not: a scan on a device that does not
+# answer takes minutes and holds the gateway for all of them.
+_LINK_FAILURES = (SunSpecModbusClientTimeout, ModbusClientTimeout, ModbusClientConnectionClosed)
 
 
 # pragma: not covered
@@ -457,39 +462,8 @@ class SunSpecApiClient:
         if unit_id is None:
             data: bytes | None = await client.async_read(address, count)
             return data
-        read_unit = getattr(client, "async_read_unit", None)
-        if read_unit is not None:
-            other: bytes | None = await read_unit(unit_id, address, count)
-            return other
-        swapped: bytes | None = await self._as_unit(
-            client, unit_id, lambda: client.async_read(address, count)
-        )
-        return swapped
-
-    async def _as_unit(
-        self, client: SunSpecClient, unit_id: int, action: Callable[[], Awaitable[Any]]
-    ) -> Any:
-        """Run ``action`` with the session's unit id swapped for ``unit_id``.
-
-        For a device that binds the unit id to the device object rather
-        than to the request, as the fork's own clients do through
-        ``slave_id``. Swapping it for one request is safe because the
-        coordinator holds the gateway lock around every use of the
-        session.
-        """
-        targets = [
-            obj
-            for obj in (client, getattr(client, "client", None))
-            if obj is not None and hasattr(obj, "slave_id")
-        ]
-        saved = [obj.slave_id for obj in targets]
-        for obj in targets:
-            obj.slave_id = unit_id
-        try:
-            return await action()
-        finally:
-            for obj, value in zip(targets, saved, strict=True):
-                obj.slave_id = value
+        other: bytes | None = await client.async_read_unit(unit_id, address, count)
+        return other
 
     async def async_write_block(self, address: int, data: bytes, unit_id_offset: int = 0) -> None:
         """Write register bytes at ``address`` over the live session.
@@ -517,11 +491,7 @@ class SunSpecApiClient:
         if unit_id is None:
             await client.async_write(address, data)
             return
-        write_unit = getattr(client, "async_write_unit", None)
-        if write_unit is not None:
-            await write_unit(unit_id, address, data)
-            return
-        await self._as_unit(client, unit_id, lambda: client.async_write(address, data))
+        await client.async_write_unit(unit_id, address, data)
 
     @staticmethod
     def _encodable(point: Any, value: object) -> object:
@@ -937,7 +907,7 @@ class SunSpecApiClient:
         """
         try:
             header = await client.async_read(self._base_addr, 3)
-        except (SunSpecModbusClientTimeout, ModbusClientTimeout, ModbusClientConnectionClosed):
+        except _LINK_FAILURES:
             raise
         except Exception as err:  # noqa: BLE001 - any failure just means "scan"
             self._log.debug("Cached model structure could not be validated: %s", err)
@@ -952,7 +922,7 @@ class SunSpecApiClient:
         last_id, last_addr, last_len = structure[-1]
         try:
             tail = await client.async_read(last_addr, 2)
-        except (SunSpecModbusClientTimeout, ModbusClientTimeout, ModbusClientConnectionClosed):
+        except _LINK_FAILURES:
             raise
         except Exception as err:  # noqa: BLE001 - any failure just means "scan"
             self._log.debug("Cached model chain tail could not be validated: %s", err)
@@ -975,7 +945,7 @@ class SunSpecApiClient:
             return False
         try:
             end = await client.async_read(last_addr + 2 + last_len, 1)
-        except (SunSpecModbusClientTimeout, ModbusClientTimeout, ModbusClientConnectionClosed):
+        except _LINK_FAILURES:
             raise
         except Exception as err:  # noqa: BLE001 - device need not answer past the chain
             self._log.debug("No readable end marker behind the cached chain (%s), accepting", err)
@@ -1025,6 +995,11 @@ class SunSpecApiClient:
                 )
                 model.mid = f"{client.did}_{index}"
                 client.add_model(model)
+        except _LINK_FAILURES:
+            # A model with counted groups is read from while it is
+            # rebuilt (async_model_data), so the link can fail here too.
+            client.delete_models()
+            raise
         except Exception as err:  # noqa: BLE001 - a half-built client is worse than none
             self._log.debug("Rebuilding models from cache failed, falling back to scan: %s", err)
             client.delete_models()

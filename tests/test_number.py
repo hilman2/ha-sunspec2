@@ -515,3 +515,36 @@ async def test_set_value_times_out_when_the_gateway_stays_busy(hass, sunspec_wri
             await limit.async_set_native_value(80)
     finally:
         coordinator._gateway_lock.release()
+
+
+async def test_a_number_reads_nothing_once_the_device_stops_listing_its_model(
+    hass, sunspec_write_client_mock
+):
+    """A firmware update can take a model away; the next scan then leaves it out of the data."""
+    entry = await _setup_write_entry(hass)
+    coordinator = entry.runtime_data
+    limit = next(e for e in _live_entities(hass, "number") if e._point_name == "WMaxLimPct")
+    assert limit.native_value == 110.0
+
+    del sunspec_write_client_mock.models[123]
+    await coordinator.async_refresh()
+
+    assert coordinator.last_update_success
+    assert 123 not in coordinator.data
+    assert limit.native_value is None
+
+
+async def test_a_number_reads_nothing_while_its_register_reports_nothing(
+    hass, sunspec_write_client_mock
+):
+    """An unimplemented register must not show as a setpoint of 0."""
+    entry = await _setup_write_entry(hass)
+    limit = next(e for e in _live_entities(hass, "number") if e._point_name == "WMaxLimPct")
+
+    sunspec_write_client_mock.models[123][0].WMaxLimPct.value = None
+    await entry.runtime_data.async_refresh()
+
+    assert limit.native_value is None
+    state = hass.states.get(limit.entity_id)
+    assert state is not None
+    assert state.state == "unknown"

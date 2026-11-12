@@ -74,7 +74,9 @@ express that, it calls the requirement unsatisfiable and stops.
 
 ```bash
 # Full suite, about 30 seconds sequential (was 3.5 minutes until the
-# read_model pacing pause was switched off for tests, see conftest.py)
+# read_model pacing pause was switched off for tests, see conftest.py).
+# Measures coverage and fails below 95 %, as CI does; the threshold is
+# [tool.coverage.report] in pyproject.toml.
 docker compose -f tests/docker/compose.yml run --rm tests
 
 # Single file / single test: everything after the service name goes to pytest

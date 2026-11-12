@@ -37,10 +37,6 @@ _LOGGER: logging.Logger = logging.getLogger(__package__)
 
 PARALLEL_UPDATES = 0
 
-# Symbol strings that mean "on". Some firmware returns the enum symbol
-# rather than its ordinal through the wrapper's decoding path.
-_TRUTHY_SYMBOLS = frozenset({"ENABLED", "ON", "CONNECTED", "ACTIVE", "1"})
-
 # What a firmware that stores the flag as text reads back: ord("0"), ord("1").
 _ASCII_DIGITS = {48: 0, 49: 1}
 
@@ -125,8 +121,6 @@ class SunSpecWriteSwitch(SunSpecEntity, SwitchEntity):
             return None
         if value is None:
             return None
-        if isinstance(value, str):
-            return value.upper() in _TRUTHY_SYMBOLS
         if self._ascii_flag:
             # Written as 1 or 0, read back as the code of the digit.
             value = _ASCII_DIGITS.get(value, value)

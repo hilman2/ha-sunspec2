@@ -1,6 +1,7 @@
 """Tests for the SunSpec 2 diagnostics platform."""
 
 import importlib.metadata
+import json
 import threading
 from unittest.mock import AsyncMock
 from unittest.mock import Mock
@@ -9,9 +10,12 @@ from unittest.mock import patch
 import pytest
 
 from custom_components.sunspec2.api import SunSpecApiClient
+from custom_components.sunspec2.const import CONF_FRONIUS_WEB_TOKEN
 from custom_components.sunspec2.diagnostics import async_get_config_entry_diagnostics
 
 from . import setup_mock_sunspec_config_entry
+from .test_fronius_web import _mock_web
+from .test_fronius_web import _web_entry
 
 
 async def test_diagnostics_basic_shape(hass, sunspec_client_mock):
@@ -138,6 +142,51 @@ async def test_diagnostics_reports_models_the_user_did_not_enable(hass, sunspec_
     assert 705 in detected and 705 not in polled
     assert 704 in polled
     assert diag["model_filters"]["option_model_filter"] == [103, 160]
+
+
+async def test_diagnostics_keep_a_value_that_cannot_be_computed_as_its_error(
+    hass, sunspec_client_mock
+):
+    """A scale factor far out of range overflows the scaling, and only that point pays for it."""
+    entry = await setup_mock_sunspec_config_entry(hass)
+    entry.runtime_data.data[160].getPoint("DCA_SF").set_value(400)
+
+    diag = await async_get_config_entry_diagnostics(hass, entry)
+
+    mppt = diag["latest_values"]["160"]
+    assert mppt["module:0:DCA"] == {"error": "math range error"}
+    # DCV scales with DCV_SF, which is untouched.
+    assert isinstance(mppt["module:0:DCV"], (int, float))
+    assert "103" in diag["latest_values"]
+
+
+async def test_diagnostics_dump_the_last_poll_of_the_web_interface_without_its_secret(
+    hass, sunspec_fronius_client_mock, aioclient_mock
+):
+    _mock_web(aioclient_mock)
+    entry = await _web_entry(hass)
+
+    diag = await async_get_config_entry_diagnostics(hass, entry)
+
+    web = diag["fronius_web"]
+    assert web["inverter_temperature_c"] == 41.5
+    assert web["battery_cell_temperature_c"] == 23.25
+    assert web["battery"] == {"manufacturer": "BYD", "model": "HVS 10.2", "serial": "S123"}
+    # The dump is downloaded as JSON, so the poll has to be plain data.
+    assert json.loads(json.dumps(web)) == web
+    assert diag["options"][CONF_FRONIUS_WEB_TOKEN] == "**REDACTED**"
+
+
+async def test_diagnostics_say_why_the_web_interface_has_no_data(
+    hass, sunspec_fronius_client_mock, aioclient_mock
+):
+    _mock_web(aioclient_mock, status=401)
+    entry = await _web_entry(hass)
+
+    diag = await async_get_config_entry_diagnostics(hass, entry)
+
+    assert list(diag["fronius_web"]) == ["error"]
+    assert "rejected the stored login" in diag["fronius_web"]["error"]
 
 
 async def test_diagnostics_recent_errors_starts_empty(hass, sunspec_client_mock):
