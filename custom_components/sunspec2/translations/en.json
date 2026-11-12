@@ -16,6 +16,11 @@
           "host": "Host or IP",
           "port": "Modbus TCP port",
           "unit_id": "Modbus unit ID"
+        },
+        "data_description": {
+          "host": "The IP address or host name of the inverter, or of the gateway in front of it.",
+          "port": "The Modbus TCP port. 502 unless the device is set to another.",
+          "unit_id": "The Modbus address of the device, also called slave ID or device ID. Often 1. The Modbus settings of the device show it."
         }
       },
       "scan": {
@@ -23,6 +28,9 @@
         "description": "Scans the chosen subnet for hosts that have Modbus TCP port 502 open. Hosts whose MAC address belongs to a known SunSpec inverter manufacturer are listed first. The scan only does a TCP connect probe, it never sends any Modbus bytes, so it will not interfere with other Modbus devices on the network. The default subnet is detected from the Home Assistant host's network configuration.",
         "data": {
           "subnet": "Subnet to scan (CIDR notation, e.g. 192.168.1.0/24)"
+        },
+        "data_description": {
+          "subnet": "The network to search, in CIDR notation. At most a /22, which is 1022 addresses."
         }
       },
       "scan_results": {
@@ -30,6 +38,9 @@
         "description": "These hosts answered on Modbus TCP port 502. Hosts marked 'SunSpec vendor' have a MAC address from a known inverter manufacturer and are most likely your device.",
         "data": {
           "host": "Inverter"
+        },
+        "data_description": {
+          "host": "The devices that answered on the Modbus port. Known inverter makers are listed first."
         }
       },
       "serial": {
@@ -40,6 +51,12 @@
           "baudrate": "Baud rate",
           "parity": "Parity",
           "unit_id": "Modbus unit ID"
+        },
+        "data_description": {
+          "serial_port": "The serial port of the RS-485 adapter.",
+          "baudrate": "The speed set on the device. Both ends must use the same.",
+          "parity": "The parity set on the device.",
+          "unit_id": "The Modbus address of the device, also called slave ID or device ID. Often 1. The Modbus settings of the device show it."
         }
       },
       "settings": {
@@ -65,6 +82,11 @@
           "host": "Host or IP",
           "port": "Modbus TCP port",
           "unit_id": "Modbus unit ID"
+        },
+        "data_description": {
+          "host": "The IP address or host name of the inverter, or of the gateway in front of it.",
+          "port": "The Modbus TCP port. 502 unless the device is set to another.",
+          "unit_id": "The Modbus address of the device, also called slave ID or device ID. Often 1. The Modbus settings of the device show it."
         }
       }
     },
@@ -92,6 +114,11 @@
           "host": "Host or IP",
           "port": "Modbus TCP port",
           "unit_id": "Modbus unit ID"
+        },
+        "data_description": {
+          "host": "The IP address or host name of the inverter, or of the gateway in front of it.",
+          "port": "The Modbus TCP port. 502 unless the device is set to another.",
+          "unit_id": "The Modbus address of the device, also called slave ID or device ID. Often 1. The Modbus settings of the device show it."
         }
       },
       "model_options": {

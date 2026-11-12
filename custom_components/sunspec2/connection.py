@@ -1,20 +1,18 @@
 """The Modbus link of one api client: units on Home Assistant's shared connection.
 
 Home Assistant's ``modbus`` integration hands out ``ModbusUnit`` objects
-over one connection per physical endpoint (``async_get_unit``). Two
-config entries behind the same gateway, or a second integration talking
-to the same inverter, get units on the same TCP session, and their
-requests queue behind one lock instead of fighting for a slot. The
-connection is opened by the first request and closed when the last
-config entry holding a unit on it unloads.
+over one connection per physical endpoint (``async_get_unit``). Config
+entries behind the same gateway, and other integrations talking to the
+same inverter, get units on the same session, and their requests queue
+behind one lock instead of fighting for a slot. The connection is opened
+by the first request and closed when the last config entry holding a
+unit on it unloads.
 
-``SharedConnection`` is the shape the embedded pysunspec2 device
-(``pysunspec2/modbus/unit_device.py``) was written against, a
-``ModbusConnection`` with ``for_unit``, ``connect``, ``disconnect``,
-``close`` and ``connected``, so the fork needs no change. What differs
-is who owns the link: a unit has no ``connect`` or ``close`` of its own,
-so ``connect`` defers to the first register read and ``close`` hands the holds back
-only where nobody else will.
+``SharedConnection`` has the ``ModbusConnection`` shape the embedded
+pysunspec2 device (``pysunspec2/modbus/unit_device.py``) expects. A unit
+has no ``connect`` or ``close`` of its own, so ``connect`` leaves the
+opening to the first register read and ``close`` hands back only the
+holds that nobody else will.
 """
 
 from __future__ import annotations
@@ -96,11 +94,9 @@ class SharedConnection:
     async def async_require_timeout(self, unit_id: int, seconds: float) -> None:
         """Have the link wait at least ``seconds`` for an answer to any request.
 
-        The link applies a raised timeout from its next connect on, and
-        modbus-connection drops a live link for that in a task of its own,
-        which cuts whatever request is in flight when it runs. The link is
-        therefore dropped here and awaited, so the caller's next request
-        reconnects with the new timeout instead of being cut.
+        A raise above what every other holder asked for drops a live
+        link, and the caller's next request reconnects with the new
+        timeout.
         """
         if self._timeouts.get(unit_id) == seconds:
             return
@@ -121,6 +117,10 @@ class SharedConnection:
             (asked_for for holder, asked_for in asked.items() if holder != key), default=0.0
         )
         asked[key] = seconds
+        # The link applies a raised timeout from its next connect on.
+        # modbus-connection would drop a live link for that in a task of
+        # its own and cut whatever request is in flight, so the link is
+        # dropped and awaited here.
         if connected and raised:
             await unit.disconnect()
 

@@ -1,20 +1,21 @@
 """Diagnostics support for the SunSpec 2 integration.
 
-Implements the standard Home Assistant diagnostics platform hook.
-Users reach this via Settings -> Devices & Services -> SunSpec 2 ->
-three dots -> Download diagnostics. The resulting JSON is meant to be
-attached to GitHub issues.
+The JSON a user downloads under Settings -> Devices & Services ->
+SunSpec 2 -> three dots -> Download diagnostics, meant to be attached
+to GitHub issues.
 
-The host field is redacted because it is often a public IP. Port and
-unit_id are kept (they are non-sensitive and we need them to triage).
+The host is redacted because it is often a public IP. Port and unit id
+are not sensitive and stay, because triage needs them.
 """
 
 from __future__ import annotations
 
 import dataclasses
 import importlib.metadata
+import re
 from typing import Any
 
+from homeassistant.components.diagnostics import REDACTED
 from homeassistant.components.diagnostics import async_redact_data
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import __version__ as HA_VERSION
@@ -23,8 +24,10 @@ from homeassistant.core import HomeAssistant
 from .const import CONF_FRONIUS_WEB_TOKEN
 from .const import CONF_HOST
 from .const import CONF_MAX_AC_POWER_KW
+from .const import CONF_TRANSPORT
 from .const import MEASURED_POWER_POINT_HEADROOM
 from .const import NAMEPLATE_FILTER_HEADROOM
+from .const import TRANSPORT_TCP
 from .const import VERSION
 from .const import effective_peak_power_kw
 from .coordinator import SunSpec2ConfigEntry
@@ -64,18 +67,14 @@ async def async_get_config_entry_diagnostics(
             except Exception as exc:  # noqa: BLE001 - defensive: never break the dump
                 scanned_models.append({"model_id": model_id, "error": str(exc)})
 
-    return {
+    dump: dict[str, Any] = {
         "config": async_redact_data(dict(entry.data), TO_REDACT),
         "options": async_redact_data(dict(entry.options), TO_REDACT),
-        # #17: scanned_models below is built from coordinator.data,
-        # which is the FILTERED poll result. A model the inverter
-        # exposes but the user never ticked can therefore never show up
-        # there, which is exactly why a KACO Blueplanet that had been
-        # answering writes to registers 40295 and 40299 for two years
-        # appeared to have no model 123 at all.
-        #
-        # detected_models is the raw scan result and is the field to
-        # look at when the question is "does this device have model N".
+        # scanned_models below is built from coordinator.data, the
+        # filtered poll result, so a model the inverter exposes but the
+        # user never ticked cannot show up there (#17). detected_models
+        # is the raw scan result and answers "does this device have
+        # model N".
         "detected_models": sorted(getattr(coordinator, "detected_models", set()) or []),
         # Which vendor profile (vendors/) applied, so a report about a
         # battery mode can be matched to the recipe that wrote it.
@@ -94,17 +93,14 @@ async def async_get_config_entry_diagnostics(
         },
         "scanned_models": scanned_models,
         "latest_values": latest_values,
-        # #45: without this block a diagnostics download could not
-        # diagnose the plausibility filter at all. Models 120 / 121 are
-        # not in DEFAULT_MODELS, so WRtg / WMax normally never reach
-        # latest_values either, and when the peak power option is unset
-        # the ceiling that actually dropped the reading was invisible.
+        # The state of the plausibility filter (#45). Models 120 and 121
+        # are not in DEFAULT_MODELS, so WRtg and WMax normally do not
+        # reach latest_values, and with the peak power option unset the
+        # ceiling that dropped a reading shows nowhere else.
         "plausibility_filter": _plausibility_filter_dump(coordinator, entry),
         "recent_errors": _recent_errors_dump(coordinator),
         "consecutive_failures": dict(getattr(coordinator, "_consecutive_failures", {})),
-        # #52: whether the transport repair issue is currently allowed
-        # to fire at all. A dump taken from an install that "never warns
-        # about the dead inverter" is otherwise impossible to read: both
+        # Whether the transport repair issue may fire at all (#52). Both
         # inputs to that decision live only in memory.
         "standby": {
             "last_operating_state": getattr(coordinator, "_last_operating_state", None),
@@ -129,6 +125,46 @@ async def async_get_config_entry_diagnostics(
             "sunspec2_integration": VERSION,
         },
     }
+    # The entry data above is redacted by key. An error message names
+    # the address in its text, so the error texts are redacted by
+    # content: the recent errors, and the one error the web section
+    # holds in place of its data.
+    addresses = _address_pattern(entry)
+    dump["recent_errors"] = _without_addresses(dump["recent_errors"], addresses)
+    web = dump["fronius_web"]
+    if web is not None and "error" in web:
+        web["error"] = _without_addresses(web["error"], addresses)
+    return dump
+
+
+#: An IPv4 address anywhere in a text. An error raised for a host name
+#: carries the address the name resolved to.
+_IPV4 = r"(?<![\w.])(?:\d{1,3}\.){3}\d{1,3}(?!\w|\.\d)"
+
+
+def _address_pattern(entry: ConfigEntry) -> re.Pattern[str]:
+    """What to take out of an error text: every IPv4 address, and the host of a TCP entry.
+
+    A serial entry keeps its port path in ``host``. That path is no
+    address, and it is needed to make sense of the errors.
+    """
+    host = entry.data.get(CONF_HOST)
+    if not host or entry.data.get(CONF_TRANSPORT, TRANSPORT_TCP) != TRANSPORT_TCP:
+        return re.compile(_IPV4)
+    # The host as a whole word only, so that a host named "inverter"
+    # leaves "inverter_three_phase" alone.
+    return re.compile(rf"{_IPV4}|(?<![\w.-]){re.escape(host)}(?![\w-]|\.\w)", re.IGNORECASE)
+
+
+def _without_addresses(value: Any, addresses: re.Pattern[str]) -> Any:
+    """``value`` with every match of ``addresses`` redacted in its strings, at any depth."""
+    if isinstance(value, str):
+        return addresses.sub(REDACTED, value)
+    if isinstance(value, dict):
+        return {key: _without_addresses(item, addresses) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_without_addresses(item, addresses) for item in value]
+    return value
 
 
 def _transport_versions() -> dict[str, str | None]:
@@ -151,11 +187,10 @@ def _plausibility_filter_dump(
 ) -> dict[str, Any]:
     """State of the power plausibility filter, in the units it works in.
 
-    ``effective_peak_power_kw`` is the same function the sensor platform
-    calls, so this can never disagree with what actually happened to a
-    reading. ``per_quantity_ceiling_w`` is spelled out because the
-    headroom differs by physical quantity and "why is DC Watts unknown
-    but Watts fine" is exactly the question a bug report opens with.
+    ``effective_peak_power_kw`` is the function the sensor platform
+    calls, so the dump cannot disagree with what happened to a reading.
+    ``per_quantity_ceiling_w`` is spelled out because the headroom
+    differs by physical quantity.
     """
     configured = entry.options.get(CONF_MAX_AC_POWER_KW)
     detected = getattr(coordinator, "detected_max_ac_power_kw", None)

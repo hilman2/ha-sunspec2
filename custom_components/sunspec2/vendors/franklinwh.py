@@ -32,8 +32,8 @@ DC_MODEL = 714
 
 MIN_PLAUSIBLE_RATING_W = 1000.0
 
-# The extension addresses are absolute PDU addresses, including when
-# discovery found the SunSpec mirror at 40000.
+# The extension addresses are absolute PDU addresses, also when
+# discovery finds the SunSpec mirror at 40000.
 EXTENSIONS_ADDRESS = 15500
 HIGH_RESOLUTION_ADDRESS = 16000
 
@@ -73,9 +73,9 @@ RAW_BLOCKS: tuple[RawBlock, ...] = (
 
 # The extension registers describe the gateway as a whole: solar, home
 # load, operating mode and reserves. Their sensors sit on a device of
-# their own instead of whichever model device happens to be the lowest
-# (issue #149). The aGate is the SunSpec device itself, so its identity
-# comes from common model 1.
+# their own instead of on whichever model device has the lowest id
+# (issue #149). The aGate is the SunSpec device itself, so the identity
+# of that device comes from common model 1.
 AGATE_DEVICE = "agate"
 
 GATEWAY = RawDevice(
@@ -182,8 +182,10 @@ def battery_rating(value: Any) -> Any:
     # The aGate X with two aPower 2 units in issue #149 reports 160/192
     # at W_SF 0 for its confirmed 16000/19200 W limits. Its SunSpec Vr
     # is V10R01B04D00, which the reference aGate also reports with ratings
-    # already in watts. Distinguish the short ratings by magnitude so
-    # neither those watt ratings nor values scaled by W_SF are multiplied.
+    # already in watts, so the version cannot tell the two apart. The
+    # magnitude does: a rating below MIN_PLAUSIBLE_RATING_W is in 100 W
+    # units, and neither the watt ratings nor values scaled by W_SF are
+    # multiplied.
     if (
         not isinstance(value, bool)
         and isinstance(value, (int, float))

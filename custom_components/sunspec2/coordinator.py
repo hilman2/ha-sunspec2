@@ -83,11 +83,16 @@ _LOGGER: logging.Logger = logging.getLogger(__package__)
 # SunSpecDataUpdateCoordinator._read_control_model.
 _CONTROL_REFUSALS_KEY = f"{DOMAIN}_control_refusals"
 
-# Bronze rule runtime-data: typed config entry alias so platforms,
-# diagnostics and the options flow can read the coordinator off
-# ``entry.runtime_data`` with a real type instead of fishing it out
-# of ``hass.data[DOMAIN][entry.entry_id]``.
 type SunSpec2ConfigEntry = ConfigEntry["SunSpecDataUpdateCoordinator"]
+
+
+def structure_store(hass: HomeAssistant, entry_id: str) -> Store[dict[str, Any]]:
+    """The file the SunSpec model layout of an entry is kept in.
+
+    One file per config entry, so that two inverters never share a
+    layout and removing an entry can remove its file.
+    """
+    return Store(hass, STRUCTURE_STORAGE_VERSION, f"{STRUCTURE_STORAGE_KEY}.{entry_id}")
 
 
 def gateway_rest_until(now: datetime, round_seconds: int) -> datetime:
@@ -96,12 +101,12 @@ def gateway_rest_until(now: datetime, round_seconds: int) -> datetime:
     See GATEWAY_REST_MIN_SECONDS for the reasoning.
 
     Args:
-        now (datetime): The moment the request went unanswered, timezone-aware.
-        round_seconds (int): The period of the gateway's collection rounds,
+        now: The moment the request went unanswered, timezone-aware.
+        round_seconds: The period of the gateway's collection rounds,
             which start on the clock, counted from the Unix epoch.
 
     Returns:
-        datetime: The end of the rest, in UTC.
+        The end of the rest, in UTC.
     """
     earliest = now.timestamp() + GATEWAY_REST_MIN_SECONDS
     next_round = (earliest // round_seconds + 1) * round_seconds
@@ -117,30 +122,23 @@ class _GatewayResting(Exception):
 
 
 class SunSpecDataUpdateCoordinator(DataUpdateCoordinator[dict[int, SunSpecModelWrapper]]):
-    """Class to manage fetching data from the API."""
+    """Polls the SunSpec models of one config entry and carries out its writes."""
 
-    # Per-gateway asyncio lock used to serialise update cycles and write
-    # sequences from multiple config entries that share the same TCP
-    # endpoint (host, port). Several inverters and Modbus TCP gateways -
-    # notably SolarEdge - only accept a single TCP connection at a time,
-    # and Home Assistant's modbus integration gives every entry behind
-    # one endpoint the same connection, so the slot is not what is
-    # contended any more. What the lock keeps is the whole cycle and the
-    # whole write sequence in one piece: the connection's own lock
-    # serialises single requests, so without this a poll of one unit
-    # could land between the steps of another unit's write plan.
-    # Single-gateway users see no behavioural change because the lock is
-    # always free.
+    # One asyncio lock per (host, port), shared by the config entries
+    # behind that endpoint. Their shared Modbus connection serialises
+    # single requests. The gateway lock keeps a whole read cycle and a
+    # whole write sequence in one piece, so a poll of one unit cannot
+    # land between the steps of another unit's write plan.
     _GATEWAY_LOCKS: dict[tuple[str, int], asyncio.Lock] = {}
     # Per gateway, the end of its rest after a request it left unanswered
-    # (see GATEWAY_REST_MIN_SECONDS). Class-level like the locks, because
-    # the gateway is busy for every entry behind it, not only for the one
+    # (see GATEWAY_REST_MIN_SECONDS). Class-level like the locks: the
+    # gateway is busy for every entry behind it, not only for the entry
     # whose request it did not answer.
     _GATEWAY_RESTS: dict[tuple[str, int], datetime] = {}
 
     @classmethod
     def _get_gateway_lock(cls, host: str, port: int) -> asyncio.Lock:
-        """Return (and lazily create) the asyncio lock for a (host, port)."""
+        """The lock of the gateway at (host, port), created on first use."""
         key = (host, port)
         lock = cls._GATEWAY_LOCKS.get(key)
         if lock is None:
@@ -155,13 +153,9 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator[dict[int, SunSpecModelW
         self.api = client
         self.hass = hass
         self.entry = entry
-        # device_info (SunSpec common model 1) is fetched once inside the
-        # gateway-locked update cycle and cached here so
-        # sensor.async_setup_entry can read it without opening a second
-        # Modbus-TCP connection. Opening a second socket outside the lock
-        # deadlocks single-slot inverters like KACO Powador - the first
-        # connect grabs the slot, the second hits the 60s Home Assistant
-        # setup timeout instead of returning.
+        # Common model 1, read once by the first update cycle under the
+        # gateway lock. The platforms take the device metadata from here
+        # instead of sending a request of their own outside the lock.
         self.device_info: SunSpecModelWrapper | None = None
         # What the manufacturer string in model 1 says about the device,
         # beyond SunSpec: None until model 1 has been read, and None for
@@ -189,33 +183,23 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator[dict[int, SunSpecModelW
         self.raw_write_count = 0
         self._raw_write_listeners: list[Callable[[], None]] = []
         self._flash_warned = False
-        # Which platforms async_setup_entry actually forwarded. Recorded
-        # there and read back by async_unload_entry, including when
-        # setup only forwarded part of the list before failing.
+        # The platforms async_setup_entry forwarded. async_unload_entry
+        # unloads exactly these.
         self.forwarded_platforms: list[str] = []
-        # Persisted SunSpec model layout. The store is per config entry so
-        # removing the entry can drop the file, and so two inverters never
-        # share a cache key.
-        self._structure_store: Store[dict[str, Any]] = Store(
-            hass,
-            STRUCTURE_STORAGE_VERSION,
-            f"{STRUCTURE_STORAGE_KEY}.{entry.entry_id}",
-        )
-        # Revision of the layout currently on disk. Compared against
-        # ``api.structure_revision`` after every successful cycle, which
-        # is how a rescan that found something new gets written out
-        # without diffing the lists.
+        self._structure_store = structure_store(hass, entry.entry_id)
+        # Revision of the layout on disk. A successful cycle compares it
+        # with ``api.structure_revision``, so a rescan that found
+        # something new is written out without diffing the layouts.
         self._persisted_structure_revision: int | None = None
-        # Device identity (model 1) recorded alongside the persisted
-        # layout. Checked once per run against the live device, so a
-        # different inverter answering on a recycled IP cannot be read at
-        # the previous one's offsets.
+        # Device identity (model 1) stored with the layout and checked
+        # once per run against the live device. The check catches what
+        # the layout validation cannot: a different inverter on a
+        # recycled IP whose model tree happens to start the same way.
         self._persisted_identity: dict[str, Any] | None = None
         self._identity_checked = False
-        # Whether the nameplate auto-detection has run. It is a
-        # convenience read, so it gets exactly one attempt per run rather
-        # than being retried on every cycle for a device that simply does
-        # not expose model 120 or 121.
+        # Whether the nameplate auto-detection has run. It gets one
+        # attempt per run: a device without model 120 or 121 would
+        # otherwise be asked on every cycle.
         self._nameplate_probed = False
         self._gateway_key: tuple[str, int] = (entry.data[CONF_HOST], entry.data[CONF_PORT])
         self._gateway_lock = self._get_gateway_lock(*self._gateway_key)
@@ -225,86 +209,58 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator[dict[int, SunSpecModelW
             entry.data[CONF_UNIT_ID],
         )
         self._raw_reader = RawBlockReader(client, self._log)
-        # Phase-3 per-category buffers. The dict shape ({category: deque})
-        # is the contract that diagnostics.py reads. Categories come from
-        # errors.CATEGORIES so adding a new category there auto-creates a
-        # buffer here. Each deque keeps at most 20 entries (FIFO drop on
-        # overflow). Phase 4 may persist these across HA restarts.
+        # The last 20 errors per category. diagnostics.py reads this
+        # {category: deque} shape. The categories come from
+        # errors.CATEGORIES, so a new category gets its buffer here.
         self._recent_errors: dict[str, deque[dict[str, Any]]] = {
             cat: deque(maxlen=20) for cat in CATEGORIES
         }
-        # Counts how many consecutive failures we have observed in each
-        # category since the last successful update. Drives the Repairs
-        # panel threshold (Phase 3 commit 4): protocol fires at 1, the
-        # others at 3. Resets to 0 across the board on the next success.
+        # Consecutive failures per category since the last successful
+        # update. _record_error raises the Repairs issues from them.
         self._consecutive_failures: dict[str, int] = {cat: 0 for cat in CATEGORIES}
-        # Counts how many consecutive scheduled update cycles have failed
-        # (after the in-cycle retry was already exhausted). Drives the
-        # entity-side stale-data tolerance: as long as this stays at or
-        # below STALE_DATA_TOLERANCE_CYCLES, sensors keep serving the
-        # last successfully read value via SunSpecEntity.available
-        # instead of flipping to "unavailable" on every transient blip.
+        # Consecutive failed update cycles, each counted after its
+        # in-cycle retry. SunSpecEntity.available reads the count for
+        # the stale-data tolerance.
         self.consecutive_failed_cycles: int = 0
-        # Set of model IDs the inverter actually exposes, populated by
-        # the first successful update cycle. The options-flow form reads
-        # this to render its model multi-select - it must NOT call
-        # ``api.known_models()`` directly because that returns ``[]``
-        # whenever ``api._client`` is ``None``. That used to be the
-        # steady state between cycles; since v0.22.0 the session is held
-        # open, so ``None`` is only left before the first cycle, after a
-        # failed one. A v0.7.3 -> v0.7.5
-        # regression where the form rendered an empty multi-select and
-        # silently saved ``models_enabled: []`` (killing every sensor)
-        # was the motivating bug.
+        # The model ids the device exposes, set by every successful
+        # cycle. The options flow builds its model multi-select from
+        # this set, because ``api.known_models()`` returns ``[]`` while
+        # there is no client: before the first cycle and after a failed
+        # one. A form rendered from an empty list has no model to tick,
+        # and the flow refuses to save an empty selection.
         self.detected_models: set[int] = set()
-        # Auto-detected nameplate AC power, in kW. Populated on the first
-        # successful update cycle by reading SunSpec model 120 ("WRtg" -
-        # continuous AC power output capability) with model 121 ("WMax",
-        # the configured max output power) as a fallback. The options
-        # flow uses this as a suggested_value for CONF_MAX_AC_POWER_KW
-        # so users do not have to type their inverter's nameplate by
-        # hand. ``None`` means the inverter does not expose either
-        # model and we have nothing to suggest.
+        # Nameplate AC power in kW, detected on the first successful
+        # cycle from model 120 "WRtg" or else model 121 "WMax" (see
+        # _read_nameplate). The options flow suggests it for
+        # CONF_MAX_AC_POWER_KW. None when the device exposes neither.
         self.detected_max_ac_power_kw: float | None = None
-        # Which register the nameplate above came from, e.g. "model 120
-        # WRtg". Reported in diagnostics and named in the rejection log
-        # line, because "configured peak" on a value nobody configured
-        # sent the #45 reporter looking in the wrong place.
+        # The register the nameplate came from, e.g. "model 120 WRtg".
+        # Diagnostics and the rejection log line name it, so nobody
+        # looks for a configured peak that was never configured (#45).
         self.detected_max_ac_power_source: str | None = None
-        # Per-model "first cycle that stopped seeing it" timestamp (cjne
-        # issue #202). Once a model has been seen, the first cycle that
-        # does NOT see it records the time; a successful re-detection
-        # clears the entry. When a model has been gone for
-        # ``STALE_MODEL_TOLERANCE_SECONDS`` we raise a Repairs issue
-        # suggesting the user remove the related device entry, because
-        # the inverter has stopped exposing that model entirely (typical
-        # for SMA Tripower X12 with DER 714 after a firmware update).
-        # The decision to actually remove the device stays with the user.
-        #
-        # Wall-clock rather than a cycle counter: the model tree is only
-        # rescanned when the cached layout stops validating, so counting
-        # cycles would mean counting events that mostly cannot observe
-        # the thing being counted.
+        # Per model, the time of the first cycle that stopped seeing it
+        # (cjne issue #202). Detecting the model again clears the entry.
+        # After STALE_MODEL_TOLERANCE_SECONDS a Repairs issue suggests
+        # removing the model's device, because the inverter has stopped
+        # exposing that model (typical for SMA Tripower X12 with DER 714
+        # after a firmware update). Wall-clock time rather than a cycle
+        # counter: the model tree is rescanned only when the cached
+        # layout stops validating, so most cycles cannot observe a
+        # missing model.
         self._model_missing_since: dict[int, datetime] = {}
-        # Per-cycle scratch sets populated by _run_one_update_cycle
-        # and consumed by _after_successful_cycle. They live as
-        # instance state instead of being passed through the call
-        # chain because that chain crosses the in-cycle retry, which
-        # would have to thread the diff between two attempts.
+        # Scratch sets of one cycle, filled by _run_one_update_cycle and
+        # consumed by _after_successful_cycle. They are instance state
+        # because the in-cycle retry sits between those two methods.
         self._missing_this_cycle: set[int] = set()
         self._new_this_cycle: set[int] = set()
 
-        # Issue #52: the inverter operating state (SunSpec "St") read by
-        # the last successful cycle, or None if the device does not
-        # expose a model that carries it. Recorded on the way out of a
-        # good cycle precisely because it has to outlive the connection:
-        # once the inverter powers its comms board down, the last thing
-        # it said before going quiet is the only evidence we have that
-        # the silence was its own decision.
+        # The operating state (SunSpec "St") read by the last successful
+        # cycle, or None if no polled model carries it. Once an inverter
+        # powers its comms board down, the last state it reported is the
+        # only evidence that the silence is its own decision (#52).
         self._last_operating_state: int | None = None
-        # Opt-out for devices whose shutdown this cannot observe. See
-        # CONF_STANDBY_WHEN_IDLE. Read once here rather than per cycle
-        # because changing an option reloads the entry anyway.
+        # Opt-out for devices whose shutdown cannot be observed, see
+        # CONF_STANDBY_WHEN_IDLE. A changed option reloads the entry.
         self.standby_when_idle: bool = bool(entry.options.get(CONF_STANDBY_WHEN_IDLE, False))
 
         self._log.debug("Data: %s", entry.data)
@@ -312,27 +268,22 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator[dict[int, SunSpecModelW
         models = entry.options.get(
             CONF_ENABLED_MODELS, entry.data.get(CONF_ENABLED_MODELS, DEFAULT_MODELS)
         )
-        # Defense in depth: a previously corrupted options save (see the
-        # detected_models comment above) could persist ``models_enabled: []``
-        # to disk. Without this fallback the coordinator would happily
-        # poll zero models on every cycle and the user would see all
-        # sensors disappear. Fall back to DEFAULT_MODELS so the user gets
-        # *something* to look at while they re-open the options form.
+        # A corrupted options save can have stored ``models_enabled: []``
+        # (see detected_models above). Polling no model would remove
+        # every sensor, so DEFAULT_MODELS apply until the user picks
+        # models again.
         if not models:
             self._log.warning(
                 "Configured models filter is empty, falling back to defaults. "
                 "Re-open the options form and pick the models you want."
             )
             models = DEFAULT_MODELS
-        # Second line of defence behind the config flow's range check.
-        # An entry saved before that check existed, or hand-edited in
-        # core.config_entries, can still carry a 0 or a negative value,
-        # and neither survives contact with HA's coordinator: 0 is falsy
-        # so update_interval becomes None and polling stops silently and
-        # forever, while a negative value puts the next refresh in the
-        # past and hot-loops it. See MIN_SCAN_INTERVAL_SECONDS. Clamping
-        # here means an affected install repairs itself on the next
-        # reload instead of needing the user to notice and re-save.
+        # An entry saved before the config flow checked the range, or
+        # edited by hand in core.config_entries, can carry 0 or a
+        # negative interval. Home Assistant's coordinator stops polling
+        # on the one and hot-loops on the other (see
+        # MIN_SCAN_INTERVAL_SECONDS). The clamp repairs such an entry on
+        # its next reload.
         configured_interval = entry.options.get(
             CONF_SCAN_INTERVAL,
             entry.data.get(CONF_SCAN_INTERVAL, SCAN_INTERVAL.total_seconds()),
@@ -354,26 +305,20 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator[dict[int, SunSpecModelW
         scan_interval = timedelta(seconds=interval_seconds)
         self.option_model_filter = set(map(lambda m: int(m), models))
         # The control models are polled whether or not the user ticked
-        # them in the model multi-select: the write entities read their
-        # state from ``coordinator.data[model]``, and without the model
-        # in the polled set no write entity ever registers (#17). The
-        # battery, export and grid blocks are read on every device
-        # that has them. Polling does not write any register.
-        #
-        # Deliberately a SEPARATE set from option_model_filter.
-        # option_model_filter mirrors exactly what the user picked and
-        # is what the options form round-trips, so folding a model into
-        # it would render a tick the user never made and then persist
-        # it on their next save.
+        # them: the write entities read their state from
+        # ``coordinator.data[model]``, so a model that is not polled
+        # registers no write entity (#17). Polling writes no register.
+        # The set stays separate from option_model_filter, which the
+        # options form round-trips: a model folded into it would show a
+        # tick the user never made and be saved with their next change.
         self.write_model_filter: set[int] = set(WRITE_CAPABLE_MODELS)
         # Control models the device refuses to read while they are
-        # polled only for their controls. An Enphase IQ Gateway lists
-        # model 704 in its scan and answers every read of it with
-        # exception 6, "busy", even after the transport has retried for
-        # a minute (#172). Such a model leaves the polled set until the
-        # entry reloads, so it cannot keep the models the user did
-        # select from loading. _read_control_model decides when a
-        # Modbus exception counts as a refusal.
+        # polled only for their controls (see _read_control_model). An
+        # Enphase IQ Gateway lists model 704 in its scan and answers
+        # every read of it with exception 6, "busy", even after the
+        # transport has retried for a minute (#172). A refused model
+        # leaves the polled set until the entry reloads, so it cannot
+        # keep the models the user did select from loading.
         self.refused_control_models: set[int] = set()
         # Control models this coordinator has read at least once.
         self._control_models_read: set[int] = set()
@@ -391,11 +336,10 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator[dict[int, SunSpecModelW
         )
 
     async def async_load_model_structure(self) -> None:
-        """Hand the API client the layout an earlier run discovered.
+        """Hand the API client the layout an earlier run stored.
 
         Called once, before the first refresh. A missing or unreadable
-        store is not an error: it just means the next connect scans, so
-        every failure here is swallowed at debug level.
+        store is not an error: the next connect scans instead.
         """
         try:
             payload = await self._structure_store.async_load()
@@ -416,18 +360,16 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator[dict[int, SunSpecModelW
         )
 
     async def _async_save_model_structure(self) -> None:
-        """Write the layout out when a scan produced something new.
+        """Store the layout when its revision or the device identity changed.
 
-        Runs after a successful cycle, so what gets stored is a layout
-        that has just been read from end to end without an error. Cheap
-        to call on every cycle: it compares one integer and one small
-        dict and returns. The identity is part of the comparison so a
-        firmware update whose rescan found the same layout still gets
-        its new version string written out, instead of being re-reported
-        on every restart.
+        Runs after every successful cycle, so the stored layout has just
+        been read from end to end without an error.
         """
         revision = self.api.structure_revision
         identity = self._device_identity()
+        # The identity is part of the comparison: a firmware update whose
+        # rescan found the same layout still gets its new version string
+        # stored, instead of being reported again on every restart.
         if revision == self._persisted_structure_revision and identity == self._persisted_identity:
             return
         payload = self.api.export_model_structure()
@@ -451,12 +393,9 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator[dict[int, SunSpecModelW
             self._log.debug("Could not remove the stored SunSpec layout: %s", err)
 
     def _device_identity(self) -> dict[str, Any] | None:
-        """Manufacturer / model / version / serial, out of SunSpec model 1.
+        """Manufacturer, model, version and serial out of SunSpec model 1.
 
-        Stored next to the layout so a different device answering on a
-        recycled IP is caught even in the case the address checks cannot
-        see: another inverter of a different make whose model tree
-        happens to start the same way.
+        None before model 1 has been read, or when it holds none of them.
         """
         if self.device_info is None:
             return None
@@ -471,34 +410,18 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator[dict[int, SunSpecModelW
         return identity or None
 
     async def _check_device_identity(self) -> bool:
-        """Compare the live device against the identity we stored.
+        """Compare the live device with the identity stored with the layout.
 
-        Returns True when the model layout should be rescanned after
-        this cycle, which is the firmware-update case: same
-        manufacturer, model and serial, different version string. A
-        firmware update is the one event that can legitimately change a
-        SunSpec model tree, so the cached layout is rescanned once, but
-        the device is still the device and the cycle runs through. Until
-        v0.26.0 the version was part of the identity, so a routine
-        firmware update was treated as a device swap (#49).
+        The comparison is made once per run. Every later call returns False.
 
-        Raises :class:`TransientError` when manufacturer, model or
-        serial differ, which fails the cycle and forces a fresh scan on
-        the next one. Before raising it deletes the store file. That is
-        not optional: this check runs on the first cycle of a run, and
-        the first cycle is the one ``async_config_entry_first_refresh``
-        drives, which has no in-cycle retry. Its failure is
-        ``ConfigEntryNotReady``, and Home Assistant retries that by
-        building a NEW coordinator, which loads the store again and hits
-        the same mismatch. Clearing ``_persisted_identity`` on this
-        object did nothing for that next coordinator, so the integration
-        looped on "belongs to a different device, rescanning" forever
-        (#49), and the same loop would have blocked a genuinely replaced
-        inverter for good.
+        Returns:
+            True when only the version string differs, which is a firmware
+            update: the caller finishes the cycle and then has the model
+            layout rescanned once.
 
-        Runs once per run: a device does not change identity underneath
-        a live connection, and re-reading model 1 every cycle to prove it
-        would cost a Modbus round trip for nothing.
+        Raises:
+            TransientError: Manufacturer, model or serial differ. The
+                stored layout is deleted and the next connect rescans.
         """
         if self._identity_checked:
             return False
@@ -511,6 +434,10 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator[dict[int, SunSpecModelW
             return False
         stored_device = {k: v for k, v in stored.items() if k in DEVICE_IDENTITY_POINTS}
         current_device = {k: v for k, v in current.items() if k in DEVICE_IDENTITY_POINTS}
+        # Same manufacturer, model and serial, another version: a
+        # firmware update, the one event that can legitimately change a
+        # SunSpec model tree. The device is still the same device, so
+        # the cycle runs through and the layout is rescanned once (#49).
         if stored_device == current_device:
             self._log.info(
                 "Firmware version changed (%s -> %s) since the SunSpec layout was stored. "
@@ -528,28 +455,17 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator[dict[int, SunSpecModelW
         )
         self._persisted_identity = None
         self._persisted_structure_revision = None
+        # The store file has to go, not only _persisted_identity. This
+        # check runs in the first cycle of a run, which has no in-cycle
+        # retry and fails as ConfigEntryNotReady. Home Assistant retries
+        # that with a new coordinator, which would load the same store
+        # and fail on the same mismatch forever (#49).
         await self.async_remove_stored_model_structure()
         self.api.reconnect_next()
         raise TransientError("Stored SunSpec layout belongs to a different device, rescanning")
 
     async def _async_update_data(self) -> dict[int, SunSpecModelWrapper]:
-        """Update data via library, with one in-cycle retry on failure.
-
-        Inverters and Modbus TCP gateways have famously flaky network
-        connectivity. A single fast retry catches most one-shot blips
-        before HA marks the coordinator as failed and the entity flips
-        to "unavailable". The retry only kicks in once at least one
-        cycle has succeeded - first-refresh failures fall straight
-        through to ConfigEntryNotReady so HA's standard exponential
-        backoff can take over instead of having every setup attempt
-        block for an extra ``INTERVAL_RETRY_DELAY_SECONDS``.
-
-        The whole update cycle is held under the per-gateway lock (see
-        ``_GATEWAY_LOCKS``), including the connect and the close on the
-        cycles that still do one. The lock is released across the retry
-        sleep so other coordinators sharing the same TCP endpoint can
-        poll in the meantime.
-        """
+        """Run one update cycle, with one in-cycle retry after a failure."""
         self._log.debug("Update data coordinator update")
         first_err: BaseException | None = None
         try:
@@ -570,29 +486,33 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator[dict[int, SunSpecModelW
         except Exception as exc:  # noqa: BLE001 - dispatched below
             first_err = exc
 
-        # First refresh: no prior data exists, no point sleeping for
-        # an in-cycle retry. Fail fast and let HA handle the retry via
-        # ConfigEntryNotReady's exponential backoff. Nor after a request
-        # the gateway left unanswered, where the retry would queue
-        # behind it (see GATEWAY_REST_MIN_SECONDS).
+        # No in-cycle retry on the first refresh: its failure becomes
+        # ConfigEntryNotReady, and Home Assistant retries the setup with
+        # its own backoff. And none after a request the gateway left
+        # unanswered, where the retry would queue behind that request
+        # (see GATEWAY_REST_MIN_SECONDS).
         if self.data is None or self._rests_after(first_err):
             return await self._after_failed_cycle(first_err)
 
-        # Issue #52: this line fires once per poll, so on an inverter
-        # that sleeps through the night it is the single loudest thing
-        # in the log. Keep it at warning while the silence is
-        # unexplained, drop it to debug once the device has told us it
-        # was shutting down.
-        retry_log = self._log.debug if self._downtime_is_expected() else self._log.warning
+        # A warning for the first failure of an outage, unless the
+        # inverter is expected to be away (#52). The cycles of the same
+        # outage that follow log at debug: one line when a device goes
+        # away and one when it is back is what Home Assistant asks for.
+        first_of_outage = self.consecutive_failed_cycles == 0
+        retry_log = (
+            self._log.warning
+            if first_of_outage and not self._downtime_is_expected()
+            else self._log.debug
+        )
         retry_log(
             "Update cycle failed (%s: %s); retrying in %ds",
             first_err.__class__.__name__,
             first_err,
             INTERVAL_RETRY_DELAY_SECONDS,
         )
-        # Force a fresh client on the next attempt; sleep WITHOUT the
-        # gateway lock so other coordinators on the same gateway can
-        # use the slot during the wait.
+        # The retry runs on a fresh client. The sleep is taken without
+        # the gateway lock, so other coordinators on the same gateway
+        # can poll during the wait.
         self.api.reconnect_next(rescan=not isinstance(first_err, (TransportError, TransientError)))
         await asyncio.sleep(INTERVAL_RETRY_DELAY_SECONDS)
         try:
@@ -634,11 +554,11 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator[dict[int, SunSpecModelW
         the whole sequence that ``plan_write`` makes of ``points``, so no
         poll and no other write runs between its steps.
 
-        ``async_request_refresh()`` stays at the call sites, outside the
-        lock. ``asyncio.Lock`` is not reentrant and
-        ``REQUEST_REFRESH_DEFAULT_IMMEDIATE`` is True, so the debouncer
-        runs ``_async_refresh`` inline and the refresh would wait forever
-        for the lock this method still holds.
+        Call ``async_request_refresh()`` after this method has returned,
+        never while the lock is held. ``asyncio.Lock`` is not reentrant
+        and ``REQUEST_REFRESH_DEFAULT_IMMEDIATE`` is True, so the
+        debouncer runs ``_async_refresh`` inline and the refresh would
+        wait forever for the lock the write still holds.
 
         Args:
             model_id: The SunSpec model the points belong to.
@@ -654,14 +574,12 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator[dict[int, SunSpecModelW
                 ``SunSpecApiClient.async_write_points``.
         """
         async with self.async_write_transaction():
-            # One step for everyone but a vendor that takes a new value
-            # only on the rising edge of its enable register; then three
-            # (see plan_write). Each step is one batch, not one call per
-            # point: the API layer flushes a batch together so adjacent
-            # registers go out in a single Modbus frame and the inverter
-            # cannot act on half of them. The pause between the steps
-            # stays under the lock, so no poll or other write lands
-            # inside the sequence.
+            # plan_write returns one step, or three for a vendor that
+            # takes a new value only on the rising edge of its enable
+            # register. Each step is one batch, not one call per point:
+            # the API layer sends adjacent registers in a single Modbus
+            # frame, so the inverter cannot act on half of them. The
+            # pause between the steps stays under the lock.
             rearm_default = self.vendor.rearm_by_default if self.vendor is not None else False
             steps = plan_write(
                 self.vendor,
@@ -743,9 +661,8 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator[dict[int, SunSpecModelW
             return
         self.raw_write_count += 1
         if not self._flash_warned:
-            # Once per run, at the first persistent write. The vendor
-            # says periodic changes wear the flash; the count sensor is
-            # how a user sees what their automation does.
+            # Once per run, at the first persistent write. The count
+            # sensor shows a user what their automation does.
             self._log.warning(
                 "Writing the inverter's persistent registers. The manufacturer warns that "
                 "periodic changes wear its flash memory; the 'Register writes' sensor counts them"
@@ -755,58 +672,42 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator[dict[int, SunSpecModelW
             listener()
 
     async def _run_one_update_cycle(self) -> dict[int, SunSpecModelWrapper]:
-        """Single read attempt over the live session. Caller holds the gateway lock.
+        """Read every polled model once. Caller holds the gateway lock.
 
-        Connects only when there is no live session: the first cycle and
-        the cycle after a failure. The session stays up between cycles.
-
-        Returns the freshly-read data dict on success and re-raises any
-        exception untouched on failure - bookkeeping (error categorisation,
-        Repairs issues, failure counters) is the caller's job so the
-        in-cycle retry can swallow a transient first failure without
-        inflating the per-category thresholds.
+        Returns the freshly read data. An exception passes through
+        untouched: the caller does the error bookkeeping, so a failure
+        that the in-cycle retry recovers counts towards no threshold.
         """
         data = {}
         await self._async_apply_link_profile()
         all_models = set(await self.api.async_get_models())
-        # Track which previously-known models have just gone missing
-        # (cjne issue #202). The repair-issue check happens in
-        # _after_successful_cycle once the rest of the cycle is
-        # confirmed good, so we don't escalate on a partial scan.
+        # Models that were known and are missing now (cjne issue #202).
+        # _after_successful_cycle acts on them, once the rest of the
+        # cycle is known to be good.
         previously_known = self.detected_models
         missing = previously_known - all_models
         if missing and self.api.last_scan_was_partial:
             # The scan stopped early and the API layer had no usable
-            # cached layout to fall back on, so this list is short
-            # through no fault of the device. Serving it would drop the
-            # affected entities to "unknown" on a cycle that counts as a
-            # success, which means the stale-data tolerance never gets
-            # to hold the last good value and the user sees a gap that
-            # looks exactly like a connection drop (#42). Failing the
-            # cycle keeps the last good values on screen and gets a
-            # fresh scan on the retry.
+            # cached layout to fall back on, so the list is short
+            # through no fault of the device. Served as a success, it
+            # would turn the affected entities "unknown" past the
+            # stale-data tolerance: a gap that looks exactly like a
+            # connection drop (#42). A failed cycle keeps the last good
+            # values and gets a fresh scan on the retry.
             raise TransientError(
                 f"SunSpec scan was incomplete: model(s) {sorted(missing)} were not read this cycle"
             )
         self._missing_this_cycle = missing
         self._new_this_cycle = all_models - previously_known
-        # Cache the full set of models the inverter exposes so the
-        # options-flow form can render its multi-select even when
-        # ``api._client`` is gone and ``api.known_models()`` would
-        # return an empty list: before the first cycle, after a failed
-        # one.
         self.detected_models = all_models
-        # Union first, intersect second: a model the device does not
-        # expose is still never read, but the control models get in
-        # without polluting the user's own selection.
+        # Union first, intersection second: a model the device does not
+        # expose is never read, and the control models get in without
+        # touching the user's own selection.
         model_ids = (self.option_model_filter | self.write_model_filter) & all_models
         model_ids -= self.refused_control_models
 
-        # Fetch common model 1 once per process under the lock so
-        # the sensor platform setup can read device metadata
-        # without opening a second TCP slot. Re-reading it on
-        # every cycle would be wasteful - the device info never
-        # changes for a given physical inverter.
+        # Common model 1 is read once per run: the device metadata does
+        # not change for a given inverter.
         fresh_common: SunSpecModelWrapper | None = None
         if self.device_info is None:
             info = await self.api.async_get_data(1)
@@ -826,30 +727,24 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator[dict[int, SunSpecModelW
                 # A first run without a stored identity learns the vendor
                 # only now, so the rest of this cycle already gets its timeout.
                 await self._async_apply_link_profile()
-        # Only meaningful once model 1 has been read, and it is read on
-        # the first cycle, so this lands exactly where it can act.
+        # The identity check needs model 1, which the first cycle has
+        # just read.
         rescan_after_cycle = await self._check_device_identity()
         if self.vendor is not None:
             model_ids |= self.vendor.required_models & all_models
         self._log.debug("Update data got models %s", model_ids)
 
-        # Auto-detect the inverter's nameplate AC power once, on the
-        # first cycle that reaches this point. Prefer model 120
-        # (Inverter Nameplate, "WRtg" = continuous output capability)
-        # which is the canonical SunSpec field for this. Fall back to
-        # model 121 (Inverter Settings, "WMax" = currently configured
-        # max output) only if 120 is missing - 121 reflects whatever
-        # the installer set, which is usually but not always the
-        # nameplate. Both reads are guarded by individual try/excepts
-        # so a flaky model read never breaks the whole update cycle.
+        # The nameplate is detected once, on the first cycle that gets
+        # here. _read_nameplate guards each read, so only a read timeout
+        # fails the cycle.
         if self.detected_max_ac_power_kw is None and not self._nameplate_probed:
             self._nameplate_probed = True
             self.detected_max_ac_power_kw = await self._read_nameplate(all_models)
 
         for model_id in model_ids:
-            # Model 1 was already read for identity on this cycle. Reuse it
-            # for its sensors without another request and pacing pause;
-            # later cycles still read it when the user selected it.
+            # Model 1 was already read for the identity on this cycle and
+            # is reused for its sensors without another request and
+            # pacing pause. Later cycles read it when the user selected it.
             if model_id == 1 and fresh_common is not None:
                 data[model_id] = fresh_common
             elif self._polled_only_for_controls(model_id):
@@ -863,11 +758,10 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator[dict[int, SunSpecModelW
         if self.vendor is not None and self.vendor.raw_blocks:
             self.raw_blocks = await self._raw_reader.async_read(self.vendor.raw_blocks)
         if rescan_after_cycle:
-            # Firmware changed: hand this cycle's data back as read, and
-            # let the NEXT connect walk the model tree again. Flagging it
-            # here, after the reads, rather than inside the identity
-            # check keeps the rebuild out of the middle of a cycle whose
-            # model list was computed against the old client.
+            # Firmware changed: this cycle's data is returned as read and
+            # the next connect walks the model tree again. The flag is
+            # set here, after the reads, because the model list of this
+            # cycle was computed against the current client.
             self.api.reconnect_next()
         return data
 
@@ -923,14 +817,15 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator[dict[int, SunSpecModelW
         return wrapper
 
     async def _read_nameplate(self, all_models: set[int]) -> float | None:
-        """Read continuous AC power capability from model 120 / 121.
+        """Read the continuous AC power capability from model 120 or 121.
 
-        Returns the nameplate in kW, or ``None`` if neither model is
-        present or both reads failed. Errors are swallowed (logged at
-        debug level only) so a missing-model condition never escalates
-        to an UpdateFailed - the auto-detection is a convenience, not
-        a hard requirement.
+        Returns the nameplate in kW, or None if neither model is present
+        or neither read gave a value. Only a read timeout is raised, as
+        TransientError. Any other failure is logged at debug level.
         """
+        # Model 120 "WRtg" is the continuous output capability. Model 121
+        # "WMax" is the maximum the installer configured, usually but not
+        # always the nameplate, so it is only the fallback.
         for model_id, point_name, label in (
             (120, "WRtg", "model 120 WRtg"),
             (121, "WMax", "model 121 WMax"),
@@ -941,12 +836,10 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator[dict[int, SunSpecModelW
                 wrapper = await self.api.async_get_data(model_id)
                 value = wrapper.getValue(point_name)
             except TransientError:
-                # A read timeout is the one failure this must not
-                # swallow. A device that did not answer this read will
-                # not answer the model reads that follow either, and each
-                # of those waits the full socket timeout. Failing here
-                # saves the cycle those waits and starts the reconnect
-                # at once.
+                # A device that did not answer this read will not answer
+                # the model reads that follow either, and each of those
+                # waits the full request timeout. Failing here saves the
+                # cycle those waits and starts the reconnect at once.
                 raise
             except Exception as exc:  # noqa: BLE001 - convenience read, never escalate
                 self._log.debug(
@@ -972,19 +865,14 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator[dict[int, SunSpecModelW
     def _after_successful_cycle(
         self, data: dict[int, SunSpecModelWrapper]
     ) -> dict[int, SunSpecModelWrapper]:
-        """Reset failure bookkeeping after a successful read."""
-        # Silver rule log-when-unavailable: emit a single recovery
-        # log line when we come back from an unavailable run, so
-        # the user can correlate "the sensor recovered" with a
-        # specific moment in their HA log without having to grep
-        # through every successful debug line.
+        """Reset the failure bookkeeping after a successful cycle and return ``data``."""
         if self.consecutive_failed_cycles > 0:
-            # Issue #52: an inverter that announced its own shutdown and
-            # then answered again has not recovered from anything, it
-            # woke up. Same line either way, but not at a level that
-            # reads like an incident in the log. Evaluated before
-            # _last_operating_state is refreshed below, because the
-            # evidence is the state from *before* the silence.
+            # One recovery line, so the log says when the sensors came
+            # back. An inverter that announced its own shutdown and then
+            # answers again has woken up rather than recovered, so that
+            # case logs at info (#52). _downtime_is_expected is called
+            # before _last_operating_state is refreshed below, because
+            # the evidence is the state from before the silence.
             recovery_log = self._log.info if self._downtime_is_expected() else self._log.warning
             recovery_log(
                 "Inverter recovered after %d failed update cycle(s)",
@@ -995,38 +883,24 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator[dict[int, SunSpecModelW
             self._consecutive_failures[cat] = 0
         self._last_operating_state = self._read_operating_state(data)
         self._clear_repair_issues()
-        # cjne issue #200: log new models that just appeared so the
-        # user can correlate "wait, my inverter has new sensors now"
-        # with a specific moment.
         if self._new_this_cycle:
             self._log.info(
                 "Detected %d new SunSpec model(s) on this cycle: %s",
                 len(self._new_this_cycle),
                 sorted(self._new_this_cycle),
             )
-            # Clear the missing-since stamp for re-appearing models so
-            # a flapping device doesn't accumulate.
             for mid in self._new_this_cycle:
                 self._model_missing_since.pop(mid, None)
-        # cjne issue #202: track how long each model has been missing
-        # and raise a Repairs issue once a previously-known model has
-        # been gone for STALE_MODEL_TOLERANCE_SECONDS. Models that
-        # re-appear get their stamp cleared.
         self._update_stale_model_tracking()
         return data
 
     def _read_operating_state(self, data: dict[int, SunSpecModelWrapper]) -> int | None:
-        """Return the inverter operating state from a fresh data dict.
+        """The inverter operating state in a fresh data dict, or None.
 
-        Issue #52. ``data`` is {model_id: SunSpecModelWrapper}, and only
-        the models in OPERATING_STATE_MODEL_IDS are consulted - see the
-        note there about model 701, whose identically-named point means
-        something else entirely.
-
-        Returns None when the device exposes no such model, when the
-        user filtered it out of the polled set, or when the point is
-        there but unimplemented (``cvalue`` is None). None simply means
-        "no evidence", and the caller treats it as "not standby".
+        Only the models in OPERATING_STATE_MODEL_IDS are consulted; the
+        note there says why model 701 is not one of them. None means the
+        device exposes no such model, the model is not polled, or the
+        point is unimplemented. The caller treats None as "not standby".
         """
         for model_id in OPERATING_STATE_MODEL_IDS:
             wrapper = data.get(model_id)
@@ -1035,61 +909,47 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator[dict[int, SunSpecModelW
             try:
                 value = wrapper.getValue(OPERATING_STATE_POINT)
             except (KeyError, IndexError, TypeError, AttributeError):
-                # A model instance without the point, or a wrapper
-                # shape we did not expect. Not worth failing a cycle
-                # over a convenience read.
+                # The model instance lacks the point or the wrapper has an
+                # unexpected shape. A convenience read does not fail a cycle.
                 continue
             if isinstance(value, int):
                 return value
         return None
 
     def _downtime_is_expected(self) -> bool:
-        """Whether the inverter being unreachable right now is normal.
+        """Whether the inverter being unreachable right now is normal (#52).
 
-        Issue #52. True when the device told us it was on its way down
-        (last successful read reported OFF / SLEEPING / SHUTTING_DOWN /
-        STANDBY), or when the user ticked CONF_STANDBY_WHEN_IDLE for a
-        device whose shutdown we cannot observe.
-
-        Only the transport category consults this. Anything that got an
-        answer out of the inverter proves it is awake, and an awake
-        inverter misbehaving is still worth a repair issue.
+        True when the last successful read reported a state in
+        STANDBY_OPERATING_STATES, or when the user set
+        CONF_STANDBY_WHEN_IDLE.
         """
         if self.standby_when_idle:
             return True
         return self._last_operating_state in STANDBY_OPERATING_STATES
 
     def _update_stale_model_tracking(self) -> None:
-        """Stamp newly-missing models and surface long-gone ones."""
+        """Stamp newly missing models and raise a Repairs issue for long-gone ones."""
         now = dt_util.utcnow()
-        # Stamp models that should still be there but weren't seen this
-        # cycle. setdefault, not assignment: the stamp records when the
-        # model went missing, so re-stamping it on every later cycle
-        # would keep resetting the clock and the threshold would never
-        # be reached.
+        # setdefault, not assignment: the stamp records when the model
+        # went missing. Stamping it again on every later cycle would
+        # reset the clock, and the threshold would never be reached.
         for mid in self._missing_this_cycle:
             self._model_missing_since.setdefault(mid, now)
-        # Clear stamps for models that ARE present this cycle.
         for mid in list(self._model_missing_since):
             if mid in self.detected_models:
                 self._model_missing_since.pop(mid)
-                # Also clear any open Repairs issue for this model.
                 ir.async_delete_issue(self.hass, DOMAIN, f"{self.entry.entry_id}_stale_model_{mid}")
-        # Raise / refresh Repairs issues for models past the threshold.
-        # Idempotent: HA's issue registry treats a second create_issue
-        # call with the same id as an update.
+        # async_create_issue with an id that exists updates the issue,
+        # so raising it on every cycle past the threshold is safe.
         for mid, since in self._model_missing_since.items():
             missing_for = (now - since).total_seconds()
             if missing_for >= STALE_MODEL_TOLERANCE_SECONDS:
                 self._raise_stale_model_issue(mid, missing_for)
-        # Per-cycle scratch is consumed - reset for the next cycle so
-        # an unrelated coordinator refresh path that doesn't run
-        # _run_one_update_cycle can't accidentally use stale data.
         self._missing_this_cycle = set()
         self._new_this_cycle = set()
 
     def _raise_stale_model_issue(self, model_id: int, missing_seconds: float) -> None:
-        """Raise a Repairs issue suggesting the user remove a stale device."""
+        """Raise the Repairs issue that suggests removing the device of a missing model."""
         ir.async_create_issue(
             self.hass,
             DOMAIN,
@@ -1109,11 +969,9 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator[dict[int, SunSpecModelW
     async def _after_failed_cycle(self, exc: BaseException) -> NoReturn:
         """Record a failed cycle and raise UpdateFailed.
 
-        Wraps unclassified exceptions as TransportError before recording
-        them so the diagnostics dump always sees a categorised entry.
-        Pass the exception explicitly because this helper may be called
-        from outside the original ``except`` block (after the in-cycle
-        retry path), where ``sys.exc_info()`` is no longer set.
+        An exception that is not a SunSpecError is recorded as a
+        TransportError, so the diagnostics dump always sees a
+        categorised entry.
         """
         if self._shutdown_requested:
             raise asyncio.CancelledError("SunSpec entry was unloaded")
@@ -1130,15 +988,9 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator[dict[int, SunSpecModelW
         self._record_error(wrapped)
         if self._rests_after(exc):
             self._start_gateway_rest()
-        # Drop the session now rather than flagging it for the next
-        # get_client(). Whatever went wrong, this socket is a suspect: a
-        # half-open TCP session to an inverter that rebooted looks
-        # exactly like a slow one until the next timeout. force=True,
-        # because a session that already misbehaved has not earned a
-        # polite goodbye, and the inverter should get its slot back at
-        # once. (Until v0.31.0 there was a second reason: a late answer
-        # on this socket would have been read as the answer to the next
-        # request. The embedded transport checks the transaction id now.)
+        # Drop the session now rather than leaving it flagged for the
+        # next get_client(): a half-open TCP session to an inverter that
+        # rebooted looks exactly like a slow one until the next timeout.
         await self.api.async_close(force=True)
         self.api.reconnect_next(rescan=not isinstance(wrapped, (TransportError, TransientError)))
         self._count_failed_cycle()
@@ -1147,24 +999,22 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator[dict[int, SunSpecModelW
     def _count_failed_cycle(self) -> None:
         """Count one failed cycle towards the stale-data tolerance."""
         self.consecutive_failed_cycles += 1
-        # HA's DataUpdateCoordinator._async_refresh stops dispatching
-        # listeners on consecutive failures (it early-returns when both
-        # the previous and the current refresh failed). That means the
-        # entity state would never get a chance to flip from "stale
-        # value" to "unavailable" once we exhaust the tolerance window
-        # - it would just freeze on the last good value forever. Drive
-        # the transition ourselves so the user actually sees the sensor
-        # go unavailable when the inverter has been gone too long.
+        # Home Assistant's DataUpdateCoordinator._async_refresh returns
+        # early, without notifying listeners, when the previous and the
+        # current refresh both failed. The entities would stay on their
+        # last good value forever, so the step to "unavailable" is
+        # driven here, on the cycle at which SunSpecEntity.available
+        # starts to return False.
         if self.consecutive_failed_cycles == STALE_DATA_TOLERANCE_CYCLES + 1:
             self.async_update_listeners()
 
     def _link_profile(self) -> VendorProfile | None:
         """The vendor profile that decides how the link is used.
 
-        The one read from the device this run, or before that the one of
-        the identity stored with the layout. That way a restart asks the
-        link for the profile's timeout before the first request, instead
-        of after the first cycle has run on the default.
+        The profile read from the device this run, or before that the
+        profile of the identity stored with the layout. A restart
+        therefore asks the link for the profile's timeout before the
+        first request, not after the first cycle.
         """
         if self.vendor is not None or self._persisted_identity is None:
             return self.vendor
@@ -1233,20 +1083,7 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator[dict[int, SunSpecModelW
         )
 
     def _record_error(self, exc: SunSpecError) -> None:
-        """Append a categorised error to the matching ring buffer.
-
-        Bumps the per-category consecutive_failures counter and, if the
-        threshold for the category is crossed, raises a Repairs panel
-        issue. Thresholds:
-
-          - protocol: 1 (configuration / hardware compatibility problem,
-            never a transient state, surface immediately)
-          - transport: 3 (transient blips like a brief power glitch
-            should not page the user)
-          - device:    3 (same reasoning - the inverter may briefly
-            return a fault during a state transition)
-          - transient: never escalates
-        """
+        """Record a categorised error and raise its Repairs issue when due."""
         cat = exc.category
         self._recent_errors[cat].append(
             {
@@ -1257,11 +1094,11 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator[dict[int, SunSpecModelW
             }
         )
         self._consecutive_failures[cat] += 1
-        # Issue #52: a PV inverter that powers its comms board down at
-        # dusk is unreachable for ten hours by design. Escalating that
-        # to a red repair every night, and writing two warnings per
-        # poll into the log while doing it, told the user nothing they
-        # could act on.
+        # A PV inverter that powers its comms board down at dusk is
+        # unreachable all night by design (#52). That is no reason for a
+        # Repairs issue or for warnings in the log. Only a transport
+        # error qualifies: any answer proves the inverter is awake, and
+        # an awake inverter that misbehaves is still worth an issue.
         expected = cat == "transport" and self._downtime_is_expected()
         if expected:
             state = (
@@ -1274,10 +1111,10 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator[dict[int, SunSpecModelW
                 if state
                 else "this entry is configured for an inverter that powers down when idle"
             )
-            # One line at the top of the outage so the log still says
-            # when the inverter went away, then quiet. The alternative,
-            # staying at warning, is roughly 2400 lines a night at the
-            # default poll interval.
+            # One info line when the outage starts, so the log says when
+            # the inverter went away, then debug. At warning level this
+            # would be roughly 2400 lines a night at the default poll
+            # interval.
             quiet_log = self._log.info if self._consecutive_failures[cat] == 1 else self._log.debug
             quiet_log(
                 "Inverter is not answering and %s, so this is an expected standby "
@@ -1287,7 +1124,16 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator[dict[int, SunSpecModelW
                 exc,
             )
         else:
-            self._log.warning(
+            # A warning for the first error of its category in a row,
+            # debug for the ones that follow. The count stays in the
+            # line, and the Repairs issue below reports a fault that
+            # lasts.
+            # Nor during setup: every retry builds a new coordinator,
+            # so each one would warn afresh, and Home Assistant logs the
+            # failed setup itself.
+            first_in_a_row = self._consecutive_failures[cat] == 1 and self.data is not None
+            loud_log = self._log.warning if first_in_a_row else self._log.debug
+            loud_log(
                 "%s (#%d in a row): %s",
                 exc.__class__.__name__,
                 self._consecutive_failures[cat],
@@ -1296,21 +1142,19 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator[dict[int, SunSpecModelW
         if cat == "transient":
             return
         if expected:
-            # The failure still goes in the ring buffer above, so a
-            # diagnostics dump taken at 3am shows exactly what happened.
-            # It just does not page the user about it.
+            # The failure is in the ring buffer above, so a diagnostics
+            # dump taken during the night still shows it.
             return
+        # A protocol error is a configuration or compatibility problem,
+        # never a transient state, so the first one is raised. A
+        # transport or device error can be a glitch or a fault during a
+        # state transition and has to repeat first.
         threshold = 1 if cat == "protocol" else 3
         if self._consecutive_failures[cat] >= threshold:
             self._raise_repair_issue(cat, exc)
 
     def _raise_repair_issue(self, category: str, exc: SunSpecError) -> None:
-        """Create or update the Repairs panel issue for this category.
-
-        Issue id is namespaced per config entry so multi-inverter installs
-        do not collapse into a single global issue. Translation key matches
-        ``<category>_error`` in translations/<lang>.json (commit 4).
-        """
+        """Create or update this entry's Repairs issue for one error category."""
         issue_id = f"{self.entry.entry_id}_{category}"
         ir.async_create_issue(
             self.hass,
@@ -1328,50 +1172,41 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator[dict[int, SunSpecModelW
         )
 
     def _clear_repair_issues(self, *, force: bool = False) -> None:
-        """Delete every Repairs issue this coordinator may have raised.
+        """Delete the category and stale-model Repairs issues of this coordinator.
 
-        Called on every successful update cycle (so a recovered inverter
-        clears the panel automatically) and on async_unload_entry (so
-        removing the integration does not leave ghost issues behind).
-        ``transient`` is excluded - it never raises issues to begin with.
-        Also clears any per-model stale issues from cjne #202 tracking.
-
-        ``force`` deletes even an issue the user has ignored, and is for
-        teardown only: an entry that is being unloaded or removed should
-        not leave anything at all behind.
+        Args:
+            force: Delete an issue the user has ignored as well. For
+                teardown only, where the entry must leave nothing behind.
         """
         for category in CATEGORIES:
+            # A transient error never raises an issue.
             if category == "transient":
                 continue
             self._delete_issue(f"{self.entry.entry_id}_{category}", force=force)
-        # cjne #202: clear any open stale-model issues so the Repairs
-        # panel doesn't carry ghosts after the model came back or
-        # the integration was removed.
         for mid in list(self._model_missing_since):
             self._delete_issue(f"{self.entry.entry_id}_stale_model_{mid}", force=force)
 
     def _delete_issue(self, issue_id: str, *, force: bool = False) -> None:
         """Delete one Repairs issue, unless the user has ignored it.
 
-        Issue #52. HA's ``IssueRegistry.async_delete`` pops the whole
-        entry, ``dismissed_version`` included, so deleting an ignored
-        issue silently revokes the ignore. For a device that goes
-        unreachable every night that made the button useless: the issue
-        was cleared each morning and re-created unignored each evening,
-        so the user could press "Ignore" every day and never be rid of
-        it.
-
-        Leaving an ignored issue in the registry costs nothing visible.
-        The Repairs panel hides ignored issues, and ``async_get_or_create``
-        keeps ``dismissed_version`` when the same issue is raised again.
-        A core update does not reset the ignore (#160). A reload or removal
-        of the entry does, because its unload deletes with ``force``.
-        "Show ignored repairs" lists only active issues, and the registry
-        loads every non-persistent issue as inactive after a restart, so
-        after a restart the user can lift the ignore only once this
-        integration raises the issue again. That is exactly the contract
-        the user accepted when they pressed the button.
+        Args:
+            force: Delete an ignored issue as well, which loses the ignore.
         """
+        # Home Assistant's ``IssueRegistry.async_delete`` pops the whole
+        # entry, ``dismissed_version`` included, so deleting an ignored
+        # issue revokes the ignore. On a device that is unreachable
+        # every night the issue would come back unignored every evening
+        # (#52). An ignored issue left in the registry is hidden by the
+        # Repairs panel, and ``async_get_or_create`` keeps
+        # ``dismissed_version`` when the same issue is raised again. A
+        # core update does not reset the ignore (#160). A reload or
+        # removal of the entry does, because its unload deletes with
+        # ``force``.
+        #
+        # "Show ignored repairs" lists only active issues, and the
+        # registry loads every non-persistent issue as inactive after a
+        # restart. The user can then lift the ignore only once this
+        # integration raises the issue again.
         if not force:
             issue = ir.async_get(self.hass).async_get_issue(DOMAIN, issue_id)
             if issue is not None and issue.dismissed_version is not None:

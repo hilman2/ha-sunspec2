@@ -76,10 +76,10 @@ class Recipe:
     """The writes one storage mode consists of.
 
     Args:
-        ctl_mod (int): The ``StorCtl_Mod`` bits, 1 for the charge cap,
-            2 for the discharge cap.
-        in_rate (Rate): What ``InWRte`` is set to.
-        out_rate (Rate): What ``OutWRte`` is set to.
+        ctl_mod: The ``StorCtl_Mod`` bits, 1 for the charge cap, 2 for the
+            discharge cap.
+        in_rate: What ``InWRte`` is set to.
+        out_rate: What ``OutWRte`` is set to.
     """
 
     ctl_mod: int
@@ -92,18 +92,17 @@ class StorageModeProfile:
     """How one vendor reads model 124, for the storage mode entities.
 
     Args:
-        modes (tuple[StorageMode, ...]): The modes offered, in menu order.
-        recipes (Mapping[StorageMode, Recipe]): The writes per mode.
-        infer_mode (Callable[[int, float, float], StorageMode|None]):
-            Called as ``infer_mode(ctl_mod, in_pct, out_pct)`` with the
-            raw ``StorCtl_Mod`` bits and both rates in percent, as the
-            device reports them. Returns the mode the device is in, or
-            None for a combination no recipe produces.
-        grid_power_step_w (float): Step of the grid charge and discharge
-            power entities, in watts.
-        hidden_points (frozenset[str]): ``"model:point"`` keys of the
-            generic controls that write the same registers in another
-            unit. They ship disabled while this profile is active.
+        modes: The modes offered, in menu order.
+        recipes: The writes per mode.
+        infer_mode: Called as ``infer_mode(ctl_mod, in_pct, out_pct)`` with
+            the raw ``StorCtl_Mod`` bits and both rates in percent, as the
+            device reports them. Returns the mode the device is in, or None
+            for a combination no recipe produces.
+        grid_power_step_w: Step of the grid charge and discharge power
+            entities, in watts.
+        hidden_points: ``"model:point"`` keys of the generic controls that
+            write the same registers in another unit. They ship disabled
+            while this profile is active.
     """
 
     modes: tuple[StorageMode, ...]
@@ -113,7 +112,11 @@ class StorageModeProfile:
     hidden_points: frozenset[str]
 
     def rates_of(self, mode: StorageMode) -> frozenset[Rate]:
-        """The setpoint rates ``mode`` writes; changing one of them re-writes its point."""
+        """The setpoint rates ``mode`` writes.
+
+        A change to one of them while the device is in ``mode`` has to be
+        written to its point again.
+        """
         recipe = self.recipes[mode]
         return frozenset({recipe.in_rate, recipe.out_rate}) & frozenset(SETPOINT_RATES)
 
@@ -137,13 +140,13 @@ class RawField:
     """One value in a raw register block.
 
     Args:
-        name (str): The key in the decoded block.
-        offset (int): Register offset from the block's start.
-        kind (str): ``"uint16"``, ``"int16"``, ``"uint32"``, ``"int32"``,
+        name: The key in the decoded block.
+        offset: Register offset from the block's start.
+        kind: ``"uint16"``, ``"int16"``, ``"uint32"``, ``"int32"``,
             ``"float32"``, ``"uint64"`` or ``"string"``.
-        length (int): Registers, for ``"string"``. Ignored otherwise.
-        scale (float): What a decoded integer is multiplied by. SMA's
-            fixed-point registers carry a value in 0.001 A or 0.01 V.
+        length: Registers, for ``"string"``. Ignored otherwise.
+        scale: What a decoded integer is multiplied by. SMA's fixed-point
+            registers carry a value in 0.001 A or 0.01 V.
     """
 
     name: str
@@ -158,23 +161,21 @@ class RawBlock:
     """A run of registers outside the SunSpec models, read in one request.
 
     Args:
-        key (str): Names the block in ``coordinator.raw_blocks``.
-        address (int): The first register.
-        count (int): Registers to read.
-        fields (tuple[RawField, ...]): What the registers hold.
-        word_order (str): ``"big"`` or ``"little"``: which 16-bit word
-            of a 32- or 64-bit value comes first. SunSpec is big;
-            SolarEdge's own blocks are little.
-        gate (tuple[str, str]|None): ``(block key, field)`` of another
-            block. This block is read only while that field is a number
-            above zero: a battery slot whose nameplate says whether a
-            battery is there.
-        unit_id_offset (int): Added to the entry's unit id for this
-            block. SMA serves its own registers 123 unit ids below the
-            SunSpec ones.
-        readable (bool): False for a block of write-only setpoints
-            that reads back nothing useful. It is never polled; its
-            entities show what Home Assistant last wrote.
+        key: Names the block in ``coordinator.raw_blocks``.
+        address: The first register.
+        count: Registers to read.
+        fields: What the registers hold.
+        word_order: ``"big"`` or ``"little"``: which 16-bit word of a 32- or
+            64-bit value comes first. SunSpec is big; SolarEdge's own blocks
+            are little.
+        gate: ``(block key, field)`` of another block. This block is read
+            only while that field is a number above zero: a battery slot
+            whose nameplate says whether a battery is there.
+        unit_id_offset: Added to the entry's unit id for this block. SMA
+            serves its own registers 123 unit ids below the SunSpec ones.
+        readable: False for a block of write-only setpoints that reads back
+            nothing useful. It is never polled; its entities show what Home
+            Assistant last wrote.
     """
 
     key: str
@@ -192,25 +193,25 @@ class RawDevice:
     """A device the vendor adds next to the SunSpec model devices, a battery for instance.
 
     Args:
-        key (str): Names the device; the entities on it carry it in
-            their unique id.
-        info_block (str|None): The raw block with the identity strings,
-            or None for a device that is the SunSpec device itself, such
-            as a gateway whose own registers sit beside its models. Its
-            identity fields then name points of common model 1.
-        name (str): What follows the inverter's name in the device name.
-        manufacturer (str): Field of ``info_block`` with the manufacturer.
-        model (str): Field with the model.
-        serial (str): Field with the serial number.
-        version (str|None): Field with the firmware version, if any.
-        requires (str|None): A block that has to answer for the device
-            to exist at all. A SolarEdge battery slot has an identity
-            block with strings even when no battery is there; the data
-            block, gated on the rated energy, is what says there is one.
-        model_options (Mapping[int, str]|None): Names for a model field
-            the vendor numbers instead of spelling out. Kostal reports
-            which battery is fitted as a type number, and 0x0004 is the
-            BYD. None where the field holds the name itself.
+        key: Names the device; the entities on it carry it in their unique
+            id.
+        info_block: The raw block with the identity strings, or None for a
+            device that is the SunSpec device itself, such as a gateway
+            whose own registers sit beside its models. Its identity fields
+            then name points of common model 1.
+        name: What follows the inverter's name in the device name.
+        manufacturer: Field of ``info_block`` with the manufacturer.
+        model: Field with the model.
+        serial: Field with the serial number.
+        version: Field with the firmware version, if any.
+        requires: A block that has to answer for the device to exist at all.
+            A SolarEdge battery slot has an identity block with strings even
+            when no battery is there; the data block, gated on the rated
+            energy, is what says there is one.
+        model_options: Names for a model field the vendor numbers instead of
+            spelling out. Kostal reports which battery is fitted as a type
+            number, and 0x0004 is the BYD. None where the field holds the
+            name itself.
     """
 
     key: str
@@ -229,24 +230,22 @@ class RawSensor:
     """A sensor over one field of a raw block.
 
     Args:
-        block (str): The raw block.
-        field (str): The field in it.
-        key (str): The translation key.
-        device (str): ``"inverter"`` for the inverter's own device, or
-            the key of a ``RawDevice``.
-        unit (str|None): Home Assistant unit string.
-        device_class (str|None): Home Assistant sensor device class value.
-        state_class (str|None): ``"measurement"``, ``"total_increasing"``
-            or None.
-        diagnostic (bool): Filed under Diagnostic on the device card.
-        options (Mapping[int, str]|None): For an enum: raw value to
-            option name. A value not in the map reads as None.
-        transform (Callable[[Any], Any]|None): Called as
-            ``transform(value)`` with the decoded value. Returns what
-            the sensor shows.
-        icon (str|None): The icon.
-        enabled_by_default (bool): False for a sensor the user turns on
-            in the entity registry, for a field only some devices have.
+        block: The raw block.
+        field: The field in it.
+        key: The translation key.
+        device: ``"inverter"`` for the inverter's own device, or the key of
+            a ``RawDevice``.
+        unit: Home Assistant unit string.
+        device_class: Home Assistant sensor device class value.
+        state_class: ``"measurement"``, ``"total_increasing"`` or None.
+        diagnostic: Filed under Diagnostic on the device card.
+        options: For an enum: raw value to option name. A value not in the
+            map reads as None.
+        transform: Called as ``transform(value)`` with the decoded value.
+            Returns what the sensor shows.
+        icon: The icon.
+        enabled_by_default: False for a sensor the user turns on in the
+            entity registry, for a field only some devices have.
     """
 
     block: str
@@ -268,16 +267,16 @@ class RawNumber:
     """A writable number over one field of a raw block.
 
     Args:
-        block (str): The raw block.
-        field (str): The field in it; its kind decides the encoding.
-        key (str): The translation key.
-        min (float): Smallest value the entity offers.
-        max (float): Largest value.
-        step (float): The entity's step.
-        device (str): ``"inverter"`` or the key of a ``RawDevice``.
-        unit (str|None): Home Assistant unit string.
-        device_class (str|None): Home Assistant number device class value.
-        icon (str|None): The icon.
+        block: The raw block.
+        field: The field in it; its kind decides the encoding.
+        key: The translation key.
+        min: Smallest value the entity offers.
+        max: Largest value.
+        step: The entity's step.
+        device: ``"inverter"`` or the key of a ``RawDevice``.
+        unit: Home Assistant unit string.
+        device_class: Home Assistant number device class value.
+        icon: The icon.
     """
 
     block: str
@@ -297,19 +296,18 @@ class RawSelect:
     """A writable choice over one field of a raw block.
 
     Args:
-        block (str): The raw block.
-        field (str): The field in it.
-        key (str): The translation key.
-        options (Mapping[int, str]): Raw value to option name.
-        device (str): ``"inverter"`` or the key of a ``RawDevice``.
-        read (Callable[[Any], Any]|None): Called as ``read(raw)`` with
-            the decoded field. Returns the raw value to look up in
-            ``options``, for a field that carries more than the choice.
-        write (Callable[[Any, int], int]|None): Called as
-            ``write(current, chosen)`` with the decoded field and the
-            raw value of the chosen option. Returns what to write, so
-            the other bits of the field survive.
-        icon (str|None): The icon.
+        block: The raw block.
+        field: The field in it.
+        key: The translation key.
+        options: Raw value to option name.
+        device: ``"inverter"`` or the key of a ``RawDevice``.
+        read: Called as ``read(raw)`` with the decoded field. Returns the
+            raw value to look up in ``options``, for a field that carries
+            more than the choice.
+        write: Called as ``write(current, chosen)`` with the decoded field
+            and the raw value of the chosen option. Returns what to write,
+            so the other bits of the field survive.
+        icon: The icon.
     """
 
     block: str
@@ -333,18 +331,17 @@ class RawKeepAlive:
     the value the device shows if it never did.
 
     Args:
-        key (str): The switch's translation key.
-        block (str): The raw block.
-        fields (tuple[str, ...]): The fields written, in this order.
-        interval_seconds (float): How often.
-        only_while (Callable[[Mapping[str, Any]], bool]|None): Called
-            as ``only_while(block_data)``. Returns whether the rewrite
-            applies now, for a command that only means anything in a
-            certain mode.
-        settle_seconds (float): The pause between the fields' writes.
-            SMA wants its control flag a moment before the setpoint.
-        device (str): ``"inverter"`` or the key of a ``RawDevice``.
-        icon (str|None): The icon.
+        key: The switch's translation key.
+        block: The raw block.
+        fields: The fields written, in this order.
+        interval_seconds: How often.
+        only_while: Called as ``only_while(block_data)``. Returns whether
+            the rewrite applies now, for a command that only means anything
+            in a certain mode.
+        settle_seconds: The pause between the fields' writes. SMA wants its
+            control flag a moment before the setpoint.
+        device: ``"inverter"`` or the key of a ``RawDevice``.
+        icon: The icon.
     """
 
     key: str
@@ -367,10 +364,10 @@ class ModelRelabel:
     the model they are laid out as. Nothing is rewritten on the device.
 
     Args:
-        found_id (int): The model id the header reads.
-        found_len (int): The length the header declares.
-        as_id (int): The model whose layout the registers follow.
-        as_len (int): That model's length, for the body that is there.
+        found_id: The model id the header reads.
+        found_len: The length the header declares.
+        as_id: The model whose layout the registers follow.
+        as_len: That model's length, for the body that is there.
     """
 
     found_id: int
@@ -384,87 +381,81 @@ class VendorProfile:
     """Everything the integration does differently for one manufacturer.
 
     Args:
-        slug (str): Short lowercase name, for the diagnostics dump.
-        manufacturer_prefixes (tuple[str, ...]): Compared case-insensitively
-            against the start of ``Mn`` in common model 1. Prefixes, not
-            names, because vendors are not consistent about their own
-            name ("Fronius", "Fronius International GmbH").
-        identifies (Callable[[str, str, str], bool]|None): Called as
-            ``identifies(model, option, version)`` with ``Md``, ``Opt``
-            and ``Vr`` of common model 1, empty where the device reports
-            nothing. Returns whether this profile is the one for the
-            device, for a manufacturer with more than one profile. None
-            when the manufacturer name decides alone.
-        storage (StorageModeProfile|None): The battery mode vocabulary,
-            when the vendor has one.
-        module_role (Callable[[str, str], ModuleRole|None]|None): Called
-            as ``module_role(id_str, model)`` with the ``IDStr`` label of
-            a model 160 module and ``Md`` of common model 1. Returns what
-            the module carries, or None for a label the vendor does not
-            use that way. None when the vendor does not label its modules.
-        enable_edge (Mapping[tuple[int, str], str]): Points the device
-            takes a new value for only on the rising edge of an enable
-            point, keyed ``(model_id, point)``, mapped to that enable
-            point. Empty when the vendor applies a value as written.
-        enable_edge_settle_seconds (float): The pause between writing
-            such a value and raising its enable point again.
-        rearm_by_default (bool): Whether the off/on cycle runs unless
-            the user switches it off. True where the manual gives the
-            cycle as the procedure for a new value, False where it is a
-            firmware quirk the user opts into.
-        web_user (str|None): The local login of the device's web
-            interface, when the integration speaks it (see
-            ``fronius_web.py``). None for a vendor without one.
-        raw_blocks (tuple[RawBlock, ...]): Registers outside the SunSpec
-            models the vendor keeps device data in, read every cycle
-            after the models. See ``raw_blocks.py``.
-        raw_devices (tuple[RawDevice, ...]): Devices those blocks describe.
-        raw_sensors (tuple[RawSensor, ...]): Sensors over those blocks.
-        raw_numbers (tuple[RawNumber, ...]): Writable numbers over them.
-        raw_selects (tuple[RawSelect, ...]): Writable choices over them.
-        raw_keepalives (tuple[RawKeepAlive, ...]): Fields rewritten on a
-            timer, each behind a switch.
-        volatile_registers (frozenset[int]): Addresses the device keeps
-            in RAM. Writes there are not counted as flash writes.
-        model_relabels (tuple[ModelRelabel, ...]): Headers this vendor's
-            firmware labels with the wrong model, read as the model
-            they stand for.
-        unsupported_controls (frozenset[str]): ``"model:point"`` keys of
-            controls the model defines and the device does not
-            implement. No entity is built for them.
-        ascii_flag_points (frozenset[str]): ``"model:point"`` keys of
-            on/off points the firmware reads back as the ASCII code of
-            the digit, 49 for "1" and 48 for "0".
-        control_steps (Mapping[str, float]): ``"model:point"`` to the
-            step of its Number entity, for a device that takes whole
-            units where the scale factor would offer tenths.
-        daily_energy_points (frozenset[str]): Names of energy points that
-            count one day and start again at zero when the device first
-            produces on the next, where SunSpec says lifetime. They are
-            sensors without the guards of a lifetime counter.
-        required_models (frozenset[int]): Models a profile's controls and
-            sensors need, polled when the device exposes them.
-        point_transforms (Mapping[tuple[int, str], Callable[[Any], Any]]):
-            Read corrections keyed by model id and point name. Called
-            with the SunSpec-scaled value, returning the corrected value.
-            Raw registers and write encoding retain their SunSpec meaning.
-        signed_nan_points (frozenset[tuple[int, str]]): Unsigned points,
-            keyed by model id and point name, that the firmware fills
-            with 0x8000 when it has no reading. SunSpec reserves 0x8000
-            for "not implemented" only in signed registers; in a uint16
-            it is the number 32768, which the scale factor turns into a
-            reading. These points read as no value instead.
-        request_timeout (float|None): Seconds the device may take to answer
-            one request, for a device known to need more than the
-            transport's default of 10. None for the default.
-        collection_round_seconds (int|None): The period of the rounds in
-            which a gateway collects new values from its devices, starting
-            on the clock. Set for a gateway that works through one request
-            at a time and goes on working on one it left unanswered. After
-            such a request nothing more is sent to the gateway, for any
-            entry behind it, until a minute into the first round that
-            starts at least a minute later. None for a device that can be
-            asked again at once.
+        slug: Short lowercase name, for the diagnostics dump.
+        manufacturer_prefixes: Compared case-insensitively against the start
+            of ``Mn`` in common model 1. Prefixes, not names, because
+            vendors are not consistent about their own name ("Fronius",
+            "Fronius International GmbH").
+        identifies: Called as ``identifies(model, option, version)`` with
+            ``Md``, ``Opt`` and ``Vr`` of common model 1, empty where the
+            device reports nothing. Returns whether this profile is the one
+            for the device, for a manufacturer with more than one profile.
+            None when the manufacturer name decides alone.
+        storage: The battery mode vocabulary, when the vendor has one.
+        module_role: Called as ``module_role(id_str, model)`` with the
+            ``IDStr`` label of a model 160 module and ``Md`` of common model
+            1. Returns what the module carries, or None for a label the
+            vendor does not use that way. None when the vendor does not
+            label its modules.
+        enable_edge: Points the device takes a new value for only on the
+            rising edge of an enable point, keyed ``(model_id, point)``,
+            mapped to that enable point. Empty when the vendor applies a
+            value as written.
+        enable_edge_settle_seconds: The pause between writing such a value
+            and raising its enable point again.
+        rearm_by_default: Whether the off/on cycle runs unless the user
+            switches it off. True where the manual gives the cycle as the
+            procedure for a new value, False where it is a firmware quirk
+            the user opts into.
+        web_user: The local login of the device's web interface, when the
+            integration speaks it (see ``fronius_web.py``). None for a
+            vendor without one.
+        raw_blocks: Registers outside the SunSpec models the vendor keeps
+            device data in, read every cycle after the models. See
+            ``raw_blocks.py``.
+        raw_devices: Devices those blocks describe.
+        raw_sensors: Sensors over those blocks.
+        raw_numbers: Writable numbers over them.
+        raw_selects: Writable choices over them.
+        raw_keepalives: Fields rewritten on a timer, each behind a switch.
+        volatile_registers: Addresses the device keeps in RAM. Writes there
+            are not counted as flash writes.
+        model_relabels: Headers this vendor's firmware labels with the wrong
+            model, read as the model they stand for.
+        unsupported_controls: ``"model:point"`` keys of controls the model
+            defines and the device does not implement. No entity is built
+            for them.
+        ascii_flag_points: ``"model:point"`` keys of on/off points the
+            firmware reads back as the ASCII code of the digit, 49 for "1"
+            and 48 for "0".
+        control_steps: ``"model:point"`` to the step of its Number entity,
+            for a device that takes whole units where the scale factor would
+            offer tenths.
+        daily_energy_points: Names of energy points that count one day and
+            start again at zero when the device first produces on the next,
+            where SunSpec says lifetime. They are sensors without the guards
+            of a lifetime counter.
+        required_models: Models a profile's controls and sensors need,
+            polled when the device exposes them.
+        point_transforms: Read corrections keyed by model id and point name.
+            Called with the SunSpec-scaled value, returning the corrected
+            value. Raw registers and write encoding retain their SunSpec
+            meaning.
+        signed_nan_points: Unsigned points, keyed by model id and point
+            name, that the firmware fills with 0x8000 when it has no
+            reading. SunSpec reserves 0x8000 for "not implemented" only in
+            signed registers; in a uint16 it is the number 32768. These
+            points read as no value instead.
+        request_timeout: Seconds the device may take to answer one request,
+            for a device known to need more than the link's default of 10.
+            None for the default.
+        collection_round_seconds: The period of the rounds in which a
+            gateway collects new values from its devices, starting on the
+            clock. Set for a gateway that works through one request at a
+            time and goes on working on one it left unanswered. After such a
+            request the coordinator rests the gateway for every entry behind
+            it, see ``GATEWAY_REST_MIN_SECONDS`` in const.py. None for a
+            device that can be asked again at once.
     """
 
     slug: str
@@ -513,9 +504,9 @@ class WriteStep:
     """One Modbus write of a sequence, and the pause after it.
 
     Args:
-        points (list[tuple[str, object]]): The points written together.
-        settle_seconds (float): How long to wait after this write before
-            the next step. 0 for no wait.
+        points: The points written together.
+        settle_seconds: How long to wait after this write before the next
+            step. 0 for no wait.
     """
 
     points: list[tuple[str, object]]
@@ -532,18 +523,16 @@ def plan_write(
     """The write steps for ``points``, with the enable edge where the vendor needs one.
 
     Args:
-        profile (VendorProfile|None): The device's profile, or None.
-        model_id (int): The model the points belong to.
-        points (list[tuple[str, object]]): Point names and values, as
-            the caller wants them written.
-        is_on (Callable[[int, str], bool]): Called as
-            ``is_on(model_id, point)`` with an enable point. Returns
-            whether the device last reported it on.
-        rearm (bool): Whether the user opted into the off/on cycle.
+        profile: The device's profile, or None.
+        model_id: The model the points belong to.
+        points: Point names and values, as the caller wants them written.
+        is_on: Called as ``is_on(model_id, point)`` with an enable point.
+            Returns whether the device last reported it on.
+        rearm: Whether the off/on cycle is switched on for this entry.
 
     Returns:
-        list[WriteStep]: One step with the points as given, or three:
-        the enable off, the values, the enable on again.
+        One step with the points as given, or three: the enable off, the
+        values, the enable on again.
     """
     plain = [WriteStep(points)]
     if profile is None or not rearm or not profile.enable_edge:

@@ -12,8 +12,12 @@ import pytest
 from custom_components.sunspec2.api import SunSpecApiClient
 from custom_components.sunspec2.const import CONF_FRONIUS_WEB_TOKEN
 from custom_components.sunspec2.diagnostics import async_get_config_entry_diagnostics
+from custom_components.sunspec2.errors import TransportError
 
+from . import create_mock_sunspec_config_entry
 from . import setup_mock_sunspec_config_entry
+from .const import MOCK_CONFIG
+from .const import MOCK_CONFIG_RTU
 from .test_fronius_web import _mock_web
 from .test_fronius_web import _web_entry
 
@@ -186,7 +190,9 @@ async def test_diagnostics_say_why_the_web_interface_has_no_data(
     diag = await async_get_config_entry_diagnostics(hass, entry)
 
     assert list(diag["fronius_web"]) == ["error"]
-    assert "rejected the stored login" in diag["fronius_web"]["error"]
+    assert diag["fronius_web"]["error"].startswith(
+        "The web interface at **REDACTED** rejected the stored login"
+    )
 
 
 async def test_diagnostics_recent_errors_starts_empty(hass, sunspec_client_mock):
@@ -201,6 +207,53 @@ async def test_diagnostics_recent_errors_starts_empty(hass, sunspec_client_mock)
         "device": [],
         "transient": [],
     }
+
+
+async def test_diagnostics_take_the_address_out_of_error_messages(hass, sunspec_client_mock):
+    """The README promises a download without the address, and an error message names it."""
+    entry = await setup_mock_sunspec_config_entry(hass)
+    host = entry.data["host"]
+    coordinator = entry.runtime_data
+    coordinator._record_error(TransportError(f"Modbus error while connecting to {host}:123"))
+    # A host name resolves to an address, and the socket error carries that.
+    coordinator._record_error(TransportError("Connect call failed ('192.0.2.7', 502)"))
+    coordinator._record_error(TransportError(f"Could not reach 192.0.2.7. Nor {host}."))
+
+    diag = await async_get_config_entry_diagnostics(hass, entry)
+
+    assert [error["msg"] for error in diag["recent_errors"]["transport"]] == [
+        "Modbus error while connecting to **REDACTED**:123",
+        "Connect call failed ('**REDACTED**', 502)",
+        "Could not reach **REDACTED**. Nor **REDACTED**.",
+    ]
+    assert host not in json.dumps(diag)
+
+
+async def test_diagnostics_redact_the_host_as_a_whole_word_only(hass, sunspec_client_mock):
+    """A host named like part of a model name must not eat into the readings."""
+    entry = create_mock_sunspec_config_entry(hass, data={**MOCK_CONFIG, "host": "inverter"})
+    await setup_mock_sunspec_config_entry(hass, config_entry=entry)
+    entry.runtime_data._record_error(TransportError("inverter refused, inverter_three_phase"))
+
+    diag = await async_get_config_entry_diagnostics(hass, entry)
+
+    assert diag["recent_errors"]["transport"][0]["msg"] == (
+        "**REDACTED** refused, inverter_three_phase"
+    )
+    assert "**REDACTED**" not in json.dumps(diag["scanned_models"])
+
+
+async def test_diagnostics_keep_the_port_of_a_serial_entry(hass, sunspec_client_mock):
+    """The port path is no address, and the errors make no sense without it."""
+    entry = create_mock_sunspec_config_entry(hass, data=MOCK_CONFIG_RTU)
+    await setup_mock_sunspec_config_entry(hass, config_entry=entry)
+    port = entry.data["serial_port"]
+    entry.runtime_data._record_error(TransportError(f"Modbus error while connecting to {port}"))
+
+    diag = await async_get_config_entry_diagnostics(hass, entry)
+
+    assert diag["config"]["serial_port"] == port
+    assert diag["recent_errors"]["transport"][0]["msg"].endswith(port)
 
 
 async def test_diagnostics_consecutive_failures_starts_zero(hass, sunspec_client_mock):

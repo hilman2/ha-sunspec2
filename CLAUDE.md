@@ -66,8 +66,7 @@ inverters, meters, batteries). Standalone brownfield rewrite of
 
 ## Test suite
 
-Pytest does **not** run on Windows-Python (HA imports `fcntl`). It runs
-in Docker, which is also the only environment that reproduces the gate:
+Pytest runs in Docker, the only environment that reproduces the gate:
 CI installs with pip in two steps (`pytest<9` is forced after
 `pytest-homeassistant-custom-component` pulls 9.0.x), and `uv` cannot
 express that, it calls the requirement unsatisfiable and stops.
@@ -136,17 +135,15 @@ and for every per-module exception. `mypy` with no arguments checks the
 right paths.
 
 ```bash
-wsl -d Ubuntu -- bash -lc "cd /mnt/d/Git/ha-sunspec2 && uv run \
-  --with mypy --with homeassistant \
-  --with 'modbus-connection[tmodbus]' \
-  --with voluptuous --with pytest --with pytest-homeassistant-custom-component \
-  --with pytest-mock mypy"
+docker run --rm -v "$PWD":/src:ro -w /src ha-sunspec2-tests sh -c \
+  'pip install -q --target /tmp/m mypy && PYTHONPATH=/tmp/m python -m mypy --cache-dir /tmp/mc'
 ```
 
-Install the same dependency set the CI job installs. `warn_unused_ignores`
-is on, so a missing package changes the verdict rather than skipping a
-check: a run without Home Assistant's type information reports the
-`type: ignore` comments as unnecessary.
+The test image (built by the first `docker compose ... run tests`) has
+the dependency set the CI job installs, and mypy needs exactly that set. `warn_unused_ignores` is on, so a missing
+package changes the verdict rather than skipping a check: a run without
+Home Assistant's type information reports the `type: ignore` comments
+as unnecessary.
 
 Two suppressions are deliberate and carry their reason at the line:
 `entity.py` builds a three-element device identifier where HA's
@@ -189,9 +186,8 @@ A red CI is loud and the user notices fast, so always run the test
 suite, ruff **and** mypy locally before pushing the branch:
 
 ```bash
-# Run from WSL Ubuntu
-uv run --with ruff ruff check custom_components/ tests/
-uv run --with ruff ruff format --check custom_components/ tests/
+uvx ruff check custom_components/ tests/
+uvx ruff format --check custom_components/ tests/
 ```
 
 The mypy invocation is in "Type checking" above.
@@ -375,15 +371,15 @@ networks:
 2. **Stale-data tolerance**: while `consecutive_failed_cycles <=
    STALE_DATA_TOLERANCE_CYCLES` (5), `SunSpecEntity.available` returns
    True so sensors keep reporting the last good value.
-   `_after_failed_cycle` manually invokes `async_update_listeners()`
+   `_count_failed_cycle` manually invokes `async_update_listeners()`
    when the counter crosses the threshold, because HA's
    `DataUpdateCoordinator._async_refresh` early-returns on consecutive
    failures and would otherwise leave the entity frozen on the stale
    value forever.
 
-If you ever change `available` to consult `last_update_success`, the
-manual listener call will fire while HA still has it set to True and
-the unavailable transition will silently break.
+`available` must not consult `last_update_success`: Home Assistant sets
+it to False on the first failed refresh, so the entity would go
+unavailable at once and the tolerance would be gone.
 
 A third mechanism applies only to a profile with
 `collection_round_seconds` (APsystems, #160): a gateway that keeps
@@ -434,5 +430,5 @@ the first five lines?
 ## Memory and persisted state
 
 Live test environment notes, repo conventions, and per-user preferences
-sit in `~/.claude/projects/D--Git-ha-sunspec2/memory/` and override
-this file when they conflict.
+sit in Claude Code's memory directory for this project and override this
+file when they conflict.

@@ -32,7 +32,7 @@
   "iot_class": "local_polling",
   "issue_tracker": "https://github.com/hilman2/ha-sunspec2/issues",
   "loggers": ["modbus_connection", "tmodbus"],
-  "quality_scale": "gold",
+  "quality_scale": "silver",
   "requirements": ["modbus-connection[tmodbus]>=4.12.0,<5", "tmodbus>=0.6.2"],
   "version": "2026.11.1"
 }

@@ -23,15 +23,10 @@ class SunSpecLoggerAdapter(logging.LoggerAdapter[logging.Logger]):
     def bound(self) -> Mapping[str, Any]:
         """The device context this adapter was built with.
 
-        ``logging.LoggerAdapter`` declares ``extra`` as optional because
-        the base class accepts None. Every adapter :func:`get_adapter`
-        hands out carries a dict, so read the context through here and
-        the caller does not have to guard against a None that cannot
-        occur.
-
-        Returns:
-            Mapping[str, Any]: The bound keys, at minimum ``host``,
-                ``port`` and ``unit_id``.
+        At minimum ``host``, ``port`` and ``unit_id``. Read the context
+        through this property rather than through ``extra``:
+        ``logging.LoggerAdapter`` types ``extra`` as optional, while
+        every adapter :func:`get_adapter` hands out carries a dict.
         """
         return self.extra or {}
 
@@ -50,10 +45,10 @@ class SunSpecLoggerAdapter(logging.LoggerAdapter[logging.Logger]):
         return f"{prefix} {msg}", kwargs
 
 
-# What a module logs through. Normal operation hands these helpers the
-# context-binding adapter; a caller with no device context (and a test)
-# hands them a plain logger. logging.LoggerAdapter is not a Logger
-# subclass, so the two only travel together as a union.
+# What a module logs through: the context-binding adapter in normal
+# operation, a plain logger for a caller without device context and in
+# tests. logging.LoggerAdapter is not a Logger subclass, so the two
+# travel together only as a union.
 type LoggerLike = logging.Logger | SunSpecLoggerAdapter
 
 
@@ -86,7 +81,7 @@ def redact_options(options: Mapping[str, Any]) -> dict[str, Any]:
         options: The options of a config entry, stored or about to be.
 
     Returns:
-        dict[str, Any]: A copy with the web token replaced by ``"***"``.
+        A copy with the web token replaced by ``"***"``.
     """
     return {
         key: "***" if key == CONF_FRONIUS_WEB_TOKEN else value for key, value in options.items()

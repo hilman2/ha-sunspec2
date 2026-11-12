@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-# Base component constants
 NAME = "SunSpec 2"
 DOMAIN = "sunspec2"
 VERSION = "2026.11.1"
@@ -17,8 +16,7 @@ SELECT = "select"
 TIME = "time"
 BUTTON = "button"
 # Every platform is forwarded on every entry. What the write platforms
-# build depends on the device, see
-# number.build_specs.
+# build depends on the device, see number.build_specs.
 PLATFORMS = [SENSOR, NUMBER, SWITCH, SELECT, TIME, BUTTON]
 
 
@@ -30,12 +28,10 @@ CONF_PREFIX = "prefix"
 CONF_SCAN_INTERVAL = "scan_interval"
 CONF_ENABLED_MODELS = "models_enabled"
 
-# v0.11.0: Modbus transport selection. ``tcp`` is the default and the
-# only mode that existed before; ``rtu`` is the new serial-line variant
-# that talks to the inverter over an RS-485 (typically via a USB-to-
-# RS-485 adapter on /dev/ttyUSB0 or similar). Existing config entries
-# without CONF_TRANSPORT continue to work because the coordinator
-# defaults to TCP when the field is missing - no migration needed.
+# Modbus transport of an entry: ``tcp``, or ``rtu`` for a serial RS-485
+# line (typically a USB adapter on /dev/ttyUSB0). Entries created before
+# the serial transport existed have no CONF_TRANSPORT key, so every
+# reader of the key defaults to TRANSPORT_TCP.
 CONF_TRANSPORT = "transport"
 TRANSPORT_TCP = "tcp"
 TRANSPORT_RTU = "rtu"
@@ -45,15 +41,13 @@ CONF_SERIAL_PORT = "serial_port"
 CONF_BAUDRATE = "baudrate"
 CONF_PARITY = "parity"
 
-# pysunspec2 only exposes the two ``N`` (none) and ``E`` (even) parity
-# settings via its modbus client; we mirror those constants directly so
-# the config flow's dropdown values match what the underlying library
-# accepts at construction time.
+# The parity settings the serial setup step offers: none and even.
+# api._params passes them on to modbus-connection.
 PARITY_NONE = "N"
 PARITY_EVEN = "E"
 
-# Sensible default for any inverter we have seen so far. Users with a
-# different setting can override during the serial setup step.
+# 9600 baud fits every inverter seen so far. The serial setup step
+# lets the user change it.
 DEFAULT_BAUDRATE = 9600
 
 # Opt-in for the off/on cycle a vendor needs before it takes a new
@@ -70,163 +64,111 @@ CONF_FRONIUS_WEB_PASSWORD = "fronius_web_password"
 CONF_FRONIUS_WEB_FORGET = "fronius_web_forget"
 CONF_FRONIUS_WEB_TOKEN = "fronius_web_token"
 
-# UI step bounds for the same entity. The real step comes from the
-# device's own WMaxLimPct_SF scale factor (10 ** SF): at SF -1 the
-# inverter reports and accepts 99.5, and a hardcoded step of 1 makes
-# the device's own value unenterable in the frontend box. Clamped so we
-# are never coarser than the old behaviour and never finer than 0.01 %.
+# Step bounds of the export limit Number (number.py). The real step
+# comes from the device's own WMaxLimPct_SF scale factor (10 ** SF): at
+# SF -1 the inverter reports and accepts 99.5, and a fixed step of 1
+# makes the device's own value unenterable in the frontend box. The
+# step is clamped to the range from 0.01 % to 1 %.
 EXPORT_LIMIT_DEFAULT_STEP_PCT = 1.0
 EXPORT_LIMIT_MIN_STEP_PCT = 0.01
 
-# Seconds pysunspec2 sleeps after every model it walks during
-# ``client.scan()``. Inherited verbatim at 0.5 from cjne/ha-sunspec in
-# the phase 0 baseline, never chosen deliberately. Until v0.22.0 it was
-# the single largest cost of a poll cycle: the coordinator closed its
-# client at the end of every cycle (single-slot inverters were assumed
-# to need their Modbus slot back), so every cycle rescanned the whole
-# model tree from scratch. On an inverter exposing 20+ models that was
-# 10+ seconds of pure sleep per cycle, independent of the network.
-# Reported by @haraldg in #17 as "HA often needs quite a bit longer to
-# update the values than expected" at a 30 s interval. The session is
-# held open now, so a steady-state poll pays none of it.
+# Many PV inverters power their communication board down without DC
+# input, which on a domestic roof means every night (#52). The
+# integration then sees a plain connect timeout, and the transport
+# repair issue it raises names nothing the user could fix.
 #
-# The delay is not pointless: it paces the request stream for slow
-# devices (KACO Powador on 100 Mbit was the original reason the setup
-# timeout had to grow), which is why it stays configurable rather than
-# being removed.
+# The coordinator recognises the common case itself from the inverter's
+# operating state (see OPERATING_STATE_MODEL_IDS). This option covers
+# the devices it cannot recognise: one that drops the link without
+# reporting SLEEPING in a poll that was still answered, and one whose
+# models have no operating state point (an SMA Tripower X speaking
+# model 701 instead of 103).
 #
-# The default stays at the inherited 0.5 rather than being tuned down,
-# because the persisted model layout took the scan out of the steady
-# state entirely: it now runs on the first connect with nothing usable
-# stored, after a failed cycle (reconnect_next() drops the cache on
-# purpose, because a layout read at addresses that just stopped
-# answering is the one thing not to reuse), and when a firmware change
-# moves the model chain. Not twice a minute, so there is no longer a
-# trade to make between "fast polling" and "gentle on slow hardware".
-# Lowering it only affects that rare walk.
-
-# Issue #52: many PV inverters power their communication board down
-# when there is no DC input, which on a domestic roof means every
-# night. The TCP session dies with it, so the integration sees a plain
-# connect timeout and, three cycles later, raises a red "Cannot reach
-# SunSpec inverter" repair. Nothing is broken, and there is nothing for
-# the user to fix.
-#
-# The coordinator detects the common case on its own by reading the
-# inverter's own operating state (see OPERATING_STATE_MODEL_IDS below),
-# so this option only exists for the devices that cannot be detected:
-# ones that drop the link without ever reporting SLEEPING in a poll we
-# still got an answer to, and ones whose model set has no operating
-# state point at all (an SMA Tripower X speaking model 701 rather than
-# 103, for instance).
-#
-# It suppresses the transport repair only. A device that answers with
-# a Modbus exception, or answers with something that is not SunSpec,
-# is awake and still escalates as before.
+# The option suppresses the transport repair only. A device that
+# answers with a Modbus exception, or with something that is not
+# SunSpec, is awake and still escalates.
 CONF_STANDBY_WHEN_IDLE = "standby_when_idle"
 
 # Lower bound for the poll interval, enforced in the config flow and
-# again in the coordinator.
+# again in the coordinator. Home Assistant's DataUpdateCoordinator
+# breaks at both ends of an unbounded interval:
 #
-# Not a taste call, and not about being gentle on the device. Both
-# schemas took a bare ``int`` with no range, and both ends of that are
-# broken in Home Assistant's own coordinator:
+#   0   ``update_interval`` stores ``value.total_seconds() if value
+#       else None``, and ``timedelta(seconds=0)`` is falsy.
+#       ``_schedule_refresh()`` then returns early and polling stops
+#       silently and for good. No cycle runs, so no cycle fails,
+#       ``consecutive_failed_cycles`` never moves and the entities hold
+#       their last value without going unavailable.
+#   <0  ``next_refresh`` lands in the past, so ``loop.call_at`` fires
+#       immediately, every time.
 #
-#   0   ``DataUpdateCoordinator.update_interval`` stores
-#       ``value.total_seconds() if value else None``, and
-#       ``timedelta(seconds=0)`` is falsy. ``_schedule_refresh()`` then
-#       returns early on ``None`` and polling stops silently and
-#       permanently. Nothing looks broken: no cycle runs, so no cycle
-#       fails, so ``consecutive_failed_cycles`` never moves and the
-#       entities do not even go unavailable. They just quietly hold
-#       their last value forever.
-#   <0  truthy, so the interval survives and ``next_refresh`` lands in
-#       the past. ``loop.call_at`` fires immediately, every time, for
-#       as long as Home Assistant is up.
-#
-# 5 s rather than 1 s because model reads can include a pacing pause
-# as well as a round trip, and INTERVAL_RETRY_DELAY_SECONDS is itself 5:
-# below that the in-cycle retry, not the configured interval, sets the real pace.
+# The bound is 5 s and not 1 s because a model read can include a
+# pacing pause as well as a round trip, and because
+# INTERVAL_RETRY_DELAY_SECONDS is 5: below that the in-cycle retry sets
+# the real pace, not the configured interval.
 MIN_SCAN_INTERVAL_SECONDS = 5
 
+# Seconds pysunspec2 sleeps after every model it walks during a scan of
+# the model tree. The pause paces the request stream for slow devices
+# (a KACO Powador on 100 Mbit is the known one), which is why the delay
+# is an option and not removed. A steady-state poll pays no scan delay:
+# the model layout is cached and persisted, so a scan runs only on a
+# first connect with nothing stored, after a failure that is neither a
+# transport nor a transient one, after a firmware or device change, and
+# when the cached layout no longer validates. Lowering the delay only
+# shortens that rare walk.
 CONF_SCAN_DELAY = "scan_delay"
 DEFAULT_SCAN_DELAY_SECONDS = 0.5
 MIN_SCAN_DELAY_SECONDS = 0.0
 MAX_SCAN_DELAY_SECONDS = 2.0
 
+# Seconds api._pace_model_read keeps between the end of one model read
+# and the start of the next.
 CONF_MODEL_READ_DELAY = "model_read_delay"
 DEFAULT_MODEL_READ_DELAY_SECONDS = 0.6
 MIN_MODEL_READ_DELAY_SECONDS = 0.0
 MAX_MODEL_READ_DELAY_SECONDS = 2.0
 
-# Storage key and version for the persisted SunSpec model layout.
+# Storage key and version for the persisted SunSpec model layout: the
+# base address plus model id, address and length of every block. With
+# the layout a new client rebuilds its model objects from three short
+# validating reads instead of a scan. That matters most after a Home
+# Assistant restart, where the scan would run inside the setup timeout
+# on the slowest devices.
 #
-# The coordinator used to close its client at the end of every cycle so
-# single-slot inverters got their Modbus slot back, and a fresh
-# pysunspec2 client has an empty ``client.models``. That is the only
-# reason the scan ever ran on every poll: it was never about detecting
-# change, it was about rebuilding state we had just thrown away. On an
-# inverter exposing 20 models, at 30 s intervals, that was 41 modbus
-# round trips and 20 pacing sleeps every 30 seconds to rediscover a
-# layout that changes on firmware updates and never otherwise. v0.22.0
-# holds the session open, so a poll no longer pays any of it. The cache
-# still earns its keep on the paths that do build a client again: a
-# restart or a reload, where the layout comes back from the store. A
-# failed cycle is the one path that drops the layout on purpose; the
-# only other way back to a full scan is a connect whose cached layout
-# no longer validates.
-#
-# Caching the layout (base address plus model id / address / length per
-# block) lets a reconnect rebuild the same model objects from three
-# short validating reads. Persisting it means a Home Assistant restart
-# does not have to scan either, which is where the scan actually hurt:
-# it runs inside the setup timeout, on the slowest devices, at the
-# worst possible moment.
-#
-# There is deliberately no expiry. A rescan cannot confirm a layout, it
-# can only replace it, and it is the one operation that can silently
-# corrupt it (see the comment on the cache in api.py). Freshness is
-# established by re-reading both ends of the chain on every connect,
-# not by a clock.
+# The layout has no expiry on purpose. A rescan cannot confirm a
+# layout, only replace it, and a rescan is the one operation that can
+# silently corrupt it (see the comment on the cache in api.py). The
+# layout is kept fresh by re-reading both ends of the chain on every
+# connect, not by a clock.
 STRUCTURE_STORAGE_VERSION = 1
 STRUCTURE_STORAGE_KEY = f"{DOMAIN}.model_structure"
-# The model 1 points that say WHICH device the stored layout belongs to.
-# Deliberately without "Vr": a firmware update changes the version
-# string and nothing else about the identity, and treating it as a
-# device swap failed setup in a loop after every update (#49). The
-# version is still stored next to these, so the change can be noticed
-# and answered with a one-off rescan of the model tree.
+# The model 1 points that say which device the stored layout belongs
+# to. "Vr" is left out on purpose: a firmware update changes the version
+# string and nothing else about the identity, and treating the update
+# as a device swap fails setup in a loop (#49). The version is stored
+# next to these points, so the coordinator notices the update and
+# answers it with a single rescan of the model tree.
 DEVICE_IDENTITY_POINTS = ("Mn", "Md", "SN")
 
-# Points the sensor platform must not build an entity for.
-#
-# Derived from the write-control specs rather than hand-maintained: a
-# point that is a Number, Switch or Select must not also be a read-only
-# sensor, because the two disagree during a write and the user has no
-# way to tell which one is lying. Keeping a second list in sync with
-# write_controls.py by hand is exactly the kind of bookkeeping that
-# quietly rots. A spec with retain_sensor keeps an already shipped
-# sensor so adding a control does not orphan its automations and history.
-#
-# The unit problem that motivated half of the old hand-written set is
-# fixed properly in sensor.py as of v0.19.0: an unmapped SunSpec unit
-# resolves to no unit rather than to the raw string, so it can no longer
-# start a statistics series the recorder cannot convert, and "% WMax"
-# and its relatives map to PERCENTAGE anyway.
+# The points the sensor platform must not build an entity for are
+# derived from the write-control specs. A point that is a Number, Switch
+# or Select must not also be a read-only sensor, because the two
+# disagree during a write and the user cannot tell which one is right.
+# A spec with retain_sensor keeps a sensor that shipped before its
+# control, so the sensor's automations and history are not orphaned.
 
 
 def is_excluded_sensor_point(model_id: int, key: str) -> bool:
-    """True if the sensor platform must not build an entity for this point.
+    """Return True if the sensor platform must not build an entity for this point.
 
     ``key`` is the flattened models.py key, so a repeating-group point
     arrives as ``group:idx:point``. Only the trailing point name is
-    matched, because the exclusion is a property of the point, not of
-    the group instance it happens to live in.
-
-    Imported lazily: write_controls imports nothing from const, but
-    const is imported by everything, and a module-level import here
-    would make that a cycle waiting for someone to add one line.
+    matched.
     """
+    # Imported here because every module imports const: a module-level
+    # import of write_controls would become a cycle as soon as
+    # write_controls imports anything from const.
     from .write_controls import specs_for_model
 
     specs = specs_for_model(model_id)
@@ -236,55 +178,52 @@ def is_excluded_sensor_point(model_id: int, key: str) -> bool:
     return any(spec.point_name == point_name and not spec.retain_sensor for spec in specs)
 
 
-# Phase 2 debugging-first: when True, every read on the Modbus session
-# also stores its raw bytes in api._captured_reads so users can attach
-# a reproducible fixture to bug reports via the diagnostics dump. The
-# wrap goes on when the client is built, so it covers a scan, the
-# cached-layout validation reads and every model read alike. Saving the
-# option reloads the entry, and the connect that follows is where it
-# takes effect.
+# With this option on, every read on the Modbus session also stores its
+# raw bytes in api._captured_reads, and the diagnostics dump carries
+# them as a reproducible fixture for a bug report. The wrap goes on
+# when the client is built, so it covers a scan, the cached-layout
+# validation reads and every model read alike. Saving the option
+# reloads the entry, and the capture starts with the connect that
+# follows.
 CONF_CAPTURE_RAW = "capture_raw_registers"
-# Plausibility limit used to drop unrealistic values reported by inverters
-# at dawn / dusk (e.g. MW or TWh spikes that poison long-term statistics).
-# Optional - leaving the option empty disables the filter. The value is
-# used in two ways:
-#   * Power-like sensors (W / VA / VAr) are dropped if they exceed this
-#     value (in kW).
-#   * Energy sensors are dropped when the delta to the previous value would
-#     imply an instantaneous power above this value, with a safety factor.
+
+# Peak AC power in kW, the limit of the plausibility filters. The
+# filters drop the unrealistic values inverters report at dawn and dusk
+# (MW or TWh spikes that poison long-term statistics). With the option
+# empty the detected nameplate stands in, see effective_peak_power_kw.
+# The limit is used in two ways:
+#   * A measured power reading is dropped when it is above the limit
+#     times the headroom of its point (MEASURED_POWER_POINT_HEADROOM).
+#   * An energy reading is dropped when the delta to the previous value
+#     implies a power above the limit times ENERGY_DELTA_SAFETY_FACTOR.
 CONF_MAX_AC_POWER_KW = "max_ac_power_kw"
 
-# Safety factor applied when deriving the maximum plausible energy delta
-# from the configured peak power. Generous on purpose - we only want to
-# catch the really obvious garbage values (MW / TWh spikes), not legitimate
-# transients near the inverter's nameplate. The delta is measured over the
-# time since the counter last moved (floored at the scan interval), not
-# over one scan interval: an inverter that updates its lifetime counter
-# every few minutes reports the same value for several polls and then
-# jumps by the whole accumulated amount, and that jump is correct (#45).
+# Safety factor on the largest plausible energy delta derived from the
+# peak power. The factor is generous on purpose: the filter is there
+# for obvious garbage (MW / TWh spikes), not for legitimate transients
+# near the nameplate. The delta is measured over the time since the counter last
+# moved (floored at the scan interval), not over one scan interval: an
+# inverter that updates its lifetime counter every few minutes reports
+# the same value for several polls and then jumps by the whole
+# accumulated amount, and that jump is correct (#45).
 ENERGY_DELTA_SAFETY_FACTOR = 2.0
-# Headroom applied to the AUTO-DETECTED nameplate when it stands in for
-# a peak the user never configured.
-#
-# Both plausibility filters used to be off entirely unless the user
-# found and filled in "peak AC power" in the options, which is exactly
-# the user who does not know they need it. The nameplate we already read
-# from model 120 (WRtg) is a better default than no filter at all, but
-# it is not a hard ceiling: inverters legitimately overshoot their
+
+# Headroom on the auto-detected nameplate (WRtg of model 120, else WMax
+# of model 121) when it stands in for a peak the user did not configure.
+# The nameplate is not a hard ceiling: inverters overshoot their
 # continuous rating in cold, bright weather, and an installer-set WMax
-# from model 121 can sit below what the hardware really does. 1.2 leaves
-# room for that while still catching the order-of-magnitude garbage the
-# filter exists for. A user-configured value is used as-is, without this
-# factor, because that number is a deliberate statement about the site.
+# can sit below what the hardware does. 1.2 leaves room for that and
+# still catches order-of-magnitude garbage. A configured peak is used
+# without this factor, because it is a deliberate statement about the
+# site.
 NAMEPLATE_FILTER_HEADROOM = 1.2
 
 
 def effective_peak_power_kw(configured_kw: float | None, detected_kw: float | None) -> float | None:
-    """Peak AC power the plausibility filters work from, in kW.
+    """Return the peak AC power the plausibility filters work from, in kW.
 
-    Shared by the sensor platform (which applies it) and diagnostics
-    (which reports it), so a bug report can never disagree with what the
-    filter actually did. ``None`` means no ceiling and no filtering.
+    The sensor platform applies the value and diagnostics reports it.
+    ``None`` means no ceiling and no filtering.
     """
     if configured_kw:
         return float(configured_kw)
@@ -293,39 +232,30 @@ def effective_peak_power_kw(configured_kw: float | None, detected_kw: float | No
     return None
 
 
-# Which SunSpec points the power plausibility filter is allowed to touch,
-# and how far above the peak AC power each of them may legitimately go.
-#
-# Until #45 the filter keyed on the UNIT alone, which is wrong twice over.
-#
-# Wrong once, because the ceiling is an ACTIVE power number and three of
-# the four quantities carrying a power unit are bounded by something else:
+# The points the power plausibility filter may touch, and how far above
+# the peak AC power each of them may legitimately read. The peak is an
+# active power number, and three of the four quantities with a power
+# unit are bounded by something else:
 #
 #   apparent  VA = W / cos phi, and grid codes require operation down to
 #             cos phi 0.80 (VDE-AR-N 4105, IEEE 1547 category B), so
-#             apparent power legitimately runs above active power. It is
-#             also >= W by definition, so a ceiling at the AC rating
-#             takes the VA sensor out before it takes the W sensor out.
+#             apparent power legitimately runs above active power.
 #   reactive  bounded by apparent power, so it gets the same allowance.
-#             A watt number carries no information about a var limit.
-#   dc        DCW is measured BEFORE conversion losses, so DCW = W / eta
-#             and it always reads above AC output. On a hybrid with a
-#             DC-coupled battery the DC side carries AC output and charge
-#             power at the same time, which is why this one is widest.
+#   dc        DCW is measured before conversion losses, so it always
+#             reads above AC output. On a hybrid with a DC-coupled
+#             battery the DC side carries AC output and charge power at
+#             the same time, which is why DC gets the widest factor.
 #
-# Wrong twice, because a unit-only rule also swept up every static rating
-# and setpoint that happens to be measured in watts - WRtg, WMax, VARtg,
-# VAMax, VarSet, PMaxLim, LifeTimeMaxOut, the model 706 / 712 curve
-# points. Gating a nameplate against a limit derived from that same
-# nameplate is circular, and on a device where VARtg exceeds the watt
-# rating the rated-apparent-power sensor simply read "unknown".
-#
-# So this is an allowlist of LIVE MEASUREMENTS, built from the point
-# names pysunspec2 actually ships. Anything not named here is never
-# filtered, which is the right failure mode: the filter exists to catch
-# order-of-magnitude garbage (MW spikes at dawn), not to enforce tight
-# physical bounds, so leaving an unknown vendor point alone costs
-# nothing while wrongly clipping it costs the user a sensor.
+# The table is an allowlist of live measurements, built from the point
+# names pysunspec2 ships. A point that is not named here is never
+# filtered. That keeps the static ratings and setpoints measured in
+# watts out (WRtg, WMax, VARtg, VAMax, VarSet, PMaxLim, LifeTimeMaxOut,
+# the model 706 / 712 curve points): gating a nameplate against a limit
+# derived from the same nameplate is circular. Leaving an unnamed point
+# alone is also the right failure mode for an unknown vendor point. The
+# filter exists to catch order-of-magnitude garbage (MW spikes at
+# dawn), so an unfiltered point costs nothing, while a wrongly clipped
+# one costs the user a sensor.
 MEASURED_POWER_POINT_HEADROOM: dict[str, float] = {
     # AC active power. The ceiling is expressed in exactly this quantity.
     "W": 1.0,
@@ -358,104 +288,94 @@ MEASURED_POWER_POINT_HEADROOM: dict[str, float] = {
     #
     # The physical bound on the DC side is the sum of the MPPT input
     # limits, plus the battery charge power on a DC-coupled hybrid, and
-    # neither number is in any register this integration reads (model
-    # 160 carries no ratings). So a factor on the AC rating can only be
-    # a garbage ceiling here, never a physical one, and it has to sit
-    # above every real layout: two MPPTs each rated at the full AC power
-    # is 2.0x on its own and is sold today, a DC-coupled battery charges
-    # on top of that, and a small AC stage in front of a large DC side
-    # (AC rating near the export limit) pushes it further still (#45).
-    # 1.5 was inside that range. 3.0 is above it and still catches what
-    # the filter exists for, a misread scale factor (10x and up) or a
-    # shifted register.
+    # neither number is in a register this integration reads (model 160
+    # carries no ratings). A factor on the AC rating can therefore only
+    # be a garbage ceiling, and the factor has to sit above every real
+    # layout: two MPPTs each rated at the full AC power are 2.0x on
+    # their own, a DC-coupled battery charges on top of that, and a
+    # small AC stage in front of a large DC side (AC rating near the
+    # export limit) pushes the ratio further still (#45). 3.0 is above
+    # that range and still catches a misread scale factor (10x and up)
+    # or a shifted register.
     "DCW": 3.0,
     "InDCW": 3.0,
 }
 
 
 def measured_power_headroom(key: str) -> float | None:
-    """Headroom factor for a point key, or ``None`` if it must not be gated.
+    """Return the headroom factor for a point key, or ``None`` for a point that is not gated.
 
-    ``key`` is the flattened models.py key, so a repeating-group point
-    arrives as ``group:idx:point`` and only the trailing name decides -
-    ``module:0:DCW`` is the same physical quantity as ``DCW``.
+    ``key`` is the flattened models.py key. Only the trailing point name
+    decides: ``module:0:DCW`` is the same physical quantity as ``DCW``.
     """
     return MEASURED_POWER_POINT_HEADROOM.get(key.rsplit(":", 1)[-1])
 
 
-# The power plausibility filter emits one WARNING per rejected read. When
-# the ceiling is set too low that is one line per affected sensor per
-# poll, for as long as the sun shines, which is how #45 buried its own
-# evidence in the reporter's log. Log the first rejection of a run, then
-# every Nth, then a single line when the sensor comes back.
+# The power plausibility filter logs the first rejected read of a run,
+# then every Nth, then one line when the sensor comes back. With a
+# ceiling set too low, a WARNING per rejection is one line per affected
+# sensor per poll for as long as the sun shines (#45).
 IMPLAUSIBLE_LOG_EVERY = 20
-# After this many consecutive rejected reads the energy plausibility filter
-# accepts the new value as the new baseline. Without this escape hatch a
-# legitimate large jump the time window above cannot explain (a restored
-# baseline whose timestamp is off, a freshly-started integration whose
-# first read was an outlier below the truth) would freeze the sensor on
-# its initial value forever, since lastKnown is never updated while the
-# filter rejects. Counters that move in coarse steps used to need this
-# hatch on every step; the time window handles them without a rejection.
+
+# After this many consecutive rejected reads the energy plausibility
+# filter accepts the new value as the new baseline. Without the limit, a
+# legitimate large jump that the time window of
+# ENERGY_DELTA_SAFETY_FACTOR cannot explain (a restored baseline with a
+# wrong timestamp, a first read that was an outlier below the truth)
+# freezes the sensor on its initial value, because lastKnown is not
+# updated while the filter rejects.
 ENERGY_DELTA_REJECT_RECOVERY_COUNT = 3
 
-# Resilience: when an update cycle fails after the integration is already
-# running, wait this many seconds and retry the cycle once before giving
-# up. Inverters and Modbus TCP gateways have famously flaky connectivity
-# and a single fast retry catches most one-shot blips before HA marks the
-# coordinator as failed. The first refresh during setup deliberately does
-# NOT use this retry - first-refresh failure raises ConfigEntryNotReady
-# and HA's own exponential backoff takes over.
+# When an update cycle fails on a running integration, the coordinator
+# waits this many seconds and retries the cycle once. A single fast
+# retry catches most one-shot blips of inverters and Modbus TCP gateways
+# before Home Assistant marks the coordinator as failed. The first
+# refresh during setup does not retry: its failure raises
+# ConfigEntryNotReady and Home Assistant's own backoff takes over.
 INTERVAL_RETRY_DELAY_SECONDS = 5
 
-# Resilience for a gateway whose profile sets collection_round_seconds:
-# one that works through one request at a time and goes on working on a
-# request left unanswered. After such a request the gateway rests: no
-# entry behind it sends anything until the rest is over, and the in-cycle
-# retry above is skipped, because it would only queue behind the request
-# the gateway is still busy with. A connect that times out counts the
-# same: the gateway is not taking anything. A refused one does not.
+# The rest of a gateway whose profile sets collection_round_seconds: a
+# gateway that works through one request at a time and goes on working
+# on a request left unanswered. After such a request the gateway rests:
+# no entry behind it sends anything until the rest is over, and the
+# in-cycle retry is skipped, because the retry would only queue behind
+# the request the gateway is still busy with. A connect that times out
+# counts the same: the gateway is not taking anything. A refused
+# connect does not.
 #
 # The rest lasts at least GATEWAY_REST_MIN_SECONDS, time for the gateway
 # to finish or drop that request, and then ends GATEWAY_REST_SETTLE_SECONDS
 # after the start of the gateway's next round. A gateway collecting from
 # its devices is slow to answer, and the margin keeps the next attempt out
 # of the first minute of the round. Polls that fall into a rest count as
-# failed cycles, so the stale-data tolerance below runs on the same clock
+# failed cycles, so STALE_DATA_TOLERANCE_CYCLES runs on the same clock
 # as without a rest.
 GATEWAY_REST_MIN_SECONDS = 60
 GATEWAY_REST_SETTLE_SECONDS = 60
 
 # How long a write waits for the per-gateway lock before giving up.
 #
-# Sizing this off the scan interval is tempting and wrong: the wait is
-# bounded by lock HOLD time times queued waiters, not by how often we
-# poll. One hold is dominated by pysunspec2's own sleeps - read_model
-# sleeps 0.6s per model instance, so a hold that polls 18 model
-# instances spends nearly 11s in pacing alone before the last register
-# is read. A hold that has to build a client first pays scan() on top,
-# which sleeps `delay` (0.5s) per discovered model: that was every hold
-# until v0.22.0, and it is now a first connect with no cached layout,
-# a reconnect after a failure, and any connect whose cached layout no
-# longer validates. Two config entries behind one Modbus gateway can
-# therefore legitimately queue past 30s without anything being wrong,
-# and a timeout that fires on healthy hardware is worse than no timeout
-# at all.
+# The wait is bounded by lock hold time times queued waiters, not by the
+# scan interval. One hold is dominated by pacing: at the default model
+# read delay of 0.6 s a read cycle over 18 model instances spends about
+# 10 s in pauses, and a hold that has to scan first pays the scan delay
+# (0.5 s) per discovered model on top. Two config entries behind one
+# Modbus gateway can therefore queue past 30 s with nothing wrong, and
+# a timeout that fires on healthy hardware is worse than none.
 #
-# 120s is "something is genuinely stuck" territory rather than "the
-# gateway is busy". A write that fails with a readable message still
-# beats a write that never returns, which is what we had before: HA
-# has no service-call timeout of its own (SLOW_UPDATE_WARNING only
-# fires inside async_update_ha_state(force_refresh=True), which
-# CoordinatorEntity never reaches because should_poll is False).
+# 120 s means "something is stuck", not "the gateway is busy". The
+# timeout has to exist because Home Assistant has no service-call
+# timeout of its own: SLOW_UPDATE_WARNING only fires inside
+# async_update_ha_state(force_refresh=True), which CoordinatorEntity
+# never reaches because should_poll is False. Without the timeout a
+# write behind a stuck lock never returns.
 WRITE_LOCK_TIMEOUT_SECONDS = 120
 
-# Resilience: keep serving the last successfully-read value through the
-# entity's `available` property for up to this many consecutive failed
-# update cycles before flipping to "unavailable". With the default 30s
-# scan interval and the 5s in-cycle retry, this rides out roughly three
-# minutes of dropped connectivity without bouncing the long-term
-# statistics graphs to "unknown".
+# The entity's `available` property keeps serving the last good value
+# for this many consecutive failed update cycles before the entity
+# turns "unavailable". With the default 30 s scan interval and the 5 s
+# in-cycle retry that rides out roughly three minutes of dropped
+# connectivity without a gap in the long-term statistics.
 STALE_DATA_TOLERANCE_CYCLES = 5
 
 # A model polled only for its controls is skipped after this many
@@ -463,24 +383,24 @@ STALE_DATA_TOLERANCE_CYCLES = 5
 # never one read by the current coordinator (#172).
 CONTROL_REFUSALS_BEFORE_SKIP = 2
 
-# Issue #52: SunSpec models that carry the inverter operating state
-# point, and the values of that point which mean "I am powering
-# myself down".
+# The SunSpec models that carry the inverter operating state point, and
+# the values of that point that mean the inverter is powering itself
+# down (#52).
 #
-# Deliberately only the inverter models 101/102/103 (integer + scale
-# factor) and 111/112/113 (float). They share one enum: 1 OFF,
+# Only the inverter models 101/102/103 (integer plus scale factor) and
+# 111/112/113 (float) are listed. They share one enum: 1 OFF,
 # 2 SLEEPING, 3 STARTING, 4 MPPT, 5 THROTTLED, 6 SHUTTING_DOWN,
 # 7 FAULT, 8 STANDBY.
 #
-# Model 701 (DER AC Measurement) also has a point called "St" and it
-# must stay out of this list. Its enum is 0 OFF / 1 ON, so a perfectly
-# healthy inverter reporting ON would read as OFF here and silence a
-# genuine outage.
+# Model 701 (DER AC Measurement) also has a point called "St" and must
+# stay out of this list. Its enum is 0 OFF / 1 ON, so a healthy
+# inverter reporting ON would read as OFF here and silence a genuine
+# outage.
 OPERATING_STATE_MODEL_IDS = (101, 102, 103, 111, 112, 113)
 OPERATING_STATE_POINT = "St"
-# Only the states the device reaches on its way out. FAULT is not one
-# of them: a faulted inverter that then stops answering is exactly the
-# case the repair issue exists for.
+# Only the states the device reaches on its way down. FAULT is not one
+# of them: a faulted inverter that then stops answering is the case the
+# repair issue exists for.
 OPERATING_STATE_LABELS = {
     1: "OFF",
     2: "SLEEPING",
@@ -489,19 +409,15 @@ OPERATING_STATE_LABELS = {
 }
 STANDBY_OPERATING_STATES = frozenset(OPERATING_STATE_LABELS)
 
-# How long a previously-detected SunSpec model has to stay missing
-# from successful scans before we raise a Repairs issue suggesting the
-# user remove the related device. Generous on purpose: SMA Tripower X12
-# (cjne issue #202) sometimes stops exposing model 714 for hours during
-# low-light conditions, and a one-time hiccup should not escalate.
+# How long a previously detected SunSpec model has to stay missing
+# before a Repairs issue suggests removing the related device. Generous
+# on purpose: an SMA Tripower X12 (cjne/ha-sunspec#202) sometimes stops
+# exposing model 714 for hours in low light, and a one-time hiccup
+# should not escalate.
 #
-# Measured in seconds, not cycles. It used to be 20 cycles, chosen
-# because "with the default 30s scan interval that is roughly ten
-# minutes". That equivalence broke the moment the model tree stopped
-# being scanned on every cycle: a counter that only advances on a real
-# scan now never advances at all on a healthy device, because a healthy
-# device never needs a rescan. Wall-clock time is what the threshold
-# always meant, so it is now what it measures.
+# The threshold is wall-clock time, not a number of scans: a healthy
+# device is never rescanned, so a counter that advances per scan would
+# never advance.
 STALE_MODEL_TOLERANCE_SECONDS = 600
 
 # Every model the config flow may tick, and what an entry with an
@@ -510,16 +426,11 @@ STALE_MODEL_TOLERANCE_SECONDS = 600
 # separate write_model_filter, so a tick the user never made is never
 # rendered and never saved.
 #
-# Both halves of every measurement pair are in here. SunSpec defines
-# the inverter and the meter blocks twice, once with integer values
-# and a scale factor and once as float: 101 to 103 against 111 to 113,
-# 201 to 204 against 211 to 214. The list came over from
-# cjne/ha-sunspec with the integer halves alone, so until 2026.10 a
-# device serving only the float half arrived with its inverter or
-# meter block unticked and no sensors from it.
-#
-# Which half a given device gets ticked is default_models_for()'s
-# decision rather than this set's, because a device may serve both.
+# Both halves of every measurement pair are listed. SunSpec defines the
+# inverter and the meter blocks twice, once with integer values and a
+# scale factor and once as float: 101 to 103 against 111 to 113, 201 to
+# 204 against 211 to 214. A device may serve one half or both, and
+# default_models_for() decides which half gets ticked.
 DEFAULT_MODELS = set(
     [
         101,
@@ -568,22 +479,21 @@ INTEGER_MEASUREMENT_MODELS: frozenset[int] = frozenset({101, 102, 103, 201, 202,
 
 
 def default_models_for(available: set[int]) -> set[int]:
-    """The models to tick for a device reporting ``available``.
+    """Return the models to tick for a device reporting ``available``.
 
     Args:
-        available (set[int]): The model ids found on the device.
+        available: The model ids found on the device.
 
     Returns:
-        set[int]: Those of DEFAULT_MODELS the device has, minus the
-        float twin of every pair it serves both halves of.
+        Those of DEFAULT_MODELS the device has, minus the float twin of
+        every pair the device serves both halves of.
     """
     # A Kostal PLENTICORE serves 103 and 113, and its meter 203 and
     # 213. Ticking both halves would build a second entity for every
     # reading, same value, different model number in its unique id.
-    # The integer half is the one that wins, because it is the half
-    # this integration ticked before 2026.10: an install that has been
-    # running keeps its entity ids and its recorder history when the
-    # user next saves the options form.
+    # The integer half wins because installations older than 2026.10
+    # have only that half ticked: they keep their entity ids and their
+    # recorder history when the user next saves the options form.
     ticked = DEFAULT_MODELS & available
     return ticked - {model + FLOAT_TWIN_OFFSET for model in INTEGER_MEASUREMENT_MODELS & available}
 

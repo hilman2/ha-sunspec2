@@ -48,10 +48,9 @@ def is_datamanager(model: str, option: str, version: str) -> bool:
     """Whether common model 1 describes a Datamanager 2.0 or Hybridmanager device.
 
     A GEN24 is ruled out by name. What is left is a Datamanager device
-    when ``Opt`` carries a firmware version or ``Vr`` starts with the
-    power stage's 0.3; a device that reports neither stays with the
-    GEN24 profile, which is what applied to every Fronius before this
-    one existed.
+    when ``Opt`` is not empty or ``Vr`` starts with "0.", as the power
+    stage's 0.3.x does. A device that reports neither stays with the
+    GEN24 profile.
     """
     name = model.strip().upper()
     if any(word in name for word in NEW_GENERATION):
@@ -90,8 +89,9 @@ FRONIUS_DATAMANAGER = VendorProfile(
         modes=tuple(StorageMode),
         recipes=RECIPES,
         infer_mode=infer_mode,
-        # The 10 W step is GEN24 lore. battsett and evcc drive this
-        # generation in whole percent, and nothing suggests a step.
+        # The 10 W step is known from the GEN24 only. battsett and evcc
+        # drive this generation in whole percent, and nothing suggests
+        # a step.
         grid_power_step_w=1.0,
         hidden_points=frozenset({"124:InWRte", "124:OutWRte", "124:StorCtl_Mod"}),
     ),

@@ -82,10 +82,10 @@ POWER_CONTROL_ACTIVE = 802
 #: The phase currents of the inverter models 101 to 103. They are
 #: uint16, where SunSpec marks "not implemented" with 0xFFFF. A Sunny
 #: Tripower 25000 on firmware 2.83.03.R fills them with 0x8000 instead
-#: while it sleeps, SMA's own "no value" for a signed register, and A_SF
-#: of -1 turned that into 3276.8 A all night (#176). The total current A
-#: and the power W of the same model went unknown at the same moment, so
-#: only these three points need the correction.
+#: while it sleeps, SMA's own "no value" for a signed register, and
+#: ``A_SF`` of -1 turns that into 3276.8 A all night (#176). The total
+#: current ``A`` and the power ``W`` of the same model go unknown at the
+#: same moment, so only these three points need the correction.
 PHASE_CURRENT_POINTS: frozenset[tuple[int, str]] = frozenset(
     (model, point) for model in (101, 102, 103) for point in ("AphA", "AphB", "AphC")
 )
@@ -160,8 +160,8 @@ RAW_BLOCKS: tuple[RawBlock, ...] = (
         gate=("sma_battery", "voltage"),
     ),
     _sma_block("sma_setpoint_timeout", 41195, 2, RawField("timeout", 0, "uint32")),
-    # The external setpoint: written, never read. What the entities
-    # show is what Home Assistant last wrote.
+    # The external setpoint is written and never read. Its entities
+    # show what Home Assistant last wrote.
     _sma_block(
         "sma_setpoint",
         40149,
@@ -343,8 +343,8 @@ RAW_KEEPALIVES: tuple[RawKeepAlive, ...] = (
         fields=("control", "setpoint"),
         interval_seconds=SETPOINT_KEEPALIVE_SECONDS,
         only_while=_control_active,
-        # The flag a moment before the value; SMA asks for a second
-        # between transfers.
+        # The flag goes out a moment before the value: SMA asks for a
+        # second between transfers.
         settle_seconds=1.0,
         icon="mdi:refresh-auto",
     ),
@@ -358,8 +358,8 @@ SMA = VendorProfile(
     raw_selects=RAW_SELECTS,
     raw_numbers=RAW_NUMBERS,
     raw_keepalives=RAW_KEEPALIVES,
-    # The setpoints are what SMA lets a controller write cyclically;
-    # nothing else this profile writes.
+    # The setpoints are the registers SMA lets a controller write
+    # cyclically, and the profile writes nothing else.
     volatile_registers=frozenset({address(40149), address(40151)}),
     signed_nan_points=PHASE_CURRENT_POINTS,
 )

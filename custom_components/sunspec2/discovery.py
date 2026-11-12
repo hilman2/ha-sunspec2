@@ -1,32 +1,17 @@
-"""Active network discovery for SunSpec inverters.
+"""Active network scan for SunSpec inverters.
 
-Why this exists alongside the DHCP discovery in manifest.json:
+The DHCP discovery in manifest.json only fires when Home Assistant sees
+a DHCP packet of the device. A device with a static address never sends
+one, and a device with a lease renews it only every few hours. The scan
+in this module does not depend on a lease.
 
-DHCP discovery requires HA to actually see a fresh DHCP lease land in
-the network. With the typical home setup that's roughly never:
-
-* most home routers hand out 8 h+ leases, so a renewal arrives at most
-  every ~4 h. If HA is not running at exactly that moment, no event.
-* every inverter installation guide tells the user to give the device
-  a static IP or a DHCP reservation. Static IPs never trigger any
-  DHCP packet at all, ever, so DHCP discovery is dead by design.
-* on a fresh HA install the user pays for one full lease cycle of
-  uncertainty before discovery has a chance to fire.
-
-The active scan does not depend on any of that. The user explicitly
-clicks "Scan network" in the config flow, we open a TCP probe to
-port 502 on every host in the chosen subnet (no Modbus bytes sent,
-just is-the-port-open?), and then ARP-look-up each responder against
-the same SunSpec vendor OUI list that the manifest's dhcp section
-uses. Hosts whose MAC matches a known vendor float to the top of
-the result list as "almost certainly a SunSpec inverter"; the rest
-go below as "modbus device, could be SunSpec".
-
-Risk model: a TCP SYN/ACK/FIN cycle on port 502 is not Modbus traffic
-and will not steal any single-slot device's connection in the way an
-actual modbus_read would. The probe is bounded by a per-host timeout
-and a global concurrency cap so a /24 finishes in well under 10 s.
-The whole thing only runs on explicit user click, never automatic.
+The scan runs only when the user chooses the network scan in the config
+flow, never on its own. It opens a TCP connection to port 502 on every
+host of the chosen subnet, sends no Modbus bytes, and looks up the MAC
+address of every host that answers. Hosts whose MAC prefix is in
+``SUNSPEC_VENDOR_OUIS`` come first in the result, as likely SunSpec
+inverters; the other hosts follow as Modbus devices that may be SunSpec.
+A per-host timeout and a concurrency cap bound the scan.
 """
 
 from __future__ import annotations
@@ -43,12 +28,10 @@ from homeassistant.core import HomeAssistant
 
 _LOGGER = logging.getLogger(__name__)
 
-# Vendor MAC OUIs that signal a SunSpec-capable inverter. Mirrors the
-# DHCP discovery list in manifest.json, normalised to lowercase
-# colon-separated form so they compare cleanly against the output of
-# `ip neigh show` and friends. If you add an OUI here, add it in
-# manifest.json too (and the other way round) so passive DHCP and
-# active scan stay in sync.
+# Vendor MAC OUIs that point to a SunSpec-capable inverter, in the
+# lowercase colon-separated form that `ip neigh show` prints. The set
+# mirrors the dhcp list in manifest.json: an OUI added here has to be
+# added there too, and the other way round.
 SUNSPEC_VENDOR_OUIS: frozenset[str] = frozenset(
     {
         "00:27:02",  # SolarEdge Technologies
@@ -70,14 +53,12 @@ SUNSPEC_VENDOR_OUIS: frozenset[str] = frozenset(
         "00:22:f2",  # SunPower Corp
         "34:ad:e4",  # Chint Power Systems
         "80:97:1b",  # Altenergy Power System (APsystems ECU)
-        # Microchip Technology - generic embedded ethernet/wifi chip
-        # OUI used by KACO Powador (DE / Siemens) ethernet loggers,
-        # plus a few other inverter brands and a long tail of unrelated
-        # IoT devices. Match is therefore not specific to inverters,
-        # but on a typical home LAN the false-positive rate is low and
-        # for KACO users it is the only OUI that catches their device.
-        # The user picks from the candidate list anyway, so a stray
-        # Microchip-based device showing up is harmless.
+        # Microchip Technology: a generic embedded Ethernet and Wi-Fi OUI,
+        # used by the KACO Powador Ethernet loggers, a few other inverter
+        # brands and many unrelated IoT devices. A match is therefore not
+        # specific to inverters, but it is the only OUI that catches a
+        # KACO. The user picks from the candidate list anyway, so a stray
+        # Microchip device in the list is harmless.
         "00:1e:c0",
     }
 )
@@ -86,9 +67,8 @@ MODBUS_TCP_PORT = 502
 PROBE_TIMEOUT_SECONDS = 1.5
 MAX_CONCURRENT_PROBES = 50
 ARP_LOOKUP_TIMEOUT_SECONDS = 2.0
-# Soft cap. /24 = 254, /23 = 510. Anything bigger than /22 (1022 hosts)
-# starts to feel slow even at 50 parallel probes and rarely matches
-# the user's intent for a "scan my LAN" click.
+# The most hosts one scan probes: a /22. A wider network is slow even at
+# 50 parallel probes and is rarely what a user means by "scan my LAN".
 MAX_HOSTS_PER_SCAN = 1022
 
 
@@ -102,12 +82,11 @@ class SunSpecCandidate:
 
 
 async def async_get_default_subnet(hass: HomeAssistant) -> str | None:
-    """Return the user's default LAN subnet in CIDR notation, or None.
+    """Return the subnet of the default network adapter in CIDR notation, or None.
 
-    Walks HA's network adapter list, picks the default-routed enabled
-    adapter, and turns its first IPv4 address + prefix into a CIDR
-    string. Sanity-clamps anything wider than /16 to None so we
-    never offer to scan a million addresses by accident.
+    The subnet comes from the first IPv4 address of the enabled adapter
+    with the default route whose network is a /22 or narrower. A wider
+    network is not offered.
     """
     adapters = await async_get_adapters(hass)
     for adapter in adapters:
@@ -122,8 +101,8 @@ async def async_get_default_subnet(hass: HomeAssistant) -> str | None:
                 net = ipaddress.IPv4Network(f"{address}/{prefix}", strict=False)
             except ValueError:
                 continue
-            # Refuse to suggest scanning a corporate /16 - that's not
-            # what a home user means by "my LAN" and would take ages.
+            # A network wider than /22 has more hosts than
+            # MAX_HOSTS_PER_SCAN, and the scan would refuse it.
             if net.prefixlen < 22:
                 continue
             return str(net)
@@ -131,13 +110,10 @@ async def async_get_default_subnet(hass: HomeAssistant) -> str | None:
 
 
 async def _probe_port_502(ip: str, semaphore: asyncio.Semaphore) -> bool:
-    """Return True if a TCP connect to ip:502 succeeds within timeout.
-
-    No Modbus bytes are sent. The connection is closed immediately
-    after the kernel-level handshake completes, so any single-slot
-    Modbus device sees this as a stray TCP touch and not as an
-    actual modbus session that would steal its slot.
-    """
+    """Return True if a TCP connect to ``ip`` on port 502 succeeds within the timeout."""
+    # No Modbus bytes are sent, and the connection is closed as soon as
+    # the TCP handshake completes. A device that grants one Modbus
+    # session sees a stray TCP touch, not a session that takes its slot.
     async with semaphore:
         try:
             connect_coro = asyncio.open_connection(ip, MODBUS_TCP_PORT)
@@ -151,14 +127,13 @@ async def _probe_port_502(ip: str, semaphore: asyncio.Semaphore) -> bool:
 
 
 async def _arp_lookup(ip: str) -> str | None:
-    """Look up the MAC for ``ip`` in the kernel ARP cache, best-effort.
+    """Return the MAC address for ``ip`` from the kernel's neighbour table, or None.
 
-    Tries iproute2's ``ip neigh show <ip>`` first because it works on
-    every recent Linux. Returns ``None`` if iproute2 is missing,
-    times out, or the host has no entry. Container installs without
-    host networking will simply get ``None`` for every address - the
-    caller treats that as "no vendor info available", not as an
-    error.
+    The lookup runs iproute2's ``ip neigh show <ip>``. It returns None
+    when iproute2 is missing, when the call times out or when the host
+    has no entry. A container install without host networking gets None
+    for every address; the caller treats None as "no vendor information",
+    not as an error.
     """
     try:
         proc = await asyncio.create_subprocess_exec(
@@ -186,7 +161,7 @@ async def _arp_lookup(ip: str) -> str | None:
 
 
 def _is_vendor_match(mac: str | None) -> bool:
-    """Return True if mac's OUI is in our SunSpec vendor list."""
+    """Return True if the OUI of ``mac`` is in ``SUNSPEC_VENDOR_OUIS``."""
     if mac is None:
         return False
     return mac[:8].lower() in SUNSPEC_VENDOR_OUIS
@@ -197,9 +172,12 @@ async def async_discover_sunspec_candidates(
 ) -> list[SunSpecCandidate]:
     """Scan ``subnet`` for hosts with Modbus TCP port 502 open.
 
-    Returns the candidates sorted vendor-matches-first. Raises
-    :class:`ValueError` if subnet is malformed or larger than the
-    soft cap (``MAX_HOSTS_PER_SCAN``).
+    Returns the candidates, vendor matches first, then ordered by the
+    address as text.
+
+    Raises:
+        ValueError: ``subnet`` is malformed or has more hosts than
+            ``MAX_HOSTS_PER_SCAN``.
     """
     try:
         network = ipaddress.IPv4Network(subnet, strict=False)
@@ -226,7 +204,6 @@ async def async_discover_sunspec_candidates(
         mac = await _arp_lookup(ip)
         candidates.append(SunSpecCandidate(ip=ip, mac=mac, vendor_match=_is_vendor_match(mac)))
 
-    # Sort: vendor matches first (more likely to be the inverter the
-    # user is looking for), then by IP for a stable order.
+    # A vendor match is more likely the inverter the user is looking for.
     candidates.sort(key=lambda c: (not c.vendor_match, c.ip))
     return candidates

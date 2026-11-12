@@ -10,8 +10,8 @@ the block itself.
 Writes go through ``coordinator.async_write_raw_locked``, one register
 run at a time, under the gateway lock, and are counted: SolarEdge
 warns that its persistent registers wear the flash when written
-periodically, and the count is the one number that tells a user how
-their automation is doing on that.
+periodically, and the count tells a user how much their automation
+writes.
 """
 
 from __future__ import annotations
@@ -86,9 +86,9 @@ class RawBlockEntity(SunSpecEntity):
         self._device = device
         vendor = coordinator.vendor
         raw_block = vendor.raw_block(block) if vendor is not None else None
-        # A block of write-only setpoints is never polled; its entities
-        # are available whenever the profile is, and show what Home
-        # Assistant last wrote.
+        # A block of write-only setpoints is never polled. Its entities
+        # are available without the block in ``coordinator.raw_blocks``
+        # and show what Home Assistant last wrote.
         self._write_only = raw_block is not None and not raw_block.readable
         self._attr_translation_key = key
         self._attr_unique_id = get_sunspec_unique_id(
@@ -125,8 +125,8 @@ class RawBlockEntity(SunSpecEntity):
             raise user_error(
                 "write_failed", target=f"{self._block}.{self._field}={value}", error=exc
             ) from exc
-        # Outside the lock: the refresh debouncer runs inline and
-        # asyncio.Lock is not reentrant.
+        # The refresh is requested outside the gateway lock: the refresh
+        # debouncer runs inline and asyncio.Lock is not reentrant.
         await self.coordinator.async_request_refresh()
 
     @property
@@ -257,9 +257,9 @@ class RawKeepAliveSwitch(RawBlockEntity, SwitchEntity, RestoreEntity):
     """Writes the profile's fields again on a timer while on.
 
     The values written are what Home Assistant last wrote to each
-    field, or what the device shows when it never did. On across
-    restarts, because a device that forgets its command at night does
-    so whether or not Home Assistant was restarted in between.
+    field, or what the device shows when it never did. The switch stays
+    on across restarts, because a device that forgets its command at
+    night does so whether or not Home Assistant was restarted in between.
     """
 
     _attr_entity_category = EntityCategory.CONFIG
@@ -325,9 +325,9 @@ class RawKeepAliveSwitch(RawBlockEntity, SwitchEntity, RestoreEntity):
             if block.readable:
                 return
             data = {}
-        # The device's view with Home Assistant's own writes on top:
-        # what the condition and the rewrite go by. A write-only block
-        # has nothing but the writes.
+        # ``view`` is the device's view with Home Assistant's own writes
+        # on top. The condition and the rewrite go by it. A write-only
+        # block has nothing but the writes.
         view: dict[str, Any] = dict(data)
         for name in self._spec.fields:
             written = self.coordinator.raw_setpoints.get((self._spec.block, name))
@@ -408,11 +408,7 @@ def raw_device_info(
 ) -> DeviceInfo:
     """The device registry payload for a vendor device of one entry.
 
-    Args:
-        coordinator (SunSpecDataUpdateCoordinator): The entry's coordinator.
-        config_entry (ConfigEntry): The entry the device belongs to.
-        prefix (str): The user's device name, or "".
-        device (RawDevice): The device.
+    ``prefix`` is the user's device name, or "".
     """
     common = coordinator.device_info
     identity: Mapping[str, Any]
@@ -422,8 +418,10 @@ def raw_device_info(
         identity = coordinator.raw_blocks.get(device.info_block, {})
     base = prefix or (_text(common.getValue("Md")) if common is not None else None)
     info = DeviceInfo(
-        # Three-element identifiers, like every device of this
-        # integration; see SunSpecEntity.device_info.
+        # The identifiers have three elements, like those of every
+        # device of this integration (see ``device_info_for`` in
+        # entity.py). They are in the device registry of existing
+        # installations, so their shape must not change.
         identifiers={
             (DOMAIN, config_entry.entry_id, f"raw:{device.key}")  # type: ignore[arg-type]
         },
@@ -466,13 +464,11 @@ def _device_model(device: RawDevice, identity: Mapping[str, Any]) -> str | None:
 
 
 def _serial(value: Any) -> str | None:
-    """A serial number as text, for a vendor that reports it as a number.
-
-    Kostal keeps the battery's serial in a 32-bit integer register. A
-    manufacturer or a model reported as a number needs a table before
-    it means anything, which is what ``RawDevice.model_options`` is
-    for. A serial number does not: the number is what the sticker says.
-    """
+    """A serial number as text, for a vendor that reports it as a number."""
+    # Kostal keeps the battery's serial in a 32-bit integer register. A
+    # manufacturer or a model reported as a number needs a table before
+    # it means anything (``RawDevice.model_options``). A serial number
+    # does not: the number is what the sticker says.
     if isinstance(value, int):
         return str(value)
     return _text(value)

@@ -51,11 +51,8 @@ from .entity import SunSpecEntity
 from .entity import get_sunspec_unique_id
 from .franklinwh_controls import franklinwh_sensors
 
-# Bronze rule parallel-updates: the coordinator already serialises all
-# I/O via its per-gateway asyncio.Lock, so platform entities never
-# need their own concurrency limit. ``0`` means HA will not attempt
-# to throttle entity updates from this platform - the coordinator
-# does the throttling for us.
+# The coordinator serialises all I/O through its per-gateway lock, so
+# the platform needs no concurrency limit of its own.
 PARALLEL_UPDATES = 0
 
 _LOGGER: logging.Logger = logging.getLogger(__package__)
@@ -139,16 +136,14 @@ _POWER_UNITS = (
 def _power_limit_in_native_unit(
     unit: str | None, key: str, max_power_kw: float | None
 ) -> float | None:
-    """Upper bound for one sensor, in its own unit, or ``None`` for no bound.
+    """Return the upper bound for one sensor in its own unit, or ``None`` for no bound.
 
-    All SunSpec power-like units (W, VA, VAr) are 1:1 with watts in HA, so
-    the same kW-to-W conversion applies to each; what differs is how far
-    above the peak AC power the quantity may legitimately sit.
-
-    The unit check stays in front of the name lookup and is not redundant:
-    model 64411 names a *voltage* point ``VA``, and only the unit tells
-    the two apart.
+    The bound is the peak power times the headroom of the point, see
+    :data:`MEASURED_POWER_POINT_HEADROOM`.
     """
+    # The unit check is not redundant with the name lookup below: model
+    # 64411 names a voltage point ``VA``, and only the unit tells that
+    # point from an apparent power.
     if max_power_kw is None or unit not in _POWER_UNITS:
         return None
     headroom = measured_power_headroom(key)
@@ -160,12 +155,11 @@ def _power_limit_in_native_unit(
 def _energy_delta_limit_in_native_unit(
     unit: str | None, max_power_kw: float | None, window_seconds: float | None
 ) -> float | None:
-    """Compute the maximum plausible energy delta over ``window_seconds``.
+    """Return the maximum plausible energy delta over ``window_seconds``, in ``unit``.
 
-    Derived from the configured peak power and the time the energy can
-    have accumulated over, with the safety factor in
-    :data:`ENERGY_DELTA_SAFETY_FACTOR`. Returns ``None`` if the sensor is
-    not a known energy unit or no peak power is configured.
+    The delta is the peak power over the window times
+    :data:`ENERGY_DELTA_SAFETY_FACTOR`. Returns ``None`` if ``unit`` is
+    not Wh or kWh, or if there is no peak power or no window.
     """
     if max_power_kw is None or window_seconds is None:
         return None
@@ -202,8 +196,7 @@ HA_META: dict[str, tuple[str | None, str, SensorDeviceClass | None]] = {
     "Secs": (UnitOfTime.SECONDS, ICON_DEFAULT, None),
     "Sec": (UnitOfTime.SECONDS, ICON_DEFAULT, None),
     # SunSpec spells reactive power four ways across its model
-    # definitions and we only had one of them, so "var" and "Var" points
-    # (49 and 10 respectively) fell through to the raw-string fallback.
+    # definitions.
     "var": (UnitOfReactivePower.VOLT_AMPERE_REACTIVE, ICON_POWER, None),
     "Var": (UnitOfReactivePower.VOLT_AMPERE_REACTIVE, ICON_POWER, None),
     "varh": (
@@ -239,11 +232,21 @@ HA_META: dict[str, tuple[str | None, str, SensorDeviceClass | None]] = {
     "PF": (None, ICON_DEFAULT, SensorDeviceClass.POWER_FACTOR),
     "W/m^2": (UnitOfIrradiance.WATTS_PER_SQUARE_METER, ICON_DEFAULT, None),
     "enum16": (None, ICON_DEFAULT, SensorDeviceClass.ENUM),
-    # Bitfields are deliberately NOT the ENUM device class. See the
-    # vtype handling in SunSpecSensor.__init__ for why.
-    "bitfield16": (None, ICON_DEFAULT, None),
+    # A bitfield is not an ENUM on purpose. The reason is at the vtype
+    # handling in SunSpecSensor.__init__.
     "bitfield32": (None, ICON_DEFAULT, None),
 }
+
+# Some SunSpec units are missing from HA_META on purpose. A sensor with
+# one of them gets no unit:
+#
+#   * Rates ("% WMax/min", "%Max/Sec", "% PF/min", "V/s", "%ARtg/%dV").
+#     HA has no compound percent-per-time unit, and an invented one
+#     would start a statistics series the recorder cannot convert.
+#   * Quantities HA has no unit for: "VAh" (apparent energy), "Ah" /
+#     "AH" (charge).
+#   * Things that are not measurements: "SF" (scale factor), "Tms"
+#     (a SunSpec timestamp, not a duration), "YYYYMMDD".
 
 #: Energy points that hold an amount in a store right now, not a counter
 #: that only grows: the energy available in a DER storage (model 713) moves
@@ -251,39 +254,22 @@ HA_META: dict[str, tuple[str | None, str, SensorDeviceClass | None]] = {
 #: back as a counter running backwards (#120).
 STORED_ENERGY_POINTS: frozenset[str] = frozenset({"WHAvail"})
 
-# Deliberately absent, and this is the point of the None fallback rather
-# than a growing table:
-#
-#   * Rates ("% WMax/min", "%Max/Sec", "% PF/min", "V/s", "%ARtg/%dV").
-#     HA has no compound percent-per-time unit and inventing one would
-#     put the series right back under something unconvertible.
-#   * Quantities HA has no unit for at all: "VAh" (apparent energy, 67
-#     points), "Ah" / "AH" (charge).
-#   * Things that are not measurements: "SF" (scale factor), "Tms"
-#     (a SunSpec timestamp, not a duration), "YYYYMMDD".
-
 
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: SunSpec2ConfigEntry,
     async_add_devices: AddEntitiesCallback,
 ) -> None:
-    """Set up the sensor platform with dynamic SunSpec model re-detection.
+    """Set up the sensor platform and keep adding sensors as models appear.
 
-    v0.13.0 (cjne issue #200): the entity list is no longer fixed at
-    setup time. Instead we register a coordinator listener that runs
-    on every successful update cycle and adds entities for any
-    (model_id, key, model_index) triple we have not seen before.
-    That way an inverter that exposes a new SunSpec model after a
-    firmware update gets its sensors picked up automatically on the
-    next refresh, without an HA restart.
-
-    The "have we seen this entity before" check uses the SunSpec
-    unique_id as the dedup key. Entities for points that vanish from
-    the inverter (the cjne #202 case) are NOT removed - HA's
-    stale-data tolerance keeps them on their last good value and
-    the user can decide via the device-info page whether to delete
-    the device.
+    A coordinator listener runs after every successful update cycle and adds an
+    entity for each (model_id, key, model_index) whose unique id it has
+    not seen. A model that an inverter starts serving after a firmware
+    update gets its sensors that way, without a restart
+    (cjne/ha-sunspec#200). Entities of a model that vanishes from the
+    device are not removed (cjne/ha-sunspec#202): the coordinator
+    raises a Repairs issue once the model has stayed missing for
+    ``STALE_MODEL_TOLERANCE_SECONDS``.
     """
     # The role-named model 160 sensors subclass the sensors below, so
     # their module cannot be imported before this one is complete.
@@ -294,11 +280,8 @@ async def async_setup_entry(
     from .vendor_blocks import raw_block_sensors
 
     coordinator = entry.runtime_data
-    # Read the cached common-model (model 1) from the coordinator. The
-    # coordinator populates this during its locked update cycle, so we
-    # do NOT open a second Modbus TCP connection here - that would
-    # deadlock single-slot inverters such as KACO Powador and time out
-    # the platform setup after 60s.
+    # device_info is the common model (model 1) the coordinator cached
+    # in its update cycle. Platform setup does no Modbus I/O of its own.
     device_info = coordinator.device_info
     prefix = entry.options.get(CONF_PREFIX, entry.data.get(CONF_PREFIX, ""))
 
@@ -311,17 +294,16 @@ async def async_setup_entry(
 
     @callback
     def _async_add_new_sensors() -> None:
-        """Walk coordinator.data and add any sensor we haven't seen yet."""
+        """Add a sensor for every point in coordinator.data that has none yet."""
         if coordinator.data is None:
             return
         new_sensors: list[SensorEntity] = []
         for model_id, model_wrapper in coordinator.data.items():
             for key in model_wrapper.getKeys():
                 if is_excluded_sensor_point(model_id, key):
-                    # Either a control the user operates through a
-                    # Number / Switch, or a unit HA cannot map. See
-                    # SENSOR_EXCLUDED_POINTS for why a sensor here is
-                    # actively harmful rather than merely redundant.
+                    # The point is a write control. The comment above
+                    # is_excluded_sensor_point says why a sensor next
+                    # to the control does harm.
                     continue
                 for model_index in range(model_wrapper.num_models):
                     uid = get_sunspec_unique_id(entry.entry_id, key, model_id, model_index)
@@ -389,13 +371,11 @@ async def async_setup_entry(
             )
             async_add_devices(new_sensors)
 
-    # Register the listener so subsequent coordinator refreshes can
-    # also pick up newly-discovered models, then run it once
-    # synchronously to add the initial set.
     entry.async_on_unload(coordinator.async_add_listener(_async_add_new_sensors))
     _async_add_new_sensors()
-    # Fed by the web interface's own coordinator, so not part of the
-    # Modbus re-detection above; the set is known at setup.
+    # The web interface sensors are fed by their own coordinator and
+    # are not part of the Modbus re-detection above. Their set is known
+    # at setup.
     async_add_devices(fronius_web_sensors(coordinator, entry, prefix))
 
 
@@ -424,15 +404,11 @@ class SunSpecSensor(SunSpecEntity, SensorEntity):
         self._group_meta = self.model_wrapper.getGroupMeta()
         self._point_meta = self.model_wrapper.getPoint(self.key).pdef
         sunspec_unit = self._meta.get("units", self._meta.get("type", ""))
-        # Unknown units resolve to no unit at all, NOT to the raw SunSpec
-        # string. Passing the string through made it the entity's
-        # native_unit_of_measurement, and state_class returns MEASUREMENT
-        # for anything with a unit, so every unmapped unit started a
-        # long-term statistics series under a unit the recorder can never
-        # convert or merge. There are 29 such units across the bundled
-        # model definitions ("% VRef" alone appears on 184 points), so
-        # this was never specific to model 123. The value stays visible,
-        # it just stops pretending to be a measurable quantity.
+        # An unknown unit resolves to no unit, not to the raw SunSpec
+        # string. state_class returns MEASUREMENT for anything with a
+        # unit, so a raw string would start a long-term statistics
+        # series under a unit the recorder cannot convert or merge. The
+        # value stays visible without a unit.
         ha_meta = HA_META.get(sunspec_unit, (None, ICON_DEFAULT, None))
         self.unit = ha_meta[0]
         self.use_icon = ha_meta[1]
@@ -440,14 +416,11 @@ class SunSpecSensor(SunSpecEntity, SensorEntity):
         if self.key.split(":")[-1] in STORED_ENERGY_POINTS:
             self.use_device_class = SensorDeviceClass.ENERGY_STORAGE
         self._options: list[str] = []
-        # Used if this is an energy sensor and the read value is 0
-        # Updated whenever the value read is not 0
-        # The baseline the delta plausibility filter measures against.
-        # Annotated as a number because that is what an energy counter
-        # reports, but the value travels here from pysunspec2 through an
-        # untyped getValue, so the filter below still checks it with
-        # isinstance before doing arithmetic on it. Those checks are not
-        # redundant with this annotation.
+        # lastKnown is the last accepted reading of an energy sensor:
+        # the value reported for a read of 0 or None, and the baseline
+        # of the delta plausibility filter. The value comes from
+        # pysunspec2 through an untyped getValue, so the isinstance
+        # checks in the filter are not redundant with this annotation.
         self.lastKnown: float | None = None
         self._assumed_state = False
 
@@ -456,23 +429,15 @@ class SunSpecSensor(SunSpecEntity, SensorEntity):
         )
 
         vtype = self._meta["type"]
-        # A bitfield is a SET of flags, an enum is one of N states, and
-        # only the second is what HA's ENUM device class describes.
-        #
-        # Both used to be ENUM here, with ``options`` listing the
-        # individual symbol names. An inverter reporting two events at
-        # once renders as "GROUND_FAULT,DC_OVER_VOLT", which is not in
-        # that list, and HA validates ENUM states against it strictly:
-        # async_write_ha_state raises ValueError. entity_platform
-        # swallows it during the initial setup, so it looked harmless,
-        # but every later coordinator refresh re-fires the listener and
-        # the exception escapes. cjne/ha-sunspec#370 is the same bug,
-        # and our own test suite had been steering around it by using a
-        # fixture without a multi-bit event value.
-        #
-        # Enumerating the combinations instead is not an option: n flags
-        # give 2**n states, and model 103's Evt1 alone has 32.
-        self._is_bitfield = vtype in ("bitfield16", "bitfield32")
+        # A bitfield is a set of flags, an enum is one of N states, and
+        # only the enum is what HA's ENUM device class describes. An
+        # inverter reporting two events at once renders as
+        # "GROUND_FAULT,DC_OVER_VOLT", which is in no list of options,
+        # and HA validates an ENUM state against its options strictly:
+        # async_write_ha_state raises ValueError (cjne/ha-sunspec#370).
+        # Listing the combinations is not an option either: n flags give
+        # 2**n states, and Evt1 of model 103 is 32 bits wide.
+        self._is_bitfield = vtype == "bitfield32"
         if vtype == "enum16":
             symbols = self._point_meta.get("symbols", None)
             if symbols is None:
@@ -484,21 +449,21 @@ class SunSpecSensor(SunSpecEntity, SensorEntity):
                 # value matches no symbol renders as "".
                 self._options.append("")
         elif self._is_bitfield:
-            # No device class, so no options and no state validation.
-            # The decoded flag names stay in the state string, which is
-            # what people build template sensors on, and land in an
-            # attribute for anything that wants them as a list.
+            # Without a device class there are no options and no state
+            # validation. The decoded flag names stay in the state
+            # string, which template sensors are built on, and
+            # extra_state_attributes offers them as a list.
             self.use_device_class = None
 
         self._device_id = config_entry.entry_id
-        # Use the coordinator's context-bound logger when available so warnings
-        # from native_value carry host:port#unit_id automatically. Fallback to
-        # the module logger for tests that supply a stub coordinator without
-        # an _log attribute (see tests/__init__.py:MockSunSpecDataUpdateCoordinator).
+        # The coordinator's logger puts host:port#unit_id on the warnings
+        # from native_value. The module logger is the fallback for the
+        # tests' stub coordinator, which has no _log attribute (see
+        # tests/__init__.py:MockSunSpecDataUpdateCoordinator).
         self._log = getattr(coordinator, "_log", _LOGGER)
-        # Consecutive reads rejected by the power plausibility filter.
-        # Drives the log throttle and the "back inside the ceiling"
-        # recovery line; see the filter branch in native_value.
+        # Consecutive reads the power plausibility filter rejected. The
+        # count drives the log throttle and the "back inside the
+        # ceiling" line in native_value.
         self._implausible_rejections = 0
         # The name for a point without a translation: the label of
         # the SunSpec model definition, with the group and index in
@@ -513,11 +478,11 @@ class SunSpecSensor(SunSpecEntity, SensorEntity):
         name_parts: list[str] = []
         key_parts = self.key.split(":")
         if len(key_parts) > 1:
-            # e.g. "module:0:DCA" -> prepend "Module 0" before the label
+            # "module:0:DCA" gets "Module 0" in front of the label.
             group_label = key_parts[0].replace("_", " ").title()
             name_parts.append(f"{group_label} {key_parts[1]}")
         elif self.model_index > 0:
-            # Multiple models of the same id - keep an index in the name
+            # A second model of the same id keeps its index in the name.
             name_parts.append(str(self.model_index))
         name_parts.append(desc)
         self._name = " ".join(name_parts)
@@ -535,11 +500,9 @@ class SunSpecSensor(SunSpecEntity, SensorEntity):
                 self._attr_translation_key = translation_key
                 self._name_is_translated = self.model_id in TRANSLATED_NAME_MODELS
 
-        # Gold rule entity-category: temperatures, state enums and
-        # event bitfields are diagnostic information, not the primary
-        # data the user cares about. Tagging them lets HA group them
-        # under "Diagnostic" in the device card so the main entity
-        # list stays focused on power / energy / current / voltage.
+        # Temperatures, state enums and event bitfields are diagnostic:
+        # Home Assistant lists them under "Diagnostic" on the device
+        # page, apart from power, energy, current and voltage.
         diagnostic_keys = {
             "TmpCab",
             "TmpSnk",
@@ -566,12 +529,9 @@ class SunSpecSensor(SunSpecEntity, SensorEntity):
         ):
             self._attr_entity_category = EntityCategory.DIAGNOSTIC
 
-        # Gold rule entity-disabled-by-default: vendor-specific event
-        # bitfields and the static nameplate / settings registers are
-        # noisy or never-changing respectively. Disabling them by
-        # default keeps the device card focused on the values that
-        # actually move; users who care can enable them in the entity
-        # registry.
+        # The vendor event bitfields are noisy and the nameplate and
+        # settings registers do not change, so these sensors start
+        # disabled in the entity registry.
         disabled_by_default_keys = {
             "EvtVnd1",
             "EvtVnd2",
@@ -600,9 +560,6 @@ class SunSpecSensor(SunSpecEntity, SensorEntity):
         if self.device_class == SensorDeviceClass.ENUM:
             _LOGGER.debug("Valid options for ENUM: %s", self._options)
 
-    # def async_will_remove_from_hass(self):
-    #    _LOGGER.debug(f"Will remove sensor {self._unique_id}")
-
     @property
     def options(self) -> list[str] | None:
         if self.device_class != SensorDeviceClass.ENUM:
@@ -611,7 +568,7 @@ class SunSpecSensor(SunSpecEntity, SensorEntity):
 
     @property
     def name(self) -> str:
-        """The translated name where the point has one, else its SunSpec label.
+        """Return the translated name where the point has one, else its SunSpec label.
 
         A second model with the same id keeps its index in front of
         either name.
@@ -632,17 +589,15 @@ class SunSpecSensor(SunSpecEntity, SensorEntity):
 
     @property
     def _peak_power_kw(self) -> float | None:
-        """Peak AC power to measure plausibility against, in kW.
+        """Return the peak AC power to measure plausibility against, in kW.
 
-        The user's configured value wins. Where there is none, the
-        nameplate the coordinator auto-detected from model 120 / 121
-        stands in, with :data:`NAMEPLATE_FILTER_HEADROOM` on top.
-
-        Resolved per read rather than in ``__init__`` on purpose: the
-        nameplate arrives on the first successful cycle, which can be
-        after the entity was built, and an options change should take
-        effect without a reload.
+        The configured value wins. Without one, the nameplate the
+        coordinator detected from model 120 / 121 stands in, with
+        :data:`NAMEPLATE_FILTER_HEADROOM` on top.
         """
+        # The peak is resolved on every read and not in ``__init__``,
+        # because the nameplate arrives with the first successful cycle,
+        # which can be after the entity was built.
         return effective_peak_power_kw(
             self.coordinator.entry.options.get(CONF_MAX_AC_POWER_KW),
             getattr(self.coordinator, "detected_max_ac_power_kw", None),
@@ -650,13 +605,11 @@ class SunSpecSensor(SunSpecEntity, SensorEntity):
 
     @property
     def _peak_power_source(self) -> str:
-        """Where the ceiling came from, for the rejection log line.
+        """Return where the ceiling came from, for the rejection log line.
 
-        The old message said "configured peak" unconditionally. A user
-        who read it, opened the options form and found the field empty
-        concluded the log was lying, and the real provenance was only in
-        a one-shot INFO line emitted on the first cycle after startup,
-        long scrolled away by the time anything gets dropped (#45).
+        The line has to name the source: a user who reads of a peak in
+        the log and finds the options field empty cannot otherwise tell
+        that the ceiling is the detected nameplate (#45).
         """
         if self.coordinator.entry.options.get(CONF_MAX_AC_POWER_KW):
             return "configured peak AC power"
@@ -665,7 +618,7 @@ class SunSpecSensor(SunSpecEntity, SensorEntity):
 
     @property
     def _max_native_value(self) -> float | None:
-        """Upper plausibility bound in this sensor's own unit, or None."""
+        """Return the upper plausibility bound in this sensor's own unit, or None."""
         return _power_limit_in_native_unit(self.unit, self.key, self._peak_power_kw)
 
     @property
@@ -682,23 +635,20 @@ class SunSpecSensor(SunSpecEntity, SensorEntity):
             )
             return None
         if val is None and self.translation_key == "daily_energy":
-            # SunSpec reserves 0 of an acc32 for "not implemented", and the
-            # library reads it as None. A daily counter sits at exactly that
-            # value from its restart in the morning until the first
+            # SunSpec reserves 0 of an acc32 for "not implemented", and
+            # pysunspec2 reads it as None. A daily counter sits at exactly
+            # that value from its restart in the morning until the first
             # watt-hour (#109).
             return 0
-        # Plausibility filter for measured power points: drop readings
-        # beyond the ceiling. Inverters at dawn / dusk sometimes report
-        # MW-range garbage that poisons long-term statistics.
+        # The plausibility filter for measured power points drops a
+        # reading beyond the ceiling. Inverters at dawn and dusk
+        # sometimes report MW-range garbage that poisons long-term
+        # statistics.
         #
-        # Compared on abs() since #45. The garbage this catches is not
-        # signed: a misread scale factor or a shifted register lands
-        # wherever it lands. (Until v0.31.0 a late Modbus reply was the
-        # usual source of the shift; the embedded transport checks the
-        # transaction id now, the other sources remain.) The one-sided
-        # test left half of that unguarded while still clipping the
-        # legitimately bipolar points - meter W, battery 802 W, DER
-        # 714 DCW - in the other direction.
+        # The comparison is on abs() because the garbage is not signed:
+        # a misread scale factor or a shifted register lands anywhere,
+        # and meter W, battery 802 W and DER 714 DCW are legitimately
+        # bipolar (#45).
         limit = self._max_native_value
         if limit is not None and isinstance(val, (int, float)) and abs(val) > limit:
             self._implausible_rejections += 1
@@ -737,8 +687,8 @@ class SunSpecSensor(SunSpecEntity, SensorEntity):
                     return None
             else:
                 if val is None:
-                    # A vendor transform answers None for a value it knows to be
-                    # not implemented.
+                    # A vendor transform answers None for a value it knows
+                    # to be not implemented.
                     return None
                 symbols = list(filter(lambda s: (val >> int(s["value"])) & 1 == 1, symbols))
                 if len(symbols) > 0:
@@ -758,12 +708,12 @@ class SunSpecSensor(SunSpecEntity, SensorEntity):
 
     @property
     def device_class(self) -> SensorDeviceClass | None:
-        """Return de device class of the sensor."""
+        """Return the device class of the sensor."""
         return self.use_device_class
 
     @property
     def state_class(self) -> SensorStateClass | None:
-        """Return de device class of the sensor."""
+        """Return the state class: none without a unit, total_increasing for energy."""
         if self.unit == "" or self.unit is None:
             return None
         if self.device_class == SensorDeviceClass.ENERGY:
@@ -782,16 +732,15 @@ class SunSpecSensor(SunSpecEntity, SensorEntity):
             attrs["label"] = label
 
         vtype = self._meta["type"]
-        if vtype in ("enum16", "bitfield32", "bitfield16"):
+        if vtype in ("enum16", "bitfield32"):
             # A model can be missing from a cycle (see native_value).
             wrapper = self.coordinator.data.get(self.model_id)
             attrs["raw"] = (
                 wrapper.getValue(self.key, self.model_index) if wrapper is not None else None
             )
         if self._is_bitfield:
-            # The state string is convenient to read and awkward to
-            # parse. Templates and automations get the same information
-            # as a list here rather than splitting on commas.
+            # The state string is awkward to parse. active_flags gives
+            # templates and automations the same flags as a list.
             state = self.native_value
             attrs["active_flags"] = state.split(",") if state else []
         return attrs
@@ -806,34 +755,30 @@ class SunSpecEnergySensor(SunSpecSensor, RestoreSensor):
     ) -> None:
         super().__init__(coordinator, config_entry, data)
         self.last_known_value: Any = None
-        # Counter for consecutive rejected reads in the delta plausibility
-        # filter. Once it crosses ENERGY_DELTA_REJECT_RECOVERY_COUNT we
-        # accept the new value, otherwise a legitimate large jump (coarse
-        # WH register granularity on KACO Powador, post-restore baseline
-        # mismatch, etc.) would freeze the sensor permanently because the
-        # filter never updates lastKnown while it rejects.
+        # Consecutive reads the delta plausibility filter rejected. At
+        # ENERGY_DELTA_REJECT_RECOVERY_COUNT the new value is accepted,
+        # for the reason given at that constant.
         self._rejected_delta_count = 0
-        # When ``lastKnown`` last took a NEW value. The delta filter
+        # When ``lastKnown`` last took a new value. The delta filter
         # measures a jump against the energy the inverter can have made
-        # since then, not since the previous poll: a counter that stands
-        # still for three polls and then moves by three polls' worth is
-        # reporting correctly, and the filter used to reject exactly
-        # that (#45, Fronius GEN24, WH updated every few minutes).
+        # since that moment, not since the previous poll: a counter that
+        # stands still for three polls and then moves by three polls'
+        # worth reports correctly (#45, a Fronius GEN24 updates WH every
+        # few minutes).
         self._counter_last_moved: datetime | None = None
 
     @property
     def _max_native_delta(self) -> float | None:
-        """Maximum plausible increase since the counter last moved, in this unit.
+        """Return the maximum plausible increase since the counter last moved, in this unit.
 
         The window is the time since ``lastKnown`` last changed, floored
-        at the scan interval, times the peak power. Floored, because the
-        first read after a change is one poll later at the earliest; the
-        floor is also what applies when nothing is known about the past,
-        before the first read of a run with no restored state.
-
-        ``None`` disables the check, which is what a sensor that is not
-        an energy counter, or an install with no peak to go on, gets.
+        at the scan interval. ``None`` disables the check: the sensor
+        is not an energy counter, or there is no peak power to go on.
         """
+        # The floor is one scan interval because the first read after a
+        # change comes one poll later at the earliest. The floor is also
+        # the window while nothing is known about the past, before the
+        # first read of a run without restored state.
         entry = self.coordinator.entry
         scan_interval = entry.options.get(CONF_SCAN_INTERVAL, entry.data.get(CONF_SCAN_INTERVAL))
         window = scan_interval
@@ -852,20 +797,15 @@ class SunSpecEnergySensor(SunSpecSensor, RestoreSensor):
     def native_value(self) -> Any:
         val = super().native_value
         if val is None:
-            # No reading this cycle: the model was missing from the
+            # No reading this cycle: the model is missing from the
             # coordinator's data, or the point could not be computed.
-            #
-            # Falling through would reach the assignment at the bottom
-            # and set lastKnown to None, which costs more than the one
-            # missing reading: the next good read then finds no baseline,
-            # takes the "establishing baseline" branch, and is discarded
-            # too. One gap becomes two and the delta filter loses its
-            # reference point. Hold the last value instead, the same way
-            # the val == 0 branch below does, so total_increasing keeps
-            # its continuity.
+            # The last value is held, as for a read of 0. Falling
+            # through would set lastKnown to None, and the next good
+            # read would find no baseline and be discarded as well.
             self._assumed_state = True
             return self.lastKnown
-        # For an energy sensor a value of 0 woulld mess up long term stats because of how total_increasing works
+        # A 0 would reset the total_increasing statistics of an energy
+        # sensor, so the last known value is reported instead.
         if val == 0:
             _LOGGER.debug(
                 "Returning last known value instead of 0 for %s to avoid resetting the "
@@ -874,10 +814,11 @@ class SunSpecEnergySensor(SunSpecSensor, RestoreSensor):
             )
             self._assumed_state = True
             return self.lastKnown
-        # Plausibility filter active but no baseline yet (e.g. fresh setup,
-        # or restart where the restored state was not numeric): discard
-        # this read so a potential garbage value never becomes the baseline.
-        # The next poll will have a valid lastKnown to compare against.
+        # The filter is active but has no baseline yet: a fresh setup,
+        # or a restart whose restored state was not numeric. The first
+        # read becomes the baseline and is not reported, so the next
+        # read is checked against it before a value reaches the
+        # statistics.
         max_delta = self._max_native_delta
         if (
             val is not None
@@ -894,32 +835,27 @@ class SunSpecEnergySensor(SunSpecSensor, RestoreSensor):
             self._counter_moved_to(val)
             self._assumed_state = True
             return None
-        # Delta-based plausibility check: if the increase since the last
-        # known value would imply a power above the configured peak over
-        # the time since the counter last moved, treat the read as
-        # garbage and fall back to the last known value (same mechanism
-        # as the val == 0 path, so total_increasing stats stay intact).
+        # The delta check: an increase that implies a power above the
+        # peak over the time since the counter last moved is garbage,
+        # and the last known value is reported, as for a read of 0.
         #
-        # Recovery escape hatch: count consecutive rejections. If the
-        # inverter keeps reporting the same large jump for several reads
-        # in a row it is almost certainly not a transient spike but a
-        # legitimate counter discontinuity (a restored baseline from a
-        # state file older than its timestamp says, a counter that was
-        # reset, ...). Without this hatch the sensor would freeze on
-        # lastKnown forever because lastKnown is never updated while the
-        # filter rejects. Counters that move in coarse steps used to
-        # depend on this hatch too, three rejections per step; the
-        # time window above handles them without a single rejection.
+        # Consecutive rejections are counted. A jump the inverter keeps
+        # reporting is a legitimate discontinuity (a restored baseline
+        # older than its timestamp says, a counter that was reset), and
+        # after ENERGY_DELTA_REJECT_RECOVERY_COUNT rejections the value
+        # is accepted. Without the count the sensor would stay on
+        # lastKnown, which is not updated while the filter rejects.
         #
         # A drop is rejected the same way, and without a peak power to go
         # on: a lifetime counter has no legitimate way down. The one seen
         # in the wild is a scale factor misread on a Fronius Symo, model
         # 160, which reports the total a thousand times too small for a
-        # poll or two. Passed through, HA books it as a meter reset, and
-        # when the real value returns, the jump back is what the
-        # peak-power rule rejects, until the hatch accepts it and the
-        # whole lifetime total lands in the statistics as new energy. A
-        # counter that really was reset comes through the same hatch.
+        # poll or two. Passed through, HA books the drop as a meter
+        # reset, and when the real value returns, the jump back is
+        # rejected by the peak-power rule until the count accepts it,
+        # and the whole lifetime total lands in the statistics as new
+        # energy. A counter that really was reset is accepted through
+        # the same count.
         implausible: str | None = None
         if (
             self.lastKnown is not None
@@ -985,18 +921,17 @@ class SunSpecEnergySensor(SunSpecSensor, RestoreSensor):
         if state:
             _LOGGER.debug(f"{self.name} Got last known value from state: {state.native_value}")
             self.last_known_value = state.native_value
-            # Also seed lastKnown so the val == 0 fallback and the
-            # delta-based plausibility filter work on the very first read
-            # after a restart, not only after the second poll.
+            # lastKnown is seeded as well, so the fallback for a read of
+            # 0 and the delta filter work on the first read after a
+            # restart.
             if isinstance(state.native_value, (int, float)):
                 self.lastKnown = state.native_value
-                # And seed the plausibility window from when that value
-                # was last written, so the energy made while Home
-                # Assistant was down is not measured against one scan
-                # interval. Without this the first read after a restart
-                # of more than a few minutes was a guaranteed rejection,
-                # three polls in a row, until the recovery hatch let it
-                # through.
+                # The plausibility window starts when that value last
+                # changed, so the energy made while Home Assistant was
+                # down is not measured against one scan interval. With
+                # the window unseeded, the first reads after a longer
+                # restart are rejected until the recovery count lets
+                # them through.
                 last_state = await self.async_get_last_state()
                 if last_state is not None:
                     self._counter_last_moved = last_state.last_changed

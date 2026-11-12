@@ -1,16 +1,19 @@
 """A lifetime total for devices that only report the yield of the current day.
 
-An APsystems ECU serves the SunSpec point ``WH`` as a counter of one day.
-SunSpec defines ``WH`` as a lifetime counter, so the generic sensor shows
-the daily value as "Energy produced today" and there is nothing to bind to
-for a total. This module adds the total by counting: it keeps the energy of
-all finished days and the last daily value it accepted.
+An APsystems ECU serves the SunSpec point ``WH`` as a counter of one day,
+where SunSpec defines ``WH`` as a lifetime counter, so the device has no
+total to bind to. For a point the vendor profile lists in
+``daily_energy_points`` this module counts one: a ledger keeps the energy of
+all finished days and the last daily value it accepted. Two sensors each
+keep such a ledger. ``CountedDailyEnergySensor`` takes the place of the plain sensor of
+the point, named "Energy produced today", and ``CountedLifetimeEnergySensor``
+is the total.
 
 The counter does not restart at midnight. It keeps yesterday's value
 through the night and starts again at zero when the micro inverter first
-reports in the morning (#160). A reading therefore belongs to the day of
-the counter, which ``counter_day`` tells, rather than to the date it was
-taken on.
+reports in the morning (#160, see ``vendors/apsystems.py``). A reading
+therefore belongs to the day of the counter, which ``counter_day`` tells,
+rather than to the date the reading was taken on.
 
 The same rhythm decides what "today" is. Energy produced today is the rise
 of the counted total since midnight, not the counter itself: until the
@@ -21,9 +24,9 @@ count every rise of that sensor, and each rise is a rise of the total, so
 the sensor can book nothing that the total does not book.
 
 The daily counter is read through a gateway that now and then reports a
-reading that does not fit a counter going up, and it serves that reading
-for a whole collection round. So a reading is not taken at face value when
-it is a drop or a large jump, and only a reading from a later round decides
+reading that does not fit a counter going up, and the gateway serves that
+reading for a whole collection round. A reading that is a drop or a large
+jump is therefore held back, and only a reading from a later round decides
 about it (``CONFIRM_SECONDS``):
 
 * A drop counts only from below ``RESTART_SHARE`` of the last value. Anything
@@ -141,11 +144,11 @@ def counter_day(now: datetime, producing: bool) -> str:
     yesterday's.
 
     Args:
-        now (datetime): The moment of the reading, in local time.
-        producing (bool): Whether the micro inverter produces at that moment.
+        now: The moment of the reading, in local time.
+        producing: Whether the micro inverter produces at that moment.
 
     Returns:
-        str: The day, as ``YYYY-MM-DD``.
+        The day, as ``YYYY-MM-DD``.
     """
     day = now.date()
     if not producing and now.hour < COUNTER_DAY_HOUR:
@@ -206,10 +209,10 @@ class DailyCounterLedger:
         """Take one reading of the daily counter.
 
         Args:
-            watt_hours (float): The reading, in Wh.
-            now (datetime): The moment of the reading, in local time.
-            producing (bool): Whether the micro inverter produces at that
-                moment, see ``counter_day``.
+            watt_hours: The reading, in Wh.
+            now: The moment of the reading, in local time.
+            producing: Whether the micro inverter produces at that moment,
+                see ``counter_day``.
         """
         if not math.isfinite(watt_hours) or not 0 <= watt_hours <= MAX_DAILY_WH:
             return
@@ -220,9 +223,9 @@ class DailyCounterLedger:
         day = counter_day(now, producing)
         if self.last_day is not None and day < self.last_day:
             # A cloud before noon can take the power under PRODUCING_MIN_W
-            # after the counter was already seen on its new day. The day
-            # does not go back for that, or a confirmed jump would book
-            # ``last`` a second time.
+            # after the counter was already seen on its new day. The
+            # counter day does not go back for that cloud, or a confirmed
+            # jump would book ``last`` a second time.
             day = self.last_day
         at = now.timestamp()
         # The counter restarts in the morning of ``date``. An outage can only
@@ -255,7 +258,9 @@ class DailyCounterLedger:
             return
         pending, pending_day, pending_at = self.pending, self.pending_day, self.pending_at
         if pending is not None and pending_at is None:
-            # Stored by a release that did not keep the time.
+            # A payload stored by a release that did not keep
+            # ``pending_at`` restores ``pending`` without it. The wait
+            # then starts with this reading.
             self.pending_at = pending_at = at
         waited = 0.0 if pending_at is None else at - pending_at
         if (
@@ -281,7 +286,8 @@ class DailyCounterLedger:
         elif waited < CONFIRM_SECONDS:
             return
         elif pending > last:
-            # A large jump: real if the counter kept going from there.
+            # ``pending`` is a large jump. The jump is real if the
+            # counter kept going from it.
             self._release()
             if watt_hours < pending:
                 self._hold(watt_hours, last, day, at)
@@ -296,7 +302,8 @@ class DailyCounterLedger:
                 self.base += last
             self._accept(watt_hours, day)
         elif watt_hours > last or not self._is_drop(watt_hours, last, day):
-            # Back near the old level or above it: the low reading was a stray.
+            # The counter is back near ``last`` or above it, so the low
+            # reading in ``pending`` was a stray.
             self._release()
             self._hold(watt_hours, last, day, at)
         elif watt_hours > pending or (
@@ -304,8 +311,9 @@ class DailyCounterLedger:
             and self.flat_since is not None
             and at - self.flat_since >= SETTLED_SECONDS
         ):
-            # Running up again from the low value, or at rest since an
-            # outage ended on a later counter day: a new day has started.
+            # The counter runs up again from the low value, or it has been
+            # at rest since an outage ended on a later counter day: a new
+            # day has started.
             self._release()
             self.base += last
             self._accept(watt_hours, day)
@@ -409,8 +417,8 @@ class LedgerExtraData(ExtraStoredData):
 class _LedgerFed(SunSpecEntity, RestoreEntity):
     """A sensor that feeds a daily counter to a ledger it keeps across restarts.
 
-    Each sensor keeps its own ledger, so disabling one of them in the entity
-    settings leaves the other one complete.
+    The two sensors of a point each keep a ledger of their own, so disabling
+    one of them in the entity settings leaves the other one complete.
     """
 
     _ledger: DailyCounterLedger

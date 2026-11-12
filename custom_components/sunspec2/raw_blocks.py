@@ -7,18 +7,13 @@ word order. A vendor profile declares those as ``RawBlock``s, the
 coordinator reads them after the models, and the decoded values land
 in ``coordinator.raw_blocks`` for the entities.
 
-Two things a block read has to survive. A device without the feature
-answers a Modbus exception, which means "not here" and is not worth a
-retry every poll. And a SolarEdge on recent firmware answers nothing
-at all for a block it does not serve, which costs the socket timeout
-each time it is tried. Both mark the block absent for a while; both
-are tried again later, because a feature can be switched on by the
-vendor's support without a reconnect.
+A block the device does not serve, whether it answers a Modbus exception
+or nothing at all, is marked absent and is not asked every poll. It is
+tried again after ``REPROBE_CYCLES`` cycles, because the vendor's
+support can switch a feature on without a reconnect.
 
-A block that has answered before is another matter. SAJ's dongle
-refuses a read now and then with a Modbus exception, a few dozen times
-a day, for registers it served a second earlier. Such a block keeps
-its last reading and is asked again the next cycle; only when it fails
+A block that has answered before keeps its last reading through an
+isolated failure and is asked again the next cycle. Only when it fails
 ``RETRY_CYCLES`` cycles in a row is it taken for absent.
 """
 
@@ -46,8 +41,9 @@ _LOGGER: logging.Logger = logging.getLogger(__package__)
 #: an hour at the default scan interval.
 REPROBE_CYCLES = 120
 
-#: Consecutive failures that mark a previously answering block absent.
-#: SAJ's dongle refuses single reads at random.
+#: Consecutive failed cycles that mark a previously answering block
+#: absent. SAJ's dongle refuses a read with a Modbus exception a few
+#: dozen times a day, for registers it served a second earlier.
 RETRY_CYCLES = 3
 
 _NOT_IMPLEMENTED: dict[str, int] = {
@@ -166,11 +162,11 @@ class RawBlockReader:
         self._probes: dict[str, _Probe] = {}
 
     async def async_read(self, blocks: tuple[RawBlock, ...]) -> dict[str, dict[str, Any]]:
-        """The decoded blocks of this cycle, keyed by block.
+        """Read ``blocks`` and return the decoded fields of each, keyed by block key.
 
         A block that is absent, silent or gated off is not in the
         result. A block that failed for a reason that is not the
-        device's, a closed connection say, keeps what it held last.
+        device's, such as a closed connection, keeps its last reading.
         """
         self._cycle += 1
         result: dict[str, dict[str, Any]] = {}
@@ -193,12 +189,13 @@ class RawBlockReader:
             except DeviceError as exc:
                 # A Modbus exception: the device does not serve these
                 # registers. SolarEdge switches whole feature sets on per
-                # inverter, so ask again in a while.
+                # inverter, so the block is asked again later.
                 self._fail(probe, block, f"not on this device ({exc})", result)
             except TransientError as exc:
-                # Silence. SolarEdge firmware from 4.23 hangs instead of
+                # No answer. SolarEdge firmware from 4.23 hangs instead of
                 # refusing a block it does not have, and every attempt
-                # costs the socket timeout, so this one waits as long.
+                # costs the request timeout, so a silent block waits as
+                # long as a refused one.
                 self._fail(probe, block, f"no answer ({exc})", result)
             except SunSpecError as exc:
                 self._log.debug("Raw block %s: %s, keeping the last reading", block.key, exc)

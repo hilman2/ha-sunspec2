@@ -9,7 +9,7 @@
 [![CI](https://github.com/hilman2/ha-sunspec2/actions/workflows/ci.yml/badge.svg)](https://github.com/hilman2/ha-sunspec2/actions/workflows/ci.yml)
 [![hacs](https://img.shields.io/badge/HACS-Default-41BDF5.svg)](https://github.com/hacs/default)
 [![GitHub release](https://img.shields.io/github/v/release/hilman2/ha-sunspec2)](https://github.com/hilman2/ha-sunspec2/releases)
-[![Quality Scale](https://img.shields.io/badge/Quality%20Scale-Gold-FFD700.svg)](https://developers.home-assistant.io/docs/core/integration-quality-scale/)
+[![Quality Scale](https://img.shields.io/badge/Quality%20Scale-Silver-C0C0C0.svg)](https://developers.home-assistant.io/docs/core/integration-quality-scale/)
 
 > [!NOTE]
 > **Update 2026.10.0:** the integration now talks to the inverter
@@ -126,6 +126,8 @@ have their own section.
 | Sensor models | sensible defaults | Which groups of data become sensors. The inverter lists them, the integration reads them |
 | Peak AC power | read from the inverter | AC rating used to filter implausible readings, with higher allowances for DC and apparent power. See [Troubleshooting](docs/troubleshooting.md#a-sensor-shows-unknown-on-a-bright-day) |
 | Model scan pause | 0.5 s | A pause while the integration maps what the inverter offers. Raise it if setup fails on slow inverters |
+| Model read pause | 0.6 s | A pause between the groups of data in every round of polling. Lower it for a faster refresh, set 0 for none |
+| Re-enable controls after a setpoint change | off, on for Fronius before the GEN24 | Turns a control off, writes the new value and turns the control on again a second later, for inverters that apply a changed limit only that way. See [Fronius GEN24](docs/fronius.md) and [older Fronius](docs/fronius-symo.md) |
 | Allow the inverter to go offline when idle | off | Stops the "unreachable" notification for inverters that vanish at night without saying so |
 | Capture diagnostic registers | off | Puts what the inverter sent, unprocessed, into the diagnostics download. For bug reports |
 
@@ -208,9 +210,9 @@ your inverter model, its firmware version and what worked.
 ## When something is wrong
 
 **Download the diagnostics first.** *Settings -> Devices & Services ->
-SunSpec Modbus -> Download diagnostics*. Your IP address is removed
-automatically. The file holds almost everything needed to work out what
-happened.
+SunSpec Modbus -> Download diagnostics*. The address of your inverter is
+removed from the settings and the error messages in it. The file holds
+almost everything needed to work out what happened.
 
 The cases below are the common ones in a line or two.
 **[docs/troubleshooting.md](docs/troubleshooting.md)** has more: how
@@ -319,9 +321,10 @@ client, hence the name. The integration carries its own fork of it in
 [`custom_components/sunspec2/pysunspec2/`][fork], and talks to the
 inverter, over TCP and over RS-485, through
 [`modbus-connection`][modbus-connection], the Modbus transport Home
-Assistant's own integrations use. Meets the Home Assistant **Gold**
-quality scale, documented rule by rule in
-[`quality_scale.yaml`][quality-scale].
+Assistant's own integrations use. Meets the **Silver** tier of the Home
+Assistant quality scale and all but two rules of Gold:
+[`quality_scale.yaml`][quality-scale] says rule by rule where, and
+which two are open.
 
 MIT licensed, see [`LICENSE`](LICENSE). The embedded pysunspec2 fork
 stays under its Apache 2.0 license, see the `LICENSE` file next to it.

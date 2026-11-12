@@ -3,11 +3,13 @@
 The generic entities stay as they are for every device. A profile adds
 entities that only make sense with the vendor's reading of a model, and
 hides generic ones that would write the same register in another unit.
-The profile is picked from ``Mn`` in common model 1 once per connection.
+The coordinator picks the profile from common model 1: ``Mn`` names the
+manufacturer, and ``Md``, ``Opt`` and ``Vr`` tell a manufacturer's
+generations apart.
 
-Fronius in two generations, SolarEdge, SMA, Kostal, APsystems, SAJ and FranklinWH. See
-``profile.py`` for the shape, and the vendor modules for the knowledge
-and its sources.
+The profiles are Fronius in two generations, SolarEdge, SMA, Kostal,
+APsystems, SAJ and FranklinWH. ``profile.py`` holds the shape, the vendor
+modules hold the knowledge and its sources.
 """
 
 from __future__ import annotations
@@ -42,17 +44,17 @@ PROFILES: tuple[VendorProfile, ...] = (
 def profile_for(
     manufacturer: str | None, model: str = "", option: str = "", version: str = ""
 ) -> VendorProfile | None:
-    """The profile for a device, or None for one we only know generically.
+    """The profile for a device, or None for a device known only generically.
 
     Args:
-        manufacturer (str|None): ``Mn`` of common model 1.
-        model (str): ``Md``, for a manufacturer with more than one profile.
-        option (str): ``Opt``, likewise.
-        version (str): ``Vr``, likewise.
+        manufacturer: ``Mn`` of common model 1.
+        model: ``Md``, for a manufacturer with more than one profile.
+        option: ``Opt``, likewise.
+        version: ``Vr``, likewise.
 
     Returns:
-        VendorProfile|None: The first profile in PROFILES that matches
-        the manufacturer and, where it looks at them, the other three.
+        The first profile in ``PROFILES`` that matches the manufacturer
+        and whose ``identifies``, if it has one, accepts the other three.
     """
     for profile in PROFILES:
         if not profile.matches(manufacturer):

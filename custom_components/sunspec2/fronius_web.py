@@ -14,12 +14,12 @@ it: ``/api/status/common`` says which hash the customer secret uses,
 ``/api/config`` and ``/api/components`` endpoints carry the data. Each
 request is challenged and answered once; the inverter keeps no session.
 
-What Home Assistant stores is not the password. It is the Digest
+Home Assistant does not store the password. It stores the Digest
 secret, the hash of ``customer:realm:password``, which the login
 computes once when the password is entered. That secret logs in to
 this inverter's web interface and nothing else, so a leaked Home
 Assistant configuration does not leak a password the user may have
-reused, and it is redacted from the diagnostics download.
+reused. The diagnostics download redacts the secret.
 """
 
 from __future__ import annotations
@@ -83,10 +83,10 @@ class WebToken:
     """The Digest secret of the customer login, and what it was made with.
 
     Args:
-        realm (str): The realm the inverter named in its challenge.
-        secret (str): Hex digest of ``customer:realm:password``.
-        algorithm (str): ``"md5"`` or ``"sha256"``, whichever the
-            inverter said the customer secret is hashed with.
+        realm: The realm the inverter named in its challenge.
+        secret: Hex digest of ``customer:realm:password``.
+        algorithm: ``"md5"`` or ``"sha256"``, whichever the inverter said
+            the customer secret is hashed with.
     """
 
     realm: str
@@ -129,8 +129,8 @@ def digest_uri(path: str, query: str) -> str:
     """What the digest covers as the uri.
 
     The inverter computes the login's digest over the bare path and
-    every other request's over path and query. Getting this wrong is
-    a 401 with no further hint.
+    every other request's over path and query. A wrong uri is answered
+    with a 401 and no further hint.
     """
     if path == LOGIN_PATH or not query:
         return path
@@ -296,12 +296,12 @@ class FroniusWebClient:
     """One inverter's web interface, over Home Assistant's aiohttp session.
 
     Args:
-        session (aiohttp.ClientSession): The session to send through.
-        host (str): The inverter's address, the same the Modbus side uses.
-        token (WebToken|None): The stored login secret.
-        password (str|None): The customer password, to mint a token from.
-            Only the options flow passes one; it is kept for the
-            lifetime of this object and nowhere else.
+        session: The session to send through.
+        host: The inverter's address, the same the Modbus side uses.
+        token: The stored login secret.
+        password: The customer password, to mint a token from. Only the
+            options flow passes one; it is kept for the lifetime of this
+            object and nowhere else.
     """
 
     def __init__(
@@ -364,10 +364,9 @@ class FroniusWebClient:
     ) -> dict[str, Any]:
         """Send, answer the Digest challenge once, and return the JSON body.
 
-        ``challenge`` False sends once and takes the answer as it is;
-        the status endpoint is read that way while working out which
-        hash the secret needs, so a 401 there cannot recurse into
-        another status read.
+        ``challenge`` False sends once and takes the answer as it is.
+        ``_secret_algorithm`` reads the status endpoint that way, so a
+        401 there cannot recurse into another status read.
         """
         url = f"{self._base}{path}"
         try:
@@ -404,8 +403,8 @@ class FroniusWebClient:
                 payload = await self._payload(path, answered)
         except (aiohttp.ClientError, TimeoutError) as exc:
             raise FroniusWebError(f"{method} {path}: {exc}") from exc
-        # A login that worked is the secret to keep, whether it came
-        # from the password just entered or from storage.
+        # The secret of a login that worked is the one to keep, whether
+        # it came from the password just entered or from storage.
         self._token = token
         return payload
 
@@ -452,13 +451,11 @@ class FroniusWebClient:
         await self._request("POST", BATTERIES_CONFIG_PATH, json=dict(fields))
 
     async def allow_modbus_control(self, allowed: bool) -> None:
-        """Flip "inverter control via Modbus", leaving the rest of the Modbus setup as it is.
-
-        Read, patch one flag, write back: the endpoint takes the whole
-        Modbus configuration, and writing a made-up one would change
-        the port, the SunSpec mode or the meter address underneath a
-        running connection.
-        """
+        """Flip "inverter control via Modbus", leaving the rest of the Modbus setup as it is."""
+        # The endpoint takes the whole Modbus configuration, so the
+        # configuration is read, patched in one flag and written back.
+        # Writing a made-up one would change the port, the SunSpec mode
+        # or the meter address underneath a running connection.
         config = await self.read_modbus_config()
         slave = config.get("slave")
         if not isinstance(slave, dict):
@@ -490,18 +487,16 @@ class FroniusWebData:
     """One poll of the web interface.
 
     Args:
-        inverter_temperature_c (float|None): Ambient temperature inside
-            the inverter.
-        battery (dict): ``manufacturer``, ``model`` and ``serial`` of the
-            battery, each possibly None.
-        battery_cell_temperature_c (float|None): The battery's cell
-            temperature.
-        battery_config (dict): ``/api/config/batteries`` as the inverter
-            returned it.
-        modbus (dict): The Modbus setup: ``mode``, ``port``,
-            ``sunspec_mode``, ``control_allowed``, ``restriction_on``,
-            ``restriction_ip``, ``meter_address``.
-        meters (list): The smart meters, see ``parse_meters``.
+        inverter_temperature_c: Ambient temperature inside the inverter.
+        battery: ``manufacturer``, ``model`` and ``serial`` of the battery,
+            each possibly None.
+        battery_cell_temperature_c: The battery's cell temperature.
+        battery_config: ``/api/config/batteries`` as the inverter returned
+            it.
+        modbus: The Modbus setup: ``mode``, ``port``, ``sunspec_mode``,
+            ``control_allowed``, ``restriction_on``, ``restriction_ip``,
+            ``meter_address``.
+        meters: The smart meters, see ``parse_meters``.
     """
 
     inverter_temperature_c: float | None
@@ -540,9 +535,9 @@ def _modbus_summary(config: Mapping[str, Any]) -> dict[str, Any]:
 class FroniusWebCoordinator(DataUpdateCoordinator[FroniusWebData]):
     """Polls the web interface once a minute and carries the writes.
 
-    Separate from the Modbus coordinator: another transport, another
-    failure mode, and a web interface that is down must not take the
-    Modbus entities with it.
+    This coordinator is separate from the Modbus coordinator: the web
+    interface is another transport with another failure mode, and when
+    it is down the Modbus entities must stay available.
     """
 
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry, host: str, token: WebToken) -> None:
@@ -588,8 +583,8 @@ class FroniusWebCoordinator(DataUpdateCoordinator[FroniusWebData]):
 
         A device without a battery has no battery endpoint, and an
         older firmware may lack another; the rest of the poll still
-        counts. A rejected login stops the poll, because every other
-        endpoint would fail the same way.
+        counts. A rejected login is raised and stops the poll, because
+        every other endpoint would fail the same way.
         """
         try:
             return await read

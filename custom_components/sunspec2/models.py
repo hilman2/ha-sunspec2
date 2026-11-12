@@ -1,13 +1,11 @@
 """SunSpec model wrapper.
 
-Thin facade over a list of pysunspec2 model instances. Provides a flat
-``key`` namespace for points (including repeating-group points like
-``module:0:DCA``), filters out points with no value or no unit, and
-exposes the calculated (scaled / decoded) value via :meth:`getValue`.
-
-Extracted from ``api.py`` in Phase 4. The class has zero dependencies
-on the rest of the integration - it only sees pysunspec2 model objects -
-so the move is purely structural.
+A thin facade over a list of pysunspec2 model instances. It gives the
+points a flat ``key`` namespace (repeating-group points such as
+``module:0:DCA`` included), filters out points without a value or a
+unit, and returns the scaled and decoded value through
+:meth:`SunSpecModelWrapper.getValue`. The wrapper sees only pysunspec2
+model objects and depends on nothing else in the integration.
 """
 
 from __future__ import annotations
@@ -23,10 +21,8 @@ SIGNED_NAN_WORD = 0x8000
 class SunSpecModelWrapper:
     """Wraps the list of pysunspec2 model instances for a single model id.
 
-    A SunSpec device may expose the same model id multiple times (think
-    Multiple-MPPT inverters with one ``module`` group per tracker). The
-    wrapper carries every instance in ``self._models`` and exposes
-    ``num_models`` for callers that need to iterate.
+    A SunSpec device may expose the same model id several times. The
+    wrapper holds every instance and gives their number in ``num_models``.
     """
 
     def __init__(
@@ -38,9 +34,9 @@ class SunSpecModelWrapper:
         """Wrap every instance a device exposes for one model id.
 
         Args:
-            models (list[Any]): The pysunspec2 model instances, in the
-                order the device reports them. Untyped because
-                pysunspec2 ships no py.typed marker.
+            models: The pysunspec2 model instances, in the order the
+                device reports them. Untyped because pysunspec2 ships no
+                py.typed marker.
             point_transforms: Read corrections applied after SunSpec scaling,
                 keyed by point name. The underlying points stay unchanged.
             signed_nan_points: Unsigned points whose raw 0x8000 means no
@@ -109,15 +105,12 @@ def point_text(wrapper: SunSpecModelWrapper, point_name: str) -> str:
 
     Common model 1 identifies the device in string points (``Mn``,
     ``Md``, ``Opt``, ``Vr``), and the vendor profile is picked from
-    them. A caller that compares them needs a string every time.
+    them. A caller that compares them gets a string every time: ``""``
+    when the model lacks the point or its value is not a string.
 
     Args:
         wrapper: The model to read from.
         point_name: The point, by its SunSpec name.
-
-    Returns:
-        str: The value of the point if the model has the point and its
-        value is a string, otherwise ``""``.
     """
     try:
         value = wrapper.getValue(point_name)

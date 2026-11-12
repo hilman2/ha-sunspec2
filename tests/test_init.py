@@ -31,6 +31,7 @@ from custom_components.sunspec2.const import STRUCTURE_STORAGE_VERSION
 from custom_components.sunspec2.coordinator import SunSpecDataUpdateCoordinator
 from custom_components.sunspec2.errors import TransportError
 from custom_components.sunspec2.migration import CJNE_DOMAIN
+from custom_components.sunspec2.pysunspec2.modbus.modbus import ModbusClientError
 
 from . import TEST_CONFIG_ENTRY_ID
 from . import TEST_INVERTER_PREFIX_SENSOR_DC_ENTITY_ID
@@ -319,6 +320,25 @@ async def test_setup_entry_exception(hass, error_on_get_data):
     assert config_entry.update_listeners == [async_reload_entry]
 
 
+async def test_a_setup_that_fails_leaves_the_warning_to_home_assistant(
+    hass, error_on_get_data, caplog
+):
+    """Every retry builds a new coordinator, and each would warn about its first error."""
+    config_entry = MockConfigEntry(domain=DOMAIN, data=MOCK_CONFIG, entry_id="test", version=2)
+    config_entry.add_to_hass(hass)
+
+    await hass.config_entries.async_setup(config_entry.entry_id)
+    await hass.async_block_till_done()
+
+    assert config_entry.state is ConfigEntryState.SETUP_RETRY
+    assert [
+        record.getMessage()
+        for record in caplog.records
+        if record.levelname == "WARNING" and record.name.startswith("custom_components.sunspec2")
+    ] == []
+    await hass.config_entries.async_unload(config_entry.entry_id)
+
+
 async def test_new_data_reloads_an_entry_that_waits_to_retry(hass, error_on_get_data):
     """Reconfigure stores a new address and leaves the reload to the update listener."""
     config_entry = MockConfigEntry(version=2, domain=DOMAIN, data=MOCK_CONFIG, entry_id="test")
@@ -452,6 +472,39 @@ async def test_in_cycle_retry_exhausted_marks_cycle_failed(hass, sunspec_client_
 
     assert coordinator.last_update_success is False
     assert coordinator.consecutive_failed_cycles == 1
+
+
+async def test_an_outage_is_logged_when_it_starts_and_when_it_ends(
+    hass, sunspec_client_mock, monkeypatch, caplog
+):
+    """One warning per line when the device goes away, not one per failed poll."""
+    monkeypatch.setattr("custom_components.sunspec2.coordinator.INTERVAL_RETRY_DELAY_SECONDS", 0)
+    config_entry = await setup_mock_sunspec_config_entry(hass, MOCK_CONFIG_PREFIX)
+    coordinator = config_entry.runtime_data
+
+    def warnings(text):
+        return [
+            record.getMessage()
+            for record in caplog.records
+            if record.levelname == "WARNING"
+            and record.name.startswith("custom_components.sunspec2")
+            and text in record.getMessage()
+        ]
+
+    with patch.object(coordinator.api, "read", side_effect=ModbusClientError("no route to host")):
+        for _ in range(3):
+            await coordinator.async_refresh()
+    assert coordinator.consecutive_failed_cycles == 3
+    assert warnings("") == [
+        "[test_host:123#1] Update cycle failed (TransportError: Modbus transport error while "
+        "reading model 160: no route to host); retrying in 0s",
+        "[test_host:123#1] TransportError (#1 in a row): Modbus transport error while "
+        "reading model 160: no route to host",
+    ]
+
+    await coordinator.async_refresh()
+    assert coordinator.consecutive_failed_cycles == 0
+    assert len(warnings("recovered after 3 failed update cycle")) == 1
 
 
 async def test_first_refresh_failure_skips_retry_delay(hass, sunspec_client_mock):

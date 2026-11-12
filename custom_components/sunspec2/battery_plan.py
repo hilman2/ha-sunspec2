@@ -2,8 +2,8 @@
 
 The plan uses the vendor's storage modes and checks the target on each
 successful poll. Configuration changes take effect on the next poll;
-otherwise power stays constant until the device's revert timer needs
-refreshing. Existing scheduled-discharge entity IDs remain unchanged.
+otherwise the power stays constant until the device's revert timer needs
+refreshing.
 """
 
 from __future__ import annotations
@@ -60,12 +60,12 @@ NAMEPLATE_MODEL = 120
 STARTUP_GRACE_SECONDS = 10.0
 
 #: Fraction of the device's own revert timeout after which the plan
-#: writes its mode again. The timer itself is set to the length of the
-#: window, so this is the net under a device that clamped it to
-#: something shorter, and the margin only has to cover a busy event
-#: loop and a poll in flight: 30 s of the 300 a GEN24 came with. Not
-#: half of it. A missed write costs one interval of discharge, and the
-#: tick after it plans again.
+#: writes its mode again. The plan sets the timer to the length of the
+#: window, so the re-write only matters for a device that clamped the
+#: timer to something shorter. The margin only has to cover a busy
+#: event loop and a poll in flight: 30 s of the 300 s a GEN24 ships
+#: with. Half the timeout is not needed: a missed write costs one
+#: interval of discharge, and the next tick plans again.
 REFRESH_FRACTION = 0.9
 
 #: Floor under that interval, whatever timeout the device reports.
@@ -150,10 +150,10 @@ def revert_timeout_seconds(wrapper: SunSpecModelWrapper) -> float | None:
     """``InOutWRte_RvrtTms`` of model 124, or None where the device does not report it.
 
     The point is the dead-man switch of the battery rates: the inverter
-    honours them for that many seconds and then goes back to what it did
-    before. Zero means it holds them until told otherwise, and is a
-    value like any other here; None is a device that does not implement
-    the point at all.
+    honours the rates for that many seconds and then goes back to what it
+    did before. Zero means the inverter holds the rates until told
+    otherwise, and is returned like any other value. None is a device
+    that does not implement the point.
     """
     try:
         value = wrapper.getValue("InOutWRte_RvrtTms")
@@ -194,7 +194,8 @@ class BatteryPlanner:
     """Runs the plan: the window's triggers and the writes they cause.
 
     One per config entry, held on the coordinator, shared by the plan's
-    entities. ``async_stop`` goes on the entry's unload.
+    entities. ``planner_for`` builds it and registers ``async_stop`` on
+    the entry's unload.
     """
 
     def __init__(self, hass: HomeAssistant, coordinator: SunSpecDataUpdateCoordinator) -> None:
@@ -378,18 +379,17 @@ class BatteryPlanner:
             await self._apply(window_hours(self.settings.start, self.settings.end))
 
     async def async_at_end(self) -> None:
-        """The end of the window: the battery goes back to automatic.
-
-        Whether or not this run planned anything, so a restart inside
-        the window, which forgets what was planned, does not leave the
-        battery discharging past the end.
-        """
+        """The end of the window: the battery goes back to automatic."""
         async with self._update_lock:
             if self._stopped or not self.settings.enabled:
                 return
             # Equal times describe a full day, so only the start trigger
             # owns this boundary. An end trigger must not undo that start.
             if self.settings.start != self.settings.end:
+                # The battery is handed back whether or not this run
+                # planned anything: a restart inside the window forgets
+                # what was planned and must not leave the battery
+                # discharging past the end.
                 await self._set_automatic()
 
     # ----- the plan itself -------------------------------------------------
@@ -454,7 +454,7 @@ class BatteryPlanner:
             )
             if was_running:
                 # The battery reached the target before the window was
-                # over. Hand it back rather than leave it in a forced
+                # over. It is handed back rather than left in a forced
                 # mode that nothing writes again.
                 await self._set_automatic()
             return
@@ -475,26 +475,23 @@ class BatteryPlanner:
                 soc,
                 self.settings.target_pct,
             )
-        # Armed whether or not that write landed: the target has to be
-        # watched either way, and a link that was down for this write
-        # may be back for the next.
+        # The refresh is armed whether or not that write landed: a link
+        # that was down for this write may be back for the next.
         self._watch_plan()
 
     async def _arm_revert_timer(self, wrapper: SunSpecModelWrapper, hours: float) -> None:
         """Point the device's own revert timer at the end of the window.
 
-        The battery rates are a dead-man switch: the inverter drops them
-        after ``InOutWRte_RvrtTms`` seconds. A GEN24 ships with 300 of
-        them, which is what ended #57's discharge after five minutes.
-        Set to the length of the window, the switch does what the plan
-        wants of it: with Home Assistant gone, the battery stops at the
-        end of the window rather than five minutes in or never.
-
-        Best effort, and not the only line of defence. A device that
-        refuses the write or clamps it back to a shorter timeout keeps
-        what it has, and the periodic re-write, paced off the value the
-        device reports back, carries the plan either way.
+        A refused write is logged and the plan goes on.
         """
+        # A GEN24 ships with a revert time of 300 s, which ends a discharge
+        # after five minutes (#57). Set to the length of the window, the
+        # timer stops the battery at the end of the window when Home
+        # Assistant is gone, rather than five minutes in or never.
+        #
+        # A device that refuses the write or clamps it to a shorter timeout
+        # keeps what it has. The periodic re-write of ``_watch_plan``
+        # carries the plan either way.
         if not self._revert_owned:
             self._prior_revert_seconds = revert_timeout_seconds(wrapper)
             self._revert_owned = True
@@ -538,14 +535,17 @@ class BatteryPlanner:
         timeout = revert_timeout_seconds(wrapper) if wrapper is not None else None
         if not timeout:
             return
-        # Use the timer reported by the device: it may have clamped the
-        # requested duration to a shorter timeout such as the GEN24's 300 s.
+        # The interval follows the timer the device reports: the device
+        # may have clamped the requested duration to a shorter timeout,
+        # such as the GEN24's 300 s.
         interval = max(MIN_REFRESH_SECONDS, timeout * REFRESH_FRACTION)
 
         async def _refresh(_now: datetime) -> None:
             self._unsub_refresh = None
-            # Account for PV and household use when refreshing the rate,
-            # so the remaining energy is spread over the remaining time.
+            # ``async_resume`` plans again from the current state of
+            # charge. PV and household use since the last plan are thereby
+            # accounted for, and the remaining energy is spread over the
+            # remaining time.
             await self.async_resume()
 
         self._unsub_refresh = async_call_later(self.hass, interval, _refresh)
@@ -586,8 +586,9 @@ class BatteryPlanner:
             soc,
             self.settings.target_pct,
         )
-        # Before the task rather than in it: the next poll must not find
-        # a plan that still looks active and stop it twice.
+        # The plan is marked as stopped here rather than in the task: the
+        # next poll must not find a plan that still looks active and stop
+        # it twice.
         self._stop_watching()
         self.planned_power_w = 0.0
         self._poll_task = self.hass.async_create_task(self._stop_at_target())
@@ -615,9 +616,9 @@ class BatteryPlanner:
         except (SunSpecError, HomeAssistantError) as exc:
             _LOGGER.error("Battery plan: could not hand the battery back: %s", exc)
             return
-        # After the mode, not before: the timer only matters while a
-        # rate is in force, and the short one the device came with must
-        # not lapse between the two writes.
+        # The timer is released after the mode is written, not before:
+        # the timer only matters while a rate is in force, and the short
+        # one the device came with must not lapse between the two writes.
         await self._release_revert_timer()
         self.planned_power_w = 0.0
         self._notify()
@@ -658,6 +659,10 @@ class _PlanEntity(SunSpecEntity):
         )
         self._planner = planner
         self._attr_translation_key = key
+        # The keys of the switch, the times and the target say
+        # "scheduled_discharge" although the plan also charges. They are
+        # part of the unique ids of existing installations: renaming them
+        # orphans those entities and their history.
         self._attr_unique_id = get_sunspec_unique_id(
             config_entry.entry_id, key, STORAGE_CONTROL_MODEL, 0
         )
