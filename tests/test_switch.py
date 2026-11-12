@@ -160,7 +160,7 @@ async def test_set_export_limit_rejects_a_value_the_number_would_not_take(
 async def test_set_export_limit_takes_what_an_automation_written_before_the_schema_sends(
     hass, sunspec_write_client_mock
 ):
-    """A templated percentage arrives as text, and a stray field was ignored until now."""
+    """A percentage quoted in YAML arrives as text, and a stray field was always ignored."""
     entry = await _setup_write_entry(hass)
 
     with (

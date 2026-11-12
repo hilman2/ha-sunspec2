@@ -376,7 +376,7 @@ async def _async_setup_web(
 # export limit Number has, see WMaxLimPct in write_controls.py.
 #
 # Fields the action does not know are let through and ignored. The
-# action had no schema up to 2026.11.1, so an automation with a stray
+# action was released without a schema, so an automation with a stray
 # field worked, and one that sets an export limit must not stop working
 # over an update.
 _EXPORT_LIMIT_SCHEMA = probatio.Schema(
