@@ -16,8 +16,6 @@ from homeassistant.data_entry_flow import section
 from homeassistant.helpers import selector
 from homeassistant.helpers.service_info.dhcp import DhcpServiceInfo
 
-from . import SCAN_INTERVAL
-from . import SunSpecDataUpdateCoordinator
 from .api import SETUP_TIMEOUT
 from .api import SunSpecApiClient
 from .const import CONF_BAUDRATE
@@ -55,6 +53,8 @@ from .const import PARITY_NONE
 from .const import TRANSPORT_RTU
 from .const import TRANSPORT_TCP
 from .const import default_models_for
+from .coordinator import SCAN_INTERVAL
+from .coordinator import SunSpecDataUpdateCoordinator
 from .discovery import SunSpecCandidate
 from .discovery import async_discover_sunspec_candidates
 from .discovery import async_get_default_subnet

@@ -34,9 +34,6 @@ from homeassistant.core import callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.util import dt as dt_util
 
-from . import SunSpec2ConfigEntry
-from . import SunSpecDataUpdateCoordinator
-from . import get_sunspec_unique_id
 from .const import CONF_MAX_AC_POWER_KW
 from .const import CONF_PREFIX
 from .const import CONF_SCAN_INTERVAL
@@ -48,7 +45,10 @@ from .const import NAMEPLATE_FILTER_HEADROOM
 from .const import effective_peak_power_kw
 from .const import is_excluded_sensor_point
 from .const import measured_power_headroom
+from .coordinator import SunSpec2ConfigEntry
+from .coordinator import SunSpecDataUpdateCoordinator
 from .entity import SunSpecEntity
+from .entity import get_sunspec_unique_id
 from .franklinwh_controls import franklinwh_sensors
 
 # Bronze rule parallel-updates: the coordinator already serialises all

@@ -9,9 +9,9 @@ from typing import cast
 from homeassistant.helpers import device_registry as dr
 from pytest_homeassistant_custom_component.common import async_fire_time_changed
 
-from custom_components.sunspec2 import get_sunspec_unique_id
 from custom_components.sunspec2.const import DOMAIN
 from custom_components.sunspec2.const import default_models_for
+from custom_components.sunspec2.entity import get_sunspec_unique_id
 from custom_components.sunspec2.raw_blocks import decode_block
 from custom_components.sunspec2.raw_blocks import decode_field
 from custom_components.sunspec2.vendor_blocks import RawBlockNumber

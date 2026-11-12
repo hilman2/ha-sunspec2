@@ -11,8 +11,8 @@ from homeassistant.helpers import entity_registry as er
 from homeassistant.util import dt as dt_util
 from pytest_homeassistant_custom_component.common import mock_restore_cache_with_extra_data
 
-from custom_components.sunspec2 import get_sunspec_unique_id
 from custom_components.sunspec2.api import SunSpecApiClient
+from custom_components.sunspec2.entity import get_sunspec_unique_id
 from custom_components.sunspec2.lifetime_energy import CONFIRM_SECONDS
 from custom_components.sunspec2.lifetime_energy import MAX_DAILY_WH
 from custom_components.sunspec2.lifetime_energy import CountedDailyEnergySensor

@@ -3,15 +3,19 @@ and the Phase-3 coordinator hooks (per-category buffer, consecutive
 failure counters, Repairs panel).
 """
 
+import ast
+import json
+import re
+from pathlib import Path
 from typing import Any
 
 import pytest
 from homeassistant.helpers import issue_registry as ir
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from custom_components.sunspec2 import SunSpecDataUpdateCoordinator
 from custom_components.sunspec2.api import SunSpecApiClient
 from custom_components.sunspec2.const import DOMAIN
+from custom_components.sunspec2.coordinator import SunSpecDataUpdateCoordinator
 from custom_components.sunspec2.errors import CATEGORIES
 from custom_components.sunspec2.errors import DeviceError
 from custom_components.sunspec2.errors import ProtocolError
@@ -336,3 +340,29 @@ def deque_empty():
     from collections import deque
 
     return deque(maxlen=20)
+
+
+_COMPONENT = Path(__file__).parent.parent / "custom_components" / "sunspec2"
+
+
+def _raised_user_errors() -> dict[str, set[str]]:
+    """Every key the code passes to user_error, with the placeholders it gives."""
+    raised: dict[str, set[str]] = {}
+    for source in _COMPONENT.glob("*.py"):
+        for node in ast.walk(ast.parse(source.read_text(encoding="utf-8"))):
+            if isinstance(node, ast.Call) and getattr(node.func, "id", None) == "user_error":
+                key = ast.literal_eval(node.args[0])
+                raised.setdefault(key, set()).update(keyword.arg for keyword in node.keywords)
+    return raised
+
+
+@pytest.mark.parametrize("language", ["en", "de"])
+def test_every_user_error_has_its_message(language):
+    """A key without a message reaches the user as the bare key."""
+    translations = json.loads((_COMPONENT / "translations" / f"{language}.json").read_text("utf-8"))
+    messages = {
+        key: set(re.findall(r"{(\w+)}", entry["message"]))
+        for key, entry in translations["exceptions"].items()
+    }
+
+    assert messages == _raised_user_errors()

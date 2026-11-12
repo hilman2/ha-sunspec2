@@ -40,17 +40,17 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import PERCENTAGE
 from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
-from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from . import SunSpec2ConfigEntry
-from . import SunSpecDataUpdateCoordinator
-from . import get_sunspec_unique_id
 from .battery_plan import battery_plan_numbers
 from .const import EXPORT_LIMIT_DEFAULT_STEP_PCT
 from .const import EXPORT_LIMIT_MIN_STEP_PCT
+from .coordinator import SunSpec2ConfigEntry
+from .coordinator import SunSpecDataUpdateCoordinator
 from .entity import SunSpecEntity
+from .entity import get_sunspec_unique_id
 from .errors import SunSpecError
+from .errors import user_error
 from .franklinwh_controls import franklinwh_numbers
 from .models import SunSpecModelWrapper
 from .storage_modes import storage_setpoint_numbers
@@ -275,8 +275,8 @@ class SunSpecWriteNumber(SunSpecEntity, NumberEntity):
                 self._spec.model_id, [(self._spec.point_name, value)]
             )
         except SunSpecError as exc:
-            raise HomeAssistantError(
-                f"Failed to write {self._spec.point_name}={value}: {exc}"
+            raise user_error(
+                "write_failed", target=f"{self._spec.point_name}={value}", error=exc
             ) from exc
         # Refresh the read-side state immediately so the UI shows the
         # inverter's actual response, which may differ from the value we

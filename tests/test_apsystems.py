@@ -4,8 +4,8 @@ import pytest
 from homeassistant.components.sensor import SensorStateClass
 from homeassistant.helpers import entity_registry as er
 
-from custom_components.sunspec2 import get_sunspec_unique_id
 from custom_components.sunspec2.api import SunSpecApiClient
+from custom_components.sunspec2.entity import get_sunspec_unique_id
 from custom_components.sunspec2.lifetime_energy import CountedDailyEnergySensor
 from custom_components.sunspec2.sensor import SunSpecEnergySensor
 from custom_components.sunspec2.sensor import SunSpecSensor

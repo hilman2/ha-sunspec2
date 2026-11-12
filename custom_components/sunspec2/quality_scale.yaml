@@ -22,10 +22,8 @@ rules:
   common-modules:
     status: done
     comment: |
-      Coordinator + entity base class + typed exception hierarchy live
-      in __init__.py, entity.py and errors.py respectively. Sensor
-      platform reuses the SunSpecEntity base; CoordinatorEntity is
-      used.
+      The coordinator is in coordinator.py, the entity base class in
+      entity.py, the exception hierarchy in errors.py.
   config-flow:
     status: done
     comment: |
@@ -167,7 +165,7 @@ rules:
       per-(host, port) asyncio.Lock. Letting HA add a second layer
       of throttling on top would just inflate latency without any
       gain in correctness. The lock is also documented as
-      ``_GATEWAY_LOCKS`` in __init__.py for the multi-coordinator
+      ``_GATEWAY_LOCKS`` in coordinator.py for the multi-coordinator
       single-gateway case.
   reauthentication-flow:
     status: exempt
@@ -357,7 +355,7 @@ rules:
   repair-issues:
     status: done
     comment: |
-      _record_error in __init__.py raises HA Repairs panel issues
+      _record_error in coordinator.py raises HA Repairs panel issues
       when the per-category consecutive_failures counter crosses
       the threshold (1 for protocol errors, 3 for transport /
       device, never for transient timeouts). Issues are cleared

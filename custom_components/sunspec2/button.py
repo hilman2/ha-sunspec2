@@ -5,7 +5,7 @@ from __future__ import annotations
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from . import SunSpec2ConfigEntry
+from .coordinator import SunSpec2ConfigEntry
 from .franklinwh_controls import franklinwh_buttons
 from .fronius_web_entities import fronius_web_buttons
 

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
 from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
@@ -12,17 +11,22 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import DOMAIN
 from .const import STALE_DATA_TOLERANCE_CYCLES
+from .coordinator import SunSpecDataUpdateCoordinator
 from .model_labels import device_model_suffix
 from .models import SunSpecModelWrapper
 
-if TYPE_CHECKING:
-    # Imported for typing only. The coordinator lives in the package
-    # __init__, which imports half the integration, so importing it for
-    # real here would put every platform module behind that import.
-    from . import SunSpecDataUpdateCoordinator
+
+def get_sunspec_unique_id(config_entry_id: str, key: str, model_id: int, model_index: int) -> str:
+    """The unique id of an entity.
+
+    Its form is fixed: existing installations have it in their entity
+    registry, and ``migration.py`` rewrites the ids of cjne/ha-sunspec
+    into it. A change orphans every entity and its history.
+    """
+    return f"{config_entry_id}_{key}-{model_id}-{model_index}"
 
 
-class SunSpecEntity(CoordinatorEntity["SunSpecDataUpdateCoordinator"]):
+class SunSpecEntity(CoordinatorEntity[SunSpecDataUpdateCoordinator]):
     # Bronze rule has-entity-name: the per-entity ``name`` property
     # carries only the point label (e.g. "Watts", "DC Voltage") and
     # the device name supplies the make-and-model prefix

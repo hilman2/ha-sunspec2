@@ -270,10 +270,6 @@ def is_excluded_sensor_point(model_id: int, key: str) -> bool:
     return any(spec.point_name == point_name and not spec.retain_sensor for spec in specs)
 
 
-# Service action names. The service handler reads the entry by
-# entry_id from the service-call data so multi-inverter installs
-# pick the right device.
-SERVICE_SET_EXPORT_LIMIT = "set_export_limit"
 # Phase 2 debugging-first: when True, every read on the Modbus session
 # also stores its raw bytes in api._captured_reads so users can attach
 # a reproducible fixture to bug reports via the diagnostics dump. The

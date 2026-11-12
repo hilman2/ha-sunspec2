@@ -15,6 +15,10 @@ from __future__ import annotations
 
 from typing import ClassVar
 
+from homeassistant.exceptions import HomeAssistantError
+
+from .const import DOMAIN
+
 
 class SunSpecError(Exception):
     """Base class for all SunSpec 2 integration errors."""
@@ -71,3 +75,21 @@ CATEGORIES: tuple[str, ...] = ("transport", "protocol", "device", "transient")
 Single source of truth - import from here whenever you need to iterate
 over categories (coordinator init, diagnostics dump, tests).
 """
+
+
+def user_error(key: str, **placeholders: object) -> HomeAssistantError:
+    """An error for the person who triggered an action, in their language.
+
+    Args:
+        key: The message, as ``exceptions.<key>`` in translations/*.json.
+        placeholders: The values for the ``{name}`` fields of that message.
+
+    Returns:
+        HomeAssistantError: The error to raise. The frontend shows it in
+        the user's language, the log in English.
+    """
+    return HomeAssistantError(
+        translation_domain=DOMAIN,
+        translation_key=key,
+        translation_placeholders={name: str(value) for name, value in placeholders.items()},
+    )

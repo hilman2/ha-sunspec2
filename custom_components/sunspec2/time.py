@@ -9,8 +9,8 @@ from __future__ import annotations
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from . import SunSpec2ConfigEntry
 from .battery_plan import battery_plan_times
+from .coordinator import SunSpec2ConfigEntry
 
 PARALLEL_UPDATES = 0
 

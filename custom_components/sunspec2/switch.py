@@ -17,15 +17,15 @@ from homeassistant.components.switch import SwitchEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
-from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from . import SunSpec2ConfigEntry
-from . import SunSpecDataUpdateCoordinator
-from . import get_sunspec_unique_id
 from .battery_plan import battery_plan_switch
+from .coordinator import SunSpec2ConfigEntry
+from .coordinator import SunSpecDataUpdateCoordinator
 from .entity import SunSpecEntity
+from .entity import get_sunspec_unique_id
 from .errors import SunSpecError
+from .errors import user_error
 from .fronius_web_entities import fronius_web_switches
 from .models import SunSpecModelWrapper
 from .number import build_specs
@@ -148,8 +148,8 @@ class SunSpecWriteSwitch(SunSpecEntity, SwitchEntity):
                 self._spec.model_id, [(self._spec.point_name, raw_value)]
             )
         except SunSpecError as exc:
-            raise HomeAssistantError(
-                f"Failed to write {self._spec.point_name}={raw_value}: {exc}"
+            raise user_error(
+                "write_failed", target=f"{self._spec.point_name}={raw_value}", error=exc
             ) from exc
         # Outside the lock: the refresh debouncer runs inline and
         # asyncio.Lock is not reentrant.

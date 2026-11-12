@@ -22,16 +22,16 @@ from homeassistant.components.switch import SwitchEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import EntityCategory
 from homeassistant.const import UnitOfTemperature
-from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from . import SunSpecDataUpdateCoordinator
-from . import get_sunspec_unique_id
 from .const import OPERATING_STATE_MODEL_IDS
+from .coordinator import SunSpecDataUpdateCoordinator
 from .entity import Home
 from .entity import device_info_for
+from .entity import get_sunspec_unique_id
 from .entity import home_for
+from .errors import user_error
 from .fronius_web import CHARGE_FROM_AC
 from .fronius_web import CHARGE_FROM_GRID
 from .fronius_web import FroniusWebCoordinator
@@ -220,7 +220,7 @@ class WebSwitch(FroniusWebEntity, SwitchEntity):
         try:
             await self._spec.write(self.coordinator, on)
         except FroniusWebError as exc:
-            raise HomeAssistantError(f"The inverter's web interface refused: {exc}") from exc
+            raise user_error("web_refused", error=exc) from exc
 
 
 class ModbusResetButton(FroniusWebEntity, ButtonEntity):
@@ -233,7 +233,7 @@ class ModbusResetButton(FroniusWebEntity, ButtonEntity):
         try:
             await self.coordinator.async_reset_modbus()
         except FroniusWebError as exc:
-            raise HomeAssistantError(f"The inverter's web interface refused: {exc}") from exc
+            raise user_error("web_refused", error=exc) from exc
 
 
 def fronius_web_sensors(

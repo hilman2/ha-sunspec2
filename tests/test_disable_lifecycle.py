@@ -125,8 +125,8 @@ async def test_disable_during_retry_does_not_reopen_the_connection(hass, tcp_dev
 
     with (
         patch.object(coordinator, "_run_one_update_cycle", fail_once),
-        patch("custom_components.sunspec2.INTERVAL_RETRY_DELAY_SECONDS", 1234),
-        patch("custom_components.sunspec2.asyncio.sleep", pause_retry),
+        patch("custom_components.sunspec2.coordinator.INTERVAL_RETRY_DELAY_SECONDS", 1234),
+        patch("custom_components.sunspec2.coordinator.asyncio.sleep", pause_retry),
     ):
         refresh = asyncio.create_task(coordinator.async_refresh())
         try:

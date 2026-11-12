@@ -24,15 +24,15 @@ from homeassistant.components.select import SelectEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
-from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from . import SunSpec2ConfigEntry
-from . import SunSpecDataUpdateCoordinator
-from . import get_sunspec_unique_id
 from .battery_plan import battery_plan_direction
+from .coordinator import SunSpec2ConfigEntry
+from .coordinator import SunSpecDataUpdateCoordinator
 from .entity import SunSpecEntity
+from .entity import get_sunspec_unique_id
 from .errors import SunSpecError
+from .errors import user_error
 from .models import SunSpecModelWrapper
 from .number import build_specs
 from .storage_modes import storage_mode_select
@@ -144,7 +144,7 @@ class SunSpecWriteSelect(SunSpecEntity, SelectEntity):
 
     async def async_select_option(self, option: str) -> None:
         if option not in self._spec.options:
-            raise HomeAssistantError(f"{option} is not a valid option for {self._point_name}")
+            raise user_error("invalid_option", option=option)
         raw_value = self._spec.options[option]
         # Routed through the coordinator so the write holds the
         # per-gateway lock. See number.py's module docstring.
@@ -153,8 +153,8 @@ class SunSpecWriteSelect(SunSpecEntity, SelectEntity):
                 self._spec.model_id, [(self._spec.point_name, raw_value)]
             )
         except SunSpecError as exc:
-            raise HomeAssistantError(
-                f"Failed to write {self._point_name}={raw_value}: {exc}"
+            raise user_error(
+                "write_failed", target=f"{self._point_name}={raw_value}", error=exc
             ) from exc
         # Outside the lock: the refresh debouncer runs inline and
         # asyncio.Lock is not reentrant.

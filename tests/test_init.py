@@ -11,7 +11,6 @@ from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import issue_registry as ir
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from custom_components.sunspec2 import SunSpecDataUpdateCoordinator
 from custom_components.sunspec2 import async_setup_entry
 from custom_components.sunspec2.api import SunSpecApiClient
 from custom_components.sunspec2.const import CONF_CAPTURE_RAW
@@ -28,6 +27,7 @@ from custom_components.sunspec2.const import MIN_SCAN_INTERVAL_SECONDS
 from custom_components.sunspec2.const import STALE_DATA_TOLERANCE_CYCLES
 from custom_components.sunspec2.const import STRUCTURE_STORAGE_KEY
 from custom_components.sunspec2.const import STRUCTURE_STORAGE_VERSION
+from custom_components.sunspec2.coordinator import SunSpecDataUpdateCoordinator
 from custom_components.sunspec2.errors import TransportError
 from custom_components.sunspec2.migration import CJNE_DOMAIN
 
@@ -306,6 +306,9 @@ async def test_setup_entry_exception(hass, error_on_get_data):
     set_entry_setup_in_progress(hass, config_entry)
     with pytest.raises(ConfigEntryNotReady):
         assert await async_setup_entry(hass, config_entry)
+    # A failed setup is retried. A listener left behind by each attempt
+    # would reload the entry once per attempt on the next options change.
+    assert not config_entry.update_listeners
 
 
 async def test_fetch_data_timeout(hass, timeout_error_on_get_data):
@@ -496,7 +499,7 @@ async def test_in_cycle_retry_recovers_after_first_failure(hass, sunspec_client_
     """
     # Drop the retry sleep to zero so the test runs in milliseconds
     # instead of waiting on the production 5-second pause.
-    monkeypatch.setattr("custom_components.sunspec2.INTERVAL_RETRY_DELAY_SECONDS", 0)
+    monkeypatch.setattr("custom_components.sunspec2.coordinator.INTERVAL_RETRY_DELAY_SECONDS", 0)
 
     config_entry = await setup_mock_sunspec_config_entry(hass, MOCK_CONFIG_PREFIX)
     coordinator = config_entry.runtime_data
@@ -528,7 +531,7 @@ async def test_in_cycle_retry_exhausted_marks_cycle_failed(hass, sunspec_client_
     failure we would never escalate to "unavailable" - the user would
     just see a frozen sensor forever.
     """
-    monkeypatch.setattr("custom_components.sunspec2.INTERVAL_RETRY_DELAY_SECONDS", 0)
+    monkeypatch.setattr("custom_components.sunspec2.coordinator.INTERVAL_RETRY_DELAY_SECONDS", 0)
 
     config_entry = await setup_mock_sunspec_config_entry(hass, MOCK_CONFIG_PREFIX)
     coordinator = config_entry.runtime_data
@@ -588,7 +591,7 @@ async def test_stale_data_tolerance_keeps_sensor_available(hass, sunspec_client_
     the entity over to "unavailable". Uses MOCK_CONFIG_PREFIX (model 160
     only) to side-step the unrelated model-103 ENUM bitfield issue.
     """
-    monkeypatch.setattr("custom_components.sunspec2.INTERVAL_RETRY_DELAY_SECONDS", 0)
+    monkeypatch.setattr("custom_components.sunspec2.coordinator.INTERVAL_RETRY_DELAY_SECONDS", 0)
 
     config_entry = await setup_mock_sunspec_config_entry(hass, MOCK_CONFIG_PREFIX)
     coordinator = config_entry.runtime_data
@@ -743,7 +746,7 @@ def _make_coordinator_with_mock_api(hass, model_data: dict[int, Any]):
     from unittest.mock import AsyncMock
     from unittest.mock import MagicMock
 
-    from custom_components.sunspec2 import SunSpecDataUpdateCoordinator
+    from custom_components.sunspec2.coordinator import SunSpecDataUpdateCoordinator
 
     config_entry = MockConfigEntry(domain=DOMAIN, data=MOCK_CONFIG, options={})
     config_entry.add_to_hass(hass)
@@ -807,7 +810,7 @@ async def test_nameplate_swallows_read_errors_and_falls_through(hass):
     from unittest.mock import AsyncMock
     from unittest.mock import MagicMock
 
-    from custom_components.sunspec2 import SunSpecDataUpdateCoordinator
+    from custom_components.sunspec2.coordinator import SunSpecDataUpdateCoordinator
 
     config_entry = MockConfigEntry(domain=DOMAIN, data=MOCK_CONFIG, options={})
     config_entry.add_to_hass(hass)
@@ -1499,7 +1502,7 @@ async def test_a_failed_poll_closes_the_session_before_the_retry_sleep(hass, moc
         coordinator.api.async_close.assert_awaited_once_with(force=True)
         assert not coordinator._gateway_lock.locked()
 
-    mocker.patch("custom_components.sunspec2.asyncio.sleep", side_effect=retry_sleep)
+    mocker.patch("custom_components.sunspec2.coordinator.asyncio.sleep", side_effect=retry_sleep)
     mocker.patch.object(coordinator, "_async_save_model_structure", new_callable=AsyncMock)
 
     await coordinator._async_update_data()

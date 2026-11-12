@@ -13,8 +13,8 @@ import pytest
 from homeassistant.helpers import device_registry as dr
 from pytest_homeassistant_custom_component.common import async_fire_time_changed
 
-from custom_components.sunspec2 import get_sunspec_unique_id
 from custom_components.sunspec2.const import DOMAIN
+from custom_components.sunspec2.entity import get_sunspec_unique_id
 from custom_components.sunspec2.errors import DeviceError
 from custom_components.sunspec2.errors import TransientError
 from custom_components.sunspec2.errors import TransportError

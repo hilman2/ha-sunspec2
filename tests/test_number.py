@@ -12,9 +12,9 @@ from homeassistant.config_entries import ConfigEntryState
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import entity_registry as er
 
-from custom_components.sunspec2 import get_sunspec_unique_id
 from custom_components.sunspec2.api import SunSpecApiClient
 from custom_components.sunspec2.const import CONF_ENABLED_MODELS
+from custom_components.sunspec2.entity import get_sunspec_unique_id
 from custom_components.sunspec2.errors import DeviceError
 from custom_components.sunspec2.models import SunSpecModelWrapper
 from custom_components.sunspec2.pysunspec2.modbus.modbus import ModbusClientException
@@ -145,7 +145,7 @@ async def test_one_refusal_during_setup_only_retries_it(hass, sunspec_client_moc
 async def test_a_control_model_read_before_keeps_failing_the_cycle(
     hass, sunspec_client_mock, mocker, monkeypatch
 ):
-    monkeypatch.setattr("custom_components.sunspec2.INTERVAL_RETRY_DELAY_SECONDS", 0)
+    monkeypatch.setattr("custom_components.sunspec2.coordinator.INTERVAL_RETRY_DELAY_SECONDS", 0)
     refusal = _Refusal(mocker, None)
     entry = await setup_mock_sunspec_config_entry(hass)
     coordinator = entry.runtime_data
@@ -509,7 +509,7 @@ async def test_set_value_times_out_when_the_gateway_stays_busy(hass, sunspec_wri
     await coordinator._gateway_lock.acquire()
     try:
         with (
-            patch("custom_components.sunspec2.WRITE_LOCK_TIMEOUT_SECONDS", 0.05),
+            patch("custom_components.sunspec2.coordinator.WRITE_LOCK_TIMEOUT_SECONDS", 0.05),
             pytest.raises(HomeAssistantError, match="Timed out"),
         ):
             await limit.async_set_native_value(80)

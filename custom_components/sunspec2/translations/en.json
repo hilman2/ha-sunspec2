@@ -940,17 +940,47 @@
     }
   },
   "exceptions": {
-    "transport_error": {
-      "message": "Cannot reach the SunSpec inverter at {host}:{port}: {error}"
+    "entry_not_loaded": {
+      "message": "The SunSpec config entry is not loaded"
     },
-    "protocol_error": {
-      "message": "Device at {host}:{port} does not speak SunSpec: {error}"
+    "no_export_limit": {
+      "message": "The inverter exposes neither SunSpec model 123 nor model 704, so it has no export limit to set"
     },
-    "device_error": {
-      "message": "SunSpec inverter at {host}:{port} returned a Modbus exception: {error}"
+    "export_limit_failed": {
+      "message": "Failed to set the export limit: {error}"
     },
-    "transient_error": {
-      "message": "Transient timeout reading from {host}:{port}: {error}"
+    "no_battery_plan": {
+      "message": "This device does not support a battery plan"
+    },
+    "direction_unsupported": {
+      "message": "The battery does not support {direction}"
+    },
+    "write_failed": {
+      "message": "Failed to write {target}: {error}"
+    },
+    "not_a_register": {
+      "message": "{register} is not a register of this device"
+    },
+    "invalid_option": {
+      "message": "{option} is not an option this device offers"
+    },
+    "battery_mode_failed": {
+      "message": "Failed to set battery mode {mode}: {error}"
+    },
+    "no_battery": {
+      "message": "The inverter reports no battery (WChaMax is 0)"
+    },
+    "franklinwh_unavailable": {
+      "message": "FranklinWH battery controls are not available"
+    },
+    "power_not_finite": {
+      "message": "Battery power must be a finite number"
+    },
+    "franklinwh_failed": {
+      "message": "FranklinWH battery command failed: {error}"
+    },
+    "web_refused": {
+      "message": "The inverter's web interface refused: {error}"
     }
   },
   "issues": {

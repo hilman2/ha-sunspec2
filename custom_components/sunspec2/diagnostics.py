@@ -20,8 +20,6 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import __version__ as HA_VERSION
 from homeassistant.core import HomeAssistant
 
-from . import SunSpec2ConfigEntry
-from . import SunSpecDataUpdateCoordinator
 from .const import CONF_FRONIUS_WEB_TOKEN
 from .const import CONF_HOST
 from .const import CONF_MAX_AC_POWER_KW
@@ -29,6 +27,8 @@ from .const import MEASURED_POWER_POINT_HEADROOM
 from .const import NAMEPLATE_FILTER_HEADROOM
 from .const import VERSION
 from .const import effective_peak_power_kw
+from .coordinator import SunSpec2ConfigEntry
+from .coordinator import SunSpecDataUpdateCoordinator
 from .models import SunSpecModelWrapper
 from .pysunspec2 import VERSION as PYSUNSPEC2_VERSION
 

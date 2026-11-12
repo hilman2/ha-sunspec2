@@ -940,17 +940,47 @@
     }
   },
   "exceptions": {
-    "transport_error": {
-      "message": "SunSpec-Wechselrichter unter {host}:{port} nicht erreichbar: {error}"
+    "entry_not_loaded": {
+      "message": "Der SunSpec-Konfigurationseintrag ist nicht geladen"
     },
-    "protocol_error": {
-      "message": "Gerät unter {host}:{port} spricht kein SunSpec: {error}"
+    "no_export_limit": {
+      "message": "Der Wechselrichter bietet weder SunSpec-Modell 123 noch Modell 704 an, es gibt also kein Einspeise-Limit zum Einstellen"
     },
-    "device_error": {
-      "message": "SunSpec-Wechselrichter unter {host}:{port} hat eine Modbus-Exception zurückgegeben: {error}"
+    "export_limit_failed": {
+      "message": "Das Einspeise-Limit konnte nicht gesetzt werden: {error}"
     },
-    "transient_error": {
-      "message": "Vorübergehender Timeout beim Lesen von {host}:{port}: {error}"
+    "no_battery_plan": {
+      "message": "Dieses Gerät unterstützt keinen Batterieplan"
+    },
+    "direction_unsupported": {
+      "message": "Die Batterie unterstützt {direction} nicht"
+    },
+    "write_failed": {
+      "message": "{target} konnte nicht geschrieben werden: {error}"
+    },
+    "not_a_register": {
+      "message": "{register} ist kein Register dieses Geräts"
+    },
+    "invalid_option": {
+      "message": "{option} ist keine Option, die dieses Gerät anbietet"
+    },
+    "battery_mode_failed": {
+      "message": "Die Batterie-Betriebsart {mode} konnte nicht gesetzt werden: {error}"
+    },
+    "no_battery": {
+      "message": "Der Wechselrichter meldet keine Batterie (WChaMax ist 0)"
+    },
+    "franklinwh_unavailable": {
+      "message": "Die FranklinWH-Batteriesteuerung ist nicht verfügbar"
+    },
+    "power_not_finite": {
+      "message": "Die Batterieleistung muss eine endliche Zahl sein"
+    },
+    "franklinwh_failed": {
+      "message": "Der FranklinWH-Batteriebefehl ist fehlgeschlagen: {error}"
+    },
+    "web_refused": {
+      "message": "Die Weboberfläche des Wechselrichters hat abgelehnt: {error}"
     }
   },
   "issues": {
