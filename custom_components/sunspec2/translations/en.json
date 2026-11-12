@@ -941,7 +941,7 @@
   },
   "exceptions": {
     "entry_not_loaded": {
-      "message": "The SunSpec config entry is not loaded"
+      "message": "The SunSpec config entry {entry_id} is not loaded"
     },
     "no_export_limit": {
       "message": "The inverter exposes neither SunSpec model 123 nor model 704, so it has no export limit to set"
@@ -962,7 +962,7 @@
       "message": "{register} is not a register of this device"
     },
     "invalid_option": {
-      "message": "{option} is not an option this device offers"
+      "message": "{option} is not an option of {target} on this device"
     },
     "battery_mode_failed": {
       "message": "Failed to set battery mode {mode}: {error}"

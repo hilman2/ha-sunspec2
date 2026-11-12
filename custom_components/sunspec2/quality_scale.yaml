@@ -328,11 +328,10 @@ rules:
   exception-translations:
     status: done
     comment: |
-      ``exceptions.transport_error`` / ``protocol_error`` /
-      ``device_error`` / ``transient_error`` keys live in
-      translations/en.json and de.json so the four error categories
-      our coordinator surfaces have user-facing messages with
-      placeholders for {host}, {port} and {error}.
+      Every error an action or an entity raises for the user goes
+      through ``errors.user_error`` and has its message under
+      ``exceptions`` in translations/en.json and de.json.
+      tests/test_errors.py compares the keys and placeholders.
   icon-translations:
     status: done
     comment: |

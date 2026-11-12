@@ -144,7 +144,7 @@ class SunSpecWriteSelect(SunSpecEntity, SelectEntity):
 
     async def async_select_option(self, option: str) -> None:
         if option not in self._spec.options:
-            raise user_error("invalid_option", option=option)
+            raise user_error("invalid_option", option=option, target=self._point_name)
         raw_value = self._spec.options[option]
         # Routed through the coordinator so the write holds the
         # per-gateway lock. See number.py's module docstring.

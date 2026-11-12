@@ -496,8 +496,8 @@ async def test_set_value_releases_the_lock_when_the_write_fails(hass, sunspec_wr
 async def test_set_value_times_out_when_the_gateway_stays_busy(hass, sunspec_write_client_mock):
     """A wedged poll cycle must surface as an error, not an infinite wait.
 
-    The timeout constant is patched in the ``__init__`` module
-    namespace, not in ``const``: ``__init__.py`` does ``from .const
+    The timeout constant is patched in the ``coordinator`` module
+    namespace, not in ``const``: ``coordinator.py`` does ``from .const
     import WRITE_LOCK_TIMEOUT_SECONDS``, so the value is bound at
     import time and patching the const module would leave the
     coordinator reading the real 120 and hang the test for two minutes.

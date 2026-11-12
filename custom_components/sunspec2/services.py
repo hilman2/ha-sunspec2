@@ -94,7 +94,7 @@ def _coordinator(call: ServiceCall) -> SunSpecDataUpdateCoordinator:
     # runtime_data on unload, so reading it from an entry that is not
     # loaded raises AttributeError.
     if entry is None or entry.domain != DOMAIN or entry.state is not ConfigEntryState.LOADED:
-        raise user_error("entry_not_loaded")
+        raise user_error("entry_not_loaded", entry_id=call.data["config_entry_id"])
     coordinator: SunSpecDataUpdateCoordinator = entry.runtime_data
     return coordinator
 

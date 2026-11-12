@@ -11,6 +11,7 @@ from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import issue_registry as ir
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
+from custom_components.sunspec2 import async_reload_entry
 from custom_components.sunspec2 import async_setup_entry
 from custom_components.sunspec2.api import SunSpecApiClient
 from custom_components.sunspec2.const import CONF_CAPTURE_RAW
@@ -306,9 +307,30 @@ async def test_setup_entry_exception(hass, error_on_get_data):
     set_entry_setup_in_progress(hass, config_entry)
     with pytest.raises(ConfigEntryNotReady):
         assert await async_setup_entry(hass, config_entry)
-    # A failed setup is retried. A listener left behind by each attempt
-    # would reload the entry once per attempt on the next options change.
-    assert not config_entry.update_listeners
+    # A failed setup is retried, and every attempt comes through here.
+    with pytest.raises(ConfigEntryNotReady):
+        assert await async_setup_entry(hass, config_entry)
+    assert config_entry.update_listeners == [async_reload_entry]
+
+
+async def test_new_data_reloads_an_entry_that_waits_to_retry(hass, error_on_get_data):
+    """Reconfigure stores a new address and leaves the reload to the update listener."""
+    config_entry = MockConfigEntry(domain=DOMAIN, data=MOCK_CONFIG, entry_id="test")
+    config_entry.add_to_hass(hass)
+    await hass.config_entries.async_setup(config_entry.entry_id)
+    await hass.async_block_till_done()
+    assert config_entry.state is ConfigEntryState.SETUP_RETRY
+
+    with patch(
+        "custom_components.sunspec2.async_setup_entry", side_effect=ConfigEntryNotReady
+    ) as setup:
+        hass.config_entries.async_update_entry(
+            config_entry, data={**MOCK_CONFIG, "host": "192.0.2.7"}
+        )
+        await hass.async_block_till_done()
+
+    assert [call.args[1].data["host"] for call in setup.call_args_list] == ["192.0.2.7"]
+    await hass.config_entries.async_unload(config_entry.entry_id)
 
 
 async def test_fetch_data_timeout(hass, timeout_error_on_get_data):

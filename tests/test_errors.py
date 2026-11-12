@@ -345,26 +345,30 @@ def deque_empty():
 _COMPONENT = Path(__file__).parent.parent / "custom_components" / "sunspec2"
 
 
-def _raised_user_errors() -> dict[str, set[str]]:
-    """Every key the code passes to user_error, with the placeholders it gives."""
-    raised: dict[str, set[str]] = {}
-    for source in _COMPONENT.glob("*.py"):
+def _user_error_calls() -> list[tuple[str, set[str]]]:
+    """Every call of user_error in the integration: its key and the placeholders it gives."""
+    calls = []
+    for source in _COMPONENT.rglob("*.py"):
         for node in ast.walk(ast.parse(source.read_text(encoding="utf-8"))):
-            if isinstance(node, ast.Call) and getattr(node.func, "id", None) == "user_error":
+            if not isinstance(node, ast.Call):
+                continue
+            name = getattr(node.func, "id", None) or getattr(node.func, "attr", None)
+            if name == "user_error":
                 key = ast.literal_eval(node.args[0])
-                raised.setdefault(key, set()).update(
-                    keyword.arg for keyword in node.keywords if keyword.arg is not None
-                )
-    return raised
+                calls.append((key, {keyword.arg for keyword in node.keywords if keyword.arg}))
+    return calls
 
 
 @pytest.mark.parametrize("language", ["en", "de"])
 def test_every_user_error_has_its_message(language):
-    """A key without a message reaches the user as the bare key."""
+    """A key without a message reaches the user as the bare key, a missing value as ``{name}``."""
     translations = json.loads((_COMPONENT / "translations" / f"{language}.json").read_text("utf-8"))
     messages = {
         key: set(re.findall(r"{(\w+)}", entry["message"]))
         for key, entry in translations["exceptions"].items()
     }
+    calls = _user_error_calls()
 
-    assert messages == _raised_user_errors()
+    assert {key for key, _ in calls} == set(messages)
+    for key, placeholders in calls:
+        assert placeholders == messages[key], key

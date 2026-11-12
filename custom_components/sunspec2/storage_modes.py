@@ -138,7 +138,7 @@ class StorageModeSelect(SunSpecEntity, SelectEntity):
             mode = StorageMode(option)
             self._profile.recipes[mode]
         except (ValueError, KeyError) as exc:
-            raise user_error("invalid_option", option=option) from exc
+            raise user_error("invalid_option", option=option, target="StorCtl_Mod") from exc
         try:
             await async_apply_storage_mode(self.coordinator, self._profile, mode)
         except SunSpecError as exc:

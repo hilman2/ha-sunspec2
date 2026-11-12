@@ -247,7 +247,7 @@ class RawBlockSelect(RawBlockEntity, SelectEntity):
     async def async_select_option(self, option: str) -> None:
         chosen = next((raw for raw, name in self._spec.options.items() if name == option), None)
         if chosen is None:
-            raise user_error("invalid_option", option=option)
+            raise user_error("invalid_option", option=option, target=f"{self._block}.{self._field}")
         if self._spec.write is not None:
             chosen = self._spec.write(self._raw(), chosen)
         await self._write(chosen)

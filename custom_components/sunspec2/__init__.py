@@ -117,6 +117,13 @@ async def async_migrate_entry(hass: HomeAssistant, config_entry: ConfigEntry) ->
 
 async def async_setup_entry(hass: HomeAssistant, entry: SunSpec2ConfigEntry) -> bool:
     """Set up this integration using UI."""
+    # The flows change data and options and leave the reload to this
+    # listener, also while the entry waits to retry a failed setup: a new
+    # address entered for an unreachable device must be tried at once.
+    # entry.async_on_unload would remove the listener with every failed
+    # attempt, so it is added once and removed in async_unload_entry.
+    if async_reload_entry not in entry.update_listeners:
+        entry.add_update_listener(async_reload_entry)
     if not hass.data.get(f"{DOMAIN}_started"):
         hass.data[f"{DOMAIN}_started"] = True
         _LOGGER.info(STARTUP_MESSAGE)
@@ -266,7 +273,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: SunSpec2ConfigEntry) -> 
     coordinator.forwarded_platforms = platforms_to_load
     await hass.config_entries.async_forward_entry_setups(entry, platforms_to_load)
 
-    entry.async_on_unload(entry.add_update_listener(async_reload_entry))
     return True
 
 
@@ -433,6 +439,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: SunSpec2ConfigEntry) ->
         # out. An unload is usually followed by a setup, so the connection
         # goes for good, not just the client on it.
         await coordinator.api.async_shutdown()
+        entry.update_listeners.remove(async_reload_entry)
     else:
         # Do not claim success. Returning True here (which is what this
         # did before v0.14.0) makes HA mark the entry NOT_LOADED while

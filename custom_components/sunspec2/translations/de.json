@@ -941,7 +941,7 @@
   },
   "exceptions": {
     "entry_not_loaded": {
-      "message": "Der SunSpec-Konfigurationseintrag ist nicht geladen"
+      "message": "Der SunSpec-Konfigurationseintrag {entry_id} ist nicht geladen"
     },
     "no_export_limit": {
       "message": "Der Wechselrichter bietet weder SunSpec-Modell 123 noch Modell 704 an, es gibt also kein Einspeise-Limit zum Einstellen"
@@ -962,7 +962,7 @@
       "message": "{register} ist kein Register dieses Geräts"
     },
     "invalid_option": {
-      "message": "{option} ist keine Option, die dieses Gerät anbietet"
+      "message": "{option} ist auf diesem Gerät keine Option von {target}"
     },
     "battery_mode_failed": {
       "message": "Die Batterie-Betriebsart {mode} konnte nicht gesetzt werden: {error}"
