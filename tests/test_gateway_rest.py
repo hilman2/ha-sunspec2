@@ -107,7 +107,10 @@ async def test_the_rest_holds_every_entry_behind_the_gateway(
     freezer.move_to(NOW)
     first = await _ecu_entry(hass)
     second_entry = MockConfigEntry(
-        domain=DOMAIN, data={**MOCK_CONFIG, CONF_UNIT_ID: 2}, entry_id="second_micro"
+        domain=DOMAIN,
+        data={**MOCK_CONFIG, CONF_UNIT_ID: 2},
+        entry_id="second_micro",
+        version=2,
     )
     second_entry.add_to_hass(hass)
     second = await _ecu_entry(hass, second_entry, unit_id=2)

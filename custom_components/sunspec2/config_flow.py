@@ -238,6 +238,8 @@ def set_connection_error(
 class SunSpecFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
     """Config flow for sunspec."""
 
+    # Every entry of this integration was created at version 2, so there is
+    # no async_migrate_entry. A new version needs one.
     VERSION = 2
 
     def __init__(self) -> None:

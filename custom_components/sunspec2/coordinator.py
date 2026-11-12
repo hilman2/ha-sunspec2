@@ -50,7 +50,6 @@ from .const import STALE_MODEL_TOLERANCE_SECONDS
 from .const import STANDBY_OPERATING_STATES
 from .const import STRUCTURE_STORAGE_KEY
 from .const import STRUCTURE_STORAGE_VERSION
-from .const import WRITE_CAPABLE_MODEL_IDS
 from .const import WRITE_LOCK_TIMEOUT_SECONDS
 from .errors import CATEGORIES
 from .errors import DeviceError
@@ -69,6 +68,7 @@ from .vendors import plan_write
 from .vendors import profile_for
 from .vendors.profile import RawBlock
 from .vendors.profile import RawField
+from .write_controls import WRITE_CAPABLE_MODELS
 
 if TYPE_CHECKING:
     # Typing only: battery_plan imports the coordinator from here.
@@ -365,7 +365,7 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator[dict[int, SunSpecModelW
         # is what the options form round-trips, so folding a model into
         # it would render a tick the user never made and then persist
         # it on their next save.
-        self.write_model_filter: set[int] = set(WRITE_CAPABLE_MODEL_IDS)
+        self.write_model_filter: set[int] = set(WRITE_CAPABLE_MODELS)
         # Control models the device refuses to read while they are
         # polled only for their controls. An Enphase IQ Gateway lists
         # model 704 in its scan and answers every read of it with

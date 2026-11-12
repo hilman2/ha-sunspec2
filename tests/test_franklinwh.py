@@ -52,6 +52,7 @@ async def agate(hass, mocker):
         domain=DOMAIN,
         data={**MOCK_CONFIG, CONF_ENABLED_MODELS: [701]},
         options={"scan_delay": 0, "model_read_delay": 0},
+        version=2,
     )
     entry.add_to_hass(hass)
     assert await hass.config_entries.async_setup(entry.entry_id)
@@ -90,6 +91,7 @@ async def test_extension_sensors_move_to_a_gateway_device_and_keep_their_entity_
         domain=DOMAIN,
         data={**MOCK_CONFIG, CONF_ENABLED_MODELS: [701], CONF_PREFIX: prefix},
         options={"scan_delay": 0, "model_read_delay": 0},
+        version=2,
     )
     entry.add_to_hass(hass)
     # Up to 2026.10.12 the sensor sat on a SunSpec model device.

@@ -46,6 +46,19 @@ WRITE_CAPABLE_MODELS: frozenset[int] = frozenset(
     {IMMEDIATE_CONTROLS_MODEL, DER_AC_CONTROLS_MODEL, STORAGE_CONTROL_MODEL}
 )
 
+# Upper bound for an export limit (WMaxLimPct), entity and action, in percent of
+# WMax. The SunSpec definition describes WMaxLimPct as a percentage of
+# WMax and the obvious reading is 0..100, but real firmware uses values
+# above 100 as a "no limit" sentinel: a KACO in #17 shipped with 110 and
+# the user could not restore it, because HA's number component rejects
+# an out-of-range service call and clamps the native value on top.
+#
+# Flat headroom on purpose, NOT derived from the current value. A
+# ceiling that tracks what the device currently reports collapses back
+# to 100 the moment the user writes 50, which puts 110 out of reach
+# again - the exact bug, one write later.
+EXPORT_LIMIT_HARD_MAX_PCT = 200
+
 PLATFORM_NUMBER = "number"
 PLATFORM_SWITCH = "switch"
 PLATFORM_SELECT = "select"
@@ -96,10 +109,7 @@ _MODEL_123: tuple[WriteControlSpec, ...] = (
         translation_key="export_limit_pct",
         icon="mdi:transmission-tower-export",
         native_min=0,
-        # Above 100 is allowed: some firmware uses e.g. 110 to mean "no
-        # limit", and the KACO in #17 shipped that way with an owner who
-        # could not put it back.
-        native_max=200,
+        native_max=EXPORT_LIMIT_HARD_MAX_PCT,
     ),
     WriteControlSpec(
         model_id=123,
@@ -167,7 +177,7 @@ _MODEL_704: tuple[WriteControlSpec, ...] = (
         translation_key="export_limit_pct",
         icon="mdi:transmission-tower-export",
         native_min=0,
-        native_max=200,
+        native_max=EXPORT_LIMIT_HARD_MAX_PCT,
     ),
     WriteControlSpec(
         model_id=704,
@@ -195,7 +205,7 @@ _MODEL_704: tuple[WriteControlSpec, ...] = (
         translation_key="export_limit_revert_value",
         icon="mdi:undo-variant",
         native_min=0,
-        native_max=200,
+        native_max=EXPORT_LIMIT_HARD_MAX_PCT,
         # The percentage the inverter falls back to when the revert
         # timer expires. Setting it to the limit you just wrote makes
         # the expiry a no-op, which is the alternative to disabling the
@@ -418,11 +428,6 @@ def active_specs_for_platform(
     return [
         spec for spec in active_specs(detected_models, unsupported) if spec.platform == platform
     ]
-
-
-def models_in_use(detected_models: set[int] | frozenset[int]) -> set[int]:
-    """Model ids the active specs need polled."""
-    return {spec.model_id for spec in active_specs(detected_models)}
 
 
 def specs_for_model(model_id: int) -> tuple[WriteControlSpec, ...]:

@@ -848,7 +848,7 @@ async def test_the_connection_is_built_once_for_the_entry(hass, mocker):
     models, and the next client uses the same object.
     """
     built = mocker.patch("custom_components.sunspec2.api.SharedConnection")
-    entry = MockConfigEntry(domain=DOMAIN, data=MOCK_CONFIG)
+    entry = MockConfigEntry(version=2, domain=DOMAIN, data=MOCK_CONFIG)
     api = SunSpecApiClient(host="test", port=123, unit_id=7, hass=hass, entry=entry)
 
     first = api._get_connection()

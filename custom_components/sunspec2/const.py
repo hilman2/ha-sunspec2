@@ -5,17 +5,9 @@ from __future__ import annotations
 # Base component constants
 NAME = "SunSpec 2"
 DOMAIN = "sunspec2"
-DOMAIN_DATA = f"{DOMAIN}_data"
 VERSION = "2026.11.1"
 
-ATTRIBUTION = "Data provided by SunSpec alliance - https://sunspec.org"
 ISSUE_URL = "https://github.com/hilman2/ha-sunspec2/issues"
-
-# Icons
-ICON = "mdi:format-quote-close"
-
-# Device classes
-BINARY_SENSOR_DEVICE_CLASS = "connectivity"
 
 # Platforms
 SENSOR = "sensor"
@@ -31,12 +23,9 @@ PLATFORMS = [SENSOR, NUMBER, SWITCH, SELECT, TIME, BUTTON]
 
 
 # Configuration and options
-CONF_ENABLED = "enabled"
 CONF_HOST = "host"
 CONF_PORT = "port"
 CONF_UNIT_ID = "unit_id"
-# Legacy constant for backward compatibility
-CONF_SLAVE_ID = "slave_id"  # Deprecated, use CONF_UNIT_ID
 CONF_PREFIX = "prefix"
 CONF_SCAN_INTERVAL = "scan_interval"
 CONF_ENABLED_MODELS = "models_enabled"
@@ -80,29 +69,6 @@ CONF_REARM_ON_CHANGE = "rearm_on_change"
 CONF_FRONIUS_WEB_PASSWORD = "fronius_web_password"
 CONF_FRONIUS_WEB_FORGET = "fronius_web_forget"
 CONF_FRONIUS_WEB_TOKEN = "fronius_web_token"
-
-# Standard SunSpec model that exposes the immediate-control points
-# we expose as writable Number / Switch entities. The integration
-# only registers write entities when this model is part of
-# coordinator.detected_models.
-WRITE_CONTROLS_MODEL_ID = 123
-# Every model the write platforms can build controls for. The
-# coordinator polls whichever of these a device exposes, so users do not have to find and tick them in the model
-# list first, which is the bug #30 fixed for model 123 alone.
-WRITE_CAPABLE_MODEL_IDS: frozenset[int] = frozenset({123, 124, 704})
-
-# Upper bound for the model 123 WMaxLimPct Number entity, in percent of
-# WMax. The SunSpec definition describes WMaxLimPct as a percentage of
-# WMax and the obvious reading is 0..100, but real firmware uses values
-# above 100 as a "no limit" sentinel: a KACO in #17 shipped with 110 and
-# the user could not restore it, because HA's number component rejects
-# an out-of-range service call and clamps the native value on top.
-#
-# Flat headroom on purpose, NOT derived from the current value. A
-# ceiling that tracks what the device currently reports collapses back
-# to 100 the moment the user writes 50, which puts 110 out of reach
-# again - the exact bug, one write later.
-EXPORT_LIMIT_HARD_MAX_PCT = 200
 
 # UI step bounds for the same entity. The real step comes from the
 # device's own WMaxLimPct_SF scale factor (10 ** SF): at SF -1 the
@@ -621,9 +587,6 @@ def default_models_for(available: set[int]) -> set[int]:
     ticked = DEFAULT_MODELS & available
     return ticked - {model + FLOAT_TWIN_OFFSET for model in INTEGER_MEASUREMENT_MODELS & available}
 
-
-# Defaults
-DEFAULT_NAME = DOMAIN
 
 STARTUP_MESSAGE = f"""
 -------------------------------------------------------------------

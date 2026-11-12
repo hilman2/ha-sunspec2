@@ -68,6 +68,7 @@ def create_mock_sunspec_config_entry(
         data=data or MOCK_CONFIG,
         title="",
         options=options or {},
+        version=2,
     )
     config_entry.add_to_hass(hass)
     return config_entry

@@ -176,7 +176,7 @@ async def test_options_flow(hass, sunspec_client_mock):
     """Test an options flow."""
     # Create a new MockConfigEntry and add to HASS (we're bypassing config
     # flow entirely)
-    entry = MockConfigEntry(domain=DOMAIN, data=MOCK_CONFIG, entry_id="test")
+    entry = MockConfigEntry(version=2, domain=DOMAIN, data=MOCK_CONFIG, entry_id="test")
     entry.add_to_hass(hass)
 
     coordinator = MockSunSpecDataUpdateCoordinator(hass, [1, 2])
@@ -232,7 +232,9 @@ async def test_options_flow_rejects_empty_model_selection(hass, sunspec_client_m
     to disk and the next coordinator reload polled zero models, killing
     every sensor on the integration.
     """
-    entry = MockConfigEntry(domain=DOMAIN, data=MOCK_CONFIG, entry_id="test_empty_models")
+    entry = MockConfigEntry(
+        version=2, domain=DOMAIN, data=MOCK_CONFIG, entry_id="test_empty_models"
+    )
     entry.add_to_hass(hass)
 
     coordinator = MockSunSpecDataUpdateCoordinator(hass, [1, 2])
@@ -267,7 +269,7 @@ async def test_options_flow_connect_error(hass, sunspec_client_mock_connect_erro
     coordinator.last_update_success and shows the connection warning
     on the host_options step if the coordinator is currently broken.
     """
-    entry = MockConfigEntry(domain=DOMAIN, data=MOCK_CONFIG, entry_id="test")
+    entry = MockConfigEntry(version=2, domain=DOMAIN, data=MOCK_CONFIG, entry_id="test")
     entry.add_to_hass(hass)
 
     coordinator = MockSunSpecDataUpdateCoordinator(hass, [1, 2])
@@ -346,6 +348,7 @@ async def test_dhcp_discovery_aborts_when_host_already_configured(hass):
         domain=DOMAIN,
         data={**MOCK_CONFIG, "host": "192.168.42.17"},
         entry_id="already_configured",
+        version=2,
     )
     existing.add_to_hass(hass)
 
@@ -614,6 +617,7 @@ async def test_reconfigure_flow_updates_host_when_serial_matches(
         data=MOCK_CONFIG,
         entry_id="test_reconfigure",
         unique_id="sn-123456789",
+        version=2,
     )
     entry.add_to_hass(hass)
     await hass.config_entries.async_setup(entry.entry_id)
@@ -645,6 +649,7 @@ async def test_reconfigure_flow_refuses_serial_mismatch(
         data=MOCK_CONFIG,
         entry_id="test_reconfigure_mismatch",
         unique_id="some-other-serial",
+        version=2,
     )
     entry.add_to_hass(hass)
     await hass.config_entries.async_setup(entry.entry_id)
@@ -785,6 +790,7 @@ async def test_options_flow_offers_standby_when_idle(hass, sunspec_client_mock, 
         data=MOCK_CONFIG,
         options={CONF_STANDBY_WHEN_IDLE: stored},
         entry_id="test",
+        version=2,
     )
     entry.add_to_hass(hass)
     entry.runtime_data = MockSunSpecDataUpdateCoordinator(hass, [1, 2])
@@ -798,7 +804,7 @@ async def test_options_flow_offers_standby_when_idle(hass, sunspec_client_mock, 
 @pytest.mark.parametrize("stored", [None, 0, 0.25, 2])
 async def test_options_flow_model_read_delay_round_trips(hass, sunspec_client_mock, stored):
     options = {} if stored is None else {CONF_MODEL_READ_DELAY: stored}
-    entry = MockConfigEntry(domain=DOMAIN, data=MOCK_CONFIG, options=options)
+    entry = MockConfigEntry(version=2, domain=DOMAIN, data=MOCK_CONFIG, options=options)
     entry.add_to_hass(hass)
     entry.runtime_data = MockSunSpecDataUpdateCoordinator(hass, [1, 2])
     result = await _open_model_options(hass, entry)
@@ -823,7 +829,7 @@ async def test_options_flow_model_read_delay_round_trips(hass, sunspec_client_mo
 async def test_options_flow_rejects_model_read_delay_outside_the_range(
     hass, sunspec_client_mock, delay
 ):
-    entry = MockConfigEntry(domain=DOMAIN, data=MOCK_CONFIG)
+    entry = MockConfigEntry(version=2, domain=DOMAIN, data=MOCK_CONFIG)
     entry.add_to_hass(hass)
     entry.runtime_data = MockSunSpecDataUpdateCoordinator(hass, [1, 2])
     result = await _open_model_options(hass, entry)
@@ -853,7 +859,7 @@ async def test_options_flow_preserves_unedited_sections(hass, sunspec_client_moc
         "usage_stats": False,
         "fronius_web_token": {"stored": "login"},
     }
-    entry = MockConfigEntry(domain=DOMAIN, data=MOCK_CONFIG, options=saved)
+    entry = MockConfigEntry(version=2, domain=DOMAIN, data=MOCK_CONFIG, options=saved)
     entry.add_to_hass(hass)
     entry.runtime_data = MockSunSpecDataUpdateCoordinator(hass, [1, 2])
     result = await _open_model_options(hass, entry)
@@ -876,6 +882,7 @@ async def test_options_flow_saves_section_edits_as_flat_options(hass, sunspec_cl
         domain=DOMAIN,
         data=MOCK_CONFIG,
         options={"capture_raw_registers": True, CONF_STANDBY_WHEN_IDLE: True},
+        version=2,
     )
     entry.add_to_hass(hass)
     entry.runtime_data = MockSunSpecDataUpdateCoordinator(hass, [1, 2])
@@ -909,7 +916,7 @@ async def test_options_flow_saves_section_edits_as_flat_options(hass, sunspec_cl
 
 async def test_options_flow_rejects_models_outside_the_detected_list(hass, sunspec_client_mock):
     """The compact model picker still rejects a model that cannot be polled."""
-    entry = MockConfigEntry(domain=DOMAIN, data=MOCK_CONFIG)
+    entry = MockConfigEntry(version=2, domain=DOMAIN, data=MOCK_CONFIG)
     entry.add_to_hass(hass)
     entry.runtime_data = MockSunSpecDataUpdateCoordinator(hass, [1, 2])
     result = await _open_model_options(hass, entry)
@@ -932,7 +939,7 @@ async def test_options_flow_suggests_nameplate_with_headroom(hass, sunspec_clien
     day: DCW is measured before conversion losses and VA is by
     definition >= W.
     """
-    entry = MockConfigEntry(domain=DOMAIN, data=MOCK_CONFIG, entry_id="test")
+    entry = MockConfigEntry(version=2, domain=DOMAIN, data=MOCK_CONFIG, entry_id="test")
     entry.add_to_hass(hass)
     coordinator = MockSunSpecDataUpdateCoordinator(hass, [1, 2])
     coordinator.detected_max_ac_power_kw = 5.0
@@ -959,6 +966,7 @@ async def test_options_flow_shows_configured_peak_unchanged(hass, sunspec_client
         data=MOCK_CONFIG,
         options={CONF_MAX_AC_POWER_KW: 4.2},
         entry_id="test",
+        version=2,
     )
     entry.add_to_hass(hass)
     coordinator = MockSunSpecDataUpdateCoordinator(hass, [1, 2])
@@ -988,6 +996,7 @@ async def test_options_flow_clearing_peak_power_disables_filter(hass, sunspec_cl
         data=MOCK_CONFIG,
         options={CONF_MAX_AC_POWER_KW: 5.0},
         entry_id="test",
+        version=2,
     )
     entry.add_to_hass(hass)
     entry.runtime_data = MockSunSpecDataUpdateCoordinator(hass, [1, 2])
@@ -1009,6 +1018,7 @@ async def test_options_flow_keeps_peak_power_when_submitted(hass, sunspec_client
         data=MOCK_CONFIG,
         options={CONF_MAX_AC_POWER_KW: 5.0},
         entry_id="test",
+        version=2,
     )
     entry.add_to_hass(hass)
     entry.runtime_data = MockSunSpecDataUpdateCoordinator(hass, [1, 2])
@@ -1060,7 +1070,7 @@ async def test_options_flow_rejects_an_unusable_scan_interval(
     even go unavailable. A negative value is truthy and puts the next
     refresh in the past, which hot-loops the coordinator.
     """
-    entry = MockConfigEntry(domain=DOMAIN, data=MOCK_CONFIG, entry_id="test")
+    entry = MockConfigEntry(version=2, domain=DOMAIN, data=MOCK_CONFIG, entry_id="test")
     entry.add_to_hass(hass)
     entry.runtime_data = MockSunSpecDataUpdateCoordinator(hass, [1, 2])
 
@@ -1079,7 +1089,7 @@ async def test_options_flow_accepts_the_minimum_scan_interval(hass, sunspec_clie
     the Modbus session is held open, so a single-model cycle is one
     register read plus pysunspec2's 0.6 s pause.
     """
-    entry = MockConfigEntry(domain=DOMAIN, data=MOCK_CONFIG, entry_id="test")
+    entry = MockConfigEntry(version=2, domain=DOMAIN, data=MOCK_CONFIG, entry_id="test")
     entry.add_to_hass(hass)
     entry.runtime_data = MockSunSpecDataUpdateCoordinator(hass, [1, 2])
 
@@ -1126,7 +1136,7 @@ async def test_options_flow_reaches_the_model_form_without_a_coordinator(hass):
     catch-all around this step, which showed the host form again with a
     "device_error" the user could not act on.
     """
-    entry = MockConfigEntry(domain=DOMAIN, data=MOCK_CONFIG, entry_id="test")
+    entry = MockConfigEntry(version=2, domain=DOMAIN, data=MOCK_CONFIG, entry_id="test")
     entry.add_to_hass(hass)
 
     result = await hass.config_entries.options.async_init(entry.entry_id)
@@ -1149,7 +1159,7 @@ async def test_options_flow_saves_a_new_host_without_a_coordinator(hass):
     stuck one step further along than before. The form therefore falls
     back to the selection the entry already carries.
     """
-    entry = MockConfigEntry(domain=DOMAIN, data=MOCK_CONFIG, entry_id="test")
+    entry = MockConfigEntry(version=2, domain=DOMAIN, data=MOCK_CONFIG, entry_id="test")
     entry.add_to_hass(hass)
 
     result = await hass.config_entries.options.async_init(entry.entry_id)
@@ -1180,7 +1190,7 @@ async def test_options_flow_keeps_the_serial_configuration(hass):
     The user here does the ordinary thing: confirms the prefilled host
     form and changes the scan interval.
     """
-    entry = MockConfigEntry(domain=DOMAIN, data=MOCK_CONFIG_RTU, entry_id="rtu")
+    entry = MockConfigEntry(version=2, domain=DOMAIN, data=MOCK_CONFIG_RTU, entry_id="rtu")
     entry.add_to_hass(hass)
 
     result = await hass.config_entries.options.async_init(entry.entry_id)

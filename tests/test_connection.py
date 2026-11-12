@@ -263,7 +263,7 @@ async def test_cancelling_setup_releases_its_temporary_hold(hass, tcp_device, ot
 
 
 def _entry(hass):
-    entry = MockConfigEntry(domain=DOMAIN, data=MOCK_CONFIG)
+    entry = MockConfigEntry(version=2, domain=DOMAIN, data=MOCK_CONFIG)
     entry.add_to_hass(hass)
     return entry
 

@@ -583,10 +583,6 @@ def watts_to_pct(watts: float, wchamax: float) -> float:
     return max(0.0, min(100.0, watts / wchamax * 100.0))
 
 
-def pct_to_watts(pct: float, wchamax: float) -> float:
-    return pct / 100.0 * wchamax
-
-
 def resolve_rate(rate: Rate, setpoints: Mapping[str, float], wchamax: float) -> float:
     """The percent to write for ``rate``, given the watt setpoints and WChaMax.
 
