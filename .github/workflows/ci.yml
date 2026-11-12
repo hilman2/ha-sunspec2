@@ -157,4 +157,6 @@ jobs:
           pip install "pytest<9"
       - name: Run tests
         # One worker per core; pytest-xdist comes with the HA test plugin.
-        run: pytest tests/ -n auto -v
+        # --cov measures coverage and fails the job below the threshold
+        # in pyproject.toml ([tool.coverage.report]).
+        run: pytest tests/ -n auto -v --cov

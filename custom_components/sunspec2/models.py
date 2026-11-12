@@ -101,12 +101,7 @@ class SunSpecModelWrapper:
         group = self._models[model_index].groups[point_path[0]]
         if type(group) is list:
             return group[int(point_path[1])].points[point_path[2]]
-        else:
-            if len(point_path) > 2:
-                return group.points[point_path[2]]  # Access to the specific point within the group
-            return group.points[
-                point_name
-            ]  # Generic access if no specific subgrouping is specified
+        return group.points[point_path[2]]
 
 
 def point_text(wrapper: SunSpecModelWrapper, point_name: str) -> str:

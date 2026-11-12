@@ -26,7 +26,7 @@ _LOG = logging.getLogger(__name__)
 
 def _our_entry(hass) -> MockConfigEntry:
     """A live sunspec2 config entry for the standard MOCK_CONFIG host."""
-    entry = MockConfigEntry(domain=DOMAIN, data=MOCK_CONFIG, entry_id="ours_aaa")
+    entry = MockConfigEntry(version=2, domain=DOMAIN, data=MOCK_CONFIG, entry_id="ours_aaa")
     entry.add_to_hass(hass)
     return entry
 
@@ -372,7 +372,7 @@ async def test_cleanup_ignores_foreign_unique_id_formats(hass):
 async def test_cleanup_does_not_touch_other_config_entries(hass):
     """A second inverter's orphans are that entry's business, not ours."""
     ours = _our_entry(hass)
-    other = MockConfigEntry(domain=DOMAIN, data=MOCK_CONFIG, entry_id="ours_bbb")
+    other = MockConfigEntry(version=2, domain=DOMAIN, data=MOCK_CONFIG, entry_id="ours_bbb")
     other.add_to_hass(hass)
     theirs = _register_ours(hass, other, "sensor", "WMaxLimPct_RvrtTms-123-0")
 

@@ -69,6 +69,7 @@ WORKDIR /src
 # The source is mounted read-only, so keep every write out of it.
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    PYTEST_ADDOPTS="-p no:cacheprovider --timeout=60"
+    PYTEST_ADDOPTS="-p no:cacheprovider --timeout=60" \
+    COVERAGE_FILE=/tmp/.coverage
 
-CMD ["pytest", "tests/", "-q"]
+CMD ["pytest", "tests/", "-q", "--cov"]

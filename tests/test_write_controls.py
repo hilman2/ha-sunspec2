@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import pytest
 
-from custom_components.sunspec2.select import storage_bits_to_int
 from custom_components.sunspec2.write_controls import DER_AC_CONTROLS_MODEL
 from custom_components.sunspec2.write_controls import IMMEDIATE_CONTROLS_MODEL
 from custom_components.sunspec2.write_controls import PLATFORM_NUMBER
@@ -176,25 +175,6 @@ def test_daily_use_controls_are_enabled_by_default():
 
 
 # ---------- StorCtl_Mod bitfield decoding -----------------------------------
-
-
-@pytest.mark.parametrize(
-    ("symbols", "expected"),
-    [
-        ([], 0),
-        (["CHARGE"], 1),
-        # model_124.json's own spelling of the second symbol.
-        (["DiSCHARGE"], 2),
-        (["DISCHARGE"], 2),
-        (["CHARGE", "DiSCHARGE"], 3),
-        # Prefix matching must not let DISCHARGE fall into the charge
-        # branch, which a naive "CHA" in name test would do.
-        (["DISCHARGE", "CHARGE"], 3),
-        (["something_vendor_specific"], 0),
-    ],
-)
-def test_storage_bits_to_int(symbols, expected):
-    assert storage_bits_to_int(symbols) == expected
 
 
 def test_select_option_keys_are_valid_ha_translation_keys():

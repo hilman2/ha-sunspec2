@@ -11,7 +11,11 @@ docker compose -f tests/docker/compose.yml run --rm tests
 ```
 
 First run builds the image, which takes a few minutes. After that a full
-run is about three and a half minutes.
+run is about half a minute.
+
+The full run measures coverage and fails below the threshold in
+`pyproject.toml` (`[tool.coverage.report]`), as the CI job does. A run
+of single files does not measure.
 
 ## One file, one test
 

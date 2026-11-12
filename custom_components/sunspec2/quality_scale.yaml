@@ -171,13 +171,9 @@ rules:
   test-coverage:
     status: done
     comment: |
-      120+ tests covering the config flow (manual + scan + DHCP +
-      reconfigure), coordinator (in-cycle retry, stale tolerance,
-      error categorisation, fallback paths), discovery helper,
-      sensor platform, options flow including the empty-models
-      regression guard, migration from cjne/ha-sunspec, and the
-      v0.7.3 ENUM bitfield voluptuous_serialize regression. Run
-      with ``pytest tests/`` from a WSL Ubuntu uv env.
+      The pytest job in CI measures coverage of the whole integration,
+      the embedded pysunspec2 included, and fails below 95 %
+      ([tool.coverage.report] in pyproject.toml).
 
   # Gold
   devices:

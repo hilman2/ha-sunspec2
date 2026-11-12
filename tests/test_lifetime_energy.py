@@ -19,6 +19,8 @@ from custom_components.sunspec2.lifetime_energy import CountedDailyEnergySensor
 from custom_components.sunspec2.lifetime_energy import CountedLifetimeEnergySensor
 from custom_components.sunspec2.lifetime_energy import DailyCounterLedger
 from custom_components.sunspec2.lifetime_energy import counter_day
+from custom_components.sunspec2.lifetime_energy import is_producing
+from custom_components.sunspec2.models import SunSpecModelWrapper
 
 from . import create_mock_sunspec_config_entry
 from . import setup_mock_sunspec_config_entry
@@ -729,6 +731,27 @@ def test_a_ledger_stored_before_today_was_kept_stays_readable():
     assert ledger.total == 1600
 
 
+def test_a_held_reading_stored_without_its_time_waits_a_round_from_the_next_reading():
+    """A release before the time was kept stored a jump with nothing to measure its wait by."""
+    stored = {
+        "revision": 1,
+        "base": 0.0,
+        "last": 3800.0,
+        "last_day": "2026-10-11",
+        "pending": 9000.0,
+    }
+    ledger = DailyCounterLedger.from_dict(stored)
+    start = _at(11)
+
+    ledger.record(9000, start, True)
+    ledger.record(9000, start + timedelta(seconds=30), True)
+    assert ledger.total == 3800
+
+    # A later round confirms the jump, as it does for one held with its time.
+    ledger.record(9050, start + ROUND, True)
+    assert ledger.total == 9050
+
+
 def test_the_ledger_survives_its_stored_form():
     ledger = DailyCounterLedger()
     _feed(ledger, [1000, 3000, 20, 0])
@@ -814,6 +837,65 @@ async def test_the_total_is_kept_across_a_restart(hass, sunspec_apsystems_client
     entry.runtime_data.data[103].getPoint("WH").value = 1500
     entry.runtime_data.async_update_listeners()
     assert sensor.native_value == 1001.5
+
+
+async def test_the_total_is_kept_across_a_reload_of_the_entry(
+    hass, sunspec_apsystems_client_mock, freezer
+):
+    """The sensor that is removed hands its ledger to the one that is added."""
+    freezer.move_to(_local(27, 15))
+    entry = await _entry(hass)
+    _poll(entry, 3000, 300)
+    # The next morning the counter starts again and climbs.
+    freezer.move_to(_local(28, 7, 40))
+    _poll(entry, 0, 2)
+    freezer.move_to(_local(28, 7, 46))
+    _poll(entry, 60, 250)
+    assert _counted(hass).native_value == 3.06
+
+    assert await hass.config_entries.async_reload(entry.entry_id)
+    await hass.async_block_till_done()
+
+    # A ledger that started afresh would hold the 60 Wh of today alone.
+    assert _counted(hass).native_value == 3.06
+    freezer.move_to(_local(28, 7, 52))
+    _poll(entry, 160, 250)
+    assert _counted(hass).native_value == 3.16
+    assert _daily(hass).native_value == 160
+
+
+async def test_a_poll_without_the_counters_model_leaves_the_total_where_it_was(
+    hass, sunspec_apsystems_client_mock, freezer
+):
+    """A scan after a firmware update can find a model list without the inverter model."""
+    freezer.move_to(_local(28, 16))
+    entry = await _entry(hass)
+    sensor = _counted(hass)
+    _poll(entry, 3800, 300)
+
+    del entry.runtime_data.data[103]
+    # The sensor's own update, called directly: the coordinator logs a
+    # listener that raises and carries on, which would hide a failure here.
+    sensor._handle_coordinator_update()
+
+    assert sensor.native_value == 3.8
+    assert hass.states.get(sensor.entity_id).state == "3.8"
+
+
+def test_an_inverter_whose_power_cannot_be_read_is_not_producing(sunspec_apsystems_client_mock):
+    """A power without a value, or with a scale factor that overflows, is no production."""
+    model = sunspec_apsystems_client_mock.models[103][0]
+    wrapper = SunSpecModelWrapper(sunspec_apsystems_client_mock.models[103])
+    assert is_producing(wrapper, 0)
+
+    model.points["W"].value = None
+    assert not is_producing(wrapper, 0)
+
+    model.points["W"].value = 120
+    model.points["W_SF"].value = 400
+    with pytest.raises(OverflowError):
+        wrapper.getValue("W")
+    assert not is_producing(wrapper, 0)
 
 
 def _local(day: int, hour: int, minute: int = 0) -> datetime:

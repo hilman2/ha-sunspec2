@@ -55,7 +55,7 @@ def set_entry_setup_in_progress(hass, config_entry: MockConfigEntry) -> None:
 async def test_setup_unload_and_reload_entry(hass, sunspec_client_mock):
     """Test entry setup and unload."""
     # Create a mock entry so we don't have to go through config flow
-    config_entry = MockConfigEntry(domain=DOMAIN, data=MOCK_CONFIG, entry_id="test")
+    config_entry = MockConfigEntry(version=2, domain=DOMAIN, data=MOCK_CONFIG, entry_id="test")
     config_entry.add_to_hass(hass)
 
     # Use the config entries manager so entry state transitions match real setup.
@@ -99,7 +99,10 @@ async def test_options_update_triggers_clean_reload(hass, sunspec_client_mock):
     hits when they save the options form.
     """
     config_entry = MockConfigEntry(
-        domain=DOMAIN, data=MOCK_CONFIG, entry_id="test_reload_via_options"
+        domain=DOMAIN,
+        data=MOCK_CONFIG,
+        entry_id="test_reload_via_options",
+        version=2,
     )
     config_entry.add_to_hass(hass)
     assert await hass.config_entries.async_setup(config_entry.entry_id)
@@ -148,7 +151,7 @@ async def test_setup_blocked_when_cjne_actively_loaded(hass, sunspec_client_mock
     cjne_entry.add_to_hass(hass)
     cjne_entry.mock_state(hass, ConfigEntryState.LOADED)
 
-    our_entry = MockConfigEntry(domain=DOMAIN, data=MOCK_CONFIG, entry_id="ours_blocked")
+    our_entry = MockConfigEntry(version=2, domain=DOMAIN, data=MOCK_CONFIG, entry_id="ours_blocked")
     our_entry.add_to_hass(hass)
 
     # async_setup raises ConfigEntryNotReady internally; the public
@@ -172,7 +175,9 @@ async def test_setup_clears_cjne_conflict_issue_after_resolution(hass, sunspec_c
     cjne_conflict Repairs issue from a previous failed attempt.
     """
     # Pre-create the issue as if a previous setup attempt had failed.
-    our_entry = MockConfigEntry(domain=DOMAIN, data=MOCK_CONFIG, entry_id="ours_recovered")
+    our_entry = MockConfigEntry(
+        version=2, domain=DOMAIN, data=MOCK_CONFIG, entry_id="ours_recovered"
+    )
     our_entry.add_to_hass(hass)
     ir.async_create_issue(
         hass,
@@ -280,7 +285,9 @@ async def test_setup_runs_cjne_migration_when_entries_present(hass, sunspec_clie
     ).entity_id
 
     # Now run our normal setup.
-    our_entry = MockConfigEntry(domain=DOMAIN, data=MOCK_CONFIG, entry_id="ours_with_migration")
+    our_entry = MockConfigEntry(
+        version=2, domain=DOMAIN, data=MOCK_CONFIG, entry_id="ours_with_migration"
+    )
     our_entry.add_to_hass(hass)
     assert await hass.config_entries.async_setup(our_entry.entry_id)
     await hass.async_block_till_done()
@@ -297,7 +304,7 @@ async def test_setup_runs_cjne_migration_when_entries_present(hass, sunspec_clie
 
 async def test_setup_entry_exception(hass, error_on_get_data):
     """Test ConfigEntryNotReady when API raises an exception during entry setup."""
-    config_entry = MockConfigEntry(domain=DOMAIN, data=MOCK_CONFIG, entry_id="test")
+    config_entry = MockConfigEntry(version=2, domain=DOMAIN, data=MOCK_CONFIG, entry_id="test")
     config_entry.add_to_hass(hass)
 
     # In this case we are testing the condition where async_setup_entry raises
@@ -314,7 +321,7 @@ async def test_setup_entry_exception(hass, error_on_get_data):
 
 async def test_new_data_reloads_an_entry_that_waits_to_retry(hass, error_on_get_data):
     """Reconfigure stores a new address and leaves the reload to the update listener."""
-    config_entry = MockConfigEntry(domain=DOMAIN, data=MOCK_CONFIG, entry_id="test")
+    config_entry = MockConfigEntry(version=2, domain=DOMAIN, data=MOCK_CONFIG, entry_id="test")
     config_entry.add_to_hass(hass)
     await hass.config_entries.async_setup(config_entry.entry_id)
     await hass.async_block_till_done()
@@ -334,7 +341,7 @@ async def test_new_data_reloads_an_entry_that_waits_to_retry(hass, error_on_get_
 
 async def test_fetch_data_timeout(hass, timeout_error_on_get_data):
     """Test ConfigEntryNotReady when API raises an exception during entry setup."""
-    config_entry = MockConfigEntry(domain=DOMAIN, data=MOCK_CONFIG, entry_id="test")
+    config_entry = MockConfigEntry(version=2, domain=DOMAIN, data=MOCK_CONFIG, entry_id="test")
     config_entry.add_to_hass(hass)
 
     # In this case we are testing the condition where async_setup_entry raises
@@ -347,7 +354,7 @@ async def test_fetch_data_timeout(hass, timeout_error_on_get_data):
 
 async def test_fetch_data_connect_error(hass, connect_error_on_get_data):
     """Test ConfigEntryNotReady when API raises an exception during entry setup."""
-    config_entry = MockConfigEntry(domain=DOMAIN, data=MOCK_CONFIG, entry_id="test")
+    config_entry = MockConfigEntry(version=2, domain=DOMAIN, data=MOCK_CONFIG, entry_id="test")
     config_entry.add_to_hass(hass)
 
     # In this case we are testing the condition where async_setup_entry raises
@@ -372,128 +379,6 @@ async def test_setup_keeps_the_web_token_out_of_the_log(hass, sunspec_client_moc
 
     assert "Options: " in caplog.text
     assert token["secret"] not in caplog.text
-
-
-async def test_migrate_entry_from_v1_to_v2_with_slave_id(hass):
-    """Test migration from version 1 to version 2 with slave_id key."""
-    from custom_components.sunspec2 import async_migrate_entry
-
-    # Create a version 1 config entry with slave_id
-    config_entry = MockConfigEntry(
-        domain=DOMAIN,
-        data={
-            "host": "192.168.1.100",
-            "port": 502,
-            "slave_id": 5,
-            "models_enabled": [103, 160],
-            "scan_interval": 30,
-        },
-        entry_id="test_migration",
-        version=1,
-    )
-    config_entry.add_to_hass(hass)
-
-    # Run the migration
-    result = await async_migrate_entry(hass, config_entry)
-
-    # Verify migration was successful
-    assert result is True
-    assert config_entry.version == 2
-    assert "unit_id" in config_entry.data
-    assert config_entry.data["unit_id"] == 5
-    assert "slave_id" not in config_entry.data
-    assert config_entry.data["host"] == "192.168.1.100"
-    assert config_entry.data["port"] == 502
-
-
-async def test_migrate_entry_from_v1_to_v2_already_has_unit_id(hass):
-    """Test migration from version 1 to version 2 when unit_id already exists."""
-    from custom_components.sunspec2 import async_migrate_entry
-
-    # Create a version 1 config entry that already has unit_id (edge case)
-    config_entry = MockConfigEntry(
-        domain=DOMAIN,
-        data={
-            "host": "192.168.1.100",
-            "port": 502,
-            "unit_id": 3,
-            "models_enabled": [103, 160],
-            "scan_interval": 30,
-        },
-        entry_id="test_migration_already_migrated",
-        version=1,
-    )
-    config_entry.add_to_hass(hass)
-
-    # Run the migration
-    result = await async_migrate_entry(hass, config_entry)
-
-    # Verify migration was successful
-    assert result is True
-    assert config_entry.version == 2
-    assert "unit_id" in config_entry.data
-    assert config_entry.data["unit_id"] == 3
-    assert "slave_id" not in config_entry.data
-
-
-async def test_migrate_entry_from_v1_to_v2_with_both_keys(hass):
-    """Test migration when both slave_id and unit_id exist (prefer unit_id)."""
-    from custom_components.sunspec2 import async_migrate_entry
-
-    # Create a version 1 config entry with both keys (edge case)
-    config_entry = MockConfigEntry(
-        domain=DOMAIN,
-        data={
-            "host": "192.168.1.100",
-            "port": 502,
-            "slave_id": 5,
-            "unit_id": 3,
-            "models_enabled": [103, 160],
-            "scan_interval": 30,
-        },
-        entry_id="test_migration_both_keys",
-        version=1,
-    )
-    config_entry.add_to_hass(hass)
-
-    # Run the migration
-    result = await async_migrate_entry(hass, config_entry)
-
-    # Verify migration was successful and unit_id was preserved
-    assert result is True
-    assert config_entry.version == 2
-    assert "unit_id" in config_entry.data
-    assert config_entry.data["unit_id"] == 3
-    assert "slave_id" not in config_entry.data
-
-
-async def test_migrate_entry_version_2_no_migration_needed(hass):
-    """Test that version 2 entries don't get migrated."""
-    from custom_components.sunspec2 import async_migrate_entry
-
-    # Create a version 2 config entry (already migrated)
-    config_entry = MockConfigEntry(
-        domain=DOMAIN,
-        data={
-            "host": "192.168.1.100",
-            "port": 502,
-            "unit_id": 5,
-            "models_enabled": [103, 160],
-            "scan_interval": 30,
-        },
-        entry_id="test_no_migration",
-        version=2,
-    )
-    config_entry.add_to_hass(hass)
-
-    # Run the migration
-    result = await async_migrate_entry(hass, config_entry)
-
-    # Verify no migration occurred
-    assert result is True
-    assert config_entry.version == 2
-    assert "unit_id" in config_entry.data
-    assert config_entry.data["unit_id"] == 5
 
 
 # ---------------------------------------------------------------------------
@@ -585,7 +470,10 @@ async def test_first_refresh_failure_skips_retry_delay(hass, sunspec_client_mock
     (the original plus the retry attempt).
     """
     config_entry = MockConfigEntry(
-        domain=DOMAIN, data=MOCK_CONFIG, entry_id="first_refresh_fast_fail"
+        domain=DOMAIN,
+        data=MOCK_CONFIG,
+        entry_id="first_refresh_fast_fail",
+        version=2,
     )
     config_entry.add_to_hass(hass)
     set_entry_setup_in_progress(hass, config_entry)
@@ -679,6 +567,7 @@ async def test_empty_models_filter_falls_back_to_defaults(hass, sunspec_client_m
         data=MOCK_CONFIG,
         options={CONF_ENABLED_MODELS: []},
         entry_id="test_empty_filter_fallback",
+        version=2,
     )
     config_entry.add_to_hass(hass)
     assert await hass.config_entries.async_setup(config_entry.entry_id)
@@ -701,6 +590,7 @@ async def test_first_refresh_reads_common_once(
         domain=DOMAIN,
         data=MOCK_CONFIG,
         options={CONF_ENABLED_MODELS: [1, 103] if common_selected else [103]},
+        version=2,
     )
     entry.add_to_hass(hass)
 
@@ -769,7 +659,7 @@ def _make_coordinator_with_mock_api(hass, model_data: dict[int, Any]):
 
     from custom_components.sunspec2.coordinator import SunSpecDataUpdateCoordinator
 
-    config_entry = MockConfigEntry(domain=DOMAIN, data=MOCK_CONFIG, options={})
+    config_entry = MockConfigEntry(version=2, domain=DOMAIN, data=MOCK_CONFIG, options={})
     config_entry.add_to_hass(hass)
 
     api = MagicMock()
@@ -833,7 +723,7 @@ async def test_nameplate_swallows_read_errors_and_falls_through(hass):
 
     from custom_components.sunspec2.coordinator import SunSpecDataUpdateCoordinator
 
-    config_entry = MockConfigEntry(domain=DOMAIN, data=MOCK_CONFIG, options={})
+    config_entry = MockConfigEntry(version=2, domain=DOMAIN, data=MOCK_CONFIG, options={})
     config_entry.add_to_hass(hass)
 
     api = MagicMock()
@@ -861,7 +751,7 @@ async def test_stale_model_tracking_increments_then_clears_on_recovery(hass):
     """
     from unittest.mock import MagicMock as _MagicMock
 
-    config_entry = MockConfigEntry(domain=DOMAIN, data=MOCK_CONFIG, options={})
+    config_entry = MockConfigEntry(version=2, domain=DOMAIN, data=MOCK_CONFIG, options={})
     config_entry.add_to_hass(hass)
     api = _MagicMock()
     coordinator = SunSpecDataUpdateCoordinator(hass, client=api, entry=config_entry)
@@ -895,7 +785,7 @@ async def test_stale_model_tracking_raises_repair_issue_after_threshold(hass):
 
     from custom_components.sunspec2.const import STALE_MODEL_TOLERANCE_SECONDS
 
-    config_entry = MockConfigEntry(domain=DOMAIN, data=MOCK_CONFIG, options={})
+    config_entry = MockConfigEntry(version=2, domain=DOMAIN, data=MOCK_CONFIG, options={})
     config_entry.add_to_hass(hass)
     api = _MagicMock()
     coordinator = SunSpecDataUpdateCoordinator(hass, client=api, entry=config_entry)
@@ -939,7 +829,7 @@ async def test_stale_stamp_is_not_reset_by_later_cycles(hass):
 
     from homeassistant.util import dt as _dt_util
 
-    config_entry = MockConfigEntry(domain=DOMAIN, data=MOCK_CONFIG, options={})
+    config_entry = MockConfigEntry(version=2, domain=DOMAIN, data=MOCK_CONFIG, options={})
     config_entry.add_to_hass(hass)
     coordinator = SunSpecDataUpdateCoordinator(hass, client=_MagicMock(), entry=config_entry)
 
@@ -969,6 +859,7 @@ async def test_scan_delay_option_reaches_the_api_client(hass, sunspec_client_moc
         data=MOCK_CONFIG,
         options={CONF_SCAN_DELAY: 0.1},
         entry_id="scan_delay_entry",
+        version=2,
     )
     config_entry.add_to_hass(hass)
 
@@ -980,7 +871,9 @@ async def test_scan_delay_option_reaches_the_api_client(hass, sunspec_client_moc
 
 async def test_scan_delay_defaults_when_option_absent(hass, sunspec_client_mock):
     """An entry saved before this option existed keeps working."""
-    config_entry = MockConfigEntry(domain=DOMAIN, data=MOCK_CONFIG, entry_id="no_scan_delay_entry")
+    config_entry = MockConfigEntry(
+        version=2, domain=DOMAIN, data=MOCK_CONFIG, entry_id="no_scan_delay_entry"
+    )
     config_entry.add_to_hass(hass)
 
     assert await hass.config_entries.async_setup(config_entry.entry_id)
@@ -995,7 +888,7 @@ async def test_model_read_delay_survives_setup_and_options_reload(
     hass, sunspec_client_mock, data, delay
 ):
     """An existing entry keeps its pacing until a saved option reloads it."""
-    entry = MockConfigEntry(domain=DOMAIN, data=data, options={CONF_SCAN_DELAY: 0.75})
+    entry = MockConfigEntry(version=2, domain=DOMAIN, data=data, options={CONF_SCAN_DELAY: 0.75})
     entry.add_to_hass(hass)
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
@@ -1022,7 +915,9 @@ async def test_setup_removes_orphaned_control_model_sensors(hass, sunspec_client
     any more, and they render as "Unavailable" forever until something
     removes them.
     """
-    config_entry = MockConfigEntry(domain=DOMAIN, data=MOCK_CONFIG, entry_id="orphan_entry")
+    config_entry = MockConfigEntry(
+        version=2, domain=DOMAIN, data=MOCK_CONFIG, entry_id="orphan_entry"
+    )
     config_entry.add_to_hass(hass)
     registry = er.async_get(hass)
     orphan = registry.async_get_or_create(
@@ -1059,7 +954,10 @@ def _make_cycle_coordinator(hass, models: set[int], partial: bool):
     from unittest.mock import MagicMock
 
     config_entry = MockConfigEntry(
-        domain=DOMAIN, data=MOCK_CONFIG, options={CONF_ENABLED_MODELS: [103]}
+        domain=DOMAIN,
+        data=MOCK_CONFIG,
+        options={CONF_ENABLED_MODELS: [103]},
+        version=2,
     )
     config_entry.add_to_hass(hass)
 
@@ -1151,7 +1049,7 @@ async def test_nameplate_read_timeout_is_not_swallowed(hass):
 
     from custom_components.sunspec2.errors import TransientError
 
-    config_entry = MockConfigEntry(domain=DOMAIN, data=MOCK_CONFIG, options={})
+    config_entry = MockConfigEntry(version=2, domain=DOMAIN, data=MOCK_CONFIG, options={})
     config_entry.add_to_hass(hass)
 
     api = MagicMock()
@@ -1176,7 +1074,7 @@ async def test_stored_layout_is_handed_to_the_api_client(hass):
     from unittest.mock import AsyncMock
     from unittest.mock import MagicMock
 
-    config_entry = MockConfigEntry(domain=DOMAIN, data=MOCK_CONFIG, options={})
+    config_entry = MockConfigEntry(version=2, domain=DOMAIN, data=MOCK_CONFIG, options={})
     config_entry.add_to_hass(hass)
 
     api = MagicMock()
@@ -1202,7 +1100,7 @@ async def test_layout_is_only_written_when_it_changed(hass):
     from unittest.mock import AsyncMock
     from unittest.mock import MagicMock
 
-    config_entry = MockConfigEntry(domain=DOMAIN, data=MOCK_CONFIG, options={})
+    config_entry = MockConfigEntry(version=2, domain=DOMAIN, data=MOCK_CONFIG, options={})
     config_entry.add_to_hass(hass)
 
     api = MagicMock()
@@ -1240,7 +1138,7 @@ async def test_identity_mismatch_discards_the_stored_layout(hass):
 
     from custom_components.sunspec2.errors import TransientError
 
-    config_entry = MockConfigEntry(domain=DOMAIN, data=MOCK_CONFIG, options={})
+    config_entry = MockConfigEntry(version=2, domain=DOMAIN, data=MOCK_CONFIG, options={})
     config_entry.add_to_hass(hass)
 
     api = MagicMock()
@@ -1265,7 +1163,7 @@ async def test_matching_identity_passes_quietly(hass):
     from unittest.mock import AsyncMock
     from unittest.mock import MagicMock
 
-    config_entry = MockConfigEntry(domain=DOMAIN, data=MOCK_CONFIG, options={})
+    config_entry = MockConfigEntry(version=2, domain=DOMAIN, data=MOCK_CONFIG, options={})
     config_entry.add_to_hass(hass)
 
     api = MagicMock()
@@ -1295,7 +1193,7 @@ async def test_firmware_update_is_the_same_device(hass, caplog):
     from unittest.mock import AsyncMock
     from unittest.mock import MagicMock
 
-    config_entry = MockConfigEntry(domain=DOMAIN, data=MOCK_CONFIG, options={})
+    config_entry = MockConfigEntry(version=2, domain=DOMAIN, data=MOCK_CONFIG, options={})
     config_entry.add_to_hass(hass)
 
     api = MagicMock()
@@ -1340,7 +1238,7 @@ async def test_layout_is_rewritten_when_only_the_identity_moved(hass):
     from unittest.mock import AsyncMock
     from unittest.mock import MagicMock
 
-    config_entry = MockConfigEntry(domain=DOMAIN, data=MOCK_CONFIG, options={})
+    config_entry = MockConfigEntry(version=2, domain=DOMAIN, data=MOCK_CONFIG, options={})
     config_entry.add_to_hass(hass)
 
     api = MagicMock()
@@ -1455,7 +1353,10 @@ def _keepalive_coordinator(hass, options=None):
     from unittest.mock import MagicMock
 
     config_entry = MockConfigEntry(
-        domain=DOMAIN, data=MOCK_CONFIG, options=options or {CONF_ENABLED_MODELS: [103]}
+        domain=DOMAIN,
+        data=MOCK_CONFIG,
+        options=options or {CONF_ENABLED_MODELS: [103]},
+        version=2,
     )
     config_entry.add_to_hass(hass)
 
@@ -1492,7 +1393,7 @@ async def test_a_neighbour_on_the_endpoint_does_not_make_the_cycle_close(hass):
     """
     _, coordinator = _keepalive_coordinator(hass)
 
-    neighbour = MockConfigEntry(domain=DOMAIN, data=MOCK_CONFIG, options={})
+    neighbour = MockConfigEntry(version=2, domain=DOMAIN, data=MOCK_CONFIG, options={})
     neighbour.add_to_hass(hass)
 
     await coordinator._run_one_update_cycle()
@@ -1571,6 +1472,7 @@ async def test_coordinator_clamps_an_unusable_stored_scan_interval(
         domain=DOMAIN,
         data={**MOCK_CONFIG, CONF_SCAN_INTERVAL: stored_interval},
         entry_id="test_bad_interval",
+        version=2,
     )
     entry.add_to_hass(hass)
 
@@ -1597,6 +1499,7 @@ async def test_reconfigure_reloads_the_entry_once(hass, sunspec_client_mock):
         data=MOCK_CONFIG,
         entry_id="test_reconfigure_once",
         unique_id="sn-123456789",
+        version=2,
     )
     entry.add_to_hass(hass)
     await setup_mock_sunspec_config_entry(hass, config_entry=entry)

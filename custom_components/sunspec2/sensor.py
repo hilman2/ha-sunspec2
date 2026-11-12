@@ -502,7 +502,7 @@ class SunSpecSensor(SunSpecEntity, SensorEntity):
         self._implausible_rejections = 0
         # The name for a point without a translation: the label of
         # the SunSpec model definition, with the group and index in
-        # front for a point in a repeating group ("Module 0 DC Amps")
+        # front for a point in a repeating group ("Module 0 DC Current")
         # and the model index for a second model of the same id. The
         # user's prefix is not part of it. The prefix is on the device
         # name, see SunSpecEntity.device_info.
@@ -783,7 +783,11 @@ class SunSpecSensor(SunSpecEntity, SensorEntity):
 
         vtype = self._meta["type"]
         if vtype in ("enum16", "bitfield32", "bitfield16"):
-            attrs["raw"] = self.coordinator.data[self.model_id].getValue(self.key, self.model_index)
+            # A model can be missing from a cycle (see native_value).
+            wrapper = self.coordinator.data.get(self.model_id)
+            attrs["raw"] = (
+                wrapper.getValue(self.key, self.model_index) if wrapper is not None else None
+            )
         if self._is_bitfield:
             # The state string is convenient to read and awkward to
             # parse. Templates and automations get the same information

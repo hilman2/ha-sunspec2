@@ -96,6 +96,19 @@ filterwarnings = [
 # That is why warn_return_any stays on: it is the rule that catches a
 # pysunspec2 value being passed through unnoticed.
 
+# Measured where a command passes --cov: the pytest job in CI and the
+# full runs in tests/docker/compose.yml. A run of single files does not
+# measure, so the threshold does not get in its way.
+[tool.coverage.run]
+source = ["custom_components/sunspec2"]
+
+[tool.coverage.report]
+# Home Assistant's quality scale asks for more than 95 % (rule
+# test-coverage). Below it the run fails.
+fail_under = 95
+show_missing = true
+skip_covered = true
+
 [tool.mypy]
 python_version = "3.14"
 files = ["custom_components", "tests"]

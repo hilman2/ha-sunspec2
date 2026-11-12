@@ -82,7 +82,11 @@ def test_preserves_cause_chain():
 def _build_coordinator(hass, options=None) -> SunSpecDataUpdateCoordinator:
     """Construct a coordinator + entry pair for direct error-recording tests."""
     entry = MockConfigEntry(
-        domain=DOMAIN, data=MOCK_CONFIG, options=options or {}, entry_id="test_p3"
+        domain=DOMAIN,
+        data=MOCK_CONFIG,
+        options=options or {},
+        entry_id="test_p3",
+        version=2,
     )
     entry.add_to_hass(hass)
     api = SunSpecApiClient(host="test", port=123, unit_id=1, hass=hass)

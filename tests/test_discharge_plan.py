@@ -5,18 +5,23 @@ The entity tests run against tests/test_data/inverter_fronius.json: a
 to come from the entity.
 """
 
+import json
 from dataclasses import replace
 from datetime import time
 from datetime import timedelta
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
 import voluptuous as vol
 from homeassistant.core import Context
+from homeassistant.core import State
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.exceptions import Unauthorized
+from homeassistant.helpers import entity_registry as er
 from homeassistant.util import dt as dt_util
 from pytest_homeassistant_custom_component.common import async_fire_time_changed
+from pytest_homeassistant_custom_component.common import mock_restore_cache
 
 from custom_components.sunspec2.battery_plan import BatteryPlanCapacityNumber
 from custom_components.sunspec2.battery_plan import BatteryPlanDirection
@@ -28,9 +33,15 @@ from custom_components.sunspec2.battery_plan import hours_until
 from custom_components.sunspec2.battery_plan import in_window
 from custom_components.sunspec2.battery_plan import planned_power_w
 from custom_components.sunspec2.battery_plan import window_hours
+from custom_components.sunspec2.const import CONF_ENABLED_MODELS
+from custom_components.sunspec2.const import DOMAIN
+from custom_components.sunspec2.entity import get_sunspec_unique_id
+from custom_components.sunspec2.errors import DeviceError
+from custom_components.sunspec2.errors import TransportError
 
 from . import create_mock_sunspec_config_entry
 from . import setup_mock_sunspec_config_entry
+from .conftest import MockFileClientDevice
 from .const import MOCK_CONFIG_WRITE
 
 # ---------- the arithmetic ----------------------------------------------------
@@ -749,3 +760,417 @@ async def test_after_a_restart_inside_the_window_the_plan_resumes(
 
     assert planner.planned_power_w == 1120.0
     assert write.call_count == 3
+
+
+async def test_the_end_trigger_fires_at_the_end_of_the_window(
+    hass, sunspec_fronius_client_mock, freezer
+):
+    freezer.move_to(_local(5, 59, 55))
+    entry = await _entry(hass)
+    planner = entry.runtime_data.battery_plan
+    planner.settings.enabled = True
+
+    with patch.object(entry.runtime_data.api, "async_write_points") as write:
+        async_fire_time_changed(hass, _local(6, 0, 1))
+        await hass.async_block_till_done(wait_background_tasks=True)
+
+    assert [call.args for call in write.call_args_list] == AUTOMATIC
+    assert planner.planned_power_w == 0.0
+
+
+async def test_a_second_check_after_a_restore_does_not_resume_twice(
+    hass, sunspec_fronius_client_mock, freezer
+):
+    """A check that is already waiting is not started a second time."""
+    freezer.move_to(_local(2))
+    entry = await _entry(hass)
+    planner = entry.runtime_data.battery_plan
+    planner.settings.capacity_kwh = 10.0
+    planner.settings.enabled = True
+    planner.async_check_after_restore()
+    planner.async_check_after_restore()
+
+    with patch.object(entry.runtime_data.api, "async_write_points") as write:
+        async_fire_time_changed(hass, _local(2) + timedelta(seconds=11))
+        await hass.async_block_till_done(wait_background_tasks=True)
+
+    assert write.call_count == 3
+
+
+async def test_a_plan_switched_off_during_the_startup_grace_does_not_resume(
+    hass, sunspec_fronius_client_mock, freezer
+):
+    freezer.move_to(_local(2))
+    entry = await _entry(hass)
+    planner = entry.runtime_data.battery_plan
+    planner.settings.capacity_kwh = 10.0
+    planner.settings.enabled = True
+    planner.async_check_after_restore()
+
+    with patch.object(entry.runtime_data.api, "async_write_points") as write:
+        await planner.async_disable()
+        assert [call.args for call in write.call_args_list] == AUTOMATIC
+        write.reset_mock()
+        async_fire_time_changed(hass, _local(2) + timedelta(seconds=11))
+        await hass.async_block_till_done(wait_background_tasks=True)
+
+    write.assert_not_called()
+    assert not planner.planned_power_w
+
+
+async def test_unloading_during_the_startup_grace_cancels_the_resume(
+    hass, sunspec_fronius_client_mock, freezer
+):
+    freezer.move_to(_local(2))
+    entry = await _entry(hass)
+    api = entry.runtime_data.api
+    planner = entry.runtime_data.battery_plan
+    planner.settings.capacity_kwh = 10.0
+    planner.settings.enabled = True
+    planner.async_check_after_restore()
+
+    with patch.object(api, "async_write_points") as write:
+        assert await hass.config_entries.async_unload(entry.entry_id)
+        # Without the cancel the timer would outlive the entry.
+        assert planner._unsub_startup is None
+        async_fire_time_changed(hass, _local(2) + timedelta(seconds=11))
+        await hass.async_block_till_done(wait_background_tasks=True)
+
+    write.assert_not_called()
+
+
+async def test_the_direction_is_set_through_the_select_and_applied_on_the_next_poll(
+    hass, sunspec_fronius_client_mock, freezer
+):
+    """From 55 % to 85 % of 10 kWh is 3 kWh; over seven hours 428 W, floored to 420 W."""
+    freezer.move_to(_local(23))
+    entry, planner = await _discharging_at_23(hass, sunspec_fronius_client_mock)
+    direction = _entities(hass, "select", BatteryPlanDirection)[0]
+    target = _entities(hass, "number", BatteryPlanTargetNumber)[0]
+
+    with patch.object(entry.runtime_data.api, "async_write_points") as write:
+        await target.async_set_native_value(85.0)
+        await direction.async_select_option("charge")
+        write.assert_not_called()
+        assert planner.settings.direction is PlanDirection.CHARGE
+        assert hass.states.get(direction.entity_id).state == "charge"
+        entry.runtime_data.async_update_listeners()
+        await hass.async_block_till_done(wait_background_tasks=True)
+
+    assert planner.planned_power_w == 420.0
+    model_id, rates = write.call_args_list[1].args
+    assert model_id == 124
+    assert rates[0] == ("OutWRte", pytest.approx(-8.4))
+    assert rates[1] == ("InWRte", 100.0)
+    assert write.call_args_list[2].args == (124, [("StorCtl_Mod", 2)])
+
+
+def _battery_gone(client_mock):
+    """Have the device report no battery, which is what WChaMax 0 means on a GEN24."""
+    client_mock.models[124][0].points["WChaMax"].value = 0
+
+
+async def test_a_direction_cannot_be_selected_once_the_device_reports_no_battery(
+    hass, sunspec_fronius_client_mock
+):
+    entry = await _entry(hass)
+    planner = entry.runtime_data.battery_plan
+    direction = _entities(hass, "select", BatteryPlanDirection)[0]
+    _battery_gone(sunspec_fronius_client_mock)
+
+    with pytest.raises(HomeAssistantError) as refused:
+        await direction.async_select_option("charge")
+
+    assert refused.value.translation_key == "direction_unsupported"
+    assert refused.value.translation_placeholders == {"direction": "charge"}
+    assert planner.settings.direction is PlanDirection.DISCHARGE
+
+
+async def test_a_device_that_reports_no_battery_any_more_is_left_alone(
+    hass, sunspec_fronius_client_mock, caplog
+):
+    entry = await _entry(hass)
+    planner = entry.runtime_data.battery_plan
+    planner.settings.capacity_kwh = 10.0
+    planner.settings.enabled = True
+    _battery_gone(sunspec_fronius_client_mock)
+
+    with patch.object(entry.runtime_data.api, "async_write_points") as write:
+        await planner.async_at_start()
+        assert "the device reports no battery, nothing planned" in caplog.text
+        await planner.async_at_end()
+
+    write.assert_not_called()
+    assert planner.planned_power_w is None
+
+
+def _logged_exceptions(caplog):
+    """Log records that carry a traceback; Home Assistant logs a listener that raised."""
+    return [record.getMessage() for record in caplog.records if record.exc_info]
+
+
+async def test_a_poll_after_the_battery_is_gone_writes_nothing(
+    hass, sunspec_fronius_client_mock, freezer, caplog
+):
+    freezer.move_to(_local(23))
+    entry, planner = await _discharging_at_23(hass, sunspec_fronius_client_mock)
+
+    with patch.object(entry.runtime_data.api, "async_write_points") as write:
+        _battery_gone(sunspec_fronius_client_mock)
+        entry.runtime_data.async_update_listeners()
+        await hass.async_block_till_done(wait_background_tasks=True)
+
+    write.assert_not_called()
+    assert planner.planned_power_w == 640.0
+    assert _logged_exceptions(caplog) == []
+
+
+async def test_a_window_that_opens_during_a_failed_poll_is_planned_on_the_next_good_one(
+    hass, sunspec_fronius_client_mock, freezer
+):
+    freezer.move_to(_local(20))
+    entry = await _entry(hass)
+    planner = entry.runtime_data.battery_plan
+    planner.settings.capacity_kwh = 10.0
+    planner.settings.enabled = True
+
+    with patch.object(entry.runtime_data.api, "async_write_points") as write:
+        entry.runtime_data.last_update_success = False
+        await planner.async_at_start()
+        write.assert_not_called()
+        entry.runtime_data.last_update_success = True
+        entry.runtime_data.async_update_listeners()
+        await hass.async_block_till_done(wait_background_tasks=True)
+
+    assert planner.planned_power_w == 450.0
+    assert [call.args for call in write.call_args_list] == DISCHARGE_TO_GRID_450_W
+
+
+async def test_removing_the_capacity_hands_a_running_plan_back(
+    hass, sunspec_fronius_client_mock, freezer, caplog
+):
+    """Without a capacity the watts cannot be worked out again, so the old ones must not stay."""
+    freezer.move_to(_local(23))
+    entry, planner = await _discharging_at_23(hass, sunspec_fronius_client_mock)
+    capacity = _entities(hass, "number", BatteryPlanCapacityNumber)[0]
+
+    with patch.object(entry.runtime_data.api, "async_write_points") as write:
+        await capacity.async_set_native_value(0.0)
+        write.assert_not_called()
+        entry.runtime_data.async_update_listeners()
+        await hass.async_block_till_done(wait_background_tasks=True)
+
+    assert planner.settings.capacity_kwh is None
+    assert "battery capacity" in caplog.text
+    assert [call.args for call in write.call_args_list] == [
+        *AUTOMATIC,
+        (124, [("InOutWRte_RvrtTms", 0)]),
+    ]
+    assert planner.planned_power_w == 0.0
+
+
+async def test_a_device_that_stops_reporting_its_charge_gets_the_battery_back(
+    hass, sunspec_fronius_client_mock, freezer, caplog
+):
+    freezer.move_to(_local(23))
+    entry, planner = await _discharging_at_23(hass, sunspec_fronius_client_mock)
+
+    with patch.object(entry.runtime_data.api, "async_write_points") as write:
+        # SunSpec's "not implemented", which the library reads as None.
+        sunspec_fronius_client_mock.models[124][0].points["ChaState"].value = None
+        await planner.async_resume()
+
+    assert "no state of charge from the device, nothing planned" in caplog.text
+    assert [call.args for call in write.call_args_list] == [
+        *AUTOMATIC,
+        (124, [("InOutWRte_RvrtTms", 0)]),
+    ]
+    assert planner.planned_power_w == 0.0
+
+
+async def test_a_poll_without_a_state_of_charge_leaves_the_plan_running(
+    hass, sunspec_fronius_client_mock, freezer, caplog
+):
+    """One poll without the point is no reason to stop; the target cannot be judged, that is all."""
+    freezer.move_to(_local(23))
+    entry, planner = await _discharging_at_23(hass, sunspec_fronius_client_mock)
+
+    with patch.object(entry.runtime_data.api, "async_write_points") as write:
+        sunspec_fronius_client_mock.models[124][0].points["ChaState"].value = None
+        entry.runtime_data.async_update_listeners()
+        await hass.async_block_till_done(wait_background_tasks=True)
+
+    write.assert_not_called()
+    assert planner.planned_power_w == 640.0
+    assert _logged_exceptions(caplog) == []
+
+
+def _refusing(point):
+    """A write that fails for ``point`` and goes through for every other point."""
+
+    async def write(model_id, points):
+        if any(name == point for name, _ in points):
+            raise DeviceError(f"Modbus exception 3 writing {point}")
+
+    return write
+
+
+async def test_a_plan_the_device_did_not_take_is_written_again_on_the_next_poll(
+    hass, sunspec_fronius_client_mock, freezer, caplog
+):
+    freezer.move_to(_local(20))
+    entry = await _entry(hass)
+    planner = entry.runtime_data.battery_plan
+    planner.settings.capacity_kwh = 10.0
+    planner.settings.enabled = True
+    # The revert time lands, the rates meet a dropped connection.
+    outcomes = [None, TransportError("connection lost"), None, None, None]
+
+    with patch.object(entry.runtime_data.api, "async_write_points", side_effect=outcomes) as write:
+        await planner.async_at_start()
+        assert "could not apply the plan: connection lost" in caplog.text
+        assert write.call_count == 2
+        entry.runtime_data.async_update_listeners()
+        await hass.async_block_till_done(wait_background_tasks=True)
+
+    assert [call.args for call in write.call_args_list[2:]] == DISCHARGE_TO_GRID_450_W
+
+
+async def test_a_refused_revert_time_does_not_stop_the_plan(
+    hass, sunspec_fronius_client_mock, caplog
+):
+    """The device's own timer is the second line of defence; the rates are the plan."""
+    entry = await _entry(hass)
+    planner = entry.runtime_data.battery_plan
+    planner.settings.capacity_kwh = 10.0
+    planner.settings.enabled = True
+
+    with patch.object(
+        entry.runtime_data.api, "async_write_points", side_effect=_refusing("InOutWRte_RvrtTms")
+    ) as write:
+        await planner.async_at_start()
+
+    assert "could not set the battery rate revert time to 36000 s" in caplog.text
+    assert [call.args for call in write.call_args_list] == DISCHARGE_TO_GRID_450_W
+    assert planner.planned_power_w == 450.0
+
+
+async def test_a_device_without_a_revert_time_gets_none_written_back(
+    hass, sunspec_fronius_client_mock, freezer
+):
+    """There is no earlier value to put back where the device never reported one."""
+    freezer.move_to(_local(23))
+    sunspec_fronius_client_mock.models[124][0].points["InOutWRte_RvrtTms"].value = None
+    entry = await _entry(hass)
+    planner = entry.runtime_data.battery_plan
+    planner.settings.capacity_kwh = 10.0
+    planner.settings.enabled = True
+
+    with patch.object(entry.runtime_data.api, "async_write_points") as write:
+        await planner.async_resume()
+        assert write.call_count == 3
+        write.reset_mock()
+        await planner.async_at_end()
+
+    assert [call.args for call in write.call_args_list] == AUTOMATIC
+    assert planner.planned_power_w == 0.0
+
+
+async def test_a_revert_time_that_cannot_be_put_back_is_logged(
+    hass, sunspec_fronius_client_mock, freezer, caplog
+):
+    freezer.move_to(_local(23))
+    entry, planner = await _discharging_at_23(hass, sunspec_fronius_client_mock)
+
+    with patch.object(
+        entry.runtime_data.api, "async_write_points", side_effect=_refusing("InOutWRte_RvrtTms")
+    ) as write:
+        await planner.async_at_end()
+
+    assert "could not restore the battery rate revert time to 0 s" in caplog.text
+    # The battery itself is back in automatic, which is what the end is for.
+    assert [call.args for call in write.call_args_list[:2]] == AUTOMATIC
+    assert planner.planned_power_w == 0.0
+
+
+async def test_a_hand_back_the_device_did_not_take_keeps_the_plan_as_it_was(
+    hass, sunspec_fronius_client_mock, freezer, caplog
+):
+    """The mode did not change, so neither the shown power nor the revert time may."""
+    freezer.move_to(_local(23))
+    entry, planner = await _discharging_at_23(hass, sunspec_fronius_client_mock)
+
+    with patch.object(
+        entry.runtime_data.api,
+        "async_write_points",
+        side_effect=TransportError("connection lost"),
+    ) as write:
+        await planner.async_at_end()
+
+    assert "could not hand the battery back: connection lost" in caplog.text
+    assert [call.args for call in write.call_args_list] == AUTOMATIC[:1]
+    assert planner.planned_power_w == 640.0
+
+
+async def test_a_restored_state_that_is_no_time_keeps_the_default(
+    hass, sunspec_fronius_client_mock
+):
+    """Home Assistant restores "unavailable" as readily as a time of day."""
+    entry = create_mock_sunspec_config_entry(hass, data=MOCK_CONFIG_WRITE)
+    registry = er.async_get(hass)
+    restored = {
+        which: registry.async_get_or_create(
+            "time",
+            DOMAIN,
+            get_sunspec_unique_id(entry.entry_id, f"scheduled_discharge_{which}", 124, 0),
+            config_entry=entry,
+            suggested_object_id=f"plan_{which}",
+        ).entity_id
+        for which in ("start", "end")
+    }
+    mock_restore_cache(
+        hass, [State(restored["start"], "unavailable"), State(restored["end"], "05:30:00")]
+    )
+    await setup_mock_sunspec_config_entry(hass, config_entry=entry)
+
+    planner = entry.runtime_data.battery_plan
+    assert (planner.settings.start, planner.settings.end) == (time(20, 0), time(5, 30))
+    assert hass.states.get(restored["start"]).state == "20:00:00"
+
+
+def _fronius_with_nameplate(tmp_path, energy_rating):
+    """The GEN24 of the fixture, with a nameplate model 120 behind its other models."""
+    layout = json.loads(Path("./tests/test_data/inverter_fronius.json").read_text())
+    layout["models"].append(
+        {
+            "ID": 120,
+            "L": 26,
+            "DERTyp": 82,
+            "WRtg": 10000,
+            "WRtg_SF": 0,
+            "WHRtg": energy_rating,
+            "WHRtg_SF": 0,
+        }
+    )
+    path = tmp_path / "inverter_fronius_nameplate.json"
+    path.write_text(json.dumps(layout))
+    client = MockFileClientDevice(str(path))
+    client.scan()
+    return client
+
+
+@pytest.mark.parametrize(("energy_rating", "capacity_kwh"), [(10240, 10.24), (None, None)])
+async def test_the_capacity_is_pre_filled_from_the_nameplate_model(
+    hass, tmp_path, energy_rating, capacity_kwh
+):
+    """``WHRtg`` is in Wh; a device that leaves it unimplemented still waits for the user."""
+    client = _fronius_with_nameplate(tmp_path, energy_rating)
+    entry = create_mock_sunspec_config_entry(
+        hass, data={**MOCK_CONFIG_WRITE, CONF_ENABLED_MODELS: ["160", "120"]}
+    )
+    with patch("custom_components.sunspec2.SunSpecApiClient.modbus_connect", return_value=client):
+        await setup_mock_sunspec_config_entry(hass, config_entry=entry)
+
+    assert entry.runtime_data.battery_plan.settings.capacity_kwh == capacity_kwh
+    capacity = _entities(hass, "number", BatteryPlanCapacityNumber)[0]
+    assert capacity.native_value == capacity_kwh

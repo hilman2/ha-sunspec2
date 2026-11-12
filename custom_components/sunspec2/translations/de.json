@@ -898,10 +898,10 @@
         "name": "Entfernte Solarleistung 2"
       },
       "franklinwh_home_load": {
-        "name": "Hausverbrauch, grobe Messung"
+        "name": "Hauslast, grobe Messung"
       },
       "franklinwh_home_load_high_resolution": {
-        "name": "Hausverbrauch"
+        "name": "Hauslast"
       },
       "franklinwh_native_mode": {
         "name": "Nativer Betriebsmodus",

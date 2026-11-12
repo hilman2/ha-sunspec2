@@ -24,14 +24,12 @@ from .const import DOMAIN
 from .coordinator import SunSpecDataUpdateCoordinator
 from .errors import SunSpecError
 from .errors import user_error
+from .write_controls import EXPORT_LIMIT_HARD_MAX_PCT
 from .write_controls import export_limit_points
 
 SERVICE_SET_EXPORT_LIMIT = "set_export_limit"
 SERVICE_SET_BATTERY_PLAN = "set_battery_plan"
 
-# The range is the one the export limit Number has, see WMaxLimPct in
-# write_controls.py.
-#
 # Fields the action does not know are let through and ignored. The
 # action was released without a schema, so an automation with a stray
 # field worked, and one that sets an export limit must not stop working
@@ -40,7 +38,7 @@ EXPORT_LIMIT_SCHEMA = probatio.Schema(
     {
         probatio.Required("config_entry_id"): cv.string,
         probatio.Required("percent"): probatio.All(
-            probatio.Coerce(float), probatio.Range(min=0, max=200)
+            probatio.Coerce(float), probatio.Range(min=0, max=EXPORT_LIMIT_HARD_MAX_PCT)
         ),
         probatio.Optional("enable", default=True): cv.boolean,
     },

@@ -9,6 +9,7 @@ import hashlib
 from typing import Any
 from unittest.mock import patch
 
+import aiohttp
 import pytest
 from homeassistant.data_entry_flow import FlowResultType
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
@@ -21,10 +22,14 @@ from custom_components.sunspec2.const import CONF_FRONIUS_WEB_TOKEN
 from custom_components.sunspec2.const import CONF_SCAN_INTERVAL
 from custom_components.sunspec2.fronius_web import FroniusWebAuthError
 from custom_components.sunspec2.fronius_web import FroniusWebClient
+from custom_components.sunspec2.fronius_web import FroniusWebError
 from custom_components.sunspec2.fronius_web import WebToken
+from custom_components.sunspec2.fronius_web import async_mint_token
 from custom_components.sunspec2.fronius_web import authorization_header
 from custom_components.sunspec2.fronius_web import battery_identity
 from custom_components.sunspec2.fronius_web import digest_uri
+from custom_components.sunspec2.fronius_web import first_device
+from custom_components.sunspec2.fronius_web import is_on
 from custom_components.sunspec2.fronius_web import parse_challenge
 from custom_components.sunspec2.fronius_web import parse_meters
 from custom_components.sunspec2.fronius_web_entities import MeterLocationSensor
@@ -220,6 +225,121 @@ async def test_a_stored_secret_logs_in_without_a_password(hass, aioclient_mock):
     assert "Authorization" in aioclient_mock.mock_calls[-1][3]
 
 
+async def test_a_status_page_that_fails_means_a_sha256_secret(hass, aioclient_mock):
+    """Only hashing version 1 is MD5; an inverter that does not say gets SHA-256."""
+    aioclient_mock.get(f"{BASE}/api/status/common", status=500)
+    aioclient_mock.get(f"{BASE}/api/commands/Login?user=customer", side_effect=challenged({}))
+
+    client = FroniusWebClient(async_get_clientsession(hass), HOST, password="secret")
+    assert client.token is None
+    token = await client.login()
+
+    assert token == WebToken(
+        "Fronius", hashlib.sha256(b"customer:Fronius:secret").hexdigest(), "sha256"
+    )
+    assert client.token == token
+
+
+async def test_minting_a_token_logs_in_with_the_password(hass, aioclient_mock):
+    aioclient_mock.get(f"{BASE}/api/status/common", json={})
+    aioclient_mock.get(f"{BASE}/api/commands/Login?user=customer", side_effect=challenged({}))
+
+    token = await async_mint_token(hass, HOST, "secret")
+
+    assert token == WebToken(
+        "Fronius", hashlib.sha256(b"customer:Fronius:secret").hexdigest(), "sha256"
+    )
+    signed = aioclient_mock.mock_calls[-1]
+    assert signed[1].path == "/api/commands/Login"
+    assert 'username="customer"' in signed[3]["Authorization"]
+
+
+async def test_a_login_answered_without_a_challenge_is_an_auth_error(hass, aioclient_mock):
+    """Nothing was signed, so there is no secret that could be stored."""
+    aioclient_mock.get(f"{BASE}/api/commands/Login?user=customer", json={})
+    client = FroniusWebClient(async_get_clientsession(hass), HOST, password="secret")
+
+    with pytest.raises(FroniusWebAuthError, match="answered the login without a challenge"):
+        await client.login()
+    assert client.token is None
+
+
+async def test_a_challenge_cannot_be_answered_without_a_password_or_a_stored_secret(
+    hass, aioclient_mock
+):
+    aioclient_mock.get(f"{BASE}/api/config/batteries", side_effect=challenged(BATTERIES))
+    client = FroniusWebClient(async_get_clientsession(hass), HOST)
+
+    with pytest.raises(FroniusWebAuthError, match="no web interface login stored"):
+        await client.read_battery_config()
+    # The challenged request and no second one.
+    assert aioclient_mock.call_count == 1
+
+
+async def test_a_401_without_a_digest_challenge_is_an_auth_error(hass, aioclient_mock):
+    aioclient_mock.get(f"{BASE}/api/config/batteries", status=401)
+    client = FroniusWebClient(async_get_clientsession(hass), HOST, token=TOKEN)
+
+    with pytest.raises(FroniusWebAuthError, match="refused without a Digest challenge"):
+        await client.read_battery_config()
+    assert aioclient_mock.call_count == 1
+
+
+async def test_a_web_interface_that_does_not_answer_is_not_an_auth_error(hass, aioclient_mock):
+    """The options flow tells "wrong password" from "not reachable" by the class."""
+    aioclient_mock.get(
+        f"{BASE}/api/config/batteries", exc=aiohttp.ClientConnectionError("connection refused")
+    )
+    client = FroniusWebClient(async_get_clientsession(hass), HOST, token=TOKEN)
+
+    with pytest.raises(FroniusWebError, match="GET /api/config/batteries: connection refused") as e:
+        await client.read_battery_config()
+    assert not isinstance(e.value, FroniusWebAuthError)
+
+
+async def test_an_http_error_names_the_endpoint_and_the_status(hass, aioclient_mock):
+    aioclient_mock.get(f"{BASE}/api/config/batteries", side_effect=challenged({}, status=500))
+    client = FroniusWebClient(async_get_clientsession(hass), HOST, token=TOKEN)
+
+    with pytest.raises(FroniusWebError, match="/api/config/batteries: HTTP 500") as e:
+        await client.read_battery_config()
+    assert not isinstance(e.value, FroniusWebAuthError)
+
+
+async def test_an_answer_that_is_not_json_reads_as_empty(hass, aioclient_mock):
+    aioclient_mock.get(f"{BASE}/api/config/batteries", text="<html>busy</html>")
+    client = FroniusWebClient(async_get_clientsession(hass), HOST, token=TOKEN)
+    assert await client.read_battery_config() == {}
+
+
+async def test_modbus_control_is_not_written_into_an_answer_without_a_modbus_setup(
+    hass, aioclient_mock
+):
+    """Posting a made-up setup would change the port under the running connection."""
+    aioclient_mock.get(f"{BASE}/api/config/modbus", side_effect=challenged({}))
+    aioclient_mock.post(f"{BASE}/api/config/modbus", side_effect=challenged({}))
+    client = FroniusWebClient(async_get_clientsession(hass), HOST, token=TOKEN)
+
+    with pytest.raises(FroniusWebError, match="no Modbus configuration in the answer"):
+        await client.allow_modbus_control(True)
+    assert _posts(aioclient_mock, "/api/config/modbus") == []
+
+
+async def test_modbus_control_is_added_to_a_setup_that_has_no_control_section(hass, aioclient_mock):
+    aioclient_mock.get(
+        f"{BASE}/api/config/modbus",
+        side_effect=challenged({"slave": {"mode": "tcp", "port": 502}}),
+    )
+    aioclient_mock.post(f"{BASE}/api/config/modbus", side_effect=challenged({}))
+    client = FroniusWebClient(async_get_clientsession(hass), HOST, token=TOKEN)
+
+    await client.allow_modbus_control(True)
+
+    assert _posts(aioclient_mock, "/api/config/modbus")[-1] == {
+        "slave": {"mode": "tcp", "port": 502, "ctr": {"on": True}}
+    }
+
+
 # ---------- the parsers ------------------------------------------------------
 
 
@@ -242,6 +362,81 @@ def test_the_battery_identity_comes_from_the_nameplate_json():
         "model": "Battery",
         "serial": "1",
     }
+
+
+def test_meters_without_a_bus_address_are_left_out():
+    """Address 0 is no meter, and a unit id cannot be worked out without the address."""
+    payload = {
+        "Body": {
+            "Data": {
+                "0": "not a device",
+                "1": {"attributes": {"addr": "0", "label": "<primary>"}},
+                "2": {"attributes": {"addr": "n/a"}},
+                "3": {"attributes": {"addr": 3, "meter-location": 1}},
+            }
+        }
+    }
+    assert parse_meters(payload) == [
+        {
+            "address": 3,
+            "unit_id": 202,
+            "model": None,
+            "primary": False,
+            "location": 1,
+            "phases": None,
+        }
+    ]
+    assert parse_meters("offline") == []
+
+
+def test_an_answer_without_a_device_gives_empty_attributes_and_channels():
+    empty: dict[str, dict[str, Any]] = {"attributes": {}, "channels": {}}
+    assert first_device({"Body": {"Data": {}}}) == empty
+    assert first_device({"Body": {"Data": {"0": "offline"}}}) == empty
+    assert first_device(None) == empty
+    assert first_device({"Body": {"Data": {"0": {"attributes": [], "channels": {"a": 1}}}}}) == {
+        "attributes": {},
+        "channels": {"a": 1},
+    }
+
+
+def test_the_battery_identity_takes_a_nameplate_object_and_survives_a_broken_one():
+    assert battery_identity({"nameplate": {"manufacturer": "LG", "DisplayName": "RESU 10H"}}) == {
+        "manufacturer": "LG",
+        "model": "RESU 10H",
+        "serial": None,
+    }
+    # Not JSON: the plain attributes still count.
+    assert battery_identity({"nameplate": "{manufacturer: BYD", "serial": "S9"}) == {
+        "manufacturer": None,
+        "model": None,
+        "serial": "S9",
+    }
+    assert battery_identity({"nameplate": "[1, 2]", "model": "HVM"})["model"] == "HVM"
+
+
+@pytest.mark.parametrize(
+    ("value", "flag"),
+    [
+        (True, True),
+        (False, False),
+        (1, True),
+        (0, False),
+        (0.0, False),
+        ("1", True),
+        (" On ", True),
+        ("enabled", True),
+        ("0", False),
+        ("FALSE", False),
+        ("disabled", False),
+        ("maybe", None),
+        ("", None),
+        (None, None),
+        ([], None),
+    ],
+)
+def test_a_flag_is_read_however_the_inverter_spells_it(value, flag):
+    assert is_on(value) is flag
 
 
 # ---------- the coordinator and its entities ----------------------------------
@@ -304,6 +499,44 @@ async def test_a_login_the_inverter_rejects_leaves_the_modbus_side_alone(
     assert len(_entities(hass, "select", StorageModeSelect)) == 1
     temps = _entities(hass, "sensor", WebTemperatureSensor)
     assert temps and all(not t.available for t in temps)
+
+
+async def test_a_stored_login_that_does_not_fit_is_ignored(hass, sunspec_fronius_client_mock):
+    """A secret hashed with something the login cannot use is as good as none."""
+    entry = await _web_entry(
+        hass,
+        options={
+            CONF_FRONIUS_WEB_TOKEN: {"realm": "Fronius", "secret": "a" * 40, "algorithm": "sha1"}
+        },
+    )
+    assert entry.runtime_data.web is None
+    assert _entities(hass, "switch", WebSwitch) == []
+    assert len(_entities(hass, "select", StorageModeSelect)) == 1
+
+
+async def test_an_endpoint_that_fails_leaves_the_rest_of_the_poll_standing(
+    hass, sunspec_fronius_client_mock, aioclient_mock
+):
+    """An inverter without a battery has no battery endpoint."""
+    aioclient_mock.get(
+        f"{BASE}/api/components/BatteryManagementSystem/readable",
+        side_effect=challenged({}, status=404),
+    )
+    _mock_web(aioclient_mock)
+    entry = await _web_entry(hass)
+    web = entry.runtime_data.web
+    assert web is not None and web.last_update_success
+
+    temps = {s.translation_key: s for s in _entities(hass, "sensor", WebTemperatureSensor)}
+    assert temps["inverter_temperature"].native_value == 41.5
+    assert temps["battery_cell_temperature"].native_value is None
+    assert temps["battery_cell_temperature"].extra_state_attributes == {
+        "manufacturer": None,
+        "model": None,
+        "serial": None,
+    }
+    switches = {s.translation_key: s for s in _entities(hass, "switch", WebSwitch)}
+    assert switches["battery_charge_from_ac"].is_on is True
 
 
 async def test_the_grid_charging_switch_sets_both_flags(
@@ -430,6 +663,30 @@ async def test_a_rejected_password_shows_the_error(hass, sunspec_fronius_client_
 
     assert result["type"] == FlowResultType.FORM
     assert result["errors"] == {"base": "web_auth_failed"}
+    assert CONF_FRONIUS_WEB_TOKEN not in entry.options
+
+
+async def test_an_unreachable_web_interface_shows_another_error_than_a_wrong_password(
+    hass, sunspec_fronius_client_mock
+):
+    entry = await _web_entry(hass, options={})
+    result = await _model_options(hass, entry)
+
+    with patch(
+        "custom_components.sunspec2.config_flow.async_mint_token",
+        side_effect=FroniusWebError("GET /api/commands/Login: connection refused"),
+    ):
+        result = await hass.config_entries.options.async_configure(
+            result["flow_id"],
+            user_input={
+                CONF_ENABLED_MODELS: ["160"],
+                CONF_SCAN_INTERVAL: 10,
+                "fronius": {CONF_FRONIUS_WEB_PASSWORD: "secret"},
+            },
+        )
+
+    assert result["type"] == FlowResultType.FORM
+    assert result["errors"] == {"base": "web_unreachable"}
     assert CONF_FRONIUS_WEB_TOKEN not in entry.options
 
 

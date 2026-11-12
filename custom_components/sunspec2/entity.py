@@ -14,6 +14,7 @@ from .const import STALE_DATA_TOLERANCE_CYCLES
 from .coordinator import SunSpecDataUpdateCoordinator
 from .model_labels import device_model_suffix
 from .models import SunSpecModelWrapper
+from .models import point_text
 
 
 def get_sunspec_unique_id(config_entry_id: str, key: str, model_id: int, model_index: int) -> str:
@@ -169,10 +170,7 @@ def device_info_for(
         prefix (str): The user's device name, or "".
         model_id (int|None): The SunSpec model id.
     """
-    try:
-        md = device_data.getValue("Md")
-    except (KeyError, AttributeError):
-        md = None
+    md = point_text(device_data, "Md") or None
     suffix = device_model_suffix(model_id, model_info)
     base = prefix or md
     device_name: str | None
