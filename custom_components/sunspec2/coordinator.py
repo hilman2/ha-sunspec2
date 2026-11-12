@@ -90,6 +90,15 @@ _CONTROL_REFUSALS_KEY = f"{DOMAIN}_control_refusals"
 type SunSpec2ConfigEntry = ConfigEntry["SunSpecDataUpdateCoordinator"]
 
 
+def structure_store(hass: HomeAssistant, entry_id: str) -> Store[dict[str, Any]]:
+    """The file the SunSpec model layout of an entry is kept in.
+
+    One file per config entry, so that two inverters never share a
+    layout and removing an entry can remove its file.
+    """
+    return Store(hass, STRUCTURE_STORAGE_VERSION, f"{STRUCTURE_STORAGE_KEY}.{entry_id}")
+
+
 def gateway_rest_until(now: datetime, round_seconds: int) -> datetime:
     """When a gateway that left a request unanswered may be asked again.
 
@@ -193,14 +202,7 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator[dict[int, SunSpecModelW
         # there and read back by async_unload_entry, including when
         # setup only forwarded part of the list before failing.
         self.forwarded_platforms: list[str] = []
-        # Persisted SunSpec model layout. The store is per config entry so
-        # removing the entry can drop the file, and so two inverters never
-        # share a cache key.
-        self._structure_store: Store[dict[str, Any]] = Store(
-            hass,
-            STRUCTURE_STORAGE_VERSION,
-            f"{STRUCTURE_STORAGE_KEY}.{entry.entry_id}",
-        )
+        self._structure_store = structure_store(hass, entry.entry_id)
         # Revision of the layout currently on disk. Compared against
         # ``api.structure_revision`` after every successful cycle, which
         # is how a rescan that found something new gets written out

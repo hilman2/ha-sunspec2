@@ -48,3 +48,6 @@ services:
       args:
         HA_CHANNEL: beta
     image: ha-sunspec2-tests-beta
+    # Without --cov, like the weekly workflow: a beta is tested for what
+    # breaks, not for coverage.
+    command: ["pytest", "tests/", "-q", "-n", "auto"]

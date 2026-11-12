@@ -44,8 +44,6 @@ _LOGGER: logging.Logger = logging.getLogger(__package__)
 
 PARALLEL_UPDATES = 0
 
-# Re-exported: the decoder moved to write_controls so the storage mode
-# entities can share it without importing this platform module.
 __all__ = ["SunSpecWriteSelect", "async_setup_entry"]
 
 

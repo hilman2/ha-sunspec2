@@ -43,12 +43,11 @@ from .const import DOMAIN
 from .const import PARITY_NONE
 from .const import PLATFORMS
 from .const import STARTUP_MESSAGE
-from .const import STRUCTURE_STORAGE_KEY
-from .const import STRUCTURE_STORAGE_VERSION
 from .const import TRANSPORT_RTU
 from .const import TRANSPORT_TCP
 from .coordinator import SunSpec2ConfigEntry
 from .coordinator import SunSpecDataUpdateCoordinator
+from .coordinator import structure_store
 from .fronius_web import FroniusWebCoordinator
 from .fronius_web import WebToken
 from .logger import SunSpecLoggerAdapter
@@ -365,13 +364,8 @@ async def async_remove_entry(hass: HomeAssistant, entry: SunSpec2ConfigEntry) ->
     device before it is ever used) but it would also be litter that
     nothing ever collects.
     """
-    store: Store[dict[str, Any]] = Store(
-        hass,
-        STRUCTURE_STORAGE_VERSION,
-        f"{STRUCTURE_STORAGE_KEY}.{entry.entry_id}",
-    )
     try:
-        await store.async_remove()
+        await structure_store(hass, entry.entry_id).async_remove()
     except Exception as err:  # noqa: BLE001 - best effort cleanup
         _LOGGER.debug("Could not remove the stored SunSpec layout: %s", err)
 

@@ -612,6 +612,7 @@ async def test_a_timeout_while_the_layout_is_rebuilt_does_not_start_a_scan(hass)
         await api._async_scan_or_restore(fresh)
     assert fresh.scan_calls == 0
     assert fresh.models == {}
+    assert api._model_structure is not None
 
 
 async def test_close_keeps_the_cached_structure(hass, sunspec_modbus_client_mock):

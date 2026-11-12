@@ -236,12 +236,12 @@ async def test_probe_finds_a_listening_port_and_sends_it_nothing(socket_enabled)
 
 
 async def test_probe_reports_a_port_nobody_listens_on_as_closed(socket_enabled):
-    with socket.socket() as placeholder:
-        placeholder.bind(("127.0.0.1", 0))
-        free_port = placeholder.getsockname()[1]
-
-    with patch("custom_components.sunspec2.discovery.MODBUS_TCP_PORT", free_port):
-        assert await _probe_port_502("127.0.0.1", asyncio.Semaphore(1)) is False
+    # Bound and never listening: the port refuses, and no other test can get it meanwhile.
+    with socket.socket() as bound:
+        bound.bind(("127.0.0.1", 0))
+        port = bound.getsockname()[1]
+        with patch("custom_components.sunspec2.discovery.MODBUS_TCP_PORT", port):
+            assert await _probe_port_502("127.0.0.1", asyncio.Semaphore(1)) is False
 
 
 async def test_probe_gives_up_on_a_host_that_does_not_answer():
