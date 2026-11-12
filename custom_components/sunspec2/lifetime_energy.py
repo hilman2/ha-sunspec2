@@ -4,8 +4,8 @@ An APsystems ECU serves the SunSpec point ``WH`` as a counter of one day,
 where SunSpec defines ``WH`` as a lifetime counter, so the device has no
 total to bind to. For a point the vendor profile lists in
 ``daily_energy_points`` this module counts one: a ledger keeps the energy of
-all finished days and the last daily value it accepted. Two sensors read the
-ledger. ``CountedDailyEnergySensor`` takes the place of the plain sensor of
+all finished days and the last daily value it accepted. Two sensors each
+keep such a ledger. ``CountedDailyEnergySensor`` takes the place of the plain sensor of
 the point, named "Energy produced today", and ``CountedLifetimeEnergySensor``
 is the total.
 

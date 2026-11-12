@@ -226,8 +226,8 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator[dict[int, SunSpecModelW
         # cycle. The options flow builds its model multi-select from
         # this set, because ``api.known_models()`` returns ``[]`` while
         # there is no client: before the first cycle and after a failed
-        # one. A form rendered from an empty list saves
-        # ``models_enabled: []`` and removes every sensor.
+        # one. A form rendered from an empty list has no model to tick,
+        # and the flow refuses to save an empty selection.
         self.detected_models: set[int] = set()
         # Nameplate AC power in kW, detected on the first successful
         # cycle from model 120 "WRtg" or else model 121 "WMax" (see

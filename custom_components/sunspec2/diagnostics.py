@@ -14,6 +14,7 @@ import dataclasses
 import importlib.metadata
 from typing import Any
 
+from homeassistant.components.diagnostics import REDACTED
 from homeassistant.components.diagnostics import async_redact_data
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import __version__ as HA_VERSION
@@ -63,7 +64,7 @@ async def async_get_config_entry_diagnostics(
             except Exception as exc:  # noqa: BLE001 - defensive: never break the dump
                 scanned_models.append({"model_id": model_id, "error": str(exc)})
 
-    return {
+    dump = {
         "config": async_redact_data(dict(entry.data), TO_REDACT),
         "options": async_redact_data(dict(entry.options), TO_REDACT),
         # scanned_models below is built from coordinator.data, the
@@ -121,6 +122,23 @@ async def async_get_config_entry_diagnostics(
             "sunspec2_integration": VERSION,
         },
     }
+    host = entry.data.get(CONF_HOST)
+    return _without_host(dump, host) if host else dump
+
+
+def _without_host(value: Any, host: str) -> Any:
+    """``value`` with ``host`` taken out of every string in it.
+
+    Redacting the entry data covers its ``host`` field. Error messages
+    name the host as well, and they are in the dump as text.
+    """
+    if isinstance(value, str):
+        return value.replace(host, REDACTED)
+    if isinstance(value, dict):
+        return {key: _without_host(item, host) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_without_host(item, host) for item in value]
+    return value
 
 
 def _transport_versions() -> dict[str, str | None]:

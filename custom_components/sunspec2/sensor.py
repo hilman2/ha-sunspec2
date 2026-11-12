@@ -262,7 +262,7 @@ async def async_setup_entry(
 ) -> None:
     """Set up the sensor platform and keep adding sensors as models appear.
 
-    A coordinator listener runs after every update cycle and adds an
+    A coordinator listener runs after every successful update cycle and adds an
     entity for each (model_id, key, model_index) whose unique id it has
     not seen. A model that an inverter starts serving after a firmware
     update gets its sensors that way, without a restart
@@ -436,7 +436,7 @@ class SunSpecSensor(SunSpecEntity, SensorEntity):
         # and HA validates an ENUM state against its options strictly:
         # async_write_ha_state raises ValueError (cjne/ha-sunspec#370).
         # Listing the combinations is not an option either: n flags give
-        # 2**n states, and Evt1 of model 103 has 32 flags.
+        # 2**n states, and Evt1 of model 103 is 32 bits wide.
         self._is_bitfield = vtype == "bitfield32"
         if vtype == "enum16":
             symbols = self._point_meta.get("symbols", None)

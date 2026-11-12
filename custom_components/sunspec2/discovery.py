@@ -85,8 +85,8 @@ async def async_get_default_subnet(hass: HomeAssistant) -> str | None:
     """Return the subnet of the default network adapter in CIDR notation, or None.
 
     The subnet comes from the first IPv4 address of the enabled adapter
-    that carries the default route. A network wider than /22 is not
-    offered.
+    with the default route whose network is a /22 or narrower. A wider
+    network is not offered.
     """
     adapters = await async_get_adapters(hass)
     for adapter in adapters:
@@ -172,7 +172,8 @@ async def async_discover_sunspec_candidates(
 ) -> list[SunSpecCandidate]:
     """Scan ``subnet`` for hosts with Modbus TCP port 502 open.
 
-    Returns the candidates, vendor matches first, then ordered by IP.
+    Returns the candidates, vendor matches first, then ordered by the
+    address as text.
 
     Raises:
         ValueError: ``subnet`` is malformed or has more hosts than

@@ -479,9 +479,8 @@ class SunSpecFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
                 if entry.unique_id is not None and probed_uid != entry.unique_id:
                     self._errors["base"] = "unique_id_mismatch"
                 else:
-                    # The probe gives its Modbus slot back before the
-                    # reload builds the coordinator's own client, or a
-                    # single-slot inverter refuses the new connection.
+                    # The probe lets go of its hold on the connection
+                    # before the entry reloads and takes its own.
                     await self._close_probe_client()
                     # No reload here: the update listener reloads the
                     # entry when its data changed.
@@ -591,9 +590,8 @@ class SunSpecFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
             port = self.init_info[CONF_PORT]
             unit_id = self.init_info[CONF_UNIT_ID]
             _LOGGER.debug("Creating entry with data %s, options %s", self.init_info, options)
-            # The probe gives the inverter's Modbus slot back before
-            # async_setup_entry opens the coordinator's client against
-            # the same endpoint.
+            # The probe lets go of its hold on the connection before
+            # async_setup_entry takes the entry's own.
             await self._close_probe_client()
             return self.async_create_entry(
                 title=f"{host}:{port}:{unit_id}",
@@ -783,8 +781,8 @@ class SunSpecFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
         """Release the probe client's Modbus session, if one is open.
 
         Every probe has to end here. A probe that is left open keeps its
-        hold on the Modbus connection, and on a single-slot inverter
-        that session occupies the only slot the device has. A
+        temporary hold on the shared Modbus connection, and the
+        connection stays open for as long as anything holds it. A
         successful probe is closed late, when the flow ends:
         ``_show_settings_form`` and ``_probe_nameplate`` keep using the
         client, and closing it earlier would force a second SunSpec
@@ -920,9 +918,9 @@ class SunSpecOptionsFlowHandler(config_entries.OptionsFlow):
             max_ac_power_kw = _suggested_peak_power_kw(
                 getattr(self.coordinator, "detected_max_ac_power_kw", None)
             )
-        # The form works from the coordinator's state and never probes
-        # the device: a probe would race the coordinator's session on a
-        # single-slot inverter such as a KACO. While the coordinator is
+        # The form works from the coordinator's state and never scans
+        # the device itself: a scan would keep the coordinator's polls
+        # waiting behind it on the shared connection. While the coordinator is
         # failing, the host form comes back with a connection error
         # instead of an empty model list. The getattr default of True
         # covers a coordinator that is None, see below.

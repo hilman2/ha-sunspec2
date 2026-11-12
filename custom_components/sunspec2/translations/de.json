@@ -16,6 +16,11 @@
           "host": "Host oder IP",
           "port": "Modbus-TCP-Port",
           "unit_id": "Modbus-Unit-ID"
+        },
+        "data_description": {
+          "host": "IP-Adresse oder Hostname des Wechselrichters oder des Gateways davor.",
+          "port": "Der Modbus-TCP-Port. 502, sofern am Gerät nichts anderes eingestellt ist.",
+          "unit_id": "Die Modbus-Adresse des Geräts, auch Slave-ID oder Geräte-ID genannt. Oft 1. Die Modbus-Einstellungen des Geräts zeigen sie."
         }
       },
       "scan": {
@@ -23,6 +28,9 @@
         "description": "Sucht im gewählten Subnetz nach Hosts, die Modbus-TCP-Port 502 offen haben. Hosts, deren MAC-Adresse zu einem bekannten SunSpec-Wechselrichter-Hersteller gehört, werden zuerst gelistet. Der Scan macht nur einen TCP-Connect-Test, es werden keine Modbus-Bytes gesendet, sodass andere Modbus-Geräte im Netzwerk nicht gestört werden. Das Standard-Subnetz wird aus der Netzwerkkonfiguration des Home Assistant Hosts erkannt.",
         "data": {
           "subnet": "Zu scannendes Subnetz (CIDR-Notation, z.B. 192.168.1.0/24)"
+        },
+        "data_description": {
+          "subnet": "Das zu durchsuchende Netz in CIDR-Notation. Höchstens ein /22, das sind 1022 Adressen."
         }
       },
       "scan_results": {
@@ -30,6 +38,9 @@
         "description": "Diese Hosts haben auf Modbus-TCP-Port 502 geantwortet. Hosts mit der Markierung 'SunSpec vendor' haben eine MAC-Adresse eines bekannten Wechselrichter-Herstellers und sind höchstwahrscheinlich dein Gerät.",
         "data": {
           "host": "Wechselrichter"
+        },
+        "data_description": {
+          "host": "Die Geräte, die auf dem Modbus-Port geantwortet haben. Bekannte Wechselrichter-Hersteller stehen zuerst."
         }
       },
       "serial": {
@@ -40,6 +51,12 @@
           "baudrate": "Baudrate",
           "parity": "Parität",
           "unit_id": "Modbus-Unit-ID"
+        },
+        "data_description": {
+          "serial_port": "Die serielle Schnittstelle des RS-485-Adapters.",
+          "baudrate": "Die am Gerät eingestellte Geschwindigkeit. Beide Seiten müssen dieselbe verwenden.",
+          "parity": "Die am Gerät eingestellte Parität.",
+          "unit_id": "Die Modbus-Adresse des Geräts, auch Slave-ID oder Geräte-ID genannt. Oft 1. Die Modbus-Einstellungen des Geräts zeigen sie."
         }
       },
       "settings": {
@@ -65,6 +82,11 @@
           "host": "Host oder IP",
           "port": "Modbus-TCP-Port",
           "unit_id": "Modbus-Unit-ID"
+        },
+        "data_description": {
+          "host": "IP-Adresse oder Hostname des Wechselrichters oder des Gateways davor.",
+          "port": "Der Modbus-TCP-Port. 502, sofern am Gerät nichts anderes eingestellt ist.",
+          "unit_id": "Die Modbus-Adresse des Geräts, auch Slave-ID oder Geräte-ID genannt. Oft 1. Die Modbus-Einstellungen des Geräts zeigen sie."
         }
       }
     },
@@ -92,6 +114,11 @@
           "host": "Host oder IP",
           "port": "Modbus-TCP-Port",
           "unit_id": "Modbus-Unit-ID"
+        },
+        "data_description": {
+          "host": "IP-Adresse oder Hostname des Wechselrichters oder des Gateways davor.",
+          "port": "Der Modbus-TCP-Port. 502, sofern am Gerät nichts anderes eingestellt ist.",
+          "unit_id": "Die Modbus-Adresse des Geräts, auch Slave-ID oder Geräte-ID genannt. Oft 1. Die Modbus-Einstellungen des Geräts zeigen sie."
         }
       },
       "model_options": {

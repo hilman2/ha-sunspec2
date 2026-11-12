@@ -96,16 +96,16 @@ both of those pass locally and then break the gate.
 
 ## Lint and type checking
 
-Those are not in the image. They run on the host and need no Home
-Assistant:
+ruff runs on the host and needs no Home Assistant:
 
 ```bash
-uv run --with ruff ruff check custom_components/ tests/
+uvx ruff check custom_components/ tests/
 ```
 
 ```bash
-uv run --with ruff ruff format --check custom_components/ tests/
+uvx ruff format --check custom_components/ tests/
 ```
 
-mypy does need the full dependency set. The invocation is in `CLAUDE.md`
-under "Type checking".
+mypy needs the full dependency set, so it runs in the image, which has
+that set but not mypy itself. The invocation is in `CLAUDE.md` under
+"Type checking".

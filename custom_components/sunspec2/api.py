@@ -231,8 +231,10 @@ class SunSpecApiClient:
         a new client is built.
 
         Raises:
-            TransportError: The api is shut down, or the connect failed.
-            ProtocolError: The SunSpec scan failed.
+            TransportError: The api is shut down, or the link failed or
+                timed out while the device was scanned or its stored
+                layout checked.
+            ProtocolError: No SunSpec map was found on the device.
         """
         if self._shutdown:
             raise TransportError("SunSpec client is shut down")
@@ -318,7 +320,11 @@ class SunSpecApiClient:
         Raises:
             TransientError: No answer within the request timeout.
             DeviceError: The model or a point is missing, a value cannot
-                be encoded, or the device refused the write.
+                be encoded, the device refused the write or the link
+                failed during it.
+            TransportError: No client could be built, see
+                ``async_get_client``.
+            ProtocolError: Likewise.
         """
         with_model = SunSpecLoggerAdapter(
             self._log.logger, {**self._log.bound, "model_id": model_id}
@@ -998,8 +1004,9 @@ class SunSpecApiClient:
         which is why it is the seam and not ``async_get_client``.
 
         Raises:
-            TransportError: The connect failed.
-            ProtocolError: The SunSpec scan failed.
+            TransportError: The link failed or timed out during the scan
+                or the check of the stored layout.
+            ProtocolError: No SunSpec map was found on the device.
         """
         endpoint = (
             f"{self._serial_port} @ {self._baudrate} {self._parity}"
@@ -1041,11 +1048,11 @@ class SunSpecApiClient:
                 f"Modbus error while connecting to {endpoint} unit id {self._unit_id}: {err}"
             ) from err
         except SunSpecModbusClientError as err:
-            # The scan raises this when no SunSpec base address is found,
-            # when the device answers without the SunSpec marker, or on
-            # a read timeout during the scan. Translating it here keeps
-            # the scan's own message ("Data time out", ...) in front of
-            # the user, who otherwise sees a generic "Unexpected error".
+            # The scan raises this when it finds no SunSpec map at any
+            # base address. A timeout or a lost link during the scan is
+            # a ModbusClientError and was handled above. Translating the
+            # error here keeps the scan's own message in front of the
+            # user, who otherwise sees a generic "Unexpected error".
             raise ProtocolError(
                 f"SunSpec scan failed for {endpoint} unit id {self._unit_id}: {err}"
             ) from err

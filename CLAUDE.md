@@ -139,8 +139,8 @@ docker run --rm -v "$PWD":/src:ro -w /src ha-sunspec2-tests sh -c \
   'pip install -q --target /tmp/m mypy && PYTHONPATH=/tmp/m python -m mypy --cache-dir /tmp/mc'
 ```
 
-The test image has the dependency set the CI job installs, and mypy
-needs exactly that set. `warn_unused_ignores` is on, so a missing
+The test image (built by the first `docker compose ... run tests`) has
+the dependency set the CI job installs, and mypy needs exactly that set. `warn_unused_ignores` is on, so a missing
 package changes the verdict rather than skipping a check: a run without
 Home Assistant's type information reports the `type: ignore` comments
 as unnecessary.

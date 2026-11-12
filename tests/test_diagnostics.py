@@ -12,6 +12,7 @@ import pytest
 from custom_components.sunspec2.api import SunSpecApiClient
 from custom_components.sunspec2.const import CONF_FRONIUS_WEB_TOKEN
 from custom_components.sunspec2.diagnostics import async_get_config_entry_diagnostics
+from custom_components.sunspec2.errors import TransportError
 
 from . import setup_mock_sunspec_config_entry
 from .test_fronius_web import _mock_web
@@ -201,6 +202,20 @@ async def test_diagnostics_recent_errors_starts_empty(hass, sunspec_client_mock)
         "device": [],
         "transient": [],
     }
+
+
+async def test_diagnostics_take_the_host_out_of_error_messages(hass, sunspec_client_mock):
+    """The README promises a download without the address, and an error message names it."""
+    entry = await setup_mock_sunspec_config_entry(hass)
+    host = entry.data["host"]
+    entry.runtime_data._record_error(TransportError(f"Modbus error while connecting to {host}:123"))
+
+    diag = await async_get_config_entry_diagnostics(hass, entry)
+
+    assert diag["recent_errors"]["transport"][0]["msg"] == (
+        "Modbus error while connecting to **REDACTED**:123"
+    )
+    assert host not in json.dumps(diag)
 
 
 async def test_diagnostics_consecutive_failures_starts_zero(hass, sunspec_client_mock):

@@ -25,30 +25,36 @@ rules:
     status: done
     comment: |
       The coordinator is in coordinator.py, the entity base class in
-      entity.py.
+      entity.py. The second coordinator, for the Fronius web interface,
+      is in fronius_web.py next to the client it polls.
   config-flow:
     status: done
     comment: |
       Setup is in the UI only: network or serial connection, then the
       models to read. Options, reconfigure and DHCP discovery have
-      their own steps.
+      their own steps. Every field has a description.
   config-flow-test-coverage:
     status: done
     comment: |
-      tests/test_config_flow.py. config_flow.py is part of what the
-      coverage threshold of the test-coverage rule measures.
+      tests/test_config_flow.py runs every step of the flow, the
+      options flow and reconfigure, with their error branches.
   dependency-transparency:
     status: done
     comment: |
-      One requirement, modbus-connection with its tmodbus backend
-      (home-assistant-libs, Apache 2.0, on PyPI). The SunSpec client is
-      an embedded fork of pysunspec2 (Apache 2.0); its origin and every
-      change are recorded in pysunspec2/__init__.py.
+      Two requirements, both on PyPI: modbus-connection
+      (home-assistant-libs, Apache 2.0) and the tmodbus backend it
+      uses (wlcrs, BSD 3-Clause). The SunSpec client is an embedded
+      fork of pysunspec2 (Apache 2.0); its origin and every change are
+      recorded in pysunspec2/__init__.py.
   docs-actions:
     status: done
     comment: |
       docs/write-controls.md describes ``set_export_limit``,
       docs/fronius.md ``set_battery_plan``.
+  docs-conditions:
+    status: exempt
+    comment: |
+      The integration has no conditions of its own.
   docs-high-level-description:
     status: done
     comment: |
@@ -61,6 +67,10 @@ rules:
     status: done
     comment: |
       README, "Removing it".
+  docs-triggers:
+    status: exempt
+    comment: |
+      The integration has no triggers of its own.
   entity-event-setup:
     status: exempt
     comment: |
@@ -109,8 +119,9 @@ rules:
     status: done
     comment: |
       ``async_unload_entry`` unloads the platforms it forwarded, shuts
-      the coordinator down, releases the entry's hold on the shared
-      Modbus connection and removes the update listener.
+      the coordinator and its Modbus session down and removes the
+      update listener. Home Assistant releases the entry's hold on the
+      shared connection.
   docs-configuration-parameters:
     status: done
     comment: |
@@ -131,10 +142,11 @@ rules:
     comment: |
       ``codeowners`` in manifest.json.
   log-when-unavailable:
-    status: done
+    status: todo
     comment: |
-      The coordinator logs a failed update cycle with its category and
-      count, and one line when the device answers again.
+      The coordinator logs one line when the device answers again,
+      but a warning for every failed update cycle while the silence is
+      unexplained, where the rule asks for one.
   parallel-updates:
     status: done
     comment: |
@@ -161,14 +173,18 @@ rules:
   diagnostics:
     status: done
     comment: |
-      diagnostics.py. The host and the Fronius web token are redacted.
+      diagnostics.py. The host and the Fronius web token are redacted
+      in the entry data, and the host is taken out of every text in
+      the dump.
   discovery-update-info:
-    status: exempt
+    status: todo
     comment: |
-      An entry is identified by the serial number of the device, which
-      DHCP discovery cannot read without a Modbus request to a device
-      another entry may be polling. The host of an entry is changed
-      through "Reconfigure".
+      Not automatic. An entry is identified by the serial number of
+      the device, which DHCP discovery does not carry. A device found
+      at a new address updates the host of its entry only once the
+      user confirms the discovered device and the flow has read the
+      serial number. Until then the host is changed through
+      "Reconfigure".
   discovery:
     status: done
     comment: |
@@ -195,8 +211,9 @@ rules:
   docs-supported-functions:
     status: done
     comment: |
-      README, "What you get" and "Battery and export control";
-      docs/write-controls.md and the vendor pages for the controls.
+      README, the list under "What you get" and "Battery and export
+      control"; docs/write-controls.md and the vendor pages for the
+      controls.
   docs-troubleshooting:
     status: done
     comment: |
@@ -204,12 +221,12 @@ rules:
   docs-use-cases:
     status: done
     comment: |
-      README, "What you get".
+      README, the list under "What you get".
   dynamic-devices:
-    status: exempt
+    status: done
     comment: |
-      Entities are created when the entry is set up, for the models
-      the device has then. A model that appears later gets its entities
+      A coordinator listener adds the sensors of a model that appears
+      after setup, without a reload. The controls of such a model come
       with the next reload.
   entity-category:
     status: done
@@ -245,9 +262,11 @@ rules:
       ``exceptions`` in translations/en.json and de.json.
       tests/test_errors.py compares the keys and placeholders.
   icon-translations:
-    status: done
+    status: todo
     comment: |
-      icons.json, by translation key.
+      icons.json has the icons of the 37 translated SunSpec sensors.
+      The controls and the vendor entities still set their icon in
+      code.
   reconfiguration-flow:
     status: done
     comment: |
