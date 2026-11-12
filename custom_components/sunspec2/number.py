@@ -1,30 +1,19 @@
 """Number platform for SunSpec write controls.
 
-Entities register when the inverter exposes a model
-:mod:`write_controls` has specs for. Setup only reads their state.
+One entity class, driven by a :class:`~.write_controls.WriteControlSpec`,
+serves every model :mod:`write_controls` has specs for. Setup only reads
+the state of the controls.
 
-v0.19.0 replaced one hand-written class per point with one class driven
-by a :class:`~.write_controls.WriteControlSpec`. The platform now spans
-three models (123 immediate controls, 704 DER AC controls, 124 basic
-storage control) and the per-point classes were already mostly
-identical boilerplate.
-
-Behavioural notes:
-
-- Writes go through ``coordinator.async_write_points_locked``, which
-  takes the per-``(host, port)`` gateway lock for the duration of the
-  write. One session stays up across polls and writes alike.
-  Calling ``coordinator.api.async_write_point`` directly, which is what
-  this platform did before v0.14.0, bypasses that lock entirely and
-  lets a write interleave with the poll cycle on one socket.
-- After a successful write we trigger a coordinator refresh so the
-  read-side state catches up immediately instead of waiting for the
-  next scheduled cycle.
-- ``native_value`` reads from ``coordinator.data``, populated by the
-  normal read cycle, so the entity state reflects what the inverter
-  reports rather than what we last wrote. Inverters clamp and refuse
-  writes for vendor-specific reasons, and a device that ignored a value
-  should look like it ignored it.
+- A write goes through ``coordinator.async_write_points_locked``, which
+  holds the per-``(host, port)`` gateway lock for the write. A call to
+  ``coordinator.api.async_write_points`` bypasses that lock and lets a
+  write interleave with the poll cycle on the same connection.
+- A successful write is followed by a coordinator refresh, so the state
+  does not wait for the next scheduled cycle.
+- ``native_value`` reads ``coordinator.data``, so the entity shows what
+  the inverter reports and not what was last written. Inverters clamp
+  and refuse writes for vendor-specific reasons, and a device that
+  ignored a value should look like it ignored it.
 """
 
 from __future__ import annotations
@@ -64,31 +53,27 @@ _LOGGER: logging.Logger = logging.getLogger(__package__)
 PARALLEL_UPDATES = 0
 
 # SunSpec spells "percent of some reference quantity" several ways, and
-# model_124.json even ships one with a leading space (" % WChaMax").
-# They are all a percent as far as the frontend is concerned; which
-# quantity it is a percent OF belongs in the entity name.
+# model_124.json ships one with a leading space (" % WChaMax"). Each of
+# them is a plain percent to the frontend. The reference quantity
+# belongs in the entity name.
 _PERCENT_UNITS = frozenset(
     {"%", "Pct", "% WMax", "% WChaMax", "% WDisChaMax", "% VArMax", "% VArAval"}
 )
 
 
 def _step_from_scale_factor(wrapper: SunSpecModelWrapper, point_name: str) -> float:
-    """Derive the UI step from the point's SunSpec scale factor.
+    """Return the UI step for a point, derived from its SunSpec scale factor.
 
-    A device reporting SF -1 stores 995 for 99.5 %, and with a hardcoded
-    step of 1 the frontend number box rejects 99.5: the inverter's own
-    value becomes unenterable (#17).
-
-    Reads the SF through ``getValue(<sf point name>)`` and NOT through
-    ``getPoint(point_name).sf_value``. pysunspec2 only backfills
-    ``Point.sf_value`` as a side effect of the first computed get or
-    set, so at entity-construction time it is still None. The scale
-    factor point's own value is populated directly by ``model.read()``.
-
-    Falls back to the default step when the device answers its ``*_SF``
-    register with 0x8000 ("not implemented"), which pysunspec2 turns
-    back into None.
+    The step is ``10 ** SF`` within the bounds given at
+    ``EXPORT_LIMIT_DEFAULT_STEP_PCT`` (#17), and the default step when
+    the point has no usable scale factor.
     """
+    # The scale factor is read through ``getValue(<sf point name>)`` and
+    # not through ``getPoint(point_name).sf_value``. pysunspec2 fills
+    # ``Point.sf_value`` only as a side effect of the first computed get
+    # or set, so ``sf_value`` is still None when the entity is built. A
+    # device that answers its ``*_SF`` register with 0x8000 ("not
+    # implemented") yields None here, and the default step applies.
     try:
         sf_name = wrapper.getMeta(point_name).get("sf")
         sf = wrapper.getValue(sf_name) if isinstance(sf_name, str) else sf_name
@@ -100,7 +85,7 @@ def _step_from_scale_factor(wrapper: SunSpecModelWrapper, point_name: str) -> fl
 
 
 def _unit_for(spec: WriteControlSpec, wrapper: SunSpecModelWrapper) -> str | None:
-    """Resolve the entity's unit: spec override first, model definition second."""
+    """Return the entity's unit: the spec's override, else the unit of the model definition."""
     if spec.unit is not None:
         return spec.unit
     try:
@@ -115,10 +100,10 @@ def _unit_for(spec: WriteControlSpec, wrapper: SunSpecModelWrapper) -> str | Non
 def build_specs(
     coordinator: SunSpecDataUpdateCoordinator, platform: str
 ) -> Iterator[tuple[WriteControlSpec, SunSpecModelWrapper]]:
-    """Yield (spec, wrapper) for every control this device can support.
+    """Yield (spec, wrapper) for every control of ``platform`` this device supports.
 
-    Shared by the number, switch and select platforms so the three
-    cannot drift on which models they consider present.
+    The number, switch and select platforms all build from this
+    generator, so they agree on which models are present.
     """
     vendor = coordinator.vendor
     hidden = vendor.storage.hidden_points if vendor and vendor.storage else frozenset()
@@ -127,8 +112,8 @@ def build_specs(
         if spec.unique_key in hidden:
             # The vendor profile writes this register through its own
             # entities, in watts. The generic percent entity stays
-            # available for whoever wants it, but disabled, so the two
-            # cannot disagree by default.
+            # available but starts disabled, so the two cannot disagree
+            # by default.
             spec = replace(spec, enabled_by_default=False)
         step = vendor.control_steps.get(spec.unique_key) if vendor else None
         if step is not None and spec.native_step is None:
@@ -138,11 +123,10 @@ def build_specs(
             # The coordinator already warned when the device refused it.
             continue
         if model_wrapper is None:
-            # Unreachable in the normal path since v0.14.0: the
-            # coordinator adds every model it builds controls for to
-            # the polled set. If it trips again something new is
-            # broken, and silently returning is what made this class
-            # of bug invisible for three releases.
+            # The coordinator polls every model it builds controls
+            # for (write_model_filter), so a detected model without
+            # data means that rule is broken somewhere. The warning
+            # keeps the missing entities from going unnoticed.
             getattr(coordinator, "_log", _LOGGER).warning(
                 "Model %s was detected, but it is not in the polled data, so no "
                 "write entities will be created for it. write_model_filter=%s",
@@ -219,11 +203,10 @@ class SunSpecWriteNumber(SunSpecEntity, NumberEntity):
         self._attr_translation_key = spec.translation_key
         self._attr_icon = spec.icon
         self._attr_entity_registry_enabled_default = spec.enabled_by_default
-        # Every number spec sets both bounds. The dataclass defaults them
-        # to None because the same class also describes switches and
-        # selects, which have no bounds at all. Skipping the assignment
-        # leaves NumberEntity's own defaults in place, rather than handing
-        # it a None it would later compare a reading against.
+        # Every number spec sets both bounds. They default to None in
+        # the dataclass because it also describes switches and selects.
+        # A None bound is not assigned, so NumberEntity keeps its own
+        # default and never compares a reading against None.
         if spec.native_min is not None:
             self._attr_native_min_value = spec.native_min
         if spec.native_max is not None:
@@ -237,7 +220,7 @@ class SunSpecWriteNumber(SunSpecEntity, NumberEntity):
 
     @property
     def _point_name(self) -> str:
-        """The SunSpec point this entity writes. Read by the tests."""
+        """Return the SunSpec point this entity writes. Read by the tests."""
         return self._spec.point_name
 
     @property
@@ -262,11 +245,9 @@ class SunSpecWriteNumber(SunSpecEntity, NumberEntity):
             raise user_error(
                 "write_failed", target=f"{self._spec.point_name}={value}", error=exc
             ) from exc
-        # Refresh the read-side state immediately so the UI shows the
-        # inverter's actual response, which may differ from the value we
-        # just sent if the inverter clamps it.
-        #
-        # Deliberately OUTSIDE the gateway lock the write just held:
-        # asyncio.Lock is not reentrant and the refresh debouncer runs
-        # the refresh inline, so requesting it under the lock deadlocks.
+        # The refresh shows the inverter's response at once, which
+        # differs from the written value when the inverter clamps it.
+        # The request has to stay outside the gateway lock the write
+        # held: asyncio.Lock is not reentrant and the refresh debouncer
+        # runs the refresh inline, so a request under the lock deadlocks.
         await self.coordinator.async_request_refresh()

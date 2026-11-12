@@ -1,42 +1,26 @@
-"""Migration helper from cjne/ha-sunspec to sunspec2.
+"""Entity migration from cjne/ha-sunspec, and removal of entities no platform builds.
 
-Phase 5 user-value step. When a user installs sunspec2 on a HA instance
-that already has the upstream cjne/ha-sunspec integration's entities in
-the entity registry (typically: cjne is freshly uninstalled but the
-config entry's entities are still in the registry as orphans), this
-helper finds those orphans and retargets them to our domain so the
-user keeps:
+When the entity registry still holds the entities of a cjne/ha-sunspec
+config entry for the same device, ``migrate_from_cjne_sync`` retargets
+them to this integration. The user keeps the entity ids (e.g.
+``sensor.inverter_three_phase_watts``), the Recorder history attached to
+them, the customisations (icon, area, name) and every reference from
+automations, scripts and dashboards.
 
-- the entity ids (e.g. ``sensor.inverter_three_phase_watts``)
-- the Recorder history attached to those entity ids
-- any user customisations (icon, area, name)
-- references from automations, scripts, dashboards
+Both integrations build the unique id as
+``{config_entry_id}_{key}-{model_id}-{model_index}``, so the migration
+only swaps the entry id in front. The migration breaks if
+``get_sunspec_unique_id`` ever builds the id differently.
 
-The cjne unique_id format is verified identical to ours:
-``f"{config_entry_id}_{key}-{model_id}-{model_index}"``. The only
-difference is the entry_id prefix - cjne has its own config entry per
-inverter, we have ours. Migration just swaps the prefix.
-
-The actual platform/config_entry_id/unique_id rewrite goes through
-``EntityRegistry.async_update_entity_platform``, which HA explicitly
-documents as "should only be used when an entity needs to be migrated
-between integrations." It is the only public HA API that can change
-``platform`` on an existing entity without removing it - and removing
-the entity would lose the Recorder history.
-
-Constraint enforced by HA: the entity must NOT currently be loaded,
-meaning a running platform is serving it. If cjne is still active its
-entities are loaded and the migration will skip them. The user has to
-uninstall cjne first, restart HA, then add our integration. The
-blocked-migration code path produces a persistent notification with
-that exact instruction.
-
-What "loaded" means changed in HA 2026.3: up to 2026.2 it was a state
-in ``hass.states``, since then it is membership in ``entity_sources``,
-which only a live platform fills. The new reading is the better one
-for us. A state left behind by an integration that is gone no longer
-blocks the migration, and that entity is exactly the one we want to
-take over.
+The rewrite goes through ``EntityRegistry.async_update_entity_platform``,
+the only public Home Assistant API that changes ``platform`` on an
+existing entity without removing it. Removing the entity would lose the
+Recorder history. Home Assistant refuses the call for an entity that a
+running platform serves, which it reads from ``entity_sources``. The
+entities of a cjne integration that is still loaded are therefore
+skipped, and the user has to remove cjne and restart Home Assistant
+first. A state left behind by an integration that is gone does not block
+the migration.
 """
 
 from __future__ import annotations
@@ -70,9 +54,9 @@ def _matching_cjne_entries(hass: HomeAssistant, entry: ConfigEntry) -> list[Conf
     unit_id = entry.data.get(CONF_UNIT_ID, 1)
     matching: list[ConfigEntry] = []
     for cjne_entry in hass.config_entries.async_entries(CJNE_DOMAIN):
-        # cjne stored the unit id as ``slave_id`` until it renamed the
-        # key to ``unit_id`` in 2025. An entry that an older cjne loaded
-        # last still carries the old key, so look under both.
+        # cjne/ha-sunspec renamed the key ``slave_id`` to ``unit_id`` in
+        # 2025. An entry that an older cjne release loaded last still
+        # carries the old key, so both keys are read.
         cjne_unit_id = cjne_entry.data.get("unit_id") or cjne_entry.data.get("slave_id")
         if (
             cjne_entry.data.get("host") == host
@@ -84,17 +68,13 @@ def _matching_cjne_entries(hass: HomeAssistant, entry: ConfigEntry) -> list[Conf
 
 
 def find_blocking_cjne_entries(hass: HomeAssistant, entry: ConfigEntry) -> list[ConfigEntry]:
-    """Return active cjne config entries that conflict with this entry.
+    """Return the loaded cjne config entries for the device ``entry`` is set up for.
 
-    A cjne config entry "conflicts" if it matches our host:port:unit_id
-    AND is currently in the LOADED state. While loaded, cjne holds the
-    inverter's single Modbus TCP slot open (pysunspec2 never closes the
-    socket - Phase 2 finding) and our coordinator would race against it.
-
-    The user must uninstall cjne before sunspec2 can take over. Returning
-    a non-empty list signals async_setup_entry to refuse setup with
-    ConfigEntryNotReady so HA retries automatically once the user removes
-    cjne and restarts.
+    A loaded cjne entry keeps its own Modbus TCP session to the
+    inverter open, and an inverter that grants one session cannot serve
+    this integration next to it. ``async_setup_entry`` refuses the setup
+    with ``ConfigEntryNotReady`` while the list is not empty, so Home
+    Assistant retries until the user has removed cjne.
     """
     return [
         cjne_entry
@@ -108,21 +88,16 @@ def migrate_from_cjne_sync(
     entry: ConfigEntry,
     log: LoggerLike,
 ) -> tuple[int, list[str], list[str]]:
-    """Find orphan cjne sunspec entities and retarget them to sunspec2.
+    """Retarget the orphaned cjne entities of the device of ``entry`` to sunspec2.
 
-    Returns a tuple of:
-      - migrated_count: how many entities we successfully retargeted
-      - skipped_loaded: entity_ids of cjne entities that are still
-        actively loaded (cjne integration still running) and could not
-        be migrated
-      - errors: free-form per-entity error messages for entities that
-        could not be migrated for other reasons (malformed unique_id,
-        etc.)
+    The function is synchronous because every registry helper it calls
+    is.
 
-    The function is synchronous because every helper it calls
-    (``er.async_get``, ``async_entries``, ``async_update_entity_platform``)
-    is sync. The async wrapper in ``__init__.py`` is what
-    ``async_setup_entry`` actually awaits.
+    Returns:
+        A three-way tuple (migrated, skipped_loaded, errors): the number
+        of entities retargeted, the entity ids a running cjne platform
+        still serves, and one message for every entity that could not be
+        migrated for another reason, such as a malformed unique id.
     """
     registry = er.async_get(hass)
     cjne_entries = _matching_cjne_entries(hass, entry)
@@ -136,7 +111,7 @@ def migrate_from_cjne_sync(
 
     for cjne_entry in cjne_entries:
         cjne_entry_id = cjne_entry.entry_id
-        # Snapshot first - we mutate the registry below.
+        # A snapshot, because the loop below changes the registry.
         candidates = [
             re_entry
             for re_entry in registry.entities.values()
@@ -162,11 +137,11 @@ def migrate_from_cjne_sync(
                     new_unique_id=new_uid,
                 )
             except ValueError as exc:
-                # HA raises this with the exact message
+                # Home Assistant raises ValueError with the message
                 # "Only entities that haven't been loaded can be migrated"
-                # when the entity has a live state in hass.states. That
-                # is the cue for "cjne is still running, user needs to
-                # uninstall it first".
+                # for an entity a running platform serves: cjne is still
+                # loaded and the user has to remove it first. The message
+                # text is the only way to tell that case apart.
                 if "haven't been loaded" in str(exc):
                     skipped_loaded.append(re_entry.entity_id)
                 else:
@@ -187,42 +162,32 @@ def migrate_from_cjne_sync(
 def cleanup_excluded_sensor_entities(
     hass: HomeAssistant, entry: ConfigEntry, log: LoggerLike
 ) -> list[str]:
-    """Delete sensor entities for points the sensor platform no longer builds.
+    """Remove the sensor entities of points the sensor platform does not build.
 
-    Reported by @haraldg in #17 after updating 0.13.3 -> 0.15.0: points
-    like ``WMaxLimPct_RvrtTms`` sat in the UI as "Unavailable" forever.
+    Home Assistant keeps a registry entry that no platform claims and
+    shows it as unavailable for good (#17), so the sensors of excluded
+    points have to be removed here.
 
-    A registry entry whose platform never claims it again does not
-    disappear on its own: HA keeps it and renders it unavailable. There
-    is nothing left to feed those entities, so removing them is the only
-    way they stop being noise.
-
-    Tracks ``SENSOR_EXCLUDED_POINTS`` rather than a fixed model id, so
-    it also cleans up after the exclusion set narrows or widens. When
-    v0.18.0 narrowed it from "all of model 123" to nine specific points,
-    the timer sensors came back and this pass had to stop deleting them
-    on sight, which is the whole reason it reuses the same predicate the
-    platform does instead of its own copy of the rule.
-
-    Scoped to ``domain == "sensor"`` on purpose. The Number and Switch
-    write entities carry model 123 in their unique_id too (same
-    ``get_sunspec_unique_id`` helper), and those are the entities the
-    user actually operates. Matching on the unique_id alone would
-    delete the controls on every setup.
-
-    Returns the list of removed entity ids.
+    Returns the removed entity ids.
     """
     registry = er.async_get(hass)
     removed: list[str] = []
 
-    # Snapshot before mutating: async_remove writes to the same dict.
+    # A snapshot, because async_remove changes the registry.
     for re_entry in list(er.async_entries_for_config_entry(registry, entry.entry_id)):
+        # Only sensors. The Number and Switch entities of the same points
+        # carry the same model id and key in their unique id
+        # (``get_sunspec_unique_id``), so a match on the unique id alone
+        # would delete the controls on every setup.
         if re_entry.domain != "sensor":
             continue
         parsed = _parse_sunspec_unique_id(re_entry.unique_id, entry.entry_id)
         if parsed is None:
             continue
         model_id, key = parsed
+        # The predicate is the one the sensor platform builds from. A
+        # copy of the rule here would delete sensors the platform has
+        # started to build again.
         if not is_excluded_sensor_point(model_id, key):
             continue
         registry.async_remove(re_entry.entity_id)
@@ -240,17 +205,16 @@ def cleanup_excluded_sensor_entities(
 def _parse_sunspec_unique_id(unique_id: str, entry_id: str) -> tuple[int, str] | None:
     """Split ``{entry_id}_{key}-{model_id}-{model_index}`` into (model_id, key).
 
-    Parses from the right because the key is the only free-form part and
-    the one that can contain a separator: repeating-group points are
-    flattened to ``group:idx:point`` in models.py. The two trailing
-    fields are always integers, so a suffix that does not parse means
-    the unique_id was not written by ``get_sunspec_unique_id`` and is
-    left alone rather than guessed at.
+    Returns None for a unique id that ``get_sunspec_unique_id`` did not
+    write, so the caller leaves that entity alone.
     """
     prefix = f"{entry_id}_"
     if not unique_id.startswith(prefix):
         return None
     rest = unique_id[len(prefix) :]
+    # The id is split from the right: the key is the only free-form part
+    # (models.py flattens a repeating-group point to ``group:idx:point``),
+    # and the two trailing fields are always integers.
     parts = rest.rsplit("-", 2)
     if len(parts) != 3:
         return None
@@ -271,22 +235,20 @@ def cleanup_superseded_control_entities(
     log: LoggerLike,
     vendor: VendorProfile | None = None,
 ) -> list[str]:
-    """Delete SunSpec control entities no longer backed by an active spec.
+    """Remove the SunSpec control entities that no active control spec backs.
 
-    A device exposing both model 123 and model 704 gets its controls
-    from 704 as of v0.19.0, which leaves the model 123 Number and Switch
-    entities from earlier releases in the registry with nothing feeding
-    them. HA keeps a registry entry no platform claims and renders it
-    unavailable forever, which is exactly the complaint @haraldg raised
-    in #17 about the model 123 sensors.
+    A device with model 123 and model 704 gets its controls from 704
+    (``active_specs``), so the model 123 Number and Switch entities that
+    an earlier setup registered have nothing feeding them, and Home
+    Assistant would show them as unavailable for good. A control the
+    vendor profile lists as unsupported goes the same way: the APsystems
+    ECU-R has no revert time and no power factor, and entities for them
+    only ever read "unknown".
 
-    A control the vendor profile lists as unsupported goes the same way:
-    the ECU-R of an APsystems has no revert time and no power factor,
-    and the entities an earlier release built for them only ever read
-    "unknown".
+    Nothing is removed while no spec is active, so a failed discovery
+    cannot take the entity ids of the controls away.
 
-    An empty model set leaves existing controls registered, so a
-    temporary discovery failure cannot remove their entity ids.
+    Returns the removed entity ids.
     """
     from .write_controls import active_specs
 

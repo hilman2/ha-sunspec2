@@ -1,17 +1,17 @@
 """Battery modes in watts: a Select of vendor-defined modes and the Numbers it uses.
 
-Vendor-agnostic on purpose. The modes, the recipes and the sign
-conventions come from the vendor profile (see ``vendors/``); this module
-turns them into entities. The Select writes the profile's recipe for a
-mode. The Numbers hold the watts the recipes fill in, restored across
-restarts, because the registers can hold only what is active: a grid
-charge power has nowhere to live in the device while the battery is in
-a PV charge limit. Both read the device for their state rather than
-remembering what they asked for.
+The module is vendor-agnostic. The modes, the recipes and the sign
+conventions come from the vendor profile (see ``vendors/``), and this
+module turns them into entities. The Select writes the profile's recipe
+for a mode. The Numbers hold the watts the recipes fill in. They are
+restored across restarts, because the registers hold only what is
+active: a grid charge power has nowhere to live in the device while the
+battery is in a PV charge limit. The Select reads its state from the
+device and does not remember what it asked for.
 
-Only built when the vendor has a storage profile and model 124 reports
-a WChaMax above zero, which is how the device says it has a battery.
-The controls appear when the device has a supported battery block.
+The entities are only built when the vendor has a storage profile and
+model 124 reports a WChaMax above zero, which is how the device says it
+has a battery.
 """
 
 from __future__ import annotations
@@ -53,7 +53,7 @@ _SETPOINT_PRESENTATION: dict[Rate, tuple[str, str]] = {
 def storage_profile_ready(
     coordinator: SunSpecDataUpdateCoordinator,
 ) -> tuple[StorageModeProfile, SunSpecModelWrapper] | None:
-    """The vendor's storage profile and the model 124 wrapper, when the device has a battery."""
+    """Return the vendor's storage profile and the model 124 wrapper, or None without a battery."""
     vendor = coordinator.vendor
     if vendor is None or vendor.storage is None:
         return None
@@ -64,7 +64,7 @@ def storage_profile_ready(
 
 
 def wchamax_of(wrapper: SunSpecModelWrapper) -> float | None:
-    """WChaMax in watts, or None when the point is missing or zero (no battery)."""
+    """Return WChaMax in watts, or None when the point is missing or zero (no battery)."""
     try:
         value = wrapper.getValue("WChaMax")
     except (KeyError, AttributeError):
@@ -75,7 +75,7 @@ def wchamax_of(wrapper: SunSpecModelWrapper) -> float | None:
 
 
 def device_rates(wrapper: SunSpecModelWrapper) -> tuple[int, float, float] | None:
-    """(ctl_mod, in_pct, out_pct) as the device reports them, or None if a point is missing."""
+    """Return (ctl_mod, in_pct, out_pct) as the device reports them, or None if one is missing."""
     try:
         ctl = wrapper.getValue("StorCtl_Mod")
         in_pct = wrapper.getValue("InWRte")
@@ -164,10 +164,10 @@ async def async_apply_storage_mode(
     if mode is StorageMode.CHARGE_FROM_GRID and coordinator.web is not None:
         # ChaGriSet over Modbus is AND-linked with the grid charging
         # flags in the inverter's web interface. With a web login the
-        # flags go on first; without one the docs tell the user to set
-        # them by hand. A refused flag is logged and the Modbus write
-        # still goes out: the mode is what the user asked for, and the
-        # inverter shows the result either way.
+        # flags are set first. Without one the documentation tells the
+        # user to set them by hand. A refused flag is logged and the
+        # Modbus write still goes out: the mode is what the user asked
+        # for, and the inverter shows the result either way.
         try:
             await coordinator.web.async_allow_grid_charging()
         except Exception as exc:  # noqa: BLE001 - the web side must not block the Modbus side
@@ -176,18 +176,19 @@ async def async_apply_storage_mode(
                 "the battery may not charge from the grid: %s",
                 exc,
             )
-    # The rates first, in one frame (the two registers are adjacent),
-    # the mode last. Mode first leaves the inverter acting on the
-    # previous rates for a moment, and a window it cannot serve is
-    # refused with Modbus exception 3 (callifo/fronius_modbus#126).
+    # The rates are written first, in one frame (the two registers are
+    # adjacent), and the mode last. With the mode first the inverter
+    # acts on the previous rates for a moment, and it refuses a
+    # combination it cannot serve with Modbus exception 3
+    # (callifo/fronius_modbus#126).
     await coordinator.async_write_points_locked(
         STORAGE_CONTROL_MODEL, [("OutWRte", out_pct), ("InWRte", in_pct)]
     )
     await coordinator.async_write_points_locked(
         STORAGE_CONTROL_MODEL, [("StorCtl_Mod", recipe.ctl_mod)]
     )
-    # Outside the lock: the refresh debouncer runs inline and
-    # asyncio.Lock is not reentrant.
+    # The refresh is requested outside the lock: the refresh debouncer
+    # runs inline and asyncio.Lock is not reentrant.
     await coordinator.async_request_refresh()
 
 
@@ -254,17 +255,16 @@ class StorageSetpointNumber(SunSpecEntity, RestoreNumber):
         if last is not None and last.native_value is not None:
             setpoints[self._rate.value] = float(last.native_value)
             return
-        # First run: a limit that limits nothing, a grid power of none.
-        # The device's own maximum is the honest starting point for a
-        # limit; 0 W is the honest one for a forced power the user has
-        # not chosen yet.
+        # On the first run a limit starts at the device's maximum,
+        # where it limits nothing, and a forced grid power starts at
+        # 0 W, because the user has not chosen one yet.
         if self._rate in (Rate.CHARGE_LIMIT, Rate.DISCHARGE_LIMIT):
             setpoints[self._rate.value] = self.native_max_value
         else:
             setpoints[self._rate.value] = 0.0
 
     def _in_use(self) -> bool:
-        """True while the mode the device is in writes this setpoint's register."""
+        """Return True while the mode the device is in uses this setpoint's register."""
         wrapper = self.coordinator.data.get(STORAGE_CONTROL_MODEL)
         if wrapper is None:
             return False
@@ -300,7 +300,7 @@ def storage_mode_select(
     config_entry: ConfigEntry,
     prefix: str,
 ) -> list[StorageModeSelect]:
-    """The mode Select for this entry, or an empty list when it does not apply."""
+    """Return the mode Select for this entry, or an empty list when it does not apply."""
     ready = storage_profile_ready(coordinator)
     if ready is None or coordinator.device_info is None:
         return []
@@ -322,7 +322,7 @@ def storage_setpoint_numbers(
     config_entry: ConfigEntry,
     prefix: str,
 ) -> list[StorageSetpointNumber]:
-    """The four watt Numbers for this entry, or an empty list when they do not apply."""
+    """Return the four watt Numbers for this entry, or an empty list when they do not apply."""
     ready = storage_profile_ready(coordinator)
     if ready is None or coordinator.device_info is None:
         return []

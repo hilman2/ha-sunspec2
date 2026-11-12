@@ -139,13 +139,12 @@ class WebSwitchSpec:
     """A flag of the web interface as a switch.
 
     Args:
-        key (str): The translation key and unique id key.
-        read (Callable[[FroniusWebData], bool|None]): Called as
-            ``read(data)``. Returns the flag, or None when unknown.
-        write (Callable[[FroniusWebCoordinator, bool], Awaitable[None]]):
-            Called as ``write(web, on)``. Sets the flag.
-        icon (str): The icon.
-        category (EntityCategory): Where the device card files it.
+        key: The translation key and unique id key.
+        read: Called as ``read(data)``. Returns the flag, or None when
+            unknown.
+        write: Called as ``write(web, on)``. Sets the flag.
+        icon: The icon.
+        category: Where the device card files it.
     """
 
     key: str
@@ -157,12 +156,14 @@ class WebSwitchSpec:
 
 async def _set_grid(web: FroniusWebCoordinator, on: bool) -> None:
     # Charging from the grid needs the AC flag too; the web UI sets
-    # both when the grid one goes on. Off leaves the AC flag alone.
+    # both when the grid flag goes on. Switching the grid flag off
+    # leaves the AC flag alone.
     await web.async_set_charge_sources(grid=on, ac=True if on else None)
 
 
 async def _set_ac(web: FroniusWebCoordinator, on: bool) -> None:
-    # Without AC charging there is no grid charging either.
+    # Without AC charging there is no grid charging either, so
+    # switching the AC flag off switches the grid flag off as well.
     await web.async_set_charge_sources(grid=None if on else False, ac=on)
 
 

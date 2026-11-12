@@ -18,10 +18,8 @@ SunSpec device would use and which this module does not follow. A
 device switched to ABCD reads its own registers as nonsense while its
 SunSpec models stay correct, because SunSpec fixes the order itself.
 
-The PIKO CI, Kostal's commercial line, is not this profile: it has an
-interface description of its own, and matching it here would read its
-registers as though they were a Plenticore's. See
-``identifies_plenticore``.
+The PIKO CI, Kostal's commercial line, has an interface description of
+its own and is not this profile, see ``identifies_plenticore``.
 
 Sources: KOSTAL's "Interface description MODBUS (TCP) & SunSpec, PIKO
 IQ / PLENTICORE with control information", revision 2.9 of 17.07.2026,
@@ -42,9 +40,9 @@ from .profile import RawNumber
 from .profile import RawSensor
 from .profile import VendorProfile
 
-#: Kostal's own registers carry the low word first. This is the byte
-#: order the inverter ships with; see the module docstring for what
-#: happens when someone changes it.
+#: Kostal's own registers carry the low word first, the byte order the
+#: inverter ships with. The module docstring says what a device switched
+#: to the other order reads.
 LITTLE = "little"
 
 #: What register 588 says is fitted. A battery Kostal has not got a
@@ -115,16 +113,13 @@ SENSOR_TYPES: dict[int, str] = {
 
 
 def identifies_plenticore(model: str, option: str, version: str) -> bool:
-    """Whether ``Md`` names a device the interface description in the docstring covers.
-
-    Kostal documents its commercial line, the PIKO CI, in a register
-    map of its own, and a PIKO CI 50 is a device this tracker has seen
-    (#52). Matching on the manufacturer alone would hand it this
-    profile and read its registers as though they were a Plenticore's,
-    which is how a sensor comes to show a confident wrong number. Any
-    Kostal that does not name itself here is left to the generic
-    SunSpec entities until someone checks its document.
-    """
+    """Whether ``Md`` names a device the module's interface description covers."""
+    # Kostal documents its commercial line, the PIKO CI, in a register
+    # map of its own, and a PIKO CI 50 is a device this tracker has seen
+    # (#52). Matching on the manufacturer alone would read the PIKO CI's
+    # registers as though they were a Plenticore's and show confident
+    # wrong numbers. A Kostal that does not name itself here keeps the
+    # generic SunSpec entities until someone checks its document.
     name = model.strip().upper()
     return name.startswith("PLENTICORE") or name.startswith("PIKO IQ")
 
@@ -133,16 +128,15 @@ def as_option(value: Any) -> Any:
     """The integer an option map is keyed by, for an enum Kostal puts in a float register.
 
     The fuse state and the ready flag are declared Float although they
-    only ever hold 0, 1 or 255. ``options`` looks its names up by int,
-    so the value has to arrive as one.
+    only ever hold 0, 1 or 255, and ``RawSensor.options`` is keyed by int.
     """
     return int(value) if isinstance(value, float) else value
 
 
 RAW_BLOCKS: tuple[RawBlock, ...] = (
     # 98 to 123. The house consumption split by source is the reason
-    # this block exists: no SunSpec model carries it, and it is what
-    # the inverter's own portal shows.
+    # for this block: no SunSpec model carries the split, and the
+    # inverter's own portal shows it.
     RawBlock(
         key="inverter",
         address=98,
@@ -163,10 +157,10 @@ RAW_BLOCKS: tuple[RawBlock, ...] = (
             RawField("power_limit_evu", 24, "float32"),
         ),
     ),
-    # 512 to 589. Wide because the battery's identity is spread across
-    # it with the inverter's strings in between; one request is still
-    # cheaper than three. ``battery_type`` is what says a battery is
-    # there at all, so this block is never gated.
+    # 512 to 589. The block is wide because the battery's identity is
+    # spread across it with the inverter's strings in between; one
+    # request is still cheaper than three. ``battery_type`` says whether
+    # a battery is there at all, so this block is never gated.
     RawBlock(
         key="battery_info",
         address=512,
@@ -180,8 +174,8 @@ RAW_BLOCKS: tuple[RawBlock, ...] = (
             RawField("battery_type", 76, "uint16"),
         ),
     ),
-    # 202 to 215. The temperature is the point of it: SunSpec's battery
-    # base model 802 has no temperature field at all.
+    # 202 to 215. The temperature is the reason for this block:
+    # SunSpec's battery base model 802 has no temperature field.
     RawBlock(
         key="battery_state",
         address=202,
@@ -194,9 +188,9 @@ RAW_BLOCKS: tuple[RawBlock, ...] = (
             RawField("temperature", 12, "float32"),
         ),
     ),
-    # 1046 to 1065. Five counters that separate where the battery's
-    # energy came from and went to, which model 802 does not do, plus
-    # the meter's own export total.
+    # 1046 to 1065. Five counters separate where the battery's energy
+    # came from and went to, which model 802 does not do. The sixth
+    # field is the meter's own export total.
     RawBlock(
         key="battery_energy",
         address=1046,
@@ -213,10 +207,10 @@ RAW_BLOCKS: tuple[RawBlock, ...] = (
         ),
     ),
     # 1034 to 1045, the writable end of the external battery
-    # management. The inverter only acts on the setpoint while its own
-    # menu has external battery management set to Modbus, which is
-    # what the management_mode sensor below reports; the two SoC
-    # bounds and the two power limits apply either way.
+    # management. The inverter acts on ``dc_power_setpoint`` only while
+    # its own menu has external battery management set to Modbus, which
+    # the ``management_mode`` field of ``battery_limits`` reports. The
+    # two SoC bounds and the two power limits apply either way.
     RawBlock(
         key="battery_control",
         address=1034,
@@ -233,7 +227,7 @@ RAW_BLOCKS: tuple[RawBlock, ...] = (
     ),
     # 1280 to 1289, PLENTICORE G3 from SW 03.05 only. Older inverters
     # answer a Modbus exception here and the block is marked absent,
-    # which is why the limits above and these are not one block.
+    # which is why these limits and ``battery_control`` are two blocks.
     RawBlock(
         key="battery_limitation",
         address=1280,
@@ -249,7 +243,7 @@ RAW_BLOCKS: tuple[RawBlock, ...] = (
         ),
     ),
     # 1068 to 1083, the read-only end of the external battery
-    # management. The limits here are what the battery reports it can
+    # management. These limits are what the battery reports it can
     # take, not what anyone set.
     RawBlock(
         key="battery_limits",
@@ -533,8 +527,8 @@ def _limitation(field: str, key: str, **kwargs: Any) -> RawNumber:
 
 
 RAW_NUMBERS: tuple[RawNumber, ...] = (
-    # The pair a user reaches for first: how much of the battery to
-    # keep back, and how full to let it get.
+    # ``min_soc`` is how much of the battery is kept back, ``max_soc``
+    # how full it may get.
     _control("min_soc", "battery_min_soc", min=0, max=100, unit="%", icon="mdi:battery-low"),
     _control("max_soc", "battery_max_soc", min=0, max=100, unit="%", icon="mdi:battery-high"),
     _control(
@@ -557,12 +551,12 @@ RAW_NUMBERS: tuple[RawNumber, ...] = (
         device_class="power",
         icon="mdi:battery-arrow-down",
     ),
-    # The only entity here that drives the battery
-    # rather than bounding it. Kostal names no timeout for this
-    # register, so a value written here is one the inverter keeps: an
-    # automation that sets it and stops leaves the battery where it
-    # put it. Negative charges, positive discharges, which is Kostal's
-    # sign convention and the opposite of model 124's.
+    # ``dc_power_setpoint`` is the only entity here that drives the
+    # battery rather than bounding it. Kostal names no timeout for the
+    # register, so the inverter keeps a value written to it: an
+    # automation that sets it and stops leaves the battery where the
+    # automation put it. Negative charges, positive discharges, which
+    # is Kostal's sign convention and the opposite of model 124's.
     _control(
         "dc_power_setpoint",
         "battery_dc_power_setpoint",
@@ -613,7 +607,8 @@ RAW_NUMBERS: tuple[RawNumber, ...] = (
         device_class="power",
         icon="mdi:battery-alert-variant-outline",
     ),
-    # The inverter's own range. Below 30 it refuses the write.
+    # The range is the inverter's own. The inverter refuses a write
+    # below 30.
     _limitation(
         "fallback_seconds",
         "battery_fallback_time",
@@ -627,11 +622,11 @@ RAW_NUMBERS: tuple[RawNumber, ...] = (
 
 RAW_KEEPALIVES: tuple[RawKeepAlive, ...] = (
     # Kostal requires the two limitation registers to be written again
-    # and again once they have been written at all: stop, and after
-    # the fallback time the fallback pair takes over. That makes the
-    # switch part of the feature rather than a convenience, and it is
-    # also what makes the feature safe. A Home Assistant that goes
-    # down hands the battery back to the inverter on its own.
+    # and again once they have been written at all. When the writes
+    # stop, the fallback pair takes over after the fallback time. The
+    # switch is therefore part of the feature, and it makes the feature
+    # safe: a Home Assistant that goes down hands the battery back to
+    # the inverter on its own.
     RawKeepAlive(
         key="battery_limitation_hold",
         block="battery_limitation",
@@ -645,8 +640,8 @@ RAW_KEEPALIVES: tuple[RawKeepAlive, ...] = (
 KOSTAL = VendorProfile(
     slug="kostal",
     # The inverters report "KOSTAL"; the prefix match covers whatever
-    # a firmware appends to it. Which of them this profile is for is
-    # then decided on the model name, see identifies_plenticore.
+    # a firmware appends to the name. ``identifies_plenticore`` then
+    # decides on the model name which of them this profile is for.
     manufacturer_prefixes=("KOSTAL",),
     identifies=identifies_plenticore,
     raw_blocks=RAW_BLOCKS,
@@ -655,9 +650,9 @@ KOSTAL = VendorProfile(
     raw_numbers=RAW_NUMBERS,
     raw_keepalives=RAW_KEEPALIVES,
     # 1280 to 1289 are the registers Kostal asks to be written on a
-    # timer, so they cannot be the flash-backed kind; nothing would
+    # timer, so they cannot be flash-backed: a flash cell would not
     # survive a limit rewritten every twenty seconds. The rest of the
-    # profile's writes are counted as flash writes, which is the
-    # cautious reading where the document says nothing.
+    # profile's writes are counted as flash writes, the cautious
+    # reading where the document says nothing.
     volatile_registers=frozenset(range(1280, 1290)),
 )

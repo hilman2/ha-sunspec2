@@ -1,11 +1,9 @@
 """Switch platform for SunSpec write controls.
 
-Covers the
-SunSpec points that are booleans in everything but name: the spec
-spells them as two-symbol enums (ENABLED / DISABLED,
-CONNECTED / DISCONNECTED) rather than as a boolean type.
-
-v0.19.0 made this spec-driven, see :mod:`write_controls`.
+The switches are the SunSpec points that are booleans in everything but
+name: the specification spells them as two-symbol enums (ENABLED /
+DISABLED, CONNECTED / DISCONNECTED). Which points get a switch is
+decided by the specs in :mod:`write_controls`.
 """
 
 from __future__ import annotations
@@ -107,7 +105,7 @@ class SunSpecWriteSwitch(SunSpecEntity, SwitchEntity):
 
     @property
     def _point_name(self) -> str:
-        """The SunSpec point this entity writes. Read by the tests."""
+        """Return the SunSpec point this entity writes. Read by the tests."""
         return self._spec.point_name
 
     @property
@@ -122,7 +120,8 @@ class SunSpecWriteSwitch(SunSpecEntity, SwitchEntity):
         if value is None:
             return None
         if self._ascii_flag:
-            # Written as 1 or 0, read back as the code of the digit.
+            # The flag is written as 1 or 0 and read back as the
+            # character code of the digit.
             value = _ASCII_DIGITS.get(value, value)
         return bool(value == self._spec.on_value)
 
@@ -133,10 +132,8 @@ class SunSpecWriteSwitch(SunSpecEntity, SwitchEntity):
         await self._write(self._spec.off_value)
 
     async def _write(self, raw_value: int) -> None:
-        # Routed through the coordinator, not through ``coordinator.api``
-        # directly, so the write holds the per-gateway lock and cannot
-        # interleave with a poll cycle on the same socket. See number.py's
-        # module docstring for the full rationale.
+        # The write goes through the coordinator and so holds the
+        # per-gateway lock. See the module docstring of number.py.
         try:
             await self.coordinator.async_write_points_locked(
                 self._spec.model_id, [(self._spec.point_name, raw_value)]
@@ -145,6 +142,6 @@ class SunSpecWriteSwitch(SunSpecEntity, SwitchEntity):
             raise user_error(
                 "write_failed", target=f"{self._spec.point_name}={raw_value}", error=exc
             ) from exc
-        # Outside the lock: the refresh debouncer runs inline and
-        # asyncio.Lock is not reentrant.
+        # The refresh is requested outside the lock: the refresh
+        # debouncer runs inline and asyncio.Lock is not reentrant.
         await self.coordinator.async_request_refresh()

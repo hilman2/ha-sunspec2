@@ -11,9 +11,9 @@ power per input (DCV1 to 8 at 40214, DCA1 to 8 at 40230, DCW1 to 8 at
 
 That block is not a SunSpec model: it is not in sunspec/models, and in
 APsystems' own allocation table it sits behind the 0xFFFF end marker,
-so a scan that stops at the marker never sees it. This module reads it
-from its fixed addresses, which is all it takes. Inputs an inverter
-does not have read 0.0, so inputs 3 to 8 are off by default.
+so a scan that stops at the marker never sees it. This module reads
+the block from its fixed addresses. Inputs an inverter does not have
+read 0.0, so the sensors of inputs 3 to 8 are disabled by default.
 
 Sources: APsystems "SunSpec Modbus" rev 3.3, section 3, the allocation
 tables (https://global.apsystems.com/wp-content/uploads/2025/01/SunSpec-Modbus.pdf),
@@ -52,19 +52,20 @@ when the micro inverter first reports in the morning; the history in
 issue #160 shows the yield flat overnight and back at zero between
 07:00 and 08:30. ``lifetime_energy.py`` works with that.
 
-How the ECU is polled. It answers one request at a time, a busy one can
-take close to a minute, and it goes on working on a request the client
-gave up on, so everything sent after it queues behind it. With the
-transport's 10 second default the integration gave up long before such
-an answer, retried five seconds later and polled on at the configured
-interval, every entry behind the ECU on its own. Issue #160 has the
-outages that went with it: the ECU silent for the same half hour six
-times in four days, then for a day until it was restarted. That the
-polling caused them is not established. The profile takes away what
-could have: it waits a minute for an answer and, after a request that
-still went unanswered, leaves the ECU alone until a minute past the
-first fifth minute of the clock that is at least a minute away; the
-ECU's round starts about 10 seconds past every fifth minute.
+How the ECU is polled. The ECU answers one request at a time, a busy
+one can take close to a minute, and it goes on working on a request the
+client gave up on, so every later request queues behind that one. A
+client that gives up after the link's default of 10 seconds, retries
+five seconds later and polls on at its interval, once per entry behind
+the ECU, keeps the queue filled. Issue #160 has outages under such
+polling: the ECU silent for the same half hour six times in four days,
+then for a day until it was restarted. That the polling caused the
+outages is not established. The profile removes the possible cause: it
+waits a minute for an answer (``REQUEST_TIMEOUT``) and, after a request
+that still went unanswered, leaves the ECU alone until a minute past
+the first fifth minute of the clock that is at least a minute away
+(``COLLECTION_ROUND_SECONDS``). The ECU's round starts about 10 seconds
+past every fifth minute.
 
 The event flags. SunSpec makes ``Evt1`` a bitfield32 over 40110 and
 40111 and defines its 16 flags in the low word, the second register.
@@ -74,8 +75,8 @@ phase monitoring table). Read as the 32-bit value the point declares,
 those flags sit in bits 16 to 31, where SunSpec defines none, and the
 sensor would show "no event" for an inverter that has one. The author of
 christianvaes/homeassistant-apsystems_modbus reads both registers
-since version 0.6.0. We have no dump of an ECU with an active event, so
-the profile takes the flags from either word.
+since version 0.6.0. No dump of an ECU with an active event is at hand,
+so the profile takes the flags from either word.
 """
 
 from __future__ import annotations
@@ -133,8 +134,8 @@ RAW_SENSORS: tuple[RawSensor, ...] = tuple(
 #: The ECU-R labels the controls model 114 and declares 48 registers (#109).
 MODEL_RELABELS: tuple[ModelRelabel, ...] = (ModelRelabel(114, 48, 123, 24),)
 
-#: Not implemented by the ECU-R: they read 0xFFFF / 0x8000 and no write
-#: changes that. An entity for them stays "unknown" for good.
+#: Not implemented by the ECU-R: these points read 0xFFFF / 0x8000 and
+#: no write changes that. An entity for one of them stays "unknown".
 UNSUPPORTED_CONTROLS: frozenset[str] = frozenset(
     {"123:WMaxLimPct_RvrtTms", "123:OutPFSet", "123:OutPFSet_Ena"}
 )
@@ -158,13 +159,13 @@ def either_word(value: Any) -> Any:
     """Return the event flags, wherever in the two registers the ECU put them.
 
     Args:
-        value (int|None): ``Evt1`` as the 32-bit value SunSpec declares.
-            None where the library found it not implemented.
+        value: ``Evt1`` as the 32-bit value SunSpec declares. None where the
+            library found it not implemented.
 
     Returns:
-        int|None: The flags of both words combined, so they are the same
-            whichever register carries them. None when either word reads
-            0xFFFF, so a half-implemented point never shows as "every event".
+        The flags of both words combined, so they are the same whichever
+        register carries them. None when either word reads 0xFFFF, so a
+        half-implemented point never shows as "every event".
     """
     if not isinstance(value, int):
         return value

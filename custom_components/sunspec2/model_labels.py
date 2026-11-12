@@ -1,14 +1,10 @@
-"""Lookup helper for SunSpec model group labels.
+"""Human-readable labels for SunSpec models.
 
-Reads the bundled pysunspec2 model JSON files at runtime to extract
-the human-readable group label for a given model ID. Used by the
-config-flow and options-flow forms so the model multi-select can
-show "Inverter (Three Phase) (103)" instead of just "103".
-
-Lazy + cached: each model JSON is read at most once per process,
-even if the same form renders dozens of times. The lookup is
-read-only and never raises - missing files or unparseable JSON
-fall back to a generic ``"Model <id>"`` label so the form always
+``sunspec_model_label`` reads the group label from the bundled
+pysunspec2 model JSON, so the model multi-select of the config flow and
+the options flow shows "Inverter (Three Phase) (103)" instead of "103".
+Each file is read at most once per process. A missing or unparseable
+file yields ``"Model <id>"`` instead of an error, so the form always
 renders.
 """
 
@@ -22,26 +18,22 @@ from typing import Any
 
 _LOGGER = logging.getLogger(__name__)
 
-# The model definitions ship inside the integration with the embedded
-# pysunspec2 fork, so a plain path is enough; there is no site-packages
-# lookup to go through any more.
+# The model definitions ship inside the integration, with the embedded
+# pysunspec2 fork.
 _MODEL_DIR = Path(__file__).parent / "pysunspec2" / "models" / "json"
 
-# Curated short names for SunSpec models whose official group label is
-# too unwieldy to sit inside a device name (issue #33). With
-# ``has_entity_name`` the device name is composed in front of every
-# entity's friendly name, so a label like "Multiple MPPT Inverter
-# Extension Model" would turn a simple DC current sensor into
-# "bp 20.0 NX3 M2 Multiple MPPT Inverter Extension Model Module 0
-# DC Current". Only models with genuinely broken or bloated official
-# labels get an entry; everything else uses the spec label as-is so
-# the device name matches what the options-flow multi-select shows.
+# Short names for the SunSpec models whose official group label is too
+# long for a device name (#33). With ``has_entity_name`` Home Assistant
+# puts the device name in front of every entity name, so a label like
+# "Multiple MPPT Inverter Extension Model" would turn a DC current
+# sensor into "bp 20.0 NX3 M2 Multiple MPPT Inverter Extension Model
+# Module 0 DC Current". A model without an entry keeps the label of the
+# specification, so its device name matches what the options flow shows.
 #
 # 201..204 have redundant labels ("Meter (Single Phase) single phase
-# (AN or AB) meter") and 211..214 are their FLOAT twins with
-# lowercase-only labels; a device never exposes both the int and the
-# float variant of the same meter, so the identical short names
-# cannot collide in practice.
+# (AN or AB) meter"), and 211..214 are their float twins with lowercase
+# labels. A device never exposes the int and the float variant of the
+# same meter, so the identical short names cannot collide.
 DEVICE_MODEL_NAME_OVERRIDES: dict[int, str] = {
     160: "MPPT",
     201: "Meter (Single Phase)",
@@ -60,25 +52,25 @@ DEVICE_MODEL_NAME_OVERRIDES: dict[int, str] = {
 def device_model_suffix(model_id: int | None, gdef: dict[str, Any]) -> str | None:
     """Return the model part of a device name, e.g. "Inverter (Three Phase)".
 
-    Pure in-memory lookup on the already-loaded pysunspec2 group
-    definition - unlike :func:`sunspec_model_label` this never touches
-    the filesystem, so it is safe to call from an entity's
-    ``device_info`` property inside the event loop.
+    ``gdef`` is the pysunspec2 group definition, which is already in
+    memory. Unlike :func:`sunspec_model_label` this function never
+    touches the filesystem, so an entity's ``device_info`` property can
+    call it inside the event loop.
 
-    Resolution order: curated override, then the spec's group label
-    (underscores normalised to spaces, model 122 is
-    "Measurements_Status"), then the group name, then a generic
-    "Model <id>" so the caller always gets something usable when the
-    model id is known.
+    The result is the entry in ``DEVICE_MODEL_NAME_OVERRIDES``, else the
+    group label of the specification with underscores turned into
+    spaces (model 122 is "Measurements_Status"), else the group name,
+    else "Model <id>". It is None only when ``gdef`` names nothing and
+    ``model_id`` is None.
     """
     if model_id is not None and model_id in DEVICE_MODEL_NAME_OVERRIDES:
         return DEVICE_MODEL_NAME_OVERRIDES[model_id]
     label = gdef.get("label") or gdef.get("name")
     if label:
         cleaned = str(label).replace("_", " ").strip()
-        # Several official labels carry a redundant " Model" tail
-        # ("Irradiance Model", "Battery Base Model", ...) that adds
-        # noise but no information inside a composed entity name.
+        # Several official labels end in a redundant " Model"
+        # ("Irradiance Model", "Battery Base Model"), which is noise
+        # inside a composed entity name.
         if cleaned.endswith(" Model") and len(cleaned) > len(" Model"):
             cleaned = cleaned[: -len(" Model")]
         return cleaned
@@ -89,7 +81,7 @@ def device_model_suffix(model_id: int | None, gdef: dict[str, Any]) -> str | Non
 
 @lru_cache(maxsize=512)
 def sunspec_model_label(model_id: int) -> str:
-    """Return the human label for a SunSpec model ID, with the ID as suffix.
+    """Return the label of a SunSpec model with the id as suffix, or "Model <id>".
 
     Examples:
 
@@ -117,15 +109,10 @@ def sunspec_model_label(model_id: int) -> str:
 
 
 def sunspec_model_labels(model_ids: list[int] | set[int]) -> dict[str, str]:
-    """Bulk-resolve labels for a set of model IDs.
+    """Return ``{model id: label}`` for ``cv.multi_select``, ordered by model id.
 
-    Returns a dict suitable for ``cv.multi_select``: ``{id: label}``.
-    Keys are strings because ``cv.multi_select`` coerces dict keys to
-    ``str`` internally; using string keys here avoids a type mismatch
-    between the option keys and the ``default`` list the form widget
-    receives, which otherwise causes "X is not a valid option" errors
-    in the HA frontend.
-    The dict is sorted by model ID for stable rendering order in the
-    UI.
+    The keys are strings. ``cv.multi_select`` coerces dict keys to
+    ``str``, and int keys would not match the ``default`` list the form
+    receives, which the frontend reports as "X is not a valid option".
     """
     return {str(mid): sunspec_model_label(mid) for mid in sorted(model_ids)}

@@ -44,8 +44,8 @@ from .profile import VendorProfile
 LITTLE = "little"
 
 #: The battery blocks: slot to first register of the identity block.
-#: The data block follows 68 registers later. The stride is not even:
-#: 256 between the first two slots, 512 to the third.
+#: The data block follows 68 registers later. The slots are not evenly
+#: spaced: 256 registers between the first two, 512 to the third.
 BATTERY_BASE: dict[int, int] = {1: 0xE100, 2: 0xE200, 3: 0xE400}
 
 BATTERY_STATUS: dict[int, str] = {
@@ -78,8 +78,8 @@ STORAGE_CONTROL_MODES: dict[int, str] = {
     4: "remote_control",
 }
 
-#: The value of the remote control's command and default mode
-#: registers. 6 does not exist.
+#: The values of the remote control's command and default mode
+#: registers. A value of 6 does not exist.
 REMOTE_MODES: dict[int, str] = {
     0: "solar_power_only",
     1: "charge_from_clipped_solar",
@@ -102,8 +102,8 @@ SITE_LIMIT_SCOPES: dict[int, str] = {0: "total", 1: "per_phase"}
 REMOTE_CONTROL = 4
 
 #: How often the remote command is written again while its switch is
-#: on. The community's users settled on 15 minutes with an hour of
-#: timeout; more often "chokes the modbus".
+#: on. The users of solaredge-modbus-multi settled on 15 minutes with
+#: an hour of timeout; more often "chokes the modbus".
 REMOTE_COMMAND_REARM_SECONDS = 900.0
 
 #: How often the active power limit is written again while its switch
@@ -133,7 +133,8 @@ def status_vendor4(value: Any) -> str | None:
 
     Firmware 3.20 and later report a 32-bit word at ``EvtVnd4`` of the
     inverter model: bits 31 to 24 name the controller, bits 15 to 0 the
-    error code. SetApp prints them as ``18xBF``; so does this.
+    error code. SetApp prints the two as ``18xBF``, and so does this
+    function.
     """
     if not isinstance(value, int):
         return None
@@ -297,10 +298,10 @@ def _battery_sensors(slot: int) -> tuple[RawSensor, ...]:
 
 
 RAW_BLOCKS: tuple[RawBlock, ...] = (
-    # The inverter's grid status: not in any document, from a SolarEdge
-    # manager's mail to the community integration (its discussion 618).
-    # These are the EvtVnd1 registers of the inverter model, read here
-    # in SolarEdge's word order.
+    # The inverter's grid status is in no document. It comes from a
+    # SolarEdge manager's mail to WillCodeForCats/solaredge-modbus-multi
+    # (discussion 618 there). These are the EvtVnd1 registers of the
+    # inverter model, read here in SolarEdge's word order.
     RawBlock(
         key="grid_status",
         address=40113,
@@ -404,12 +405,12 @@ RAW_SENSORS: tuple[RawSensor, ...] = (
 # The storage control block, as the Power Control Protocol note lays
 # it out. The remote control's default mode, command, timeout and
 # limits only mean anything while the control mode is "remote
-# control"; the entities stay, the inverter ignores them otherwise.
-# The community's users found the order that works: control mode
-# first, then the timeout, the command, then the limits, and that
-# the inverter falls back to the default mode when the timeout runs
-# out or when it restarts at night, which is what the rearm switch
-# is for.
+# control"; the entities stay, and the inverter ignores them
+# otherwise. The users of solaredge-modbus-multi found the order that
+# works: control mode first, then the timeout, the command, then the
+# limits. They also found that the inverter falls back to the default
+# mode when the timeout runs out or when it restarts at night, which
+# is what the ``storage_command_rearm`` switch is for.
 RAW_SELECTS: tuple[RawSelect, ...] = (
     RawSelect(
         block="storage_control",
@@ -439,10 +440,10 @@ RAW_SELECTS: tuple[RawSelect, ...] = (
         options=REMOTE_MODES,
         icon="mdi:battery-arrow-up-outline",
     ),
-    # The site limit: which meter the limit is measured against, and
-    # whether it applies to the total or to each phase. Bits 10 and
-    # 11 of the mode register (external production, negative limit)
-    # are left as they are.
+    # The site limit: ``mode`` selects which meter the limit is
+    # measured against, ``limit_mode`` whether it applies to the total
+    # or to each phase. Bits 10 and 11 of the mode register (external
+    # production, negative limit) are left as they are.
     RawSelect(
         block="site_limit",
         field="mode",
@@ -557,8 +558,8 @@ RAW_KEEPALIVES: tuple[RawKeepAlive, ...] = (
 
 SOLAREDGE = VendorProfile(
     slug="solaredge",
-    # The device sends "SolarEdge " with a trailing space; the prefix
-    # match does not care.
+    # The device sends "SolarEdge " with a trailing space, which the
+    # prefix match ignores.
     manufacturer_prefixes=("SolarEdge",),
     raw_blocks=RAW_BLOCKS,
     raw_devices=RAW_DEVICES,

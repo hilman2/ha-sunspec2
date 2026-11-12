@@ -1,4 +1,4 @@
-"""SunSpecEntity class"""
+"""The base entity, its unique id, and the device registry payload of a SunSpec model."""
 
 from __future__ import annotations
 
@@ -45,45 +45,31 @@ class SunSpecEntity(CoordinatorEntity[SunSpecDataUpdateCoordinator]):
         self._device_data = device_info
         self.config_entry = config_entry
         self.model_info = model_info
-        # Optional user prefix from CONF_PREFIX. When set it becomes
-        # the device's display name (overriding the inverter's Md
-        # field), so a user with two KACO Powadors can label them
-        # "Garage" and "Cellar" instead of seeing two devices with
-        # the same model name.
+        # The user's device name from CONF_PREFIX, or "". It takes the
+        # place of the inverter's Md string in the device name, so two
+        # inverters of one model can be told apart.
         self._prefix = prefix
-        # Numeric SunSpec model id (103, 160, ...). Feeds the device
-        # name suffix and the device-info "model_id" field so the per
-        # model devices are distinguishable (issue #33). Optional only
-        # for backwards compatibility with test stubs.
+        # The SunSpec model id (103, 160, ...). It feeds the device name
+        # suffix and the device's "model_id" field, which tell the
+        # devices of one entry apart (#33). Optional only for test stubs.
         self._model_id = model_id
 
     @property
     def available(self) -> bool:
-        """Return whether the entity should be reported as available.
+        """Whether the entity reports a state, a stale one included.
 
-        Stale-data tolerance: inverters frequently see brief connectivity
-        blips. Instead of bouncing the entity to "unavailable" on every
-        single failed cycle (which leaves a gap in the long-term
-        statistics graphs), we keep serving the last successfully read
-        value through the coordinator's cached ``data`` for up to
-        :data:`STALE_DATA_TOLERANCE_CYCLES` consecutive failures. The
-        coordinator resets ``consecutive_failed_cycles`` to zero on the
-        first successful read, so a recovered inverter immediately stops
-        being "assumed".
-
-        Note that this deliberately does NOT defer to
-        ``coordinator.last_update_success`` the way the upstream
-        ``CoordinatorEntity.available`` does. The coordinator's own
-        ``_after_failed_cycle`` fires a manual listener notification
-        when the failure counter crosses the tolerance threshold (HA's
-        DataUpdateCoordinator stops dispatching listeners after the
-        first consecutive failure on its own), and that notification
-        happens BEFORE HA flips ``last_update_success`` to False. So
-        we have to drive the available decision off the counter, not
-        off ``last_update_success``, otherwise the manual notification
-        would still see the entity as "available" and never write the
-        unavailable state.
+        True while the coordinator has data and no more than
+        STALE_DATA_TOLERANCE_CYCLES update cycles in a row have failed.
+        A brief connectivity blip therefore leaves no gap in the
+        long-term statistics.
         """
+        # The decision reads consecutive_failed_cycles and must not defer
+        # to coordinator.last_update_success, as CoordinatorEntity.available
+        # does. Home Assistant sets last_update_success to False at the
+        # first failed refresh, which would end the tolerance before it
+        # starts. The coordinator's _count_failed_cycle notifies the
+        # listeners when the counter crosses the tolerance, because Home
+        # Assistant does not notify them on consecutive failures.
         coordinator = self.coordinator
         if coordinator.data is None:
             return False
@@ -92,28 +78,7 @@ class SunSpecEntity(CoordinatorEntity[SunSpecDataUpdateCoordinator]):
 
     @property
     def device_info(self) -> DeviceInfo:
-        """Return the HA device registry payload for this entity.
-
-        The device name is "<base> <model suffix>", e.g.
-        "Powador 7.8 TL3 Inverter (Three Phase)". The base is
-        ``self._prefix`` if the user supplied one via ``CONF_PREFIX``
-        (explicit user override wins, useful for multi-inverter setups
-        where the same model needs a location-based label), otherwise
-        ``Md`` from common model 1, the inverter's own model string.
-
-        The model suffix exists because the integration creates one HA
-        device per SunSpec model: without it every device of an entry
-        carries the identical Md string and the device list becomes a
-        wall of indistinguishable entries (issue #33). Users who set
-        their own device name in HA keep it - the registry only tracks
-        this value as the original name and never overwrites
-        ``name_by_user``.
-
-        The numeric model id additionally lands in the ``model_id``
-        field (HA 2024.8+), which the device-info card renders as
-        "<Md> (SunSpec <id>) by <manufacturer>" and which matches the
-        "(<id>)" suffix in the options-flow model multi-select.
-        """
+        """The device registry payload of this entity's SunSpec model, see ``device_info_for``."""
         return device_info_for(
             self.config_entry, self._device_data, self.model_info, self._prefix, self._model_id
         )
@@ -124,9 +89,9 @@ class Home:
     """The SunSpec model device an entity from outside the models sits on.
 
     Args:
-        device_info (SunSpecModelWrapper): Common model 1.
-        model_info (dict): The model's group definition.
-        model_id (int): The SunSpec model id.
+        device_info: Common model 1.
+        model_info: The model's group definition.
+        model_id: The SunSpec model id.
     """
 
     device_info: SunSpecModelWrapper
@@ -160,17 +125,23 @@ def device_info_for(
     """The device registry payload for one SunSpec model of one entry.
 
     Shared by every entity that sits on such a device, whichever
-    coordinator feeds it. See ``SunSpecEntity.device_info`` for how
-    the name is composed.
+    coordinator feeds it. The device name is "<base> <model suffix>",
+    e.g. "Powador 7.8 TL3 Inverter (Three Phase)". The base is ``prefix``
+    when the user gave one, otherwise ``Md`` of common model 1.
 
     Args:
-        config_entry (ConfigEntry): The entry the device belongs to.
-        device_data (SunSpecModelWrapper): Common model 1.
-        model_info (dict): The model's group definition.
-        prefix (str): The user's device name, or "".
-        model_id (int|None): The SunSpec model id.
+        config_entry: The entry the device belongs to.
+        device_data: Common model 1.
+        model_info: The model's group definition.
+        prefix: The user's device name from CONF_PREFIX, or "".
+        model_id: The SunSpec model id.
     """
     md = point_text(device_data, "Md") or None
+    # The integration creates one device per SunSpec model. Without the
+    # suffix every device of an entry carries the same Md string (#33).
+    # A name the user set in Home Assistant stays: the registry keeps
+    # the name built here only as the original name and never overwrites
+    # ``name_by_user``.
     suffix = device_model_suffix(model_id, model_info)
     base = prefix or md
     device_name: str | None
@@ -180,13 +151,12 @@ def device_info_for(
         device_name = base or suffix
     info = DeviceInfo(
         # HA types identifiers as set[tuple[str, str]] and this is a
-        # three-tuple. The integration creates one device per SunSpec
-        # model, so the entry id alone does not identify a device, and
-        # the registry stores whatever tuple it is handed. These
-        # identifiers are already written on every installed system:
-        # narrowing them to two elements would orphan every existing
-        # device and take the user's history, automations and
-        # dashboards with it.
+        # three-tuple: with one device per SunSpec model the entry id
+        # alone does not identify a device, and the registry stores
+        # whatever tuple it is handed. These identifiers are written on
+        # every installed system. Narrowing them to two elements would
+        # orphan every existing device and take the user's history,
+        # automations and dashboards with it.
         identifiers={
             (DOMAIN, config_entry.entry_id, model_info["name"])  # type: ignore[arg-type]
         },
@@ -195,6 +165,9 @@ def device_info_for(
         sw_version=device_data.getValue("Vr"),
         manufacturer=device_data.getValue("Mn"),
     )
+    # The device page renders model_id as "<Md> (SunSpec <id>) by
+    # <manufacturer>", and the id matches the "(<id>)" suffix in the
+    # options flow's model multi-select.
     if model_id is not None:
         info["model_id"] = f"SunSpec {model_id}"
     return info

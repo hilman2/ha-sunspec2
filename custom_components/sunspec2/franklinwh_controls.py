@@ -137,11 +137,11 @@ async def async_set_power(coordinator: SunSpecDataUpdateCoordinator, watts: floa
             controls = await coordinator.api.async_get_data(CONTROL_MODEL)
             enabled = _enabled(controls)
             if watts is None:
-                # Release without a zero-power step. Requesting 0 W first, as
-                # the reference did on an unmeasured transient concern, forced
-                # a needless dip when the native mode resumed in the same
-                # direction, and one second was too short to reach 0 W anyway
-                # (issue #149).
+                # Control is released without a zero-power step. The
+                # reference requests 0 W first, for a transient it did not
+                # measure. That step forces a needless dip when the native
+                # mode resumes in the same direction, and its one second is
+                # too short to reach 0 W anyway (issue #149).
                 await coordinator.api.async_write_points(
                     CONTROL_MODEL, [("WSetEna", 0), ("WSet", 0), ("WSetPct", 0)]
                 )
@@ -157,8 +157,8 @@ async def async_set_power(coordinator: SunSpecDataUpdateCoordinator, watts: floa
                             f"Battery target {watts:g} W exceeds the reported range "
                             f"{-charge:g} to {discharge:g} W"
                         )
-                # Mode and int32 watts are adjacent. Flush them as one
-                # FC16 before enabling; an already enabled command needs
+                # Mode and int32 watts are adjacent and go out as one FC16
+                # before the enable. An already enabled command needs
                 # neither an off/on cycle nor another enable write.
                 await coordinator.api.async_write_points(
                     CONTROL_MODEL, [("WSetMod", 1), ("WSet", watts)]
@@ -188,8 +188,9 @@ async def async_set_power(coordinator: SunSpecDataUpdateCoordinator, watts: floa
                 raise DeviceError("The aGate acknowledged the command but its readback differs")
     except SunSpecError as exc:
         raise user_error("franklinwh_failed", error=exc) from exc
-    # Publish the verified control block without waiting for an unrelated
-    # full poll. The other models and failure counters retain their age.
+    # The verified control block is published without waiting for an
+    # unrelated full poll. The other models and the failure counters
+    # retain their age.
     if coordinator.data is not None:
         coordinator.data[CONTROL_MODEL] = confirmed
     coordinator.async_update_listeners()
@@ -282,7 +283,7 @@ class FranklinBatteryState(FranklinEntity, SensorEntity):
         if power is None:
             return None
         # The inverter's own state decides idle where model 701 is read.
-        # The deadband alone could not: an aGate with two aPower 2 reported
+        # The deadband alone cannot: an aGate with two aPower 2 reported
         # DCW in 100 W steps, and 100 W while InvSt said STANDBY (issue
         # #149). A fixed band in watts also cannot fit one battery and
         # several alike. The deadband stays for an entry without model 701.
@@ -313,7 +314,8 @@ class FranklinHomeLoad(FranklinEntity, SensorEntity):
 
     @property
     def device_info(self) -> DeviceInfo:
-        # Beside the extension sensors it is computed from.
+        # The sensor sits on the gateway device, beside the extension
+        # sensors it is computed from.
         return raw_device_info(self.coordinator, self.config_entry, self._prefix, GATEWAY)
 
     @property

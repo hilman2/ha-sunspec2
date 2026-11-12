@@ -74,17 +74,17 @@ SMA_OUI = "0015bb"
 
 _LOGGER: logging.Logger = logging.getLogger(__package__)
 
-# Number selector for the optional peak AC power field. Using a selector
-# (rather than a plain callable like `probatio.Coerce(float)` or a custom
-# validator) is required so probatio can serialise the schema
-# when the frontend requests the options form - otherwise the POST to
-# config/config_entries/options/flow raises and the form never renders.
 # The web interface password is typed once and turned into the Digest
-# secret in the same step; the field never has a stored value to show.
+# secret in the same step. The field never has a stored value to show.
 _PASSWORD_SELECTOR = selector.TextSelector(
     selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD)
 )
 
+# The optional peak AC power field has to be a selector. probatio cannot
+# serialise a plain callable such as `probatio.Coerce(float)` or a
+# custom validator when the frontend requests the options form: the
+# POST to config/config_entries/options/flow raises and the form never
+# renders.
 _MAX_AC_POWER_SELECTOR = selector.NumberSelector(
     selector.NumberSelectorConfig(
         min=0.1,
@@ -95,10 +95,9 @@ _MAX_AC_POWER_SELECTOR = selector.NumberSelector(
 )
 
 
-# Shared by the setup form and the options form so the two can never
-# drift apart. Both used to take a bare ``int``: a saved 0 stops polling
-# silently and forever, a negative value hot-loops it. See
-# MIN_SCAN_INTERVAL_SECONDS for what Home Assistant does with each.
+# Shared by the setup form and the options form. The lower bound is not
+# optional: a saved 0 stops polling silently and for good, and a
+# negative value hot-loops it. See MIN_SCAN_INTERVAL_SECONDS.
 _SCAN_INTERVAL_VALIDATOR = probatio.All(
     selector.NumberSelector(
         selector.NumberSelectorConfig(
@@ -127,43 +126,30 @@ def _model_selector(labels: dict[str, str]) -> selector.SelectSelector:
 
 
 def _suggested_peak_power_kw(detected_kw: float | None) -> float | None:
-    """Value to pre-fill the peak-power field with, headroom included.
+    """Return the value to pre-fill the peak-power field with, headroom included.
 
-    The plausibility filter grants NAMEPLATE_FILTER_HEADROOM on top of a
-    nameplate it auto-detected, and nothing on top of a number the user
-    typed, because that number is a deliberate statement about the site
-    (see sensor.py ``_peak_power_kw``). Both forms pre-fill this field
-    from the auto-detected nameplate, and the frontend echoes a
-    ``suggested_value`` back on submit, so pre-filling with the raw
-    nameplate silently converted the intended 1.2x ceiling into a 1.0x
-    one the moment anyone opened the form and pressed Submit.
-
-    That is not an edge case: the pre-fill has been there since v0.8.1
-    and the headroom only arrived in v0.21.0, so on any device exposing
-    model 120 / 121 the too-tight ceiling was the normal state. A
-    ceiling at exactly the nameplate cannot work: ``DCW`` is measured
-    before conversion losses and therefore always sits a few percent
-    above AC output, and ``VA`` is by definition >= ``W``. Both read
-    "unknown" for most of a sunny day (#45).
-
-    Rounded to the selector's own 0.1 kW step so the form does not open
-    with a value it would refuse to take back.
+    Returns ``None`` when no nameplate was detected.
     """
     if not detected_kw:
         return None
+    # The plausibility filter grants NAMEPLATE_FILTER_HEADROOM on a
+    # nameplate it detected and nothing on a number the user typed. The
+    # frontend echoes a ``suggested_value`` back on submit, so a field
+    # pre-filled with the raw nameplate turns the intended 1.2x ceiling
+    # into a 1.0x one as soon as the form is submitted unchanged, and a
+    # ceiling at exactly the nameplate makes ``DCW`` and ``VA`` read
+    # "unknown" for most of a sunny day (#45). The value is rounded to
+    # the selector's 0.1 kW step so the form accepts it back.
     return round(detected_kw * NAMEPLATE_FILTER_HEADROOM, 1)
 
 
-# #17: pacing between models during the SunSpec scan. Exposed because
-# the right value is a property of the device and the wiring, not
-# something we can pick for everyone: a KACO Powador on 100 Mbit wants
-# the pacing, a modern inverter on gigabit does not. BOX rather than a
-# slider so the value is typed exactly, and capped at MAX_SCAN_DELAY
-# because every 0.1 here costs 0.1 per model on each scan of the tree.
-# The scan is not part of a poll any more: the layout has been cached
-# since v0.17.0 and persisted since v0.21.0, so a scan runs on the
-# first connect, after a failed cycle, and when the cached layout stops
-# validating against the device. See CONF_SCAN_DELAY in const.py.
+# Pacing between models during the SunSpec scan (#17), see
+# CONF_SCAN_DELAY in const.py. The delay is an option because the right
+# value is a property of the device and the wiring: a KACO Powador on
+# 100 Mbit wants the pacing, a modern inverter on gigabit does not. The
+# selector is a BOX so the value is typed exactly, and it is capped at
+# MAX_SCAN_DELAY_SECONDS because every 0.1 costs 0.1 per model on each
+# scan of the tree.
 _SCAN_DELAY_SELECTOR = selector.NumberSelector(
     selector.NumberSelectorConfig(
         min=MIN_SCAN_DELAY_SECONDS,
@@ -245,19 +231,17 @@ class SunSpecFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
     def __init__(self) -> None:
         """Initialize."""
         self._errors: dict[str, str] = {}
-        # Probe client. Assigned by the two _test_connection_* methods
-        # and reused afterwards by _show_settings_form and
-        # _probe_nameplate, which is why it is not closed at the end of
-        # the probe itself. It IS closed before each new probe and
-        # before the flow terminates - see _close_probe_client.
+        # The probe client. The two _test_connection_* methods assign it,
+        # and _show_settings_form and _probe_nameplate reuse it, so a
+        # successful probe leaves it open. _close_probe_client closes it
+        # before each new probe and before the flow ends.
         self.client: SunSpecApiClient | None = None
-        # Pre-filled IP from a DHCP discovery or a network-scan pick.
-        # The manual step uses this as the default for the host field so
-        # the user just needs to confirm port and unit ID.
+        # The IP from a DHCP discovery or a network-scan pick. The
+        # manual step uses it as the default of the host field.
         self._discovered_host: str | None = None
         self._discovered_unit_id: int | None = None
-        # Cached scan result so async_step_scan_results can render the
-        # picker without re-scanning.
+        # The scan result, kept so async_step_scan_results can render
+        # the picker without a second scan.
         self._scan_results: list[SunSpecCandidate] = []
 
     @callback
@@ -271,12 +255,9 @@ class SunSpecFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
     async def async_step_dhcp(self, discovery_info: DhcpServiceInfo) -> ConfigFlowResult:
         """Handle a DHCP discovery for a known SunSpec inverter vendor.
 
-        Best-effort second path: most home routers hand out 8 h+
-        leases and most users put their inverter on a fixed IP, so
-        DHCP discovery rarely fires in practice. The active
-        ``async_step_scan`` path is the one that actually works for
-        the typical home setup. We keep DHCP around because when it
-        does fire it costs the user zero clicks.
+        DHCP discovery rarely fires on a home network (long leases,
+        inverters on a fixed IP). ``async_step_scan`` is the discovery
+        path most users take.
         """
         host = discovery_info.ip
         _LOGGER.debug(
@@ -286,11 +267,10 @@ class SunSpecFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
             discovery_info.hostname,
         )
 
-        # Bail if we already have a config entry for this exact host -
-        # the user has already set this device up. ``unique_id`` for an
-        # already-configured entry is the device serial number, which
-        # we cannot derive from a DHCP lease alone, so use the host as
-        # the discovery uniqueness key instead.
+        # The unique id of a configured entry is the device serial
+        # number, which a DHCP lease does not carry. The host is
+        # therefore the uniqueness key of a discovery, and a host that
+        # already has an entry aborts the flow.
         await self.async_set_unique_id(f"dhcp:{host}")
         self._abort_if_unique_id_configured()
         for entry in self._async_current_entries():
@@ -323,19 +303,13 @@ class SunSpecFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
         return str(uid)
 
     async def async_step_user(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
-        """Initial entry: ask how the inverter should be connected.
+        """Ask how the inverter is connected.
 
-        Three options:
-
-        * **manual**: TCP, user enters host / port / unit ID by hand.
-          Safe default for users with fixed IPs.
-        * **scan**: TCP scan of the local subnet for Modbus TCP port
-          502, with vendor OUI matching to surface SunSpec inverters
-          first.
-        * **serial**: Modbus RTU over a serial port (RS-485 typically
-          via a USB adapter). Asks for serial port name, baudrate
-          and parity. No network discovery here - serial buses do
-          not have a discovery surface.
+        * **manual**: TCP, the user enters host, port and unit ID.
+        * **scan**: a scan of the local subnet for Modbus TCP port 502
+          that lists hosts with a SunSpec vendor's MAC prefix first.
+        * **serial**: Modbus RTU over a serial port (RS-485, typically
+          through a USB adapter). A serial bus cannot be scanned.
         """
         return self.async_show_menu(
             step_id="user",
@@ -343,12 +317,10 @@ class SunSpecFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
         )
 
     async def async_step_manual(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
-        """Manual TCP setup: enter host, port and unit ID by hand.
+        """Set up a TCP device from host, port and unit ID.
 
-        This is the original ``async_step_user`` body from before
-        v0.8.1, kept intact and renamed. Reachable from the user-step
-        menu, from a successful network scan, and from a DHCP
-        discovery.
+        Reached from the user-step menu, from a network scan pick and
+        from a DHCP discovery.
         """
         self._errors = {}
         if user_input is not None:
@@ -377,10 +349,10 @@ class SunSpecFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
                 return await self.async_step_settings()
 
             # The device is there but not SunSpec under this unit id.
-            # An SMA answers SunSpec 123 unit ids above its own, and
-            # this is the mistake every SMA owner makes once (cjne
-            # #18, #135, #269). Try 126 and, if it answers, say so
-            # with the form already corrected.
+            # An SMA answers SunSpec 123 unit ids above its own, a
+            # mistake SMA owners make regularly (cjne/ha-sunspec #18,
+            # #135, #269). If unit id 126 answers, the form comes back
+            # with the error and the unit id already corrected.
             device_answered = self._errors.get("base") in ("device_error", "connection")
             if (
                 unit_id != SMA_SUNSPEC_UNIT_ID
@@ -395,10 +367,9 @@ class SunSpecFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
         return await self._show_config_form(user_input)
 
     async def async_step_serial(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
-        """Serial (Modbus RTU) setup: enter port, baudrate, parity, unit ID.
+        """Set up a Modbus RTU device from port, baudrate, parity and unit ID.
 
-        Reachable only from the user-step menu - serial buses have
-        no discovery surface.
+        Reached only from the user-step menu.
         """
         self._errors = {}
         if user_input is not None:
@@ -408,10 +379,9 @@ class SunSpecFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
             unit_id = user_input[CONF_UNIT_ID]
             valid = await self._test_connection_rtu(serial_port, baudrate, parity, unit_id)
             if valid:
-                # The unique_id helper reads the serial number out of
-                # the probe client's common-block-1 ``_device_info``,
-                # so the same fingerprint logic works regardless of
-                # whether the probe ran over TCP or RTU.
+                # _get_unique_id reads the serial number from the
+                # probed common model, whichever transport the probe ran
+                # over.
                 uid = self._get_unique_id(serial_port, baudrate, unit_id)
                 _LOGGER.debug("Sunspec RTU device unique id: %s", uid)
                 await self.async_set_unique_id(uid)
@@ -430,9 +400,9 @@ class SunSpecFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
                     CONF_BAUDRATE: baudrate,
                     CONF_PARITY: parity,
                     CONF_UNIT_ID: unit_id,
-                    # Synthetic host/port for the logger and the
-                    # config-entry title - never used as actual
-                    # network coordinates.
+                    # Host and port of a serial entry only feed the
+                    # logger and the config-entry title. They are
+                    # never used as network coordinates.
                     CONF_HOST: serial_port,
                     CONF_PORT: baudrate,
                 }
@@ -485,16 +455,12 @@ class SunSpecFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
     async def async_step_reconfigure(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Gold rule reconfiguration-flow: change host / port / unit ID
-        on an existing config entry without losing the device or its
-        sensor history.
+        """Change host, port and unit ID of an existing entry.
 
-        The user reaches this from *Settings → Devices & Services →
-        SunSpec → three-dot menu → Reconfigure*. We probe the new
-        connection details, and if it answers we update the entry's
-        data block in place and reload it. The unique_id (the
-        inverter's serial from common model 1) stays the same so the
-        device entry and the entire sensor entity registry survive.
+        The new address is probed. If the device there answers with the
+        serial number the entry already has as its unique id, the entry
+        data is updated. The unique id stays the same, so the device
+        entry, the entities and their history survive.
         """
         self._errors = {}
         entry = self._get_reconfigure_entry()
@@ -505,21 +471,20 @@ class SunSpecFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
             unit_id = user_input[CONF_UNIT_ID]
             valid = await self._test_connection_tcp(host, port, unit_id)
             if valid:
-                # The probe must come back with a serial that matches
-                # the existing entry's unique_id - otherwise this is
-                # a different inverter on the same IP and we refuse
-                # the change to avoid silently swapping a user's
-                # device history onto a stranger's hardware.
+                # A probe that returns another serial number than the
+                # entry's unique id found a different inverter. The
+                # change is refused, or the history of one device would
+                # continue on another.
                 probed_uid = self._get_unique_id(host, port, unit_id)
                 if entry.unique_id is not None and probed_uid != entry.unique_id:
                     self._errors["base"] = "unique_id_mismatch"
                 else:
-                    # Free the probe's Modbus slot before the reload
-                    # builds the coordinator's own client, or a
+                    # The probe gives its Modbus slot back before the
+                    # reload builds the coordinator's own client, or a
                     # single-slot inverter refuses the new connection.
                     await self._close_probe_client()
-                    # No reload of its own: the update listener reloads the
-                    # entry when the data changed.
+                    # No reload here: the update listener reloads the
+                    # entry when its data changed.
                     return self.async_update_and_abort(
                         entry,
                         data_updates={
@@ -547,12 +512,10 @@ class SunSpecFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
         )
 
     async def async_step_scan(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
-        """Subnet entry form for the active network scan.
+        """Ask for the subnet to scan, and scan it.
 
-        Pre-fills the user's default LAN subnet from
-        ``homeassistant.components.network`` so the typical home user
-        only has to click "submit". Power users on multi-subnet LANs
-        can override the value.
+        The form is pre-filled with the default LAN subnet from
+        ``homeassistant.components.network``.
         """
         errors: dict[str, str] = {}
         if user_input is not None:
@@ -578,18 +541,14 @@ class SunSpecFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
     async def async_step_scan_results(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Pick a host from the cached scan result list.
+        """Let the user pick a host from the scan result.
 
-        Vendor-matched candidates are listed first (the scan helper
-        already sorts that way). Selecting one routes to the manual
-        step with the IP pre-filled, so the user only confirms port
-        and unit ID.
+        The pick continues in the manual step with the IP pre-filled.
         """
         if user_input is not None:
             self._discovered_host = user_input["host"]
             return await self.async_step_manual()
 
-        # Build a {ip: human label} mapping for the dropdown.
         options: dict[str, str] = {}
         for cand in self._scan_results:
             label = cand.ip
@@ -609,13 +568,10 @@ class SunSpecFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
     ) -> ConfigFlowResult:
         self._errors = {}
         if user_input is not None:
-            # Reject empty model selections in the SETUP flow too. The
-            # OPTIONS flow has had this guard since v0.7.6, but the
-            # initial setup was missing it - if the user clicked
-            # through the form without ticking anything they would
-            # silently persist ``models_enabled: []`` to disk and the
-            # next coordinator reload would poll zero models, killing
-            # every sensor on the integration before they ever existed.
+            # An empty model selection is rejected, as in the options
+            # flow. The coordinator answers a stored
+            # ``models_enabled: []`` by polling DEFAULT_MODELS, which is
+            # not what the user picked.
             if not user_input.get(CONF_ENABLED_MODELS):
                 self._errors["base"] = "no_models_selected"
                 return await self._show_settings_form(user_input)
@@ -623,10 +579,10 @@ class SunSpecFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
             self.init_info[CONF_PREFIX] = user_input[CONF_PREFIX]
             self.init_info[CONF_ENABLED_MODELS] = user_input[CONF_ENABLED_MODELS]
             self.init_info[CONF_SCAN_INTERVAL] = user_input[CONF_SCAN_INTERVAL]
-            # Peak AC power survives onto the new entry as an option,
-            # not as data, so it lines up with where the options-flow
-            # form writes it on later edits. None / empty disables the
-            # plausibility filter.
+            # The peak AC power goes into the entry's options, not its
+            # data, because the options flow edits it there. Without a
+            # value the plausibility filter works from the detected
+            # nameplate, see effective_peak_power_kw.
             options: dict[str, Any] = {}
             peak = user_input.get(CONF_MAX_AC_POWER_KW)
             if peak is not None:
@@ -635,8 +591,9 @@ class SunSpecFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
             port = self.init_info[CONF_PORT]
             unit_id = self.init_info[CONF_UNIT_ID]
             _LOGGER.debug("Creating entry with data %s, options %s", self.init_info, options)
-            # Hand the inverter's Modbus slot back before async_setup_entry
-            # opens the coordinator's client against the same endpoint.
+            # The probe gives the inverter's Modbus slot back before
+            # async_setup_entry opens the coordinator's client against
+            # the same endpoint.
             await self._close_probe_client()
             return self.async_create_entry(
                 title=f"{host}:{port}:{unit_id}",
@@ -671,34 +628,25 @@ class SunSpecFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
         )
 
     async def _show_settings_form(self, user_input: dict[str, Any] | None) -> ConfigFlowResult:
-        """Show the configuration form to edit settings data.
+        """Show the settings form: prefix, scan interval, models and peak AC power.
 
-        Includes the optional peak AC power field directly here so the
-        user gets a single chance to set their inverter's nameplate
-        during initial setup, instead of having to discover it in the
-        options flow later. We try to suggest a value from the device
-        itself: if the inverter exposes SunSpec model 120 ("WRtg") or
-        121 ("WMax") the probe client picks it up and the field is
-        pre-filled, otherwise the user enters it by hand or leaves it
-        empty to disable the plausibility filter.
+        The peak AC power field is pre-filled from the device when it
+        serves SunSpec model 120 ("WRtg") or 121 ("WMax").
         """
-        # Only reached after a probe succeeded, which is what assigns
-        # self.client. HA config flows state that kind of step ordering
-        # with an assert rather than a branch nothing can take.
+        # This step is only reached after a probe succeeded, and the
+        # probe is what assigns self.client.
         assert self.client is not None
         models = set(await self.client.async_get_models())
-        # Resolve {model_id: "Group label (id)"} so the multi-select
-        # shows "Inverter (Three Phase) (103)" instead of just "103".
-        # Reading the bundled pysunspec2 JSON files is sync IO so it
-        # runs in an executor.
+        # sunspec_model_labels returns {model_id: "Group label (id)"},
+        # so the multi-select shows "Inverter (Three Phase) (103)" and
+        # not "103". It reads the bundled pysunspec2 JSON files, which
+        # is sync IO and therefore runs in an executor.
         model_filter = await self.hass.async_add_executor_job(sunspec_model_labels, models)
-        # Default-enabled MUST be a sorted list, not a set: HA's
-        # frontend serialises ``default`` straight to JSON and Python
-        # sets do not survive that round-trip in a way the multi-select
-        # widget can match against its option keys, so the field
-        # would render with no boxes ticked even though the right
-        # values are technically there. Sorted list = stable order
-        # in the UI and reliable pre-selection.
+        # default_enabled has to be a sorted list, not a set. The
+        # frontend serialises ``default`` straight to JSON, and a set
+        # does not come back in a form the multi-select can match
+        # against its option keys: the field renders with no box
+        # ticked.
         default_enabled = sorted(str(model) for model in default_models_for(models))
 
         suggested_peak = _suggested_peak_power_kw(await self._probe_nameplate(models))
@@ -727,14 +675,12 @@ class SunSpecFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
         )
 
     async def _probe_nameplate(self, available_models: set[int]) -> float | None:
-        """Read SunSpec model 120 / 121 from the probe client, best-effort.
+        """Read the nameplate from SunSpec model 120 or 121 through the probe client.
 
-        Mirrors ``SunSpecDataUpdateCoordinator._read_nameplate`` but
-        runs against the live probe client instead of the coordinator
-        (which doesn't exist yet at config-flow time). Returns the
-        nameplate in kW, or ``None`` if neither model is present or
-        both reads failed - the user can still type a value by hand
-        in that case.
+        The probe's counterpart of
+        ``SunSpecDataUpdateCoordinator._read_nameplate``. Returns the
+        nameplate in kW, or ``None`` if neither model is present or both
+        reads failed.
         """
         if self.client is None:
             return None
@@ -797,14 +743,9 @@ class SunSpecFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
     async def _test_connection_rtu(
         self, serial_port: str, baudrate: int, parity: str, unit_id: int
     ) -> bool:
-        """Probe a Modbus RTU inverter over a serial port.
+        """Probe a Modbus RTU inverter and cache its common-block info.
 
-        Same purpose as the TCP probe: opens a fresh client, walks
-        the SunSpec model tree once, caches common-block 1 so the
-        unique-id helper can read the serial number off it. Errors
-        are translated into the same error-base keys the TCP probe
-        uses so the form rendering code can show a single
-        translation per category regardless of transport.
+        A failure sets the same error keys as the TCP probe.
         """
         _LOGGER.debug(
             "Test RTU connection on %s @ %d %s unit id %s",
@@ -841,19 +782,13 @@ class SunSpecFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
     async def _close_probe_client(self) -> None:
         """Release the probe client's Modbus session, if one is open.
 
-        The flow used to assign ``self.client`` on every probe attempt
-        and never close any of them. Each failed attempt therefore left
-        a connected pysunspec2 client behind, and pysunspec2 holds a
-        reference cycle between the device and its client, so refcounting
-        does not collect them either - only the GC eventually does. On a
-        single-slot inverter each abandoned session occupies the one
-        Modbus slot the device has, which turns "I typed the wrong unit
-        id once" into a device that refuses every subsequent attempt.
-
-        Deliberately NOT called at the end of a successful probe:
+        Every probe has to end here. A probe that is left open keeps its
+        hold on the Modbus connection, and on a single-slot inverter
+        that session occupies the only slot the device has. A
+        successful probe is closed late, when the flow ends:
         ``_show_settings_form`` and ``_probe_nameplate`` keep using the
-        same client, and closing it there would force a second full
-        SunSpec scan inside the same flow.
+        client, and closing it earlier would force a second SunSpec
+        scan inside the same flow.
         """
         client = getattr(self, "client", None)
         if client is None:
@@ -881,10 +816,9 @@ class SunSpecOptionsFlowHandler(config_entries.OptionsFlow):
         """Manage the options."""
         self._errors = {}
         self.options = dict(self.config_entry.options)
-        # Read the coordinator from entry.runtime_data (Bronze rule
-        # runtime-data). Falls back to the legacy hass.data lookup
-        # for the test stub coordinator, which doesn't go through
-        # the real async_setup_entry path.
+        # runtime_data is missing while the entry is not loaded. The
+        # hass.data lookup then finds nothing either, because no code
+        # stores a coordinator there, and the coordinator stays None.
         self.coordinator = getattr(self.config_entry, "runtime_data", None)
         if self.coordinator is None:
             self.coordinator = self.hass.data.get(DOMAIN, {}).get(self.config_entry.entry_id)
@@ -930,30 +864,27 @@ class SunSpecOptionsFlowHandler(config_entries.OptionsFlow):
         errors: dict[str, str] = {}
 
         if user_input is not None:
-            # Sections only organize the form. Keep the stored options flat so
-            # existing installations and HACS rollbacks read the same keys.
+            # Sections only organize the form. The stored options stay flat,
+            # so existing installations and HACS rollbacks read the same keys.
             edit_power_limit = "advanced" in user_input
             user_input = dict(user_input)
             for name in ("advanced", "fronius"):
                 user_input.update(user_input.pop(name, {}))
-            # Reject empty model selections - silently saving
-            # ``models_enabled: []`` was the v0.7.3 -> v0.7.5 regression
-            # that wiped every sensor on the next reload. Show the form
-            # again with an inline error so the user has a chance to
-            # actually pick something.
+            # An empty model selection must not be saved. The form
+            # comes back with an inline error instead.
             if not user_input.get(CONF_ENABLED_MODELS):
                 errors["base"] = "no_models_selected"
             else:
                 # The password goes no further than this method: it is
-                # turned into the Digest secret below and only that is
-                # stored. Popped before the update so it never lands in
-                # the options, not even by accident.
+                # turned into the Digest secret below and only the secret
+                # is stored. The password is popped before the update so
+                # it cannot land in the options.
                 password = user_input.pop(CONF_FRONIUS_WEB_PASSWORD, "")
                 forget_web_login = user_input.pop(CONF_FRONIUS_WEB_FORGET, False)
                 self.options.update(user_input)
                 # A cleared optional field arrives without a key. Only a
-                # submitted advanced section can clear the stored override;
-                # omitting the section must preserve its existing settings.
+                # submitted advanced section clears the stored peak power.
+                # A submission without the section keeps it.
                 if edit_power_limit and CONF_MAX_AC_POWER_KW not in user_input:
                     self.options.pop(CONF_MAX_AC_POWER_KW, None)
                 if forget_web_login:
@@ -983,72 +914,55 @@ class SunSpecOptionsFlowHandler(config_entries.OptionsFlow):
         model_read_delay = self.config_entry.options.get(
             CONF_MODEL_READ_DELAY, DEFAULT_MODEL_READ_DELAY_SECONDS
         )
-        # User-set value wins, and is shown back exactly as stored - the
-        # filter uses it as-is, so the form must not quietly inflate it.
-        # If the user has not configured a peak power yet, fall back to
-        # the value the coordinator auto-detected from SunSpec model
-        # 120 / 121 on the first cycle, carrying the same headroom the
-        # filter would have applied to it (see _suggested_peak_power_kw).
+        # A configured peak power is shown exactly as stored, because
+        # the filter uses it without headroom. Without one the field is
+        # pre-filled from the nameplate the coordinator detected, with
+        # the headroom the filter grants it (see
+        # _suggested_peak_power_kw).
         max_ac_power_kw = self.config_entry.options.get(CONF_MAX_AC_POWER_KW)
         if max_ac_power_kw is None:
             max_ac_power_kw = _suggested_peak_power_kw(
                 getattr(self.coordinator, "detected_max_ac_power_kw", None)
             )
-        # Phase 4 hot-reload fix: instead of forcing a fresh probe (which
-        # raced with the coordinator's active socket on single-slot
-        # inverters like KACO), surface the coordinator's current state.
-        # If the coordinator is currently failing, the user already sees
-        # an unavailable inverter; we show a warning here too rather
-        # than silently rendering an empty model list. The getattr()
-        # default of True is for the test stub coordinator which does
-        # not inherit from DataUpdateCoordinator and lacks the attribute.
+        # The form works from the coordinator's state and never probes
+        # the device: a probe would race the coordinator's session on a
+        # single-slot inverter such as a KACO. While the coordinator is
+        # failing, the host form comes back with a connection error
+        # instead of an empty model list. The getattr default of True
+        # covers a coordinator that is None, see below.
         if not getattr(self.coordinator, "last_update_success", True):
             return await self.show_settings_form(data=self.settings, errors={"base": "connection"})
         try:
-            # Read the inverter's full model list from the coordinator's
-            # cache (populated during the first successful update cycle).
-            # Falling back to api.known_models() preserves behaviour for
-            # the test stub coordinator that doesn't carry the cache, and
-            # for the very first options-form open before any update has
-            # happened. NEVER call api.known_models() unconditionally:
-            # ``known_models()`` reads the live client, and there is not
-            # always one: before the first connect, after a failed cycle
-            # tore the session down with ``close(force=True)``. In those
-            # cases it returns ``[]`` and the form would render an empty
-            # multi-select.
+            # detected_models is the coordinator's cache of the device's
+            # full model list, filled by the first successful update
+            # cycle. api.known_models() is only the fallback for a form
+            # opened before that cycle: it reads the live client and
+            # returns ``[]`` when there is none, before the first
+            # connect and after a failed cycle tore the session down.
             models = set(getattr(self.coordinator, "detected_models", set()))
-            # The coordinator is None when the entry is not loaded, which
-            # is exactly when the options flow can still be opened. Falling
-            # through to an empty multi-select beats raising an
-            # AttributeError the user sees as "unknown error".
+            # The coordinator is None when the entry is not loaded, and
+            # the options flow can still be opened then.
             if not models and self.coordinator is not None:
                 models = set(self.coordinator.api.known_models())
             if not models:
                 # Nothing has polled the device: the entry never loaded, or
-                # its first cycle has not finished. Offer what the entry
-                # already carries instead of an empty multi-select. An empty
-                # one cannot be submitted at all, because the
-                # no_models_selected check at the top of this step rejects
-                # every submission, and a user who came here to correct an
-                # unreachable host would have no way to save the new one.
+                # its first cycle has not finished. The form offers the
+                # models the entry already carries. An empty multi-select
+                # could not be submitted, because the no_models_selected
+                # check at the top of this step rejects it, and a user who
+                # came here to correct an unreachable host could not save
+                # the new one.
                 stored = self.config_entry.options.get(
                     CONF_ENABLED_MODELS, self.config_entry.data.get(CONF_ENABLED_MODELS, [])
                 )
                 models = {int(m) for m in stored} or set(DEFAULT_MODELS)
-            # Resolve {model_id: "Group label (id)"} so the multi-select
-            # shows "Inverter (Three Phase) (103)" instead of just
-            # "103". Reading the bundled pysunspec2 JSON files is
-            # sync IO so it runs in an executor.
             model_filter = await self.hass.async_add_executor_job(sunspec_model_labels, models)
-            # Sorted list, not set - see comment in
-            # _show_settings_form for why this matters for the
-            # frontend's pre-selection logic.
+            # A sorted list, not a set: see _show_settings_form.
             default_enabled = sorted(str(m) for m in default_models_for(models))
             persisted = self.config_entry.options.get(CONF_ENABLED_MODELS, default_enabled)
             default_models = sorted(str(m) for m in persisted if int(m) in models)
-            # If the persisted selection is empty (e.g. corrupted by the
-            # v0.7.3 regression), pre-fill the multi-select with the
-            # defaults so the user doesn't have to start from scratch.
+            # An empty persisted selection is pre-filled with the
+            # defaults.
             if not default_models:
                 default_models = default_enabled
 
@@ -1078,8 +992,8 @@ class SunSpecOptionsFlowHandler(config_entries.OptionsFlow):
                     default=default_models,
                 ): _model_selector(model_filter),
             }
-            # The off/on cycle for a new export limit exists for a
-            # vendor that needs one, so the field only shows up there.
+            # Only a vendor that needs the off/on cycle for a new
+            # export limit gets the field.
             if vendor is not None and vendor.enable_edge:
                 advanced[probatio.Optional(CONF_REARM_ON_CHANGE, default=rearm_on_change)] = bool
             schema[probatio.Optional("advanced")] = section(
@@ -1128,12 +1042,11 @@ class SunSpecOptionsFlowHandler(config_entries.OptionsFlow):
             self.settings,
             redact_options(self.options),
         )
-        # Merge, do not replace. self.settings only ever holds what the host
-        # form asked for: host, port and unit id. A serial entry keeps its
-        # transport, serial_port, baudrate and parity in data and nowhere
-        # else, so writing settings as the whole of data turned it into a
-        # TCP entry aimed at a host that does not exist, and the user's only
-        # way back was deleting the entry and adding it again.
+        # The data is merged, not replaced. self.settings only holds what
+        # the host form asked for: host, port and unit id. A serial entry
+        # keeps its transport, serial_port, baudrate and parity in data and
+        # nowhere else, so writing settings as the whole of data would turn
+        # it into a TCP entry aimed at a host that does not exist.
         self.hass.config_entries.async_update_entry(
             self.config_entry,
             data={**self.config_entry.data, **self.settings},

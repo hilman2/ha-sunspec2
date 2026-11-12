@@ -1,31 +1,26 @@
 """Which SunSpec points become write entities, and what kind.
 
-v0.19.0. Before this the write platforms carried one hand-written class
-per point and covered six points of model 123.
+The list is curated on purpose. The bundled SunSpec definitions mark
+more than 1500 points in 67 models as RW, and exposing all of them
+would do harm:
 
-The tempting generalisation is "expose every RW point". The bundled
-SunSpec definitions contain 1586 of them across 67 models, and that
-number is the argument against it, not for it:
-
-* Models 707..710 are the over/under voltage and frequency trip curves,
-  and SunSpec marks them RW. They are type-approved equipment settings
-  under most grid codes (VDE-AR-N 4105 in Germany among them). Writing
-  there does not misconfigure an inverter, it disables the protection
-  that disconnects it from a faulted grid. Same class: ``AntiIslEna``
-  (islanding detection, which is what stops an inverter energising a
-  segment line workers believe is dead) and model 703's enter-service
-  envelope.
+* Models 707..710 are the over/under voltage and frequency trip curves.
+  They are type-approved equipment settings under most grid codes
+  (VDE-AR-N 4105 in Germany among them). A write there disables the
+  protection that disconnects the inverter from a faulted grid. The
+  same holds for ``AntiIslEna`` (islanding detection, which stops an
+  inverter from energising a line that workers believe is dead) and for
+  the enter-service envelope of model 703.
 * Model 121 reads like a settings model and is not one. ``VMax`` /
   ``VMin`` / ``ECPNomHz`` are protection limits, and ``WMax`` is the
-  reference every percentage in the device is measured against, so
-  changing it silently redefines every export limit ever written.
+  reference every percentage in the device is measured against, so a
+  change of ``WMax`` silently redefines every export limit ever written.
 * Models 126 and 129..142 are curves in repeating groups. A curve is
-  not a set of independent settings: writing one point without the
+  not a set of independent settings: one point written without the
   others produces a shape the device never agreed to.
 
-What is left is what people actually automate: cap the export, steer
-the battery. This module is the curated list for that, and it is a list
-rather than a rule because every entry deserved a decision.
+What is left is what people automate: cap the export, steer the
+battery. Every entry in this module is a decision of its own.
 """
 
 from __future__ import annotations
@@ -33,8 +28,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from dataclasses import field
 
-# Model ids that carry controls, in the order the selection logic
-# prefers them.
+# The model ids that carry controls.
 IMMEDIATE_CONTROLS_MODEL = 123
 DER_AC_CONTROLS_MODEL = 704
 STORAGE_CONTROL_MODEL = 124
@@ -46,17 +40,16 @@ WRITE_CAPABLE_MODELS: frozenset[int] = frozenset(
     {IMMEDIATE_CONTROLS_MODEL, DER_AC_CONTROLS_MODEL, STORAGE_CONTROL_MODEL}
 )
 
-# Upper bound for an export limit (WMaxLimPct), entity and action, in percent of
-# WMax. The SunSpec definition describes WMaxLimPct as a percentage of
-# WMax and the obvious reading is 0..100, but real firmware uses values
-# above 100 as a "no limit" sentinel: a KACO in #17 shipped with 110 and
-# the user could not restore it, because HA's number component rejects
-# an out-of-range service call and clamps the native value on top.
+# Upper bound for an export limit (WMaxLimPct), entity and action, in
+# percent of WMax. The obvious reading of the SunSpec definition is
+# 0..100, but real firmware uses values above 100 as a "no limit"
+# sentinel: a KACO in #17 ships with 110. With a bound of 100 the user
+# cannot restore that value, because HA's number component rejects an
+# out-of-range service call and clamps the native value.
 #
-# Flat headroom on purpose, NOT derived from the current value. A
-# ceiling that tracks what the device currently reports collapses back
-# to 100 the moment the user writes 50, which puts 110 out of reach
-# again - the exact bug, one write later.
+# The bound is flat and not derived from the current value. A ceiling
+# that follows what the device reports falls back to 100 as soon as the
+# user writes 50, and 110 is out of reach again.
 EXPORT_LIMIT_HARD_MAX_PCT = 200
 
 PLATFORM_NUMBER = "number"
@@ -66,7 +59,11 @@ PLATFORM_SELECT = "select"
 
 @dataclass(frozen=True)
 class WriteControlSpec:
-    """One control entity: which point, which platform, how to render it."""
+    """One control entity: which point, which platform, how to render it.
+
+    ``model_id`` and ``point_name`` are part of the entity's unique id
+    and must not change for a shipped control.
+    """
 
     model_id: int
     point_name: str
@@ -97,9 +94,8 @@ class WriteControlSpec:
 # --------------------------------------------------------------------------
 # Model 123, Immediate Controls
 #
-# The original beta. Kept whole rather than trimmed to the daily-use
-# points, because these entities have been shipping since v0.12.0 and
-# people have automations pointing at them.
+# All six points stay, also the ones outside daily use: installations
+# have automations on these entities.
 # --------------------------------------------------------------------------
 _MODEL_123: tuple[WriteControlSpec, ...] = (
     WriteControlSpec(
@@ -161,13 +157,12 @@ _MODEL_123: tuple[WriteControlSpec, ...] = (
 # --------------------------------------------------------------------------
 # Model 704, DER AC Controls
 #
-# The modern equivalent of 123, and better in two ways that matter.
-# On @tisoft's KACO in #17 it reports the truth when a limit has
-# lapsed (RvrtTmsRem counts down and the enable flag clears) while 123
-# on the same device still shows the limit as active. And it can take
-# an absolute setpoint in watts, which is what a zero-export control
-# loop actually wants: percent-of-nameplate needs the automation to
-# know the nameplate.
+# The successor of 123, and better in two ways. On the KACO of #17
+# model 704 reports a lapsed limit as lapsed (RvrtTmsRem counts down
+# and the enable flag clears), while model 123 on the same device
+# still shows the limit as active. And 704 takes an absolute setpoint
+# in watts, which is what a zero-export control loop wants: a percent
+# of the nameplate needs the automation to know the nameplate.
 # --------------------------------------------------------------------------
 _MODEL_704: tuple[WriteControlSpec, ...] = (
     WriteControlSpec(
@@ -193,7 +188,7 @@ _MODEL_704: tuple[WriteControlSpec, ...] = (
         translation_key="export_limit_revert_time",
         icon="mdi:timer-sand",
         native_min=0,
-        # uint32 here, unlike 123's uint16.
+        # The point is a uint32 here, a uint16 in model 123.
         native_max=4294967295,
         native_step=1,
         unit="s",
@@ -207,11 +202,11 @@ _MODEL_704: tuple[WriteControlSpec, ...] = (
         native_min=0,
         native_max=EXPORT_LIMIT_HARD_MAX_PCT,
         # The percentage the inverter falls back to when the revert
-        # timer expires. Setting it to the limit you just wrote makes
-        # the expiry a no-op, which is the alternative to disabling the
-        # timeout: the dead-man switch still fires, it just lands
-        # somewhere harmless. Model 123 has no equivalent, which is
-        # part of why 704 is preferred where both exist.
+        # timer expires. Set to the limit just written, it makes the
+        # expiry change nothing, which is the alternative to disabling
+        # the timeout: the dead-man switch still fires, but lands
+        # somewhere harmless. Model 123 has no such point, one more
+        # reason 704 is preferred where both exist.
         enabled_by_default=False,
     ),
     WriteControlSpec(
@@ -221,7 +216,8 @@ _MODEL_704: tuple[WriteControlSpec, ...] = (
         translation_key="export_limit_revert_enabled",
         icon="mdi:undo-variant",
         # Whether the limit stays enabled after the timer expires. With
-        # this on and the revert value set, a lapse changes nothing.
+        # this switch on and the revert value set, a lapse changes
+        # nothing.
         enabled_by_default=False,
     ),
     WriteControlSpec(
@@ -230,9 +226,9 @@ _MODEL_704: tuple[WriteControlSpec, ...] = (
         platform=PLATFORM_NUMBER,
         translation_key="active_power_setpoint",
         icon="mdi:flash",
-        # int32 watts. Negative means import on a device that supports
-        # it, so the range is not clamped at zero here; the inverter
-        # rejects or clamps what it will not do.
+        # The point is an int32 in watts. Negative means import on a
+        # device that supports it, so the range does not stop at zero.
+        # The inverter rejects or clamps what it will not do.
         native_min=-1000000,
         native_max=1000000,
         native_step=1,
@@ -262,12 +258,13 @@ _MODEL_704: tuple[WriteControlSpec, ...] = (
         platform=PLATFORM_SELECT,
         translation_key="active_power_setpoint_mode",
         icon="mdi:flash-outline",
-        # Decides whether WSet (watts) or WSetPct (percent) is the
-        # setpoint in force, so an absolute setpoint that appears to do
-        # nothing is usually this being on the wrong one.
-        # Lowercase because HA translation keys must match [a-z0-9-_]+.
-        # These are the SunSpec symbols W_MAX_PCT / WATTS folded down,
-        # and the select platform matches symbols case-insensitively.
+        # WSetMod decides whether WSet (watts) or WSetPct (percent) is
+        # the setpoint in force. An absolute setpoint that appears to do
+        # nothing usually means WSetMod is on the other one.
+        # The option names are the SunSpec symbols W_MAX_PCT / WATTS in
+        # lowercase, because HA translation keys must match
+        # [a-z0-9-_]+. The select maps the raw value to the option name
+        # and never sees the symbols.
         options={"w_max_pct": 0, "watts": 1},
         enabled_by_default=False,
     ),
@@ -276,10 +273,10 @@ _MODEL_704: tuple[WriteControlSpec, ...] = (
 # --------------------------------------------------------------------------
 # Model 124, Basic Storage Control
 #
-# Requested by @Newsbeyss2 in #32: charge the battery at something
-# other than full power. InWRte / OutWRte are the dynamic pair (rate as
-# a percentage, meant to be moved from an automation), WChaMax is the
-# ceiling they are a percentage of.
+# These controls charge and discharge the battery at something other
+# than full power (#32). InWRte / OutWRte are the dynamic pair (a rate
+# as a percentage, meant to be moved from an automation), and WChaMax
+# is the ceiling both are a percentage of.
 # --------------------------------------------------------------------------
 _MODEL_124: tuple[WriteControlSpec, ...] = (
     WriteControlSpec(
@@ -316,12 +313,13 @@ _MODEL_124: tuple[WriteControlSpec, ...] = (
         platform=PLATFORM_SELECT,
         translation_key="battery_control_mode",
         icon="mdi:battery-sync",
-        # A bitfield16, not an enum: bit 0 gates InWRte, bit 1 gates
-        # OutWRte. Exposed as one entity with the four combinations
-        # rather than as two switches on purpose. Two switches would
-        # each read their read-modify-write base from coordinator.data,
-        # which is at most one scan interval fresh, so flipping both in
-        # the same automation would silently clobber the first write.
+        # StorCtl_Mod is a bitfield16, not an enum: bit 0 gates InWRte,
+        # bit 1 gates OutWRte. It is one select with the four
+        # combinations and not two switches on purpose. Two switches
+        # would each take the base of their read-modify-write from
+        # coordinator.data, which can be one scan interval old, so an
+        # automation flipping both at once would silently overwrite the
+        # first write with the second.
         options={"off": 0, "charge": 1, "discharge": 2, "both": 3},
     ),
     WriteControlSpec(
@@ -343,8 +341,8 @@ _MODEL_124: tuple[WriteControlSpec, ...] = (
         icon="mdi:battery-lock",
         native_min=0,
         native_max=100,
-        # Set once for a backup reserve rather than automated, so it
-        # ships disabled and stays out of the way of the daily controls.
+        # A backup reserve is set once and not automated, so the
+        # entity starts disabled.
         enabled_by_default=False,
     ),
     WriteControlSpec(
@@ -353,10 +351,11 @@ _MODEL_124: tuple[WriteControlSpec, ...] = (
         platform=PLATFORM_SWITCH,
         translation_key="battery_grid_charging",
         icon="mdi:transmission-tower-import",
-        # An enum16, PV = 0 and GRID = 1: whether the battery may take
-        # energy from the grid at all. On Fronius it is AND-linked with
-        # the same setting in the inverter's web interface, so on alone
-        # does nothing there (docs/fronius.md).
+        # ChaGriSet is an enum16, PV = 0 and GRID = 1: whether the
+        # battery may take energy from the grid at all. On Fronius the
+        # point is AND-linked with the same setting in the inverter's
+        # web interface, so the switch alone does nothing there
+        # (docs/fronius.md).
         on_value=1,
         off_value=0,
     ),
@@ -377,18 +376,16 @@ def active_specs(
     """Return the controls to build for a device exposing these models.
 
     Model 704 wins over model 123 where a device has both, and 123 then
-    contributes nothing. Two "export limit" entities pointing at the
-    same physical setting is a support question with advance notice,
-    and on the one device we have evidence from they do not even agree:
-    @tisoft's KACO exposes both, and only 704 reports a lapsed limit
-    honestly.
+    contributes nothing. The storage controls of model 124 are added
+    whenever the model is present.
 
-    Storage control is orthogonal and is added whenever it is present.
-
-    ``unsupported`` holds the ``unique_key`` of controls the vendor
-    profile says the device does not implement; they are left out.
+    ``unsupported`` holds the ``unique_key`` of the controls the vendor
+    profile says the device does not implement. They are left out.
     """
     specs: list[WriteControlSpec] = []
+    # Only one of 704 and 123: two "export limit" entities for the same
+    # physical setting confuse, and on the KACO of #17, which serves
+    # both, they do not agree. Only 704 reports a lapsed limit as lapsed.
     if DER_AC_CONTROLS_MODEL in detected_models:
         specs.extend(_MODEL_704)
     elif IMMEDIATE_CONTROLS_MODEL in detected_models:
@@ -409,11 +406,7 @@ def active_specs_for_platform(
 
 
 def specs_for_model(model_id: int) -> tuple[WriteControlSpec, ...]:
-    """All specs defined for a model, regardless of what a device exposes.
-
-    Used by the sensor platform to keep a control point from also
-    becoming a read-only sensor that duplicates it.
-    """
+    """Return all specs defined for a model, whatever a device exposes."""
     return _SPECS_BY_MODEL.get(model_id, ())
 
 
@@ -422,11 +415,9 @@ def export_limit_points(
 ) -> tuple[int, str, str] | None:
     """Return ``(model_id, percent_point, enable_point)`` for the export limit.
 
-    The ``set_export_limit`` service action needs the same 704-over-123
-    choice the entities make. Without this it would keep writing model
-    123 while the Number entity showed model 704, so the service and the
-    UI would drive two different registers on a device that has both and
-    only agree by luck.
+    The ``set_export_limit`` action uses this function to make the same
+    704-over-123 choice as the entities, so the action and the Number
+    write the same register on a device that has both models.
 
     Returns ``None`` if the device exposes neither model.
     """

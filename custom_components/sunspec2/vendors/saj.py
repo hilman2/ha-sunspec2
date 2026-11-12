@@ -139,8 +139,9 @@ RAW_SENSORS: tuple[RawSensor, ...] = (
 
 def is_r6(model: str, option: str, version: str) -> bool:
     """Whether common model 1 names an R6 with two MPPT inputs."""
-    # T2 selects the two-input family, independently of its power rating
-    # and regional suffixes. Opt only says "R6" and cannot select it.
+    # "T2" in ``Md`` selects the two-input family, whatever the power
+    # rating and the regional suffix. ``Opt`` only says "R6" and cannot
+    # select the family.
     return re.fullmatch(r"R6-[1-9][0-9]*K-T2(?:-[A-Z0-9]+)*", model.strip().upper()) is not None
 
 

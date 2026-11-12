@@ -1,12 +1,11 @@
 """Diagnostics support for the SunSpec 2 integration.
 
-Implements the standard Home Assistant diagnostics platform hook.
-Users reach this via Settings -> Devices & Services -> SunSpec 2 ->
-three dots -> Download diagnostics. The resulting JSON is meant to be
-attached to GitHub issues.
+The JSON a user downloads under Settings -> Devices & Services ->
+SunSpec 2 -> three dots -> Download diagnostics, meant to be attached
+to GitHub issues.
 
-The host field is redacted because it is often a public IP. Port and
-unit_id are kept (they are non-sensitive and we need them to triage).
+The host is redacted because it is often a public IP. Port and unit id
+are not sensitive and stay, because triage needs them.
 """
 
 from __future__ import annotations
@@ -67,15 +66,11 @@ async def async_get_config_entry_diagnostics(
     return {
         "config": async_redact_data(dict(entry.data), TO_REDACT),
         "options": async_redact_data(dict(entry.options), TO_REDACT),
-        # #17: scanned_models below is built from coordinator.data,
-        # which is the FILTERED poll result. A model the inverter
-        # exposes but the user never ticked can therefore never show up
-        # there, which is exactly why a KACO Blueplanet that had been
-        # answering writes to registers 40295 and 40299 for two years
-        # appeared to have no model 123 at all.
-        #
-        # detected_models is the raw scan result and is the field to
-        # look at when the question is "does this device have model N".
+        # scanned_models below is built from coordinator.data, the
+        # filtered poll result, so a model the inverter exposes but the
+        # user never ticked cannot show up there (#17). detected_models
+        # is the raw scan result and answers "does this device have
+        # model N".
         "detected_models": sorted(getattr(coordinator, "detected_models", set()) or []),
         # Which vendor profile (vendors/) applied, so a report about a
         # battery mode can be matched to the recipe that wrote it.
@@ -94,17 +89,14 @@ async def async_get_config_entry_diagnostics(
         },
         "scanned_models": scanned_models,
         "latest_values": latest_values,
-        # #45: without this block a diagnostics download could not
-        # diagnose the plausibility filter at all. Models 120 / 121 are
-        # not in DEFAULT_MODELS, so WRtg / WMax normally never reach
-        # latest_values either, and when the peak power option is unset
-        # the ceiling that actually dropped the reading was invisible.
+        # The state of the plausibility filter (#45). Models 120 and 121
+        # are not in DEFAULT_MODELS, so WRtg and WMax normally do not
+        # reach latest_values, and with the peak power option unset the
+        # ceiling that dropped a reading shows nowhere else.
         "plausibility_filter": _plausibility_filter_dump(coordinator, entry),
         "recent_errors": _recent_errors_dump(coordinator),
         "consecutive_failures": dict(getattr(coordinator, "_consecutive_failures", {})),
-        # #52: whether the transport repair issue is currently allowed
-        # to fire at all. A dump taken from an install that "never warns
-        # about the dead inverter" is otherwise impossible to read: both
+        # Whether the transport repair issue may fire at all (#52). Both
         # inputs to that decision live only in memory.
         "standby": {
             "last_operating_state": getattr(coordinator, "_last_operating_state", None),
@@ -151,11 +143,10 @@ def _plausibility_filter_dump(
 ) -> dict[str, Any]:
     """State of the power plausibility filter, in the units it works in.
 
-    ``effective_peak_power_kw`` is the same function the sensor platform
-    calls, so this can never disagree with what actually happened to a
-    reading. ``per_quantity_ceiling_w`` is spelled out because the
-    headroom differs by physical quantity and "why is DC Watts unknown
-    but Watts fine" is exactly the question a bug report opens with.
+    ``effective_peak_power_kw`` is the function the sensor platform
+    calls, so the dump cannot disagree with what happened to a reading.
+    ``per_quantity_ceiling_w`` is spelled out because the headroom
+    differs by physical quantity.
     """
     configured = entry.options.get(CONF_MAX_AC_POWER_KW)
     detected = getattr(coordinator, "detected_max_ac_power_kw", None)

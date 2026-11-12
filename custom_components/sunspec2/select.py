@@ -1,18 +1,8 @@
 """Select platform for SunSpec write controls.
 
-New in v0.19.0, and it exists for one point in particular.
-
-``StorCtl_Mod`` (model 124) is a ``bitfield16``: bit 0 gates the charge
-rate, bit 1 gates the discharge rate. The obvious rendering is two
-switches, and it is wrong. Each switch would read its read-modify-write
-base out of ``coordinator.data``, which is at most one scan interval
-fresh, so an automation flipping both in the same second would send two
-writes computed from the same stale base and the second would silently
-clobber the first. One entity with the four combinations cannot do that
-to itself.
-
-``WSetMod`` (model 704) is a genuine multi-value enum and lands here for
-the ordinary reason.
+The generic selects are ``StorCtl_Mod`` (model 124) and ``WSetMod``
+(model 704). ``StorCtl_Mod`` is a ``bitfield16`` and still one select:
+the reason is at its spec in :mod:`write_controls`.
 """
 
 from __future__ import annotations
@@ -112,7 +102,7 @@ class SunSpecWriteSelect(SunSpecEntity, SelectEntity):
 
     @property
     def _point_name(self) -> str:
-        """The SunSpec point this entity writes. Read by the tests."""
+        """Return the SunSpec point this entity writes. Read by the tests."""
         return self._spec.point_name
 
     @property
@@ -132,8 +122,8 @@ class SunSpecWriteSelect(SunSpecEntity, SelectEntity):
         if option not in self._spec.options:
             raise user_error("invalid_option", option=option, target=self._point_name)
         raw_value = self._spec.options[option]
-        # Routed through the coordinator so the write holds the
-        # per-gateway lock. See number.py's module docstring.
+        # The write goes through the coordinator and so holds the
+        # per-gateway lock. See the module docstring of number.py.
         try:
             await self.coordinator.async_write_points_locked(
                 self._spec.model_id, [(self._spec.point_name, raw_value)]
@@ -142,6 +132,6 @@ class SunSpecWriteSelect(SunSpecEntity, SelectEntity):
             raise user_error(
                 "write_failed", target=f"{self._point_name}={raw_value}", error=exc
             ) from exc
-        # Outside the lock: the refresh debouncer runs inline and
-        # asyncio.Lock is not reentrant.
+        # The refresh is requested outside the lock: the refresh
+        # debouncer runs inline and asyncio.Lock is not reentrant.
         await self.coordinator.async_request_refresh()

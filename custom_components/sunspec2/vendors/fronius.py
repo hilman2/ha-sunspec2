@@ -3,8 +3,8 @@
 Sources: the Fronius GEN24 Modbus TCP and RTU operating instructions,
 section "Basic Storage Control Model (124)"
 (https://manuals.fronius.com/html/4204102649/en-US.html), and the
-callifo/fronius_modbus integration, whose users have driven these
-register sequences for a year.
+callifo/fronius_modbus integration, whose users drive these register
+sequences.
 
 What the manual says, in short. Every rate is a percentage of
 ``WChaMax``, which the inverter reports as max(MaxChaRte, MaxDisChaRte)
@@ -22,13 +22,13 @@ keeps back, and setting it switches Solar.web to "Energy-saving mode".
 Modbus commands lose against IO control and dynamic power reduction
 when those have priority in the inverter's settings.
 
-What the manual does not say and the fork learned: the grid charge
-power should be a multiple of 10 W (any other value "does odd things
-like charging at 500 W" per its README), firmware 1.39.5 capped grid
-charging around 500 W for some (callifo/fronius_modbus#87), and writing
-the mode register before the rates can hand the inverter a window it
-refuses with Modbus exception 3 (callifo/fronius_modbus#126). The rates
-therefore go out first, in one frame, and the mode last.
+What the manual does not say and callifo/fronius_modbus learned: the
+grid charge power should be a multiple of 10 W (any other value "does
+odd things like charging at 500 W" per its README), firmware 1.39.5
+capped grid charging around 500 W for some (callifo/fronius_modbus#87),
+and writing the mode register before the rates can hand the inverter a
+window it refuses with Modbus exception 3 (callifo/fronius_modbus#126).
+The rates therefore go out first, in one frame, and the mode last.
 """
 
 from __future__ import annotations
@@ -40,10 +40,10 @@ from .profile import StorageMode
 from .profile import StorageModeProfile
 from .profile import VendorProfile
 
-# One row per mode, straight from the manual's examples: example 1 is
-# BLOCK_CHARGING's mirror image (discharge only), example 7 is
-# CHARGE_FROM_GRID. The fork offers the same eight, which is what its
-# users' automations are written against.
+# One row per mode, taken from the manual's examples: example 1 is the
+# mirror image of BLOCK_CHARGING (discharge only), example 7 is
+# CHARGE_FROM_GRID. callifo/fronius_modbus offers the same eight modes,
+# and its users' automations are written against them.
 RECIPES: dict[StorageMode, Recipe] = {
     StorageMode.AUTO: Recipe(0, Rate.FULL, Rate.FULL),
     StorageMode.PV_CHARGE_LIMIT: Recipe(1, Rate.CHARGE_LIMIT, Rate.FULL),
@@ -57,12 +57,11 @@ RECIPES: dict[StorageMode, Recipe] = {
 
 
 def infer_mode(ctl_mod: int, in_pct: float, out_pct: float) -> StorageMode | None:
-    """The mode the inverter is in, read back from the registers.
-
-    Read back rather than remembered: callifo/fronius_modbus#127 is an
-    inverter that stayed in a forced charge while the entity reported
-    "Auto", because the entity had cached its own request.
-    """
+    """The mode the inverter is in, read back from the registers."""
+    # The mode is read back rather than remembered:
+    # callifo/fronius_modbus#127 is an inverter that stayed in a forced
+    # charge while the entity reported "Auto", because the entity had
+    # cached its own request.
     charge_capped = bool(ctl_mod & 1)
     discharge_capped = bool(ctl_mod & 2)
     if not charge_capped and not discharge_capped:
@@ -89,7 +88,7 @@ def module_role(id_str: str, model: str) -> ModuleRole | None:
     are the battery, as two channels: the charge channel carries power
     while the battery takes energy, the discharge channel while it gives
     energy, and each keeps its own lifetime counter in ``DCWH``. The
-    labels are what the community integration keys on; the manual lists
+    labels are what callifo/fronius_modbus keys on; the manual lists
     the modules without naming them. Every GEN24 labels alike, so
     ``model`` is not looked at; the Datamanager generation needs it.
     """
@@ -110,7 +109,7 @@ FRONIUS = VendorProfile(
     # A GEN24 on firmware 1.41 takes a new export limit only when its
     # enable register goes from 0 to 1; with the enable on, the new
     # value sits in the register and the inverter runs on the old one
-    # (#17). The community integration cycles the enable around every
+    # (#17). callifo/fronius_modbus cycles the enable around every
     # write; here the cycle is behind CONF_REARM_ON_CHANGE.
     enable_edge={(123, "WMaxLimPct"): "WMaxLim_Ena", (123, "OutPFSet"): "OutPFSet_Ena"},
     # The web interface's local login, for what Modbus does not carry.
@@ -120,9 +119,9 @@ FRONIUS = VendorProfile(
         recipes=RECIPES,
         infer_mode=infer_mode,
         grid_power_step_w=10.0,
-        # The generic percent entities for the same three registers.
-        # Two entities writing one register in different units would
-        # disagree the moment either is used.
+        # These are the generic percent entities for the same three
+        # registers. Two entities writing one register in different
+        # units would disagree the moment either is used.
         hidden_points=frozenset({"124:InWRte", "124:OutWRte", "124:StorCtl_Mod"}),
     ),
 )
