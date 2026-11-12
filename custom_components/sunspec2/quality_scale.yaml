@@ -76,12 +76,9 @@ rules:
   has-entity-name:
     status: done
     comment: |
-      SunSpecEntity sets _attr_has_entity_name = True (since v0.8.1).
-      The per-entity name carries only the point label (e.g. "Watts",
-      "DC Voltage") and the device name supplies the make-and-model
-      prefix from common model 1's Md field (e.g. "Powador 7.8 TL3"),
-      so the user sees "Powador 7.8 TL3 Watts" composed by HA without
-      hand-rolled prefix concatenation.
+      SunSpecEntity sets _attr_has_entity_name. An entity names only
+      itself ("AC power"); the device name, built from the Md field of
+      common model 1 and the model label, goes in front.
   runtime-data:
     status: done
     comment: |
@@ -315,16 +312,14 @@ rules:
   entity-translations:
     status: done
     comment: |
-      sensor.py sets _attr_translation_key for every well-known
-      SunSpec point key (W, A, V, Hz, DCA, DCV, DCW, WH,
-      temperatures, state enums, event bitfields, nameplate
-      registers). The matching ``entity.sensor.<slug>`` entries
-      live in translations/en.json and translations/de.json.
-      Repeating-group entries (e.g. mppt module 0 / 1) keep their
-      hand-rolled name with the index because translation_key plus
-      a dynamic index makes the UI confusing. Long-tail
-      vendor-specific points fall back to the SunSpec spec label
-      from pysunspec2, which is already English.
+      Every entity the integration defines itself has a translation
+      key, with its name in translations/en.json and de.json. The
+      generic SunSpec sensors do for the points in
+      SUNSPEC_POINT_TRANSLATION_KEYS (sensor.py), in the models where
+      the point means what the translation says. Any other SunSpec
+      point is named by the label of its model definition, which
+      exists in English only, and a point in a repeating group keeps
+      that label with its index.
   exception-translations:
     status: done
     comment: |

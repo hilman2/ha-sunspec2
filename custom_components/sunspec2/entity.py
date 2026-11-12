@@ -27,12 +27,8 @@ def get_sunspec_unique_id(config_entry_id: str, key: str, model_id: int, model_i
 
 
 class SunSpecEntity(CoordinatorEntity[SunSpecDataUpdateCoordinator]):
-    # Bronze rule has-entity-name: the per-entity ``name`` property
-    # carries only the point label (e.g. "Watts", "DC Voltage") and
-    # the device name supplies the make-and-model prefix
-    # (e.g. "Powador 7.8 TL3"). Home Assistant composes the two for
-    # display, so the user sees "Powador 7.8 TL3 Watts" in the UI
-    # without us hand-rolling the prefix in every sensor name.
+    # An entity names only itself ("AC power"). Home Assistant puts the
+    # device name in front ("Powador 7.8 TL3 Inverter (Three Phase)").
     _attr_has_entity_name = True
 
     def __init__(

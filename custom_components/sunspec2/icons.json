@@ -45,7 +45,7 @@
       "rated_power": {"default": "mdi:gauge"},
       "rated_apparent_power": {"default": "mdi:gauge"},
       "rated_current": {"default": "mdi:gauge"},
-      "rated_lifetime_energy": {"default": "mdi:gauge"},
+      "rated_storage_capacity": {"default": "mdi:gauge"},
       "max_power_setting": {"default": "mdi:tune-variant"},
       "voltage_reference": {"default": "mdi:tune-variant"}
     }

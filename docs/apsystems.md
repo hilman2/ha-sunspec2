@@ -105,7 +105,7 @@ automation:
   - alias: "Restart the APsystems ECU when it stops answering"
     triggers:
       - trigger: state
-        entity_id: sensor.ecu_inverter_single_phase_watts
+        entity_id: sensor.ecu_inverter_single_phase_ac_power
         to: unavailable
         for: "00:45:00"
     actions:

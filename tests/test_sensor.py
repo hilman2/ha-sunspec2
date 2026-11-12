@@ -1,5 +1,8 @@
 """Test SunSpec sensor."""
 
+import json
+from collections import Counter
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
@@ -13,6 +16,7 @@ from homeassistant.const import UnitOfReactiveEnergy
 from homeassistant.const import UnitOfReactivePower
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import device_registry as dr
+from homeassistant.helpers import entity_registry as er
 
 from custom_components.sunspec2.const import CONF_ENABLED_MODELS
 from custom_components.sunspec2.const import CONF_MAX_AC_POWER_KW
@@ -21,6 +25,7 @@ from custom_components.sunspec2.const import IMPLAUSIBLE_LOG_EVERY
 from custom_components.sunspec2.const import measured_power_headroom
 from custom_components.sunspec2.sensor import HA_META
 from custom_components.sunspec2.sensor import ICON_DC_AMPS
+from custom_components.sunspec2.sensor import SUNSPEC_POINT_TRANSLATION_KEYS
 from custom_components.sunspec2.sensor import SunSpecEnergySensor
 from custom_components.sunspec2.sensor import SunSpecSensor
 from custom_components.sunspec2.sensor import _power_limit_in_native_unit
@@ -1045,3 +1050,41 @@ async def test_stored_energy_is_not_held_like_a_lifetime_counter(
 
     entry.runtime_data.data[713].getPoint("WHAvail").value = 18552
     assert avail.native_value == 18552
+
+
+@pytest.mark.parametrize(
+    "client_mock",
+    [
+        "sunspec_client_mock",
+        "sunspec_storage_capacity_client_mock",
+        "sunspec_write_client_mock",
+        "sunspec_fronius_client_mock",
+        "sunspec_symo_hybrid_client_mock",
+        "sunspec_solaredge_client_mock",
+        "sunspec_kostal_client_mock",
+        "sunspec_sma_client_mock",
+        "sunspec_apsystems_client_mock",
+        "sunspec_saj_client_mock",
+    ],
+)
+async def test_no_two_entities_of_a_device_share_a_name(hass, request, client_mock):
+    """Home Assistant tells namesakes apart with a ``_2`` on the entity id and nothing else."""
+    request.getfixturevalue(client_mock)
+    entry = await setup_mock_sunspec_config_entry(hass)
+
+    entities = er.async_entries_for_config_entry(er.async_get(hass), entry.entry_id)
+    names = Counter((entity.device_id, entity.domain, entity.original_name) for entity in entities)
+
+    assert [name for name, count in names.items() if count > 1] == []
+
+
+@pytest.mark.parametrize("language", ["en", "de"])
+def test_every_translated_point_has_its_name_and_icon(language):
+    """Without the name Home Assistant falls back to the device class: four sensors "Current"."""
+    component = Path(__file__).parent.parent / "custom_components" / "sunspec2"
+    names = json.loads((component / "translations" / f"{language}.json").read_text("utf-8"))
+    icons = json.loads((component / "icons.json").read_text("utf-8"))
+    slugs = set(SUNSPEC_POINT_TRANSLATION_KEYS.values())
+
+    assert slugs <= names["entity"]["sensor"].keys()
+    assert slugs <= icons["entity"]["sensor"].keys()

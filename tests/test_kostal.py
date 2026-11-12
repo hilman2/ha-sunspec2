@@ -9,6 +9,7 @@ from typing import cast
 from homeassistant.helpers import device_registry as dr
 from pytest_homeassistant_custom_component.common import async_fire_time_changed
 
+from custom_components.sunspec2.const import CONF_ENABLED_MODELS
 from custom_components.sunspec2.const import DOMAIN
 from custom_components.sunspec2.const import default_models_for
 from custom_components.sunspec2.entity import get_sunspec_unique_id
@@ -27,6 +28,7 @@ from custom_components.sunspec2.vendors.profile import RawField
 
 from . import create_mock_sunspec_config_entry
 from . import setup_mock_sunspec_config_entry
+from .const import MOCK_CONFIG
 from .kostal_registers import at
 from .kostal_registers import f32
 from .kostal_registers import plenticore_registers
@@ -353,3 +355,17 @@ async def test_the_held_limits_are_written_again_before_the_inverter_falls_back(
 
     written = registers_written(sunspec_kostal_client_mock, 1280, 2)
     assert decode_field(RawField("held", 0, "float32"), written, "little") == 0.0
+
+
+async def test_a_point_is_named_for_what_it_means_in_its_model(hass, sunspec_kostal_client_mock):
+    """``W`` is the AC power of the inverter and the total power of the battery."""
+    entry = create_mock_sunspec_config_entry(
+        hass, data={**MOCK_CONFIG, CONF_ENABLED_MODELS: [103, 802]}
+    )
+    await setup_mock_sunspec_config_entry(hass, config_entry=entry)
+    sensors = hass.data["entity_components"]["sensor"].entities
+    names = {
+        sensor.model_id: sensor.name for sensor in sensors if getattr(sensor, "key", "") == "W"
+    }
+
+    assert names == {103: "AC power", 802: "Total Power"}

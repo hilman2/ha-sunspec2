@@ -60,19 +60,12 @@ PARALLEL_UPDATES = 0
 
 _LOGGER: logging.Logger = logging.getLogger(__package__)
 
-# Gold rule entity-translations: curated map of common SunSpec point
-# keys to ``translation_key`` slugs. The matching entries live under
-# ``entity.sensor.<slug>`` in translations/en.json and translations/
-# de.json. Points NOT in this map fall back to the per-entity name
-# the SunSpec model definition supplies via pysunspec2 - that name
-# is already a human-readable English string from the SunSpec spec
-# itself, so the field is never empty even for the long tail of
-# vendor-specific or rarely-used points.
+# The points with a translated name: SunSpec point name to the key under
+# ``entity.sensor`` in translations/*.json. Any other point is named by
+# the label of its SunSpec model definition, which is English.
 #
-# Entries in repeating groups (e.g. mppt module 0 / 1) deliberately
-# keep their hand-rolled name with the index in front instead of a
-# translation_key, because translation_key + repeating index +
-# device-name composition becomes confusing fast.
+# A point in a repeating group (``module:0:DCA``) keeps the label with
+# its index in front; a translation has no place for the index.
 SUNSPEC_POINT_TRANSLATION_KEYS: dict[str, str] = {
     # Inverter common (model 101 / 102 / 103)
     "A": "amps",
@@ -110,11 +103,22 @@ SUNSPEC_POINT_TRANSLATION_KEYS: dict[str, str] = {
     "WRtg": "rated_power",
     "VARtg": "rated_apparent_power",
     "ARtg": "rated_current",
-    "WHRtg": "rated_lifetime_energy",
+    "WHRtg": "rated_storage_capacity",
     # Inverter Settings (model 121)
     "WMax": "max_power_setting",
     "VRef": "voltage_reference",
 }
+
+# The models in which the points above mean what their translation says:
+# inverters, nameplate and settings, meters, string combiners and the
+# DER models. Elsewhere the same name is another quantity, ``A`` a DC
+# current in the battery model 802 and ``VA`` a voltage in 64411, so a
+# sensor of another model keeps the label of its own definition.
+TRANSLATED_NAME_MODELS = frozenset(
+    {101, 102, 103, 111, 112, 113, 120, 121}
+    | {201, 202, 203, 204, 211, 212, 213, 214, 220}
+    | {401, 402, 403, 404, 701, 702, 714}
+)
 
 ICON_DEFAULT = "mdi:information-outline"
 ICON_AC_AMPS = "mdi:current-ac"
@@ -496,19 +500,12 @@ class SunSpecSensor(SunSpecEntity, SensorEntity):
         # Drives the log throttle and the "back inside the ceiling"
         # recovery line; see the filter branch in native_value.
         self._implausible_rejections = 0
-        # has_entity_name = True (set on the SunSpecEntity base class)
-        # means HA composes the device name in front of the entity
-        # name automatically, so the name property here only carries
-        # the per-entity bit. The user sees
-        # "<device name from Md> <label>" in the UI - e.g.
-        # "Powador 7.8 TL3 Watts" instead of the old hand-rolled
-        # "Inverter Three Phase Watts".
-        #
-        # Repeating-group entries (model 160 mppt module 0/1, etc.)
-        # still need an index in the name to disambiguate. The user
-        # prefix from CONF_PREFIX is NOT included here - it lives on
-        # the device name instead (see SunSpecEntity.device_info) so
-        # multi-inverter setups disambiguate at the device level.
+        # The name for a point without a translation: the label of
+        # the SunSpec model definition, with the group and index in
+        # front for a point in a repeating group ("Module 0 DC Amps")
+        # and the model index for a second model of the same id. The
+        # user's prefix is not part of it. The prefix is on the device
+        # name, see SunSpecEntity.device_info.
         desc = self._meta.get("label", self.key)
         if self.unit == UnitOfElectricCurrent.AMPERE and "DC" in desc:
             self.use_icon = ICON_DC_AMPS
@@ -525,21 +522,18 @@ class SunSpecSensor(SunSpecEntity, SensorEntity):
         name_parts.append(desc)
         self._name = " ".join(name_parts)
 
-        # Gold rule entity-translations: set translation_key for the
-        # common SunSpec point keys we have curated translations for.
-        # Repeating-group entries (key contains ":") deliberately keep
-        # the hand-rolled name with the index because translation_key
-        # plus a dynamic index plus device-name composition gets
-        # confusing in the UI. Points without a curated translation
-        # fall back to ``_attr_name`` (the SunSpec spec label, which
-        # is already English).
+        # The translation key also picks the icon (icons.json), so a
+        # point gets it in every model. Whether it also names the sensor
+        # depends on the model, see TRANSLATED_NAME_MODELS.
+        self._name_is_translated = False
         if ":" not in self.key:
-            translation_key = SUNSPEC_POINT_TRANSLATION_KEYS.get(self.key)
             vendor = coordinator.vendor
             if vendor is not None and self.key in vendor.daily_energy_points:
-                translation_key = "daily_energy"
-            if translation_key:
+                self._attr_translation_key = "daily_energy"
+                self._name_is_translated = True
+            elif (translation_key := SUNSPEC_POINT_TRANSLATION_KEYS.get(self.key)) is not None:
                 self._attr_translation_key = translation_key
+                self._name_is_translated = self.model_id in TRANSLATED_NAME_MODELS
 
         # Gold rule entity-category: temperatures, state enums and
         # event bitfields are diagnostic information, not the primary
@@ -617,16 +611,15 @@ class SunSpecSensor(SunSpecEntity, SensorEntity):
 
     @property
     def name(self) -> str:
-        """Return the name of the sensor."""
-        if self.translation_key == "daily_energy":
-            # The vendor's daily counter needs its translated meaning in the
-            # UI. Keep the other point labels and indexed names as before.
-            translated = super().name
-            if isinstance(translated, str):
-                if self.model_index > 0:
-                    return f"{self.model_index} {translated}"
-                return translated
-        return self._name
+        """The translated name where the point has one, else its SunSpec label.
+
+        A second model with the same id keeps its index in front of
+        either name.
+        """
+        translated = super().name if self._name_is_translated else None
+        if not isinstance(translated, str):
+            return self._name
+        return f"{self.model_index} {translated}" if self.model_index > 0 else translated
 
     @property
     def unique_id(self) -> str:
