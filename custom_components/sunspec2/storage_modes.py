@@ -25,12 +25,12 @@ from homeassistant.components.select import SelectEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import EntityCategory
 from homeassistant.const import UnitOfPower
-from homeassistant.exceptions import HomeAssistantError
 
-from . import SunSpecDataUpdateCoordinator
-from . import get_sunspec_unique_id
+from .coordinator import SunSpecDataUpdateCoordinator
 from .entity import SunSpecEntity
+from .entity import get_sunspec_unique_id
 from .errors import SunSpecError
+from .errors import user_error
 from .models import SunSpecModelWrapper
 from .vendors.profile import POINT_OF_RATE
 from .vendors.profile import SETPOINT_RATES
@@ -138,11 +138,11 @@ class StorageModeSelect(SunSpecEntity, SelectEntity):
             mode = StorageMode(option)
             self._profile.recipes[mode]
         except (ValueError, KeyError) as exc:
-            raise HomeAssistantError(f"{option} is not a battery mode this device offers") from exc
+            raise user_error("invalid_option", option=option, target="StorCtl_Mod") from exc
         try:
             await async_apply_storage_mode(self.coordinator, self._profile, mode)
         except SunSpecError as exc:
-            raise HomeAssistantError(f"Failed to set battery mode {option}: {exc}") from exc
+            raise user_error("battery_mode_failed", mode=option, error=exc) from exc
 
 
 async def async_apply_storage_mode(
@@ -160,7 +160,7 @@ async def async_apply_storage_mode(
     wrapper = coordinator.data.get(STORAGE_CONTROL_MODEL)
     wchamax = wchamax_of(wrapper) if wrapper is not None else None
     if wchamax is None:
-        raise HomeAssistantError("The inverter reports no battery (WChaMax is 0)")
+        raise user_error("no_battery")
     setpoints = coordinator.storage_setpoints
     in_pct = resolve_rate(recipe.in_rate, setpoints, wchamax)
     out_pct = resolve_rate(recipe.out_rate, setpoints, wchamax)
@@ -294,7 +294,7 @@ class StorageSetpointNumber(SunSpecEntity, RestoreNumber):
         try:
             await self.coordinator.async_write_points_locked(STORAGE_CONTROL_MODEL, [(point, pct)])
         except SunSpecError as exc:
-            raise HomeAssistantError(f"Failed to write {point}={pct}: {exc}") from exc
+            raise user_error("write_failed", target=f"{point}={pct}", error=exc) from exc
         await self.coordinator.async_request_refresh()
 
 

@@ -17,14 +17,14 @@ import pytest
 from homeassistant.util import dt as dt_util
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from custom_components.sunspec2 import SunSpecDataUpdateCoordinator
 from custom_components.sunspec2 import connection as connection_module
-from custom_components.sunspec2 import gateway_rest_until
 from custom_components.sunspec2.api import SunSpecApiClient
 from custom_components.sunspec2.api import is_unanswered
 from custom_components.sunspec2.connection import SharedConnection
 from custom_components.sunspec2.const import CONF_UNIT_ID
 from custom_components.sunspec2.const import DOMAIN
+from custom_components.sunspec2.coordinator import SunSpecDataUpdateCoordinator
+from custom_components.sunspec2.coordinator import gateway_rest_until
 from custom_components.sunspec2.errors import TransientError
 from custom_components.sunspec2.errors import TransportError
 from custom_components.sunspec2.pysunspec2.modbus.modbus import ModbusClientTimeout
@@ -75,7 +75,7 @@ def test_the_rest_ends_a_minute_into_the_next_round(now, until):
 async def test_an_unanswered_request_rests_the_gateway_instead_of_retrying(
     hass, sunspec_apsystems_client_mock, freezer, monkeypatch
 ):
-    monkeypatch.setattr("custom_components.sunspec2.INTERVAL_RETRY_DELAY_SECONDS", 0)
+    monkeypatch.setattr("custom_components.sunspec2.coordinator.INTERVAL_RETRY_DELAY_SECONDS", 0)
     freezer.move_to(NOW)
     entry = await _ecu_entry(hass)
     coordinator = entry.runtime_data
@@ -103,7 +103,7 @@ async def test_an_unanswered_request_rests_the_gateway_instead_of_retrying(
 async def test_the_rest_holds_every_entry_behind_the_gateway(
     hass, sunspec_apsystems_client_mock, freezer, monkeypatch
 ):
-    monkeypatch.setattr("custom_components.sunspec2.INTERVAL_RETRY_DELAY_SECONDS", 0)
+    monkeypatch.setattr("custom_components.sunspec2.coordinator.INTERVAL_RETRY_DELAY_SECONDS", 0)
     freezer.move_to(NOW)
     first = await _ecu_entry(hass)
     second_entry = MockConfigEntry(
@@ -124,7 +124,7 @@ async def test_the_rest_holds_every_entry_behind_the_gateway(
 async def test_a_device_without_rounds_still_retries_an_unanswered_request(
     hass, sunspec_client_mock, monkeypatch
 ):
-    monkeypatch.setattr("custom_components.sunspec2.INTERVAL_RETRY_DELAY_SECONDS", 0)
+    monkeypatch.setattr("custom_components.sunspec2.coordinator.INTERVAL_RETRY_DELAY_SECONDS", 0)
     entry = await setup_mock_sunspec_config_entry(hass, MOCK_CONFIG_PREFIX)
     coordinator = entry.runtime_data
 
@@ -139,7 +139,7 @@ async def test_a_refused_connection_does_not_rest_the_gateway(
     hass, sunspec_apsystems_client_mock, monkeypatch
 ):
     """Only a request that went out and got no answer keeps the ECU busy."""
-    monkeypatch.setattr("custom_components.sunspec2.INTERVAL_RETRY_DELAY_SECONDS", 0)
+    monkeypatch.setattr("custom_components.sunspec2.coordinator.INTERVAL_RETRY_DELAY_SECONDS", 0)
     entry = await _ecu_entry(hass)
     coordinator = entry.runtime_data
 
@@ -239,7 +239,7 @@ def test_a_timeout_anywhere_in_the_chain_is_unanswered():
 async def test_a_rest_that_starts_during_the_retry_wait_stops_the_retry(
     hass, sunspec_apsystems_client_mock, monkeypatch
 ):
-    monkeypatch.setattr("custom_components.sunspec2.INTERVAL_RETRY_DELAY_SECONDS", 0)
+    monkeypatch.setattr("custom_components.sunspec2.coordinator.INTERVAL_RETRY_DELAY_SECONDS", 0)
     entry = await _ecu_entry(hass)
     coordinator = entry.runtime_data
 

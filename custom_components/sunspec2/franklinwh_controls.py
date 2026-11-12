@@ -19,16 +19,16 @@ from homeassistant.components.sensor import SensorDeviceClass
 from homeassistant.components.sensor import SensorEntity
 from homeassistant.components.sensor import SensorStateClass
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.device_registry import DeviceInfo
 
-from . import SunSpecDataUpdateCoordinator
-from . import get_sunspec_unique_id
+from .coordinator import SunSpecDataUpdateCoordinator
 from .entity import Home
 from .entity import SunSpecEntity
+from .entity import get_sunspec_unique_id
 from .entity import home_for
 from .errors import DeviceError
 from .errors import SunSpecError
+from .errors import user_error
 from .models import SunSpecModelWrapper
 from .vendor_blocks import raw_device_info
 from .vendors.franklinwh import AC_CAPACITY_MODEL
@@ -129,9 +129,9 @@ async def async_set_power(coordinator: SunSpecDataUpdateCoordinator, watts: floa
     ratings, a write fails, or the settings do not read back correctly.
     """
     if not _ready(coordinator, CONTROL_MODEL):
-        raise HomeAssistantError("FranklinWH battery controls are not available")
+        raise user_error("franklinwh_unavailable")
     if watts is not None and _number(watts) is None:
-        raise HomeAssistantError("Battery power must be a finite number")
+        raise user_error("power_not_finite")
     try:
         async with coordinator.async_write_transaction():
             controls = await coordinator.api.async_get_data(CONTROL_MODEL)
@@ -187,7 +187,7 @@ async def async_set_power(coordinator: SunSpecDataUpdateCoordinator, watts: floa
             if not applied:
                 raise DeviceError("The aGate acknowledged the command but its readback differs")
     except SunSpecError as exc:
-        raise HomeAssistantError(f"FranklinWH battery command failed: {exc}") from exc
+        raise user_error("franklinwh_failed", error=exc) from exc
     # Publish the verified control block without waiting for an unrelated
     # full poll. The other models and failure counters retain their age.
     if coordinator.data is not None:

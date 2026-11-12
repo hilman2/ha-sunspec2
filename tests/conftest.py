@@ -388,7 +388,7 @@ def clear_gateway_locks():
     never touches its loop reference, so this only bites when two tests
     actually contend the same key - which the write tests do.
     """
-    from custom_components.sunspec2 import SunSpecDataUpdateCoordinator
+    from custom_components.sunspec2.coordinator import SunSpecDataUpdateCoordinator
 
     SunSpecDataUpdateCoordinator._GATEWAY_LOCKS.clear()
     # The gateway rests are class-level too, and one left over would skip

@@ -312,7 +312,7 @@ The full read pipeline lives under `custom_components/sunspec2/`:
   no periodic rescan. Translates
   pysunspec2 exceptions to the typed `errors.py` hierarchy at the
   boundary.
-- **`__init__.py`** (`SunSpecDataUpdateCoordinator`): the polling brain.
+- **`coordinator.py`** (`SunSpecDataUpdateCoordinator`): the polling brain.
   Holds a per-`(host, port)` class-level `asyncio.Lock` that keeps a
   whole read cycle or write sequence in one piece when several entries
   sit behind one gateway (KACO Powador and SolarEdge only allow one
@@ -327,6 +327,12 @@ The full read pipeline lives under `custom_components/sunspec2/`:
   reader outside Home Assistant goes behind a Modbus proxy. The
   session is torn down with `close(force=True)` by
   `_after_failed_cycle` on the failure path.
+- **`__init__.py`**: setup, unload and removal of a config entry, and
+  nothing else. `services.py` holds the two actions
+  (`set_export_limit`, `set_battery_plan`), registered once in
+  `async_setup`. A message the user sees is raised with
+  `errors.user_error(key, ...)` and worded under `exceptions` in
+  `translations/*.json`.
 - **`models.py`** (`SunSpecModelWrapper`): facade over a list of
   pysunspec2 model instances. Flattens repeating-group points into a
   `group:idx:point` key namespace.

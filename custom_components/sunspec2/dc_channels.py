@@ -30,10 +30,10 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import UnitOfPower
 from homeassistant.helpers.entity import Entity
 
-from . import SunSpecDataUpdateCoordinator
-from . import get_sunspec_unique_id
 from .const import DOMAIN
+from .coordinator import SunSpecDataUpdateCoordinator
 from .entity import SunSpecEntity
+from .entity import get_sunspec_unique_id
 from .models import SunSpecModelWrapper
 from .sensor import SunSpecEnergySensor
 from .sensor import SunSpecSensor

@@ -10,11 +10,11 @@ from unittest.mock import patch
 import pytest
 import voluptuous as vol
 
-from custom_components.sunspec2 import get_sunspec_unique_id
 from custom_components.sunspec2.const import CONF_REARM_ON_CHANGE
 from custom_components.sunspec2.dc_channels import BatteryDirectionSensor
 from custom_components.sunspec2.dc_channels import DcChannelSensor
 from custom_components.sunspec2.dc_channels import PvPowerSensor
+from custom_components.sunspec2.entity import get_sunspec_unique_id
 from custom_components.sunspec2.storage_modes import StorageModeSelect
 from custom_components.sunspec2.storage_modes import StorageSetpointNumber
 from custom_components.sunspec2.vendors import profile_for

@@ -17,12 +17,12 @@ from homeassistant.helpers.service_info.dhcp import DhcpServiceInfo
 from pytest_homeassistant_custom_component.common import async_capture_events
 from pytest_homeassistant_custom_component.common import async_fire_time_changed
 
-from custom_components.sunspec2 import get_sunspec_unique_id
 from custom_components.sunspec2.api import SunSpecApiClient
 from custom_components.sunspec2.const import CONF_HOST
 from custom_components.sunspec2.const import CONF_PORT
 from custom_components.sunspec2.const import CONF_UNIT_ID
 from custom_components.sunspec2.const import DOMAIN
+from custom_components.sunspec2.entity import get_sunspec_unique_id
 from custom_components.sunspec2.errors import DeviceError
 from custom_components.sunspec2.vendor_blocks import RawBlockNumber
 from custom_components.sunspec2.vendor_blocks import RawBlockSelect

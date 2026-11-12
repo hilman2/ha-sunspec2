@@ -35,19 +35,19 @@ from homeassistant.components.switch import SwitchEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import EntityCategory
 from homeassistant.core import CALLBACK_TYPE
-from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.event import async_track_time_interval
 from homeassistant.helpers.restore_state import RestoreEntity
 
-from . import SunSpecDataUpdateCoordinator
-from . import get_sunspec_unique_id
 from .const import DOMAIN
 from .const import OPERATING_STATE_MODEL_IDS
+from .coordinator import SunSpecDataUpdateCoordinator
 from .entity import Home
 from .entity import SunSpecEntity
+from .entity import get_sunspec_unique_id
 from .entity import home_for
 from .errors import SunSpecError
+from .errors import user_error
 from .models import SunSpecModelWrapper
 from .vendors.profile import RawDevice
 from .vendors.profile import RawKeepAlive
@@ -118,14 +118,12 @@ class RawBlockEntity(SunSpecEntity):
             next((f for f in block.fields if f.name == self._field), None) if block else None
         )
         if block is None or raw_field is None:
-            raise HomeAssistantError(
-                f"{self._block}.{self._field} is not a register of this device"
-            )
+            raise user_error("not_a_register", register=f"{self._block}.{self._field}")
         try:
             await self.coordinator.async_write_raw_locked(block, raw_field, value)
         except SunSpecError as exc:
-            raise HomeAssistantError(
-                f"Failed to write {self._block}.{self._field}={value}: {exc}"
+            raise user_error(
+                "write_failed", target=f"{self._block}.{self._field}={value}", error=exc
             ) from exc
         # Outside the lock: the refresh debouncer runs inline and
         # asyncio.Lock is not reentrant.
@@ -249,7 +247,7 @@ class RawBlockSelect(RawBlockEntity, SelectEntity):
     async def async_select_option(self, option: str) -> None:
         chosen = next((raw for raw, name in self._spec.options.items() if name == option), None)
         if chosen is None:
-            raise HomeAssistantError(f"{option} is not a choice this device offers")
+            raise user_error("invalid_option", option=option, target=f"{self._block}.{self._field}")
         if self._spec.write is not None:
             chosen = self._spec.write(self._raw(), chosen)
         await self._write(chosen)

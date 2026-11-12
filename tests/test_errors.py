@@ -3,15 +3,19 @@ and the Phase-3 coordinator hooks (per-category buffer, consecutive
 failure counters, Repairs panel).
 """
 
+import ast
+import json
+import re
+from pathlib import Path
 from typing import Any
 
 import pytest
 from homeassistant.helpers import issue_registry as ir
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from custom_components.sunspec2 import SunSpecDataUpdateCoordinator
 from custom_components.sunspec2.api import SunSpecApiClient
 from custom_components.sunspec2.const import DOMAIN
+from custom_components.sunspec2.coordinator import SunSpecDataUpdateCoordinator
 from custom_components.sunspec2.errors import CATEGORIES
 from custom_components.sunspec2.errors import DeviceError
 from custom_components.sunspec2.errors import ProtocolError
@@ -336,3 +340,35 @@ def deque_empty():
     from collections import deque
 
     return deque(maxlen=20)
+
+
+_COMPONENT = Path(__file__).parent.parent / "custom_components" / "sunspec2"
+
+
+def _user_error_calls() -> list[tuple[str, set[str]]]:
+    """Every call of user_error in the integration: its key and the placeholders it gives."""
+    calls = []
+    for source in _COMPONENT.rglob("*.py"):
+        for node in ast.walk(ast.parse(source.read_text(encoding="utf-8"))):
+            if not isinstance(node, ast.Call):
+                continue
+            name = getattr(node.func, "id", None) or getattr(node.func, "attr", None)
+            if name == "user_error":
+                key = ast.literal_eval(node.args[0])
+                calls.append((key, {keyword.arg for keyword in node.keywords if keyword.arg}))
+    return calls
+
+
+@pytest.mark.parametrize("language", ["en", "de"])
+def test_every_user_error_has_its_message(language):
+    """A key without a message reaches the user as the bare key, a missing value as ``{name}``."""
+    translations = json.loads((_COMPONENT / "translations" / f"{language}.json").read_text("utf-8"))
+    messages = {
+        key: set(re.findall(r"{(\w+)}", entry["message"]))
+        for key, entry in translations["exceptions"].items()
+    }
+    calls = _user_error_calls()
+
+    assert {key for key, _ in calls} == set(messages)
+    for key, placeholders in calls:
+        assert placeholders == messages[key], key

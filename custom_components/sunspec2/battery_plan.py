@@ -37,10 +37,11 @@ from homeassistant.helpers.event import async_track_time_change
 from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.util import dt as dt_util
 
-from . import SunSpecDataUpdateCoordinator
-from . import get_sunspec_unique_id
+from .coordinator import SunSpecDataUpdateCoordinator
 from .entity import SunSpecEntity
+from .entity import get_sunspec_unique_id
 from .errors import SunSpecError
+from .errors import user_error
 from .models import SunSpecModelWrapper
 from .storage_modes import async_apply_storage_mode
 from .storage_modes import storage_profile_ready
@@ -299,7 +300,7 @@ class BatteryPlanner:
             else StorageMode.DISCHARGE_TO_GRID
         )
         if ready is None or mode not in ready[0].modes:
-            raise HomeAssistantError(f"The battery does not support {direction.value}")
+            raise user_error("direction_unsupported", direction=direction.value)
 
     async def async_configure(
         self,
@@ -412,7 +413,7 @@ class BatteryPlanner:
             else StorageMode.DISCHARGE_TO_GRID
         )
         if mode not in profile.modes:
-            raise HomeAssistantError(f"The battery does not support {direction.value}")
+            raise user_error("direction_unsupported", direction=direction.value)
         soc = state_of_charge_pct(wrapper)
         capacity = self.settings.capacity_kwh
         wchamax = wchamax_of(wrapper)

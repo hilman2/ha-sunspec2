@@ -12,11 +12,11 @@ from modbus_connection import IllegalDataValueError
 from modbus_connection import ModbusTimeoutError
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from custom_components.sunspec2 import get_sunspec_unique_id
 from custom_components.sunspec2.api import SunSpecApiClient
 from custom_components.sunspec2.const import CONF_ENABLED_MODELS
 from custom_components.sunspec2.const import CONF_PREFIX
 from custom_components.sunspec2.const import DOMAIN
+from custom_components.sunspec2.entity import get_sunspec_unique_id
 from custom_components.sunspec2.errors import DeviceError
 from custom_components.sunspec2.franklinwh_controls import FranklinBatteryButton
 from custom_components.sunspec2.franklinwh_controls import FranklinBatteryState

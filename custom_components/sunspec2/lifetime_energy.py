@@ -72,9 +72,9 @@ from homeassistant.helpers.restore_state import ExtraStoredData
 from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.util import dt as dt_util
 
-from . import SunSpecDataUpdateCoordinator
-from . import get_sunspec_unique_id
+from .coordinator import SunSpecDataUpdateCoordinator
 from .entity import SunSpecEntity
+from .entity import get_sunspec_unique_id
 from .models import SunSpecModelWrapper
 from .sensor import SunSpecSensor
 
