@@ -3,10 +3,15 @@
 First coverage for this platform, alongside tests/test_number.py.
 """
 
+from unittest.mock import MagicMock
 from unittest.mock import patch
 
 import pytest
+import voluptuous as vol
+from homeassistant.config_entries import ConfigEntryState
 from homeassistant.exceptions import HomeAssistantError
+from homeassistant.setup import async_setup_component
+from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.sunspec2.errors import DeviceError
 
@@ -125,6 +130,84 @@ async def test_set_export_limit_service_uses_one_lock_hold(hass, sunspec_write_c
 
     assert written == [("WMaxLimPct", 70), ("WMaxLim_Ena", 1)]
     assert len(acquisitions) == 1
+
+
+async def _call_set_export_limit(hass, entry_id, percent=70):
+    await hass.services.async_call(
+        "sunspec2",
+        "set_export_limit",
+        {"config_entry_id": entry_id, "percent": percent},
+        blocking=True,
+    )
+
+
+@pytest.mark.parametrize("percent", [-1, 200.5, float("nan"), "seventy"])
+async def test_set_export_limit_rejects_a_value_the_number_would_not_take(
+    hass, sunspec_write_client_mock, percent
+):
+    """The action takes the range of the export limit Number, 0 to 200."""
+    entry = await _setup_write_entry(hass)
+
+    with (
+        patch.object(entry.runtime_data.api, "async_write_points") as write,
+        pytest.raises(vol.Invalid),
+    ):
+        await _call_set_export_limit(hass, entry.entry_id, percent)
+
+    write.assert_not_called()
+
+
+async def test_set_export_limit_takes_what_an_automation_written_before_the_schema_sends(
+    hass, sunspec_write_client_mock
+):
+    """A percentage quoted in YAML arrives as text, and a stray field was always ignored."""
+    entry = await _setup_write_entry(hass)
+
+    with (
+        patch.object(entry.runtime_data.api, "async_write_points") as write,
+        patch.object(entry.runtime_data, "async_request_refresh"),
+    ):
+        await hass.services.async_call(
+            "sunspec2",
+            "set_export_limit",
+            {"config_entry_id": entry.entry_id, "percent": "70", "entity_id": "sensor.unrelated"},
+            blocking=True,
+        )
+
+    assert [call.args for call in write.call_args_list] == [
+        (123, [("WMaxLimPct", 70.0), ("WMaxLim_Ena", 1)])
+    ]
+
+
+async def test_set_export_limit_refuses_an_unloaded_entry(hass, sunspec_write_client_mock):
+    """Home Assistant deletes runtime_data on unload; the answer is still an error message."""
+    entry = await _setup_write_entry(hass)
+    assert await hass.config_entries.async_unload(entry.entry_id)
+
+    with pytest.raises(HomeAssistantError, match="not loaded"):
+        await _call_set_export_limit(hass, entry.entry_id)
+
+
+async def test_set_export_limit_refuses_the_entry_of_another_integration(
+    hass, sunspec_write_client_mock
+):
+    await _setup_write_entry(hass)
+    foreign = MockConfigEntry(domain="another_integration", state=ConfigEntryState.LOADED)
+    foreign.add_to_hass(hass)
+    foreign.runtime_data = MagicMock()
+
+    with pytest.raises(HomeAssistantError, match="not loaded"):
+        await _call_set_export_limit(hass, foreign.entry_id)
+
+    foreign.runtime_data.async_write_points_locked.assert_not_called()
+
+
+async def test_actions_exist_before_any_entry_is_set_up(hass):
+    """Home Assistant validates an automation at startup, before an entry has loaded."""
+    assert await async_setup_component(hass, "sunspec2", {})
+
+    assert hass.services.has_service("sunspec2", "set_export_limit")
+    assert hass.services.has_service("sunspec2", "set_battery_plan")
 
 
 async def test_options_reload_preserves_control_entity_ids(hass, sunspec_write_client_mock):

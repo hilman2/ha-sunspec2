@@ -20,11 +20,14 @@ from time import monotonic
 from typing import TYPE_CHECKING
 from typing import Any
 from typing import NoReturn
+from typing import cast
 
+import probatio
 from homeassistant.components.persistent_notification import (
     async_create as async_create_notification,
 )
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.config_entries import ConfigEntryState
 from homeassistant.core import HomeAssistant
 from homeassistant.core import ServiceCall
 from homeassistant.core import callback
@@ -93,11 +96,13 @@ from .fronius_web import FroniusWebCoordinator
 from .fronius_web import WebToken
 from .logger import SunSpecLoggerAdapter
 from .logger import get_adapter
+from .logger import redact_options
 from .migration import cleanup_excluded_sensor_entities
 from .migration import cleanup_superseded_control_entities
 from .migration import find_blocking_cjne_entries
 from .migration import migrate_from_cjne_sync
 from .models import SunSpecModelWrapper
+from .models import point_text
 from .raw_blocks import RawBlockReader
 from .raw_blocks import encode_value
 from .vendors import VendorProfile
@@ -145,6 +150,13 @@ async def async_setup(hass: HomeAssistant, config: Config) -> bool:
         await Store[Any](hass, 1, _USAGE_STATS_STORAGE_KEY).async_remove()
     except OSError as err:
         _LOGGER.debug("Could not remove the former usage ping store: %s", err)
+
+    # Imported here because battery_plan_services imports the coordinator
+    # from this module.
+    from .battery_plan_services import async_register_plan_service
+
+    _async_register_export_limit_service(hass)
+    async_register_plan_service(hass)
     return True
 
 
@@ -329,11 +341,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: SunSpec2ConfigEntry) -> 
     coordinator.forwarded_platforms = platforms_to_load
     await hass.config_entries.async_forward_entry_setups(entry, platforms_to_load)
 
-    # Register the write service action once per HA
-    # process (not per config entry). The handler routes by
-    # config_entry_id passed in the call data.
-    _async_register_services(hass)
-
     return True
 
 
@@ -365,25 +372,48 @@ async def _async_setup_web(
     return web
 
 
-def _async_register_services(hass: HomeAssistant) -> None:
-    """Register the v0.12.0 write service actions, idempotently.
+# What ``sunspec2.set_export_limit`` accepts. The range is the one the
+# export limit Number has, see WMaxLimPct in write_controls.py.
+#
+# Fields the action does not know are let through and ignored. The
+# action was released without a schema, so an automation with a stray
+# field worked, and one that sets an export limit must not stop working
+# over an update.
+_EXPORT_LIMIT_SCHEMA = probatio.Schema(
+    {
+        probatio.Required("config_entry_id"): cv.string,
+        probatio.Required("percent"): probatio.All(
+            probatio.Coerce(float), probatio.Range(min=0, max=200)
+        ),
+        probatio.Optional("enable", default=True): cv.boolean,
+    },
+    extra=probatio.ALLOW_EXTRA,
+)
 
-    Service actions are HA-process-global, not per-config-entry, so
-    we only have to do this on the first config entry that loads.
-    The handlers route to the right entry by reading the
-    ``config_entry_id`` field from the service call.
+
+@callback
+def _async_register_export_limit_service(hass: HomeAssistant) -> None:
+    """Register ``sunspec2.set_export_limit``.
+
+    The action belongs to the integration, not to a config entry: the
+    handler finds the entry from the ``config_entry_id`` field of the call.
     """
-    if hass.services.has_service(DOMAIN, SERVICE_SET_EXPORT_LIMIT):
-        return
 
     async def _async_set_export_limit(call: ServiceCall) -> None:
         entry_id = call.data["config_entry_id"]
         percent = call.data["percent"]
-        enable = call.data.get("enable", True)
+        enable = call.data["enable"]
         target_entry = hass.config_entries.async_get_entry(entry_id)
-        if target_entry is None or target_entry.runtime_data is None:
+        # The state is what says "loaded". Home Assistant deletes
+        # runtime_data on unload, so reading it from an entry that is
+        # not loaded raises AttributeError.
+        if (
+            target_entry is None
+            or target_entry.domain != DOMAIN
+            or target_entry.state is not ConfigEntryState.LOADED
+        ):
             raise HomeAssistantError(f"SunSpec config entry {entry_id} is not loaded")
-        coordinator = target_entry.runtime_data
+        coordinator: SunSpecDataUpdateCoordinator = target_entry.runtime_data
         # Resolve the model the same way the entities do, so the service
         # and the UI cannot end up driving different registers on a
         # device that exposes both 123 and 704.
@@ -412,6 +442,7 @@ def _async_register_services(hass: HomeAssistant) -> None:
         DOMAIN,
         SERVICE_SET_EXPORT_LIMIT,
         _async_set_export_limit,
+        schema=cast(Any, _EXPORT_LIMIT_SCHEMA),
     )
 
 
@@ -815,7 +846,7 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator[dict[int, SunSpecModelW
         self.standby_when_idle: bool = bool(entry.options.get(CONF_STANDBY_WHEN_IDLE, False))
 
         self._log.debug("Data: %s", entry.data)
-        self._log.debug("Options: %s", entry.options)
+        self._log.debug("Options: %s", redact_options(entry.options))
         models = entry.options.get(
             CONF_ENABLED_MODELS, entry.data.get(CONF_ENABLED_MODELS, DEFAULT_MODELS)
         )
@@ -1135,49 +1166,31 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator[dict[int, SunSpecModelW
     async def async_write_points_locked(
         self, model_id: int, points: list[tuple[str, object]]
     ) -> None:
-        """Write one or more points while holding the per-gateway lock.
+        """Write points of one model while holding the per-gateway lock.
 
-        Every write must go through here. Before v0.14.0 the Number and
-        Switch entities and the ``set_export_limit`` service called
-        ``coordinator.api.async_write_point`` directly, and a write
-        never took the gateway lock at all. Two silent failure modes:
+        A write goes through here or through ``async_write_transaction``,
+        never straight through ``coordinator.api``. The lock is held for
+        the whole sequence that ``plan_write`` makes of ``points``, so no
+        poll and no other write runs between its steps.
 
-        * **Mid-cycle**: the write got the coordinator's *live* client
-          back from ``api.get_client()`` and drove ``point.write()`` on
-          it from a second executor thread while ``read_model`` was
-          mid-``recv`` on the same socket. The Modbus client takes no
-          lock of its own, so both threads pull frames off the same
-          socket. (Until v0.31.0 every frame carried transaction id 0
-          and each side silently took the other's answer; the embedded
-          transport now drops a frame with the wrong id, so both reads
-          end in a timeout instead. Either way the lock is required.)
-          This is not a single-slot-inverter problem; frames can
-          interleave on any gateway.
-        * **Between cycles**: ``api._client`` was None, because back
-          then ``_run_one_update_cycle`` closed at the end of every
-          cycle, so the write opened a *second* TCP session (connect
-          plus a full scan) that nothing ever closed, holding a
-          single-slot inverter's only Modbus slot until the next cycle.
-          v0.13.4's ``model.read()`` widened that window by one more
-          block read. Since v0.22.0 the session is held open and a
-          write finds the live client.
-
-        The method is named ``_locked`` rather than mirroring
-        ``SunSpecApiClient.async_write_point`` on purpose. An identical
-        name one layer up would make the call-site diff a bare deletion
-        of ``.api``, which is the least reviewable possible shape for a
-        race-condition guard and the easiest to regress by accident.
-
-        The timeout wraps only the acquire. Cancelling a write already
-        in flight would hand control back to the caller while the
-        executor thread is still writing to the socket - executor jobs
-        are not cancellable - which is the exact race we are closing.
-
-        ``async_request_refresh()`` deliberately stays at the call
-        sites, OUTSIDE this lock. ``asyncio.Lock`` is not reentrant and
+        ``async_request_refresh()`` stays at the call sites, outside the
+        lock. ``asyncio.Lock`` is not reentrant and
         ``REQUEST_REFRESH_DEFAULT_IMMEDIATE`` is True, so the debouncer
-        runs ``_async_refresh`` inline and it would deadlock on the
-        lock we are still holding.
+        runs ``_async_refresh`` inline and the refresh would wait forever
+        for the lock this method still holds.
+
+        Args:
+            model_id: The SunSpec model the points belong to.
+            points: Point name and value. The order of the list does not
+                decide the order on the wire: the points of one step go
+                out in the order of their registers.
+
+        Raises:
+            TransientError: The lock did not come free within
+                ``WRITE_LOCK_TIMEOUT_SECONDS``, or the gateway is resting
+                after a request it left unanswered.
+            SunSpecError: The write itself failed, see
+                ``SunSpecApiClient.async_write_points``.
         """
         async with self.async_write_transaction():
             # One step for everyone but a vendor that takes a new value
@@ -1339,20 +1352,13 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator[dict[int, SunSpecModelW
             self.device_info = info
             fresh_common = info
 
-            def common_text(point: str) -> str:
-                try:
-                    value = info.getValue(point)
-                except (KeyError, AttributeError):
-                    return ""
-                return value if isinstance(value, str) else ""
-
             # The manufacturer picks the vendor; model, option and
             # version tell a vendor's generations apart.
             self.vendor = profile_for(
-                common_text("Mn") or None,
-                common_text("Md"),
-                common_text("Opt"),
-                common_text("Vr"),
+                point_text(info, "Mn") or None,
+                point_text(info, "Md"),
+                point_text(info, "Opt"),
+                point_text(info, "Vr"),
             )
             if self.vendor is not None:
                 self._log.info("Vendor profile %s applies to this device", self.vendor.slug)

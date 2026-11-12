@@ -57,6 +57,32 @@ CJNE_DOMAIN = "sunspec"
 """The legacy domain we migrate FROM."""
 
 
+def _matching_cjne_entries(hass: HomeAssistant, entry: ConfigEntry) -> list[ConfigEntry]:
+    """The cjne config entries for the device ``entry`` is set up for.
+
+    A cjne entry is for the same device when its host, port and unit id
+    equal those of ``entry``. The host is compared as text, so a cjne
+    entry set up with a host name does not match an entry set up with
+    the IP address.
+    """
+    host = entry.data.get(CONF_HOST)
+    port = entry.data.get(CONF_PORT)
+    unit_id = entry.data.get(CONF_UNIT_ID, 1)
+    matching: list[ConfigEntry] = []
+    for cjne_entry in hass.config_entries.async_entries(CJNE_DOMAIN):
+        # cjne stored the unit id as ``slave_id`` until it renamed the
+        # key to ``unit_id`` in 2025. An entry that an older cjne loaded
+        # last still carries the old key, so look under both.
+        cjne_unit_id = cjne_entry.data.get("unit_id") or cjne_entry.data.get("slave_id")
+        if (
+            cjne_entry.data.get("host") == host
+            and cjne_entry.data.get("port") == port
+            and cjne_unit_id == unit_id
+        ):
+            matching.append(cjne_entry)
+    return matching
+
+
 def find_blocking_cjne_entries(hass: HomeAssistant, entry: ConfigEntry) -> list[ConfigEntry]:
     """Return active cjne config entries that conflict with this entry.
 
@@ -70,19 +96,11 @@ def find_blocking_cjne_entries(hass: HomeAssistant, entry: ConfigEntry) -> list[
     ConfigEntryNotReady so HA retries automatically once the user removes
     cjne and restarts.
     """
-    host = entry.data.get(CONF_HOST)
-    port = entry.data.get(CONF_PORT)
-    unit_id = entry.data.get(CONF_UNIT_ID, 1)
-    blocking: list[ConfigEntry] = []
-    for cjne_entry in hass.config_entries.async_entries(CJNE_DOMAIN):
-        ce_host = cjne_entry.data.get("host")
-        ce_port = cjne_entry.data.get("port")
-        ce_uid = cjne_entry.data.get("unit_id") or cjne_entry.data.get("slave_id")
-        if ce_host != host or ce_port != port or ce_uid != unit_id:
-            continue
-        if cjne_entry.state == ConfigEntryState.LOADED:
-            blocking.append(cjne_entry)
-    return blocking
+    return [
+        cjne_entry
+        for cjne_entry in _matching_cjne_entries(hass, entry)
+        if cjne_entry.state == ConfigEntryState.LOADED
+    ]
 
 
 def migrate_from_cjne_sync(
@@ -107,21 +125,7 @@ def migrate_from_cjne_sync(
     ``async_setup_entry`` actually awaits.
     """
     registry = er.async_get(hass)
-    host = entry.data.get(CONF_HOST)
-    port = entry.data.get(CONF_PORT)
-    unit_id = entry.data.get(CONF_UNIT_ID, 1)
-
-    cjne_entries = []
-    for cjne_entry in hass.config_entries.async_entries(CJNE_DOMAIN):
-        ce_host = cjne_entry.data.get("host")
-        ce_port = cjne_entry.data.get("port")
-        # cjne pre-Phase-0 used 'slave_id'; the Phase-0 v1->v2 migration
-        # in our own __init__.py renamed it to 'unit_id', but cjne itself
-        # never landed that rename. Match either field name.
-        ce_uid = cjne_entry.data.get("unit_id") or cjne_entry.data.get("slave_id")
-        if ce_host == host and ce_port == port and ce_uid == unit_id:
-            cjne_entries.append(cjne_entry)
-
+    cjne_entries = _matching_cjne_entries(hass, entry)
     if not cjne_entries:
         log.debug("No matching cjne sunspec config entries found")
         return (0, [], [])

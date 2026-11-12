@@ -36,6 +36,7 @@ from .errors import TransportError
 from .logger import SunSpecLoggerAdapter
 from .logger import get_adapter
 from .models import SunSpecModelWrapper
+from .models import point_text
 from .pysunspec2 import mb
 from .pysunspec2 import mdef
 from .pysunspec2.device import ModelError
@@ -1261,15 +1262,7 @@ class SunSpecApiClient:
 
         if model_id == 1:
             common = SunSpecModelWrapper(models)
-
-            def common_text(point: str) -> str:
-                try:
-                    value = common.getValue(point)
-                except (KeyError, AttributeError):
-                    return ""
-                return value if isinstance(value, str) else ""
-
-            profile = profile_for(*(common_text(key) for key in ("Mn", "Md", "Opt", "Vr")))
+            profile = profile_for(*(point_text(common, key) for key in ("Mn", "Md", "Opt", "Vr")))
             self._point_transforms = profile.point_transforms if profile is not None else {}
             self._signed_nan_points = (
                 profile.signed_nan_points if profile is not None else frozenset()

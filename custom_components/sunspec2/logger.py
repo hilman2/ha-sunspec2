@@ -13,6 +13,8 @@ from collections.abc import Mapping
 from collections.abc import MutableMapping
 from typing import Any
 
+from .const import CONF_FRONIUS_WEB_TOKEN
+
 
 class SunSpecLoggerAdapter(logging.LoggerAdapter[logging.Logger]):
     """Bind host, port, unit_id (and optional model_id) to every record."""
@@ -71,3 +73,21 @@ def get_adapter(
     if model_id is not None:
         extra["model_id"] = model_id
     return SunSpecLoggerAdapter(base, extra)
+
+
+def redact_options(options: Mapping[str, Any]) -> dict[str, Any]:
+    """The options of a config entry in a form that is safe to log.
+
+    The stored Fronius web token is the Digest secret of the customer
+    login. Whoever has it can sign in to the inverter's web interface
+    without knowing the password, so it must not reach a log file.
+
+    Args:
+        options: The options of a config entry, stored or about to be.
+
+    Returns:
+        dict[str, Any]: A copy with the web token replaced by ``"***"``.
+    """
+    return {
+        key: "***" if key == CONF_FRONIUS_WEB_TOKEN else value for key, value in options.items()
+    }

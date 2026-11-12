@@ -249,11 +249,19 @@ other program is holding the connection.
 **Your entity IDs, history, dashboards and automations are kept.** The
 old entities are moved over to this integration on first setup.
 
-1. Uninstall cjne/ha-sunspec in **HACS**
+1. Uninstall cjne/ha-sunspec in **HACS**. HACS says the integration is
+   configured and asks you to delete the configuration first. Choose
+   **Ignore**, and leave the entry under *Settings -> Devices & Services*
+   where it is
 2. **Restart Home Assistant**
 3. Install SunSpec Modbus and add it with the **same host, port and
-   unit ID** as before
+   unit ID** as before. Type the host the way the old entry has it: an
+   IP address does not match a host name
 4. A notification confirms how many sensors were migrated
+5. Now delete the old entry under *Settings -> Devices & Services*
+
+Home Assistant removes the entities of an entry together with the entry.
+If the old entry is deleted before step 4, nothing is left to move over.
 
 Both integrations cannot run at the same time. If cjne is still loaded,
 SunSpec 2 says so in the Repairs panel and waits.
