@@ -290,7 +290,6 @@ RAW_SENSORS: tuple[RawSensor, ...] = (
         unit="W",
         device_class="power",
         state_class="measurement",
-        icon="mdi:home-lightning-bolt",
     ),
     RawSensor(
         block="inverter",
@@ -299,7 +298,6 @@ RAW_SENSORS: tuple[RawSensor, ...] = (
         unit="W",
         device_class="power",
         state_class="measurement",
-        icon="mdi:home-battery",
     ),
     RawSensor(
         block="inverter",
@@ -308,7 +306,6 @@ RAW_SENSORS: tuple[RawSensor, ...] = (
         unit="W",
         device_class="power",
         state_class="measurement",
-        icon="mdi:home-import-outline",
     ),
     RawSensor(
         block="inverter",
@@ -349,7 +346,6 @@ RAW_SENSORS: tuple[RawSensor, ...] = (
         unit="W",
         device_class="power",
         state_class="measurement",
-        icon="mdi:solar-power-variant",
     ),
     RawSensor(
         block="inverter",
@@ -358,7 +354,6 @@ RAW_SENSORS: tuple[RawSensor, ...] = (
         device_class="enum",
         options=ENERGY_MANAGER_STATES,
         diagnostic=True,
-        icon="mdi:state-machine",
     ),
     RawSensor(
         block="inverter",
@@ -376,7 +371,6 @@ RAW_SENSORS: tuple[RawSensor, ...] = (
         unit="Ω",
         state_class="measurement",
         diagnostic=True,
-        icon="mdi:omega",
     ),
     # What the grid operator currently allows, in percent of nameplate.
     # A PV system under a feed-in limit spends its sunny hours here.
@@ -387,7 +381,6 @@ RAW_SENSORS: tuple[RawSensor, ...] = (
         unit="%",
         state_class="measurement",
         diagnostic=True,
-        icon="mdi:transmission-tower",
     ),
     RawSensor(
         block="battery_limits",
@@ -396,7 +389,6 @@ RAW_SENSORS: tuple[RawSensor, ...] = (
         device_class="enum",
         options=SENSOR_TYPES,
         diagnostic=True,
-        icon="mdi:meter-electric",
     ),
     RawSensor(
         block="battery_energy",
@@ -420,7 +412,6 @@ RAW_SENSORS: tuple[RawSensor, ...] = (
         options=PSSB_STATES,
         transform=as_option,
         diagnostic=True,
-        icon="mdi:fuse",
     ),
     _battery(
         "ready_flag",
@@ -429,7 +420,6 @@ RAW_SENSORS: tuple[RawSensor, ...] = (
         options=BATTERY_READY,
         transform=as_option,
         diagnostic=True,
-        icon="mdi:battery-check",
     ),
     RawSensor(
         block="battery_energy",
@@ -513,7 +503,6 @@ RAW_SENSORS: tuple[RawSensor, ...] = (
         device_class="enum",
         options=BATTERY_MANAGEMENT_MODES,
         diagnostic=True,
-        icon="mdi:battery-sync",
     ),
 )
 
@@ -529,8 +518,8 @@ def _limitation(field: str, key: str, **kwargs: Any) -> RawNumber:
 RAW_NUMBERS: tuple[RawNumber, ...] = (
     # ``min_soc`` is how much of the battery is kept back, ``max_soc``
     # how full it may get.
-    _control("min_soc", "battery_min_soc", min=0, max=100, unit="%", icon="mdi:battery-low"),
-    _control("max_soc", "battery_max_soc", min=0, max=100, unit="%", icon="mdi:battery-high"),
+    _control("min_soc", "battery_min_soc", min=0, max=100, unit="%"),
+    _control("max_soc", "battery_max_soc", min=0, max=100, unit="%"),
     _control(
         "max_charge_power_limit",
         "battery_max_charge_power_limit",
@@ -539,7 +528,6 @@ RAW_NUMBERS: tuple[RawNumber, ...] = (
         step=100,
         unit="W",
         device_class="power",
-        icon="mdi:battery-arrow-up",
     ),
     _control(
         "max_discharge_power_limit",
@@ -549,7 +537,6 @@ RAW_NUMBERS: tuple[RawNumber, ...] = (
         step=100,
         unit="W",
         device_class="power",
-        icon="mdi:battery-arrow-down",
     ),
     # ``dc_power_setpoint`` is the only entity here that drives the
     # battery rather than bounding it. Kostal names no timeout for the
@@ -565,7 +552,6 @@ RAW_NUMBERS: tuple[RawNumber, ...] = (
         step=100,
         unit="W",
         device_class="power",
-        icon="mdi:battery-charging-medium",
     ),
     _limitation(
         "max_charge_power",
@@ -575,7 +561,6 @@ RAW_NUMBERS: tuple[RawNumber, ...] = (
         step=100,
         unit="W",
         device_class="power",
-        icon="mdi:battery-arrow-up-outline",
     ),
     _limitation(
         "max_discharge_power",
@@ -585,7 +570,6 @@ RAW_NUMBERS: tuple[RawNumber, ...] = (
         step=100,
         unit="W",
         device_class="power",
-        icon="mdi:battery-arrow-down-outline",
     ),
     _limitation(
         "fallback_charge_power",
@@ -595,7 +579,6 @@ RAW_NUMBERS: tuple[RawNumber, ...] = (
         step=100,
         unit="W",
         device_class="power",
-        icon="mdi:battery-alert-variant-outline",
     ),
     _limitation(
         "fallback_discharge_power",
@@ -605,7 +588,6 @@ RAW_NUMBERS: tuple[RawNumber, ...] = (
         step=100,
         unit="W",
         device_class="power",
-        icon="mdi:battery-alert-variant-outline",
     ),
     # The range is the inverter's own. The inverter refuses a write
     # below 30.
@@ -616,7 +598,6 @@ RAW_NUMBERS: tuple[RawNumber, ...] = (
         max=10800,
         step=10,
         unit="s",
-        icon="mdi:timer-sand",
     ),
 )
 
@@ -633,7 +614,6 @@ RAW_KEEPALIVES: tuple[RawKeepAlive, ...] = (
         fields=("max_charge_power", "max_discharge_power"),
         interval_seconds=LIMITATION_REASSERT_SECONDS,
         device="battery",
-        icon="mdi:battery-sync-outline",
     ),
 )
 

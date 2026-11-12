@@ -146,12 +146,11 @@ def test_export_limit_points_follow_the_same_preference():
 # ---------- spec hygiene ----------------------------------------------------
 
 
-def test_every_spec_has_a_translation_key_and_icon():
+def test_every_spec_has_a_translation_key():
     """A control with no name is a row of raw point names in the UI."""
     for model_id in (123, 124, 704):
         for spec in specs_for_model(model_id):
             assert spec.translation_key, spec.point_name
-            assert spec.icon.startswith("mdi:"), spec.point_name
 
 
 def test_selects_declare_options_and_others_do_not():

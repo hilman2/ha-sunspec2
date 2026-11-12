@@ -95,7 +95,6 @@ class SunSpecWriteSelect(SunSpecEntity, SelectEntity):
             config_entry.entry_id, spec.point_name, spec.model_id, 0
         )
         self._attr_translation_key = spec.translation_key
-        self._attr_icon = spec.icon
         self._attr_entity_registry_enabled_default = spec.enabled_by_default
         self._attr_options = list(spec.options)
         self._value_to_option = {value: name for name, value in spec.options.items()}

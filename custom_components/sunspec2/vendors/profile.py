@@ -243,7 +243,6 @@ class RawSensor:
             map reads as None.
         transform: Called as ``transform(value)`` with the decoded value.
             Returns what the sensor shows.
-        icon: The icon.
         enabled_by_default: False for a sensor the user turns on in the
             entity registry, for a field only some devices have.
     """
@@ -258,7 +257,6 @@ class RawSensor:
     diagnostic: bool = False
     options: Mapping[int, str] | None = None
     transform: Callable[[Any], Any] | None = None
-    icon: str | None = None
     enabled_by_default: bool = True
 
 
@@ -276,7 +274,6 @@ class RawNumber:
         device: ``"inverter"`` or the key of a ``RawDevice``.
         unit: Home Assistant unit string.
         device_class: Home Assistant number device class value.
-        icon: The icon.
     """
 
     block: str
@@ -288,7 +285,6 @@ class RawNumber:
     device: str = "inverter"
     unit: str | None = None
     device_class: str | None = None
-    icon: str | None = None
 
 
 @dataclass(frozen=True)
@@ -307,7 +303,6 @@ class RawSelect:
         write: Called as ``write(current, chosen)`` with the decoded field
             and the raw value of the chosen option. Returns what to write,
             so the other bits of the field survive.
-        icon: The icon.
     """
 
     block: str
@@ -317,7 +312,6 @@ class RawSelect:
     device: str = "inverter"
     read: Callable[[Any], Any] | None = None
     write: Callable[[Any, int], int] | None = None
-    icon: str | None = None
 
 
 @dataclass(frozen=True)
@@ -341,7 +335,6 @@ class RawKeepAlive:
         settle_seconds: The pause between the fields' writes. SMA wants its
             control flag a moment before the setpoint.
         device: ``"inverter"`` or the key of a ``RawDevice``.
-        icon: The icon.
     """
 
     key: str
@@ -351,7 +344,6 @@ class RawKeepAlive:
     only_while: Callable[[Mapping[str, Any]], bool] | None = None
     settle_seconds: float = 0.0
     device: str = "inverter"
-    icon: str | None = None
 
 
 @dataclass(frozen=True)

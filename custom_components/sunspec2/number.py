@@ -201,7 +201,6 @@ class SunSpecWriteNumber(SunSpecEntity, NumberEntity):
             config_entry.entry_id, spec.point_name, spec.model_id, 0
         )
         self._attr_translation_key = spec.translation_key
-        self._attr_icon = spec.icon
         self._attr_entity_registry_enabled_default = spec.enabled_by_default
         # Every number spec sets both bounds. They default to None in
         # the dataclass because it also describes switches and selects.

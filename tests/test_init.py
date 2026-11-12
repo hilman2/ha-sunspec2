@@ -320,9 +320,7 @@ async def test_setup_entry_exception(hass, error_on_get_data):
     assert config_entry.update_listeners == [async_reload_entry]
 
 
-async def test_a_setup_that_fails_leaves_the_warning_to_home_assistant(
-    hass, error_on_get_data, caplog
-):
+async def test_a_setup_that_fails_logs_no_warning_of_its_own(hass, error_on_get_data, caplog):
     """Every retry builds a new coordinator, and each would warn about its first error."""
     config_entry = MockConfigEntry(domain=DOMAIN, data=MOCK_CONFIG, entry_id="test", version=2)
     config_entry.add_to_hass(hass)

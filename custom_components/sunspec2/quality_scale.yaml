@@ -263,11 +263,12 @@ rules:
       ``exceptions`` in translations/en.json and de.json.
       tests/test_errors.py compares the keys and placeholders.
   icon-translations:
-    status: todo
+    status: done
     comment: |
-      icons.json has the icons of the 37 translated SunSpec sensors.
-      The controls and the vendor entities still set their icon in
-      code.
+      icons.json holds the icon of every entity with a translation
+      key, and no such entity sets an icon in code. A generic SunSpec
+      sensor without a translation key has the icon of its unit,
+      from ``HA_META`` in sensor.py.
   reconfiguration-flow:
     status: done
     comment: |

@@ -209,7 +209,6 @@ def _battery_sensors(slot: int) -> tuple[RawSensor, ...]:
             unit="%",
             state_class="measurement",
             diagnostic=True,
-            icon="mdi:battery-heart-variant",
         ),
         sensor(
             "temperature_average",
@@ -382,7 +381,6 @@ RAW_SENSORS: tuple[RawSensor, ...] = (
         key="grid_status",
         device_class="enum",
         options=GRID_STATUS,
-        icon="mdi:transmission-tower",
     ),
     RawSensor(
         block="status_vendor4",
@@ -390,14 +388,12 @@ RAW_SENSORS: tuple[RawSensor, ...] = (
         key="status_vendor4",
         diagnostic=True,
         transform=status_vendor4,
-        icon="mdi:alert-circle-outline",
     ),
     RawSensor(
         block="power_control",
         field="rrcr_state",
         key="rrcr_state",
         diagnostic=True,
-        icon="mdi:electric-switch",
     ),
     *(sensor for slot in BATTERY_BASE for sensor in _battery_sensors(slot)),
 )
@@ -417,28 +413,24 @@ RAW_SELECTS: tuple[RawSelect, ...] = (
         field="control_mode",
         key="storage_control_mode",
         options=STORAGE_CONTROL_MODES,
-        icon="mdi:battery-sync",
     ),
     RawSelect(
         block="storage_control",
         field="ac_charge_policy",
         key="storage_ac_charge_policy",
         options=AC_CHARGE_POLICIES,
-        icon="mdi:transmission-tower-import",
     ),
     RawSelect(
         block="storage_control",
         field="default_mode",
         key="storage_default_mode",
         options=REMOTE_MODES,
-        icon="mdi:battery-clock",
     ),
     RawSelect(
         block="storage_control",
         field="command_mode",
         key="storage_command_mode",
         options=REMOTE_MODES,
-        icon="mdi:battery-arrow-up-outline",
     ),
     # The site limit: ``mode`` selects which meter the limit is
     # measured against, ``limit_mode`` whether it applies to the total
@@ -451,14 +443,12 @@ RAW_SELECTS: tuple[RawSelect, ...] = (
         options=SITE_LIMIT_MODES,
         read=lambda value: value & 0b111 if isinstance(value, int) else None,
         write=_keep_site_limit_bits,
-        icon="mdi:transmission-tower-export",
     ),
     RawSelect(
         block="site_limit",
         field="limit_mode",
         key="site_limit_scope",
         options=SITE_LIMIT_SCOPES,
-        icon="mdi:transmission-tower-export",
     ),
 )
 
@@ -470,7 +460,6 @@ RAW_NUMBERS: tuple[RawNumber, ...] = (
         min=0,
         max=100000,
         step=0.1,
-        icon="mdi:transmission-tower-import",
     ),
     RawNumber(
         block="storage_control",
@@ -480,7 +469,6 @@ RAW_NUMBERS: tuple[RawNumber, ...] = (
         max=100,
         step=1,
         unit="%",
-        icon="mdi:battery-lock",
     ),
     RawNumber(
         block="storage_control",
@@ -491,7 +479,6 @@ RAW_NUMBERS: tuple[RawNumber, ...] = (
         step=60,
         unit="s",
         device_class="duration",
-        icon="mdi:timer-sand",
     ),
     RawNumber(
         block="storage_control",
@@ -502,7 +489,6 @@ RAW_NUMBERS: tuple[RawNumber, ...] = (
         step=100,
         unit="W",
         device_class="power",
-        icon="mdi:battery-charging-medium",
     ),
     RawNumber(
         block="storage_control",
@@ -513,7 +499,6 @@ RAW_NUMBERS: tuple[RawNumber, ...] = (
         step=100,
         unit="W",
         device_class="power",
-        icon="mdi:battery-arrow-down",
     ),
     RawNumber(
         block="site_limit",
@@ -524,7 +509,6 @@ RAW_NUMBERS: tuple[RawNumber, ...] = (
         step=10,
         unit="W",
         device_class="power",
-        icon="mdi:transmission-tower-export",
     ),
     RawNumber(
         block="power_control",
@@ -534,7 +518,6 @@ RAW_NUMBERS: tuple[RawNumber, ...] = (
         max=100,
         step=1,
         unit="%",
-        icon="mdi:speedometer-slow",
     ),
 )
 
@@ -545,14 +528,12 @@ RAW_KEEPALIVES: tuple[RawKeepAlive, ...] = (
         fields=("command_timeout", "command_mode"),
         interval_seconds=REMOTE_COMMAND_REARM_SECONDS,
         only_while=_remote_control_active,
-        icon="mdi:battery-sync-outline",
     ),
     RawKeepAlive(
         key="active_power_limit_reassert",
         block="power_control",
         fields=("active_power_limit",),
         interval_seconds=ACTIVE_POWER_LIMIT_REASSERT_SECONDS,
-        icon="mdi:refresh-auto",
     ),
 )
 
