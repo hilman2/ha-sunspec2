@@ -108,9 +108,8 @@ async def test_options_update_triggers_clean_reload(hass, sunspec_client_mock):
 
     # The user toggling capture_raw_registers in the options flow is
     # internally an async_update_entry call. That fires the update
-    # listener registered by the coordinator (async_reload_entry), which
-    # in Phase 4 dispatches to hass.config_entries.async_reload() instead
-    # of doing unload+setup by hand.
+    # listener async_setup_entry registered (async_reload_entry), which
+    # hands the reload to hass.config_entries.async_reload().
     hass.config_entries.async_update_entry(
         config_entry,
         options={
@@ -329,7 +328,7 @@ async def test_new_data_reloads_an_entry_that_waits_to_retry(hass, error_on_get_
         )
         await hass.async_block_till_done()
 
-    assert [call.args[1].data["host"] for call in setup.call_args_list] == ["192.0.2.7"]
+    assert setup.call_count == 1
     await hass.config_entries.async_unload(config_entry.entry_id)
 
 

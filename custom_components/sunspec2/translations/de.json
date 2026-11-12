@@ -537,8 +537,8 @@
       "rated_current": {
         "name": "Nenn-AC-Strom"
       },
-      "rated_lifetime_energy": {
-        "name": "Nenn-Gesamtertrag"
+      "rated_storage_capacity": {
+        "name": "Nenn-Speicherkapazität"
       },
       "max_power_setting": {
         "name": "Konfigurierte Maximalleistung"

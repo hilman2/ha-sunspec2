@@ -28,7 +28,6 @@ from homeassistant.components.sensor import SensorEntity
 from homeassistant.components.sensor import SensorStateClass
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import UnitOfPower
-from homeassistant.helpers.entity import Entity
 
 from .const import DOMAIN
 from .coordinator import SunSpecDataUpdateCoordinator
@@ -131,6 +130,7 @@ class DcChannelSensor(SunSpecSensor):
         self._role: ModuleRole = data["role"]
         self._module_label: str = data["module_label"]
         self._attr_translation_key = data["translation_key"]
+        self._name_is_translated = True
         # Keyed by role, not by module index: the generic sensor for the
         # same register keeps its "module:3:DCW" id, and this one follows
         # the battery if a firmware update renumbers the modules.
@@ -138,19 +138,6 @@ class DcChannelSensor(SunSpecSensor):
         self._unique_id = get_sunspec_unique_id(
             config_entry.entry_id, f"{self._role.value}:{point}", self.model_id, self.model_index
         )
-
-    @property
-    def name(self) -> str:
-        """The translated role name, the way Home Assistant names entities.
-
-        SunSpecSensor hand-rolls its name from the SunSpec label and the
-        module index, and by overriding ``name`` it steps around the
-        translation key. Handing the call back to ``Entity.name`` puts
-        the key to use again; the hand-rolled name stays the fallback
-        for a language file without the key.
-        """
-        name = Entity.name.__get__(self, type(self))
-        return name if isinstance(name, str) else self._name
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:

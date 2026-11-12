@@ -537,8 +537,8 @@
       "rated_current": {
         "name": "Rated AC current"
       },
-      "rated_lifetime_energy": {
-        "name": "Rated lifetime energy"
+      "rated_storage_capacity": {
+        "name": "Rated storage capacity"
       },
       "max_power_setting": {
         "name": "Configured max power"

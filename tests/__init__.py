@@ -31,16 +31,18 @@ TEST_SERIAL_NO = "abc123"
 TEST_INVERTER_SENSOR_STATE_ENTITY_ID = "sensor.test_1547_1_inverter_three_phase_operating_state"
 # model 103 Evt1, a bitfield32. The fixture sets it to 3, so two bits
 # are on and the state is a comma-joined pair (cjne/ha-sunspec#370).
-TEST_INVERTER_SENSOR_EVENT_ENTITY_ID = "sensor.test_1547_1_inverter_three_phase_event1"
-TEST_INVERTER_SENSOR_POWER_ENTITY_ID = "sensor.test_1547_1_inverter_three_phase_watts"
-TEST_INVERTER_SENSOR_VAR_ID = "sensor.test_1547_1_inverter_three_phase_var"
-TEST_INVERTER_SENSOR_ENERGY_ENTITY_ID = "sensor.test_1547_1_inverter_three_phase_watthours"
+TEST_INVERTER_SENSOR_EVENT_ENTITY_ID = "sensor.test_1547_1_inverter_three_phase_events"
+TEST_INVERTER_SENSOR_POWER_ENTITY_ID = "sensor.test_1547_1_inverter_three_phase_ac_power"
+TEST_INVERTER_SENSOR_VAR_ID = "sensor.test_1547_1_inverter_three_phase_reactive_power"
+TEST_INVERTER_SENSOR_ENERGY_ENTITY_ID = (
+    "sensor.test_1547_1_inverter_three_phase_lifetime_energy_produced"
+)
 # The other two model 103 points the power plausibility filter used to
 # eat along with W, because it keyed on the unit alone (#45).
-TEST_INVERTER_SENSOR_VA_ENTITY_ID = "sensor.test_1547_1_inverter_three_phase_va"
-TEST_INVERTER_SENSOR_DC_POWER_ENTITY_ID = "sensor.test_1547_1_inverter_three_phase_dc_watts"
+TEST_INVERTER_SENSOR_VA_ENTITY_ID = "sensor.test_1547_1_inverter_three_phase_apparent_power"
+TEST_INVERTER_SENSOR_DC_POWER_ENTITY_ID = "sensor.test_1547_1_inverter_three_phase_dc_power"
 TEST_INVERTER_MM_SENSOR_STATE_ENTITY_ID = "sensor.test_1547_1_der_ac_measurement_1_operating_state"
-TEST_INVERTER_MM_SENSOR_POWER_ENTITY_ID = "sensor.test_1547_1_der_ac_measurement_1_active_power"
+TEST_INVERTER_MM_SENSOR_POWER_ENTITY_ID = "sensor.test_1547_1_der_ac_measurement_1_ac_power"
 TEST_INVERTER_RG_SENSOR_INCLX_ENTITY_ID = (
     "sensor.test_1547_1_inclinometer_incl_2_x_axis_inclination"
 )
