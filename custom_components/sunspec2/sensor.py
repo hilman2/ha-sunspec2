@@ -234,7 +234,6 @@ HA_META: dict[str, tuple[str | None, str, SensorDeviceClass | None]] = {
     "enum16": (None, ICON_DEFAULT, SensorDeviceClass.ENUM),
     # A bitfield is not an ENUM on purpose. The reason is at the vtype
     # handling in SunSpecSensor.__init__.
-    "bitfield16": (None, ICON_DEFAULT, None),
     "bitfield32": (None, ICON_DEFAULT, None),
 }
 
@@ -438,7 +437,7 @@ class SunSpecSensor(SunSpecEntity, SensorEntity):
         # async_write_ha_state raises ValueError (cjne/ha-sunspec#370).
         # Listing the combinations is not an option either: n flags give
         # 2**n states, and Evt1 of model 103 has 32 flags.
-        self._is_bitfield = vtype in ("bitfield16", "bitfield32")
+        self._is_bitfield = vtype == "bitfield32"
         if vtype == "enum16":
             symbols = self._point_meta.get("symbols", None)
             if symbols is None:
@@ -733,7 +732,7 @@ class SunSpecSensor(SunSpecEntity, SensorEntity):
             attrs["label"] = label
 
         vtype = self._meta["type"]
-        if vtype in ("enum16", "bitfield32", "bitfield16"):
+        if vtype in ("enum16", "bitfield32"):
             # A model can be missing from a cycle (see native_value).
             wrapper = self.coordinator.data.get(self.model_id)
             attrs["raw"] = (

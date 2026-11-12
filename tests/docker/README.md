@@ -1,8 +1,7 @@
 # Running the tests
 
-The test suite does not run on Windows Python, because Home Assistant
-imports `fcntl`. It runs here instead, in a container that installs what
-the CI job installs.
+The test suite runs in a container that installs what the CI job
+installs.
 
 ## The full suite
 

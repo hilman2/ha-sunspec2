@@ -37,8 +37,8 @@ from .const import is_excluded_sensor_point
 from .logger import LoggerLike
 from .vendors.profile import VendorProfile
 
+#: The domain of cjne/ha-sunspec, whose entities are taken over.
 CJNE_DOMAIN = "sunspec"
-"""The legacy domain we migrate FROM."""
 
 
 def _matching_cjne_entries(hass: HomeAssistant, entry: ConfigEntry) -> list[ConfigEntry]:

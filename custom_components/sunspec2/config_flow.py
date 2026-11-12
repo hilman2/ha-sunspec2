@@ -816,12 +816,8 @@ class SunSpecOptionsFlowHandler(config_entries.OptionsFlow):
         """Manage the options."""
         self._errors = {}
         self.options = dict(self.config_entry.options)
-        # runtime_data is missing while the entry is not loaded. The
-        # hass.data lookup then finds nothing either, because no code
-        # stores a coordinator there, and the coordinator stays None.
+        # runtime_data is missing while the entry is not loaded.
         self.coordinator = getattr(self.config_entry, "runtime_data", None)
-        if self.coordinator is None:
-            self.coordinator = self.hass.data.get(DOMAIN, {}).get(self.config_entry.entry_id)
         return await self.async_step_host_options()
 
     async def async_step_host_options(

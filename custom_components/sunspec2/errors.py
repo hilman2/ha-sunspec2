@@ -67,12 +67,9 @@ class TransientError(SunSpecError):
     category = "transient"
 
 
+#: The ``category`` of every SunSpecError subclass, in declaration order.
+#: Whatever iterates over the categories imports this tuple.
 CATEGORIES: tuple[str, ...] = ("transport", "protocol", "device", "transient")
-"""All Phase-3 error categories, in declaration order.
-
-Single source of truth - import from here whenever you need to iterate
-over categories (coordinator init, diagnostics dump, tests).
-"""
 
 
 def user_error(key: str, **placeholders: object) -> HomeAssistantError:
