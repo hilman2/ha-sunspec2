@@ -265,10 +265,11 @@ rules:
   icon-translations:
     status: done
     comment: |
-      icons.json holds the icon of every entity with a translation
-      key, and no such entity sets an icon in code. A generic SunSpec
-      sensor without a translation key has the icon of its unit,
-      from ``HA_META`` in sensor.py.
+      Every icon the integration gives an entity with a translation
+      key is in icons.json, and no such entity sets an icon in code.
+      A sensor without an entry there shows the icon of its device
+      class. A generic SunSpec sensor without a translation key has
+      the icon of its unit, from ``HA_META`` in sensor.py.
   reconfiguration-flow:
     status: done
     comment: |

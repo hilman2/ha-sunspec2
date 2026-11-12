@@ -75,7 +75,9 @@
       "sma_setpoint_timeout": {"default": "mdi:timer-sand"},
       "smart_meter_location": {"default": "mdi:meter-electric-outline"},
       "status_vendor4": {"default": "mdi:alert-circle-outline"},
-      "total_dc_power": {"default": "mdi:solar-power-variant"}
+      "total_dc_power": {"default": "mdi:solar-power-variant"},
+      "battery_charge_power": {"default": "mdi:battery-arrow-up"},
+      "battery_discharge_power": {"default": "mdi:battery-arrow-down"}
     },
     "number": {
       "active_power_limit": {"default": "mdi:speedometer-slow"},
@@ -145,7 +147,7 @@
       "storage_command_rearm": {"default": "mdi:battery-sync-outline"}
     },
     "button": {
-      "franklinwh_release": {"default": "mdi:battery-auto"},
+      "franklinwh_release": {"default": "mdi:battery-lock-open"},
       "franklinwh_standby": {"default": "mdi:battery-lock"},
       "reset_modbus_control": {"default": "mdi:restart"}
     },

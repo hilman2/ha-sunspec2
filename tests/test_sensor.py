@@ -44,6 +44,7 @@ from . import TEST_INVERTER_SENSOR_VA_ENTITY_ID
 from . import TEST_INVERTER_SENSOR_VAR_ID
 from . import create_mock_sunspec_config_entry
 from . import setup_mock_sunspec_config_entry
+from . import translated_entities_with_an_icon_of_their_own
 from .const import MOCK_CONFIG
 from .const import MOCK_CONFIG_MM
 from .const import MOCK_CONFIG_PREFIX
@@ -1102,15 +1103,7 @@ async def test_an_entity_with_a_translation_key_sets_no_icon_of_its_own(hass, re
     request.getfixturevalue(client_mock)
     await setup_mock_sunspec_config_entry(hass)
 
-    entities = [
-        entity
-        for component in hass.data["entity_components"].values()
-        for entity in component.entities
-        if entity.platform.platform_name == DOMAIN and entity.translation_key
-    ]
-
-    assert entities
-    assert [entity.entity_id for entity in entities if entity.icon is not None] == []
+    assert translated_entities_with_an_icon_of_their_own(hass) == []
 
 
 def test_every_icon_belongs_to_a_translated_entity():
@@ -1121,6 +1114,9 @@ def test_every_icon_belongs_to_a_translated_entity():
 
     for platform, keys in icons.items():
         assert keys.keys() <= names[platform].keys(), platform
+    # Outside the sensors every translated entity has an icon of its own.
+    for platform in ("number", "select", "switch", "button", "time"):
+        assert icons[platform].keys() == names[platform].keys(), platform
 
 
 @pytest.mark.parametrize("language", ["en", "de"])
