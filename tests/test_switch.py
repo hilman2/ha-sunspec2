@@ -157,6 +157,28 @@ async def test_set_export_limit_rejects_a_value_the_number_would_not_take(
     write.assert_not_called()
 
 
+async def test_set_export_limit_takes_what_an_automation_written_before_the_schema_sends(
+    hass, sunspec_write_client_mock
+):
+    """A templated percentage arrives as text, and a stray field was ignored until now."""
+    entry = await _setup_write_entry(hass)
+
+    with (
+        patch.object(entry.runtime_data.api, "async_write_points") as write,
+        patch.object(entry.runtime_data, "async_request_refresh"),
+    ):
+        await hass.services.async_call(
+            "sunspec2",
+            "set_export_limit",
+            {"config_entry_id": entry.entry_id, "percent": "70", "entity_id": "sensor.unrelated"},
+            blocking=True,
+        )
+
+    assert [call.args for call in write.call_args_list] == [
+        (123, [("WMaxLimPct", 70.0), ("WMaxLim_Ena", 1)])
+    ]
+
+
 async def test_set_export_limit_refuses_an_unloaded_entry(hass, sunspec_write_client_mock):
     """Home Assistant deletes runtime_data on unload; the answer is still an error message."""
     entry = await _setup_write_entry(hass)

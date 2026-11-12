@@ -374,6 +374,11 @@ async def _async_setup_web(
 
 # What ``sunspec2.set_export_limit`` accepts. The range is the one the
 # export limit Number has, see WMaxLimPct in write_controls.py.
+#
+# Fields the action does not know are let through and ignored. The
+# action had no schema up to 2026.11.1, so an automation with a stray
+# field worked, and one that sets an export limit must not stop working
+# over an update.
 _EXPORT_LIMIT_SCHEMA = probatio.Schema(
     {
         probatio.Required("config_entry_id"): cv.string,
@@ -381,7 +386,8 @@ _EXPORT_LIMIT_SCHEMA = probatio.Schema(
             probatio.Coerce(float), probatio.Range(min=0, max=200)
         ),
         probatio.Optional("enable", default=True): cv.boolean,
-    }
+    },
+    extra=probatio.ALLOW_EXTRA,
 )
 
 
@@ -1175,12 +1181,16 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator[dict[int, SunSpecModelW
 
         Args:
             model_id: The SunSpec model the points belong to.
-            points: Point name and value, in the order to write them.
+            points: Point name and value. The order of the list does not
+                decide the order on the wire: the points of one step go
+                out in the order of their registers.
 
         Raises:
             TransientError: The lock did not come free within
                 ``WRITE_LOCK_TIMEOUT_SECONDS``, or the gateway is resting
                 after a request it left unanswered.
+            SunSpecError: The write itself failed, see
+                ``SunSpecApiClient.async_write_points``.
         """
         async with self.async_write_transaction():
             # One step for everyone but a vendor that takes a new value

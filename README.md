@@ -249,8 +249,10 @@ other program is holding the connection.
 **Your entity IDs, history, dashboards and automations are kept.** The
 old entities are moved over to this integration on first setup.
 
-1. Uninstall cjne/ha-sunspec in **HACS**. Leave its entry under
-   *Settings -> Devices & Services* where it is
+1. Uninstall cjne/ha-sunspec in **HACS**. HACS says the integration is
+   configured and asks you to delete the configuration first. Choose
+   **Ignore**, and leave the entry under *Settings -> Devices & Services*
+   where it is
 2. **Restart Home Assistant**
 3. Install SunSpec Modbus and add it with the **same host, port and
    unit ID** as before. Type the host the way the old entry has it: an
