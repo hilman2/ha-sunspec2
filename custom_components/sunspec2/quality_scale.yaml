@@ -3,13 +3,9 @@ rules:
   action-setup:
     status: done
     comment: |
-      The ``sunspec2.set_export_limit`` service action is available
-      for inverters with model 123 or 704.
-      Registered idempotently in __init__.py via
-      ``hass.services.async_register`` from the first config entry
-      that loads. Service definition lives in services.yaml with
-      typed selectors for config_entry_id, percent (0..100) and
-      the optional enable boolean.
+      ``sunspec2.set_export_limit`` and ``sunspec2.set_battery_plan``
+      are registered in ``async_setup``, each with a schema. Their
+      fields are described in services.yaml.
   appropriate-polling:
     status: done
     comment: |

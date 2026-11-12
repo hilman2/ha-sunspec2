@@ -65,6 +65,7 @@ from .errors import TransportError
 from .fronius_web import FroniusWebAuthError
 from .fronius_web import FroniusWebError
 from .fronius_web import async_mint_token
+from .logger import redact_options
 from .model_labels import sunspec_model_labels
 from .vendors.sma import SUNSPEC_UNIT_ID as SMA_SUNSPEC_UNIT_ID
 
@@ -1132,10 +1133,7 @@ class SunSpecOptionsFlowHandler(config_entries.OptionsFlow):
             "Saving config entry with title %s, data: %s options %s",
             title,
             self.settings,
-            {
-                key: "***" if key == CONF_FRONIUS_WEB_TOKEN else value
-                for key, value in self.options.items()
-            },
+            redact_options(self.options),
         )
         # Merge, do not replace. self.settings only ever holds what the host
         # form asked for: host, port and unit id. A serial entry keeps its

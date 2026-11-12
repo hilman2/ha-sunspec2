@@ -59,9 +59,7 @@ PLAN_SCHEMA = probatio.Schema(
 
 @callback
 def async_register_plan_service(hass: HomeAssistant) -> None:
-    """Register the plan action once; each call resolves its current config entry."""
-    if hass.services.has_service(DOMAIN, SERVICE_SET_BATTERY_PLAN):
-        return
+    """Register the plan action; each call resolves its current config entry."""
 
     async def async_set_battery_plan(call: ServiceCall) -> None:
         entry = hass.config_entries.async_get_entry(call.data["config_entry_id"])

@@ -24,7 +24,6 @@ from . import SunSpec2ConfigEntry
 from . import SunSpecDataUpdateCoordinator
 from . import get_sunspec_unique_id
 from .battery_plan import battery_plan_switch
-from .battery_plan_services import async_register_plan_service
 from .entity import SunSpecEntity
 from .errors import SunSpecError
 from .fronius_web_entities import fronius_web_switches
@@ -53,7 +52,6 @@ async def async_setup_entry(
 ) -> None:
     """Set up the write Switch entities the device and the options allow."""
     coordinator = entry.runtime_data
-    async_register_plan_service(hass)
     device_info = coordinator.device_info
     if device_info is None:
         return

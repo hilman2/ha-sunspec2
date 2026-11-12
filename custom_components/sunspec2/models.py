@@ -107,3 +107,25 @@ class SunSpecModelWrapper:
             return group.points[
                 point_name
             ]  # Generic access if no specific subgrouping is specified
+
+
+def point_text(wrapper: SunSpecModelWrapper, point_name: str) -> str:
+    """The text a string point holds, or ``""`` when there is none.
+
+    Common model 1 identifies the device in string points (``Mn``,
+    ``Md``, ``Opt``, ``Vr``), and the vendor profile is picked from
+    them. A caller that compares them needs a string every time.
+
+    Args:
+        wrapper: The model to read from.
+        point_name: The point, by its SunSpec name.
+
+    Returns:
+        str: The value of the point if the model has the point and its
+        value is a string, otherwise ``""``.
+    """
+    try:
+        value = wrapper.getValue(point_name)
+    except (KeyError, AttributeError):
+        return ""
+    return value if isinstance(value, str) else ""

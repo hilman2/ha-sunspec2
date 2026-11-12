@@ -16,6 +16,7 @@ from custom_components.sunspec2 import async_setup_entry
 from custom_components.sunspec2.api import SunSpecApiClient
 from custom_components.sunspec2.const import CONF_CAPTURE_RAW
 from custom_components.sunspec2.const import CONF_ENABLED_MODELS
+from custom_components.sunspec2.const import CONF_FRONIUS_WEB_TOKEN
 from custom_components.sunspec2.const import CONF_MODEL_READ_DELAY
 from custom_components.sunspec2.const import CONF_SCAN_DELAY
 from custom_components.sunspec2.const import CONF_SCAN_INTERVAL
@@ -335,6 +336,18 @@ async def test_fetch_data_connect_error(hass, connect_error_on_get_data):
 
 async def test_client_reconnect(hass, sunspec_client_mock_not_connected) -> None:
     await setup_mock_sunspec_config_entry(hass, MOCK_CONFIG)
+
+
+async def test_setup_keeps_the_web_token_out_of_the_log(hass, sunspec_client_mock, caplog):
+    """The stored Digest secret signs in to the inverter's web interface."""
+    token = {"realm": "Webinterface area", "secret": "5ec2e7f00d5ec2e7", "algorithm": "md5"}
+    entry = create_mock_sunspec_config_entry(hass, options={CONF_FRONIUS_WEB_TOKEN: token})
+
+    with caplog.at_level("DEBUG", logger="custom_components.sunspec2"):
+        await setup_mock_sunspec_config_entry(hass, config_entry=entry)
+
+    assert "Options: " in caplog.text
+    assert token["secret"] not in caplog.text
 
 
 async def test_migrate_entry_from_v1_to_v2_with_slave_id(hass):
