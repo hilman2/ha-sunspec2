@@ -146,7 +146,8 @@ rules:
     comment: |
       The coordinator logs a warning when an update cycle fails for
       the first time and one when the device answers again. The
-      failed cycles in between log at debug, with their count.
+      failed cycles in between log at debug, with their count, and so
+      does a setup that fails, which Home Assistant reports itself.
   parallel-updates:
     status: done
     comment: |
@@ -175,7 +176,7 @@ rules:
     comment: |
       diagnostics.py. The host and the Fronius web token are redacted
       in the entry data, and the host and every IPv4 address in the
-      error texts.
+      error texts. The readings are dumped as the device sent them.
   discovery-update-info:
     status: todo
     comment: |

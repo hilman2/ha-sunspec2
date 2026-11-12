@@ -210,9 +210,9 @@ your inverter model, its firmware version and what worked.
 ## When something is wrong
 
 **Download the diagnostics first.** *Settings -> Devices & Services ->
-SunSpec Modbus -> Download diagnostics*. Your IP address is removed
-automatically. The file holds almost everything needed to work out what
-happened.
+SunSpec Modbus -> Download diagnostics*. The address of your inverter is
+removed from the settings and the error messages in it. The file holds
+almost everything needed to work out what happened.
 
 The cases below are the common ones in a line or two.
 **[docs/troubleshooting.md](docs/troubleshooting.md)** has more: how

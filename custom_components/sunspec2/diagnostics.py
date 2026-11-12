@@ -67,7 +67,7 @@ async def async_get_config_entry_diagnostics(
             except Exception as exc:  # noqa: BLE001 - defensive: never break the dump
                 scanned_models.append({"model_id": model_id, "error": str(exc)})
 
-    dump = {
+    dump: dict[str, Any] = {
         "config": async_redact_data(dict(entry.data), TO_REDACT),
         "options": async_redact_data(dict(entry.options), TO_REDACT),
         # scanned_models below is built from coordinator.data, the
@@ -126,17 +126,20 @@ async def async_get_config_entry_diagnostics(
         },
     }
     # The entry data above is redacted by key. An error message names
-    # the address in its text, so the sections that hold error texts
-    # are redacted by content.
+    # the address in its text, so the error texts are redacted by
+    # content: the recent errors, and the one error the web section
+    # holds in place of its data.
     addresses = _address_pattern(entry)
-    for section in ("recent_errors", "fronius_web"):
-        dump[section] = _without_addresses(dump[section], addresses)
+    dump["recent_errors"] = _without_addresses(dump["recent_errors"], addresses)
+    web = dump["fronius_web"]
+    if web is not None and "error" in web:
+        web["error"] = _without_addresses(web["error"], addresses)
     return dump
 
 
 #: An IPv4 address anywhere in a text. An error raised for a host name
 #: carries the address the name resolved to.
-_IPV4 = r"(?<![\w.])(?:\d{1,3}\.){3}\d{1,3}(?![\w.])"
+_IPV4 = r"(?<![\w.])(?:\d{1,3}\.){3}\d{1,3}(?!\w|\.\d)"
 
 
 def _address_pattern(entry: ConfigEntry) -> re.Pattern[str]:
@@ -150,7 +153,7 @@ def _address_pattern(entry: ConfigEntry) -> re.Pattern[str]:
         return re.compile(_IPV4)
     # The host as a whole word only, so that a host named "inverter"
     # leaves "inverter_three_phase" alone.
-    return re.compile(rf"{_IPV4}|(?<![\w.-]){re.escape(host)}(?![\w.-])", re.IGNORECASE)
+    return re.compile(rf"{_IPV4}|(?<![\w.-]){re.escape(host)}(?![\w-]|\.\w)", re.IGNORECASE)
 
 
 def _without_addresses(value: Any, addresses: re.Pattern[str]) -> Any:

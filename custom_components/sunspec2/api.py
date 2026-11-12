@@ -280,24 +280,26 @@ class SunSpecApiClient:
         # through as they are; both classes of each pair land in the same
         # category. Subclasses come before their bases: the timeout and
         # the closed connection both derive from ModbusClientError.
+        # A failed read is logged at debug here. The coordinator logs the
+        # error it is turned into, and decides how loud: once per outage.
         try:
             with_model.debug("Get data")
             return await self.read(model_id)
         except (SunSpecModbusClientTimeout, ModbusClientTimeout) as exc:
-            with_model.warning("Modbus read timeout")
+            with_model.debug("Modbus read timeout")
             raise TransientError(f"Modbus read timeout for model {model_id}") from exc
         except ModbusClientConnectionClosed as exc:
             # async_read_model already connected again once; a device
             # that hangs up twice in a row is not answering this cycle.
-            with_model.warning("Device closed the Modbus connection twice in a row")
+            with_model.debug("Device closed the Modbus connection twice in a row")
             raise TransportError(
                 f"Device closed the Modbus connection while reading model {model_id}"
             ) from exc
         except (SunSpecModbusClientException, ModbusClientException) as exc:
-            with_model.warning("Modbus exception while reading model")
+            with_model.debug("Modbus exception while reading model")
             raise DeviceError(f"Modbus exception while reading model {model_id}: {exc}") from exc
         except ModbusClientError as exc:
-            with_model.warning("Modbus transport error while reading model")
+            with_model.debug("Modbus transport error while reading model")
             raise TransportError(
                 f"Modbus transport error while reading model {model_id}: {exc}"
             ) from exc

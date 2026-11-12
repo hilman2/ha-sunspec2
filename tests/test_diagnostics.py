@@ -190,7 +190,9 @@ async def test_diagnostics_say_why_the_web_interface_has_no_data(
     diag = await async_get_config_entry_diagnostics(hass, entry)
 
     assert list(diag["fronius_web"]) == ["error"]
-    assert "rejected the stored login" in diag["fronius_web"]["error"]
+    assert diag["fronius_web"]["error"].startswith(
+        "The web interface at **REDACTED** rejected the stored login"
+    )
 
 
 async def test_diagnostics_recent_errors_starts_empty(hass, sunspec_client_mock):
@@ -215,13 +217,16 @@ async def test_diagnostics_take_the_address_out_of_error_messages(hass, sunspec_
     coordinator._record_error(TransportError(f"Modbus error while connecting to {host}:123"))
     # A host name resolves to an address, and the socket error carries that.
     coordinator._record_error(TransportError("Connect call failed ('192.0.2.7', 502)"))
+    coordinator._record_error(TransportError(f"Could not reach 192.0.2.7. Nor {host}."))
 
     diag = await async_get_config_entry_diagnostics(hass, entry)
 
     assert [error["msg"] for error in diag["recent_errors"]["transport"]] == [
         "Modbus error while connecting to **REDACTED**:123",
         "Connect call failed ('**REDACTED**', 502)",
+        "Could not reach **REDACTED**. Nor **REDACTED**.",
     ]
+    assert host not in json.dumps(diag)
 
 
 async def test_diagnostics_redact_the_host_as_a_whole_word_only(hass, sunspec_client_mock):

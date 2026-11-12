@@ -1128,9 +1128,11 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator[dict[int, SunSpecModelW
             # debug for the ones that follow. The count stays in the
             # line, and the Repairs issue below reports a fault that
             # lasts.
-            loud_log = (
-                self._log.warning if self._consecutive_failures[cat] == 1 else self._log.debug
-            )
+            # Nor during setup: every retry builds a new coordinator,
+            # so each one would warn afresh, and Home Assistant logs the
+            # failed setup itself.
+            first_in_a_row = self._consecutive_failures[cat] == 1 and self.data is not None
+            loud_log = self._log.warning if first_in_a_row else self._log.debug
             loud_log(
                 "%s (#%d in a row): %s",
                 exc.__class__.__name__,
