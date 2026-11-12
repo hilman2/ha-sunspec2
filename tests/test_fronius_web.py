@@ -40,6 +40,7 @@ from custom_components.sunspec2.storage_modes import StorageModeSelect
 
 from . import create_mock_sunspec_config_entry
 from . import setup_mock_sunspec_config_entry
+from . import translated_entities_with_an_icon_of_their_own
 from .const import MOCK_CONFIG_STEP_1
 from .const import MOCK_CONFIG_WRITE
 
@@ -717,3 +718,12 @@ async def test_the_password_field_is_not_offered_for_other_vendors(hass, sunspec
     entry = await _web_entry(hass, options={})
     result = await _model_options(hass, entry)
     assert "fronius" not in result["data_schema"].schema
+
+
+async def test_the_web_entities_take_their_icons_from_icons_json(
+    hass, sunspec_fronius_client_mock, aioclient_mock
+):
+    _mock_web(aioclient_mock)
+    await _web_entry(hass)
+
+    assert translated_entities_with_an_icon_of_their_own(hass) == []

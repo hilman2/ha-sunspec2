@@ -487,18 +487,20 @@ class SunSpecSensor(SunSpecEntity, SensorEntity):
         name_parts.append(desc)
         self._name = " ".join(name_parts)
 
-        # The translation key also picks the icon (icons.json), so a
-        # point gets it in every model. Whether it also names the sensor
-        # depends on the model, see TRANSLATED_NAME_MODELS.
-        self._name_is_translated = False
+        # The translation key gives the sensor its name (translations/)
+        # and its icon (icons.json). A point gets one in the models where
+        # the translation holds, see TRANSLATED_NAME_MODELS. Without one
+        # the sensor has the label of its model definition and the icon
+        # of its unit.
         if ":" not in self.key:
             vendor = coordinator.vendor
             if vendor is not None and self.key in vendor.daily_energy_points:
                 self._attr_translation_key = "daily_energy"
-                self._name_is_translated = True
-            elif (translation_key := SUNSPEC_POINT_TRANSLATION_KEYS.get(self.key)) is not None:
-                self._attr_translation_key = translation_key
-                self._name_is_translated = self.model_id in TRANSLATED_NAME_MODELS
+            elif (
+                self.model_id in TRANSLATED_NAME_MODELS
+                and self.key in SUNSPEC_POINT_TRANSLATION_KEYS
+            ):
+                self._attr_translation_key = SUNSPEC_POINT_TRANSLATION_KEYS[self.key]
 
         # Temperatures, state enums and event bitfields are diagnostic:
         # Home Assistant lists them under "Diagnostic" on the device
@@ -573,7 +575,7 @@ class SunSpecSensor(SunSpecEntity, SensorEntity):
         A second model with the same id keeps its index in front of
         either name.
         """
-        translated = super().name if self._name_is_translated else None
+        translated = super().name if self.translation_key else None
         if not isinstance(translated, str):
             return self._name
         return f"{self.model_index} {translated}" if self.model_index > 0 else translated
@@ -703,8 +705,12 @@ class SunSpecSensor(SunSpecEntity, SensorEntity):
 
     @property
     def icon(self) -> str | None:
-        """Return the icon of the sensor."""
-        return self.use_icon
+        """The icon of the unit, for a sensor without a translation key.
+
+        A sensor with a key returns None, and Home Assistant takes the
+        icon from icons.json.
+        """
+        return None if self.translation_key else self.use_icon
 
     @property
     def device_class(self) -> SensorDeviceClass | None:

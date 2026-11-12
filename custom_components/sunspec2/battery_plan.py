@@ -675,8 +675,6 @@ class _PlanEntity(SunSpecEntity):
 class BatteryPlanSwitch(_PlanEntity, SwitchEntity, RestoreEntity):
     """The plan itself. Its attributes show what the last plan asked for."""
 
-    _attr_icon = "mdi:battery-clock"
-
     @property
     def is_on(self) -> bool:
         return self._planner.settings.enabled
@@ -708,7 +706,6 @@ class BatteryPlanSwitch(_PlanEntity, SwitchEntity, RestoreEntity):
 class BatteryPlanDirection(_PlanEntity, SelectEntity, RestoreEntity):
     """Choose whether the plan charges or discharges the battery."""
 
-    _attr_icon = "mdi:battery-sync"
     _attr_options = [direction.value for direction in PlanDirection]
 
     @property
@@ -727,8 +724,6 @@ class BatteryPlanDirection(_PlanEntity, SelectEntity, RestoreEntity):
 
 class BatteryPlanTime(_PlanEntity, TimeEntity, RestoreEntity):
     """The start or the end of the window."""
-
-    _attr_icon = "mdi:clock-outline"
 
     def __init__(
         self,
@@ -775,7 +770,6 @@ class BatteryPlanTime(_PlanEntity, TimeEntity, RestoreEntity):
 class BatteryPlanTargetNumber(_PlanEntity, RestoreNumber):
     """The state of charge at which the requested charge or discharge stops."""
 
-    _attr_icon = "mdi:battery-low"
     _attr_mode = NumberMode.BOX
     _attr_native_unit_of_measurement = PERCENTAGE
     _attr_native_min_value = 0.0
@@ -804,7 +798,6 @@ class BatteryPlanCapacityNumber(_PlanEntity, RestoreNumber):
     otherwise the plan waits for a value.
     """
 
-    _attr_icon = "mdi:battery-high"
     _attr_mode = NumberMode.BOX
     _attr_native_unit_of_measurement = UnitOfEnergy.KILO_WATT_HOUR
     _attr_native_min_value = 0.0

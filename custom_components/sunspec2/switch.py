@@ -100,7 +100,6 @@ class SunSpecWriteSwitch(SunSpecEntity, SwitchEntity):
             config_entry.entry_id, spec.point_name, spec.model_id, 0
         )
         self._attr_translation_key = spec.translation_key
-        self._attr_icon = spec.icon
         self._attr_entity_registry_enabled_default = spec.enabled_by_default
 
     @property

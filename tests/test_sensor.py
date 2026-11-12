@@ -44,6 +44,7 @@ from . import TEST_INVERTER_SENSOR_VA_ENTITY_ID
 from . import TEST_INVERTER_SENSOR_VAR_ID
 from . import create_mock_sunspec_config_entry
 from . import setup_mock_sunspec_config_entry
+from . import translated_entities_with_an_icon_of_their_own
 from .const import MOCK_CONFIG
 from .const import MOCK_CONFIG_MM
 from .const import MOCK_CONFIG_PREFIX
@@ -1070,21 +1071,21 @@ async def test_an_enum_sensor_is_unknown_while_its_model_is_missing_from_a_cycle
     assert "Traceback" not in caplog.text
 
 
-@pytest.mark.parametrize(
-    "client_mock",
-    [
-        "sunspec_client_mock",
-        "sunspec_storage_capacity_client_mock",
-        "sunspec_write_client_mock",
-        "sunspec_fronius_client_mock",
-        "sunspec_symo_hybrid_client_mock",
-        "sunspec_solaredge_client_mock",
-        "sunspec_kostal_client_mock",
-        "sunspec_sma_client_mock",
-        "sunspec_apsystems_client_mock",
-        "sunspec_saj_client_mock",
-    ],
-)
+_CLIENT_MOCKS = [
+    "sunspec_client_mock",
+    "sunspec_storage_capacity_client_mock",
+    "sunspec_write_client_mock",
+    "sunspec_fronius_client_mock",
+    "sunspec_symo_hybrid_client_mock",
+    "sunspec_solaredge_client_mock",
+    "sunspec_kostal_client_mock",
+    "sunspec_sma_client_mock",
+    "sunspec_apsystems_client_mock",
+    "sunspec_saj_client_mock",
+]
+
+
+@pytest.mark.parametrize("client_mock", _CLIENT_MOCKS)
 async def test_no_two_entities_of_a_device_share_a_name(hass, request, client_mock):
     """Home Assistant tells namesakes apart with a ``_2`` on the entity id and nothing else."""
     request.getfixturevalue(client_mock)
@@ -1094,6 +1095,28 @@ async def test_no_two_entities_of_a_device_share_a_name(hass, request, client_mo
     names = Counter((entity.device_id, entity.domain, entity.original_name) for entity in entities)
 
     assert [name for name, count in names.items() if count > 1] == []
+
+
+@pytest.mark.parametrize("client_mock", _CLIENT_MOCKS)
+async def test_an_entity_with_a_translation_key_sets_no_icon_of_its_own(hass, request, client_mock):
+    """An icon set in code wins over icons.json, where the icon of a translated entity lives."""
+    request.getfixturevalue(client_mock)
+    await setup_mock_sunspec_config_entry(hass)
+
+    assert translated_entities_with_an_icon_of_their_own(hass) == []
+
+
+def test_every_icon_belongs_to_a_translated_entity():
+    """An icon under a key no entity has is never shown."""
+    component = Path(__file__).parent.parent / "custom_components" / "sunspec2"
+    names = json.loads((component / "translations" / "en.json").read_text("utf-8"))["entity"]
+    icons = json.loads((component / "icons.json").read_text("utf-8"))["entity"]
+
+    for platform, keys in icons.items():
+        assert keys.keys() <= names[platform].keys(), platform
+    # Outside the sensors every translated entity has an icon of its own.
+    for platform in ("number", "select", "switch", "button", "time"):
+        assert icons[platform].keys() == names[platform].keys(), platform
 
 
 @pytest.mark.parametrize("language", ["en", "de"])

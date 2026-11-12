@@ -161,8 +161,6 @@ class RawBlockSensor(RawBlockEntity, SensorEntity):
             self._attr_entity_category = EntityCategory.DIAGNOSTIC
         if spec.options is not None:
             self._attr_options = list(spec.options.values())
-        if spec.icon is not None:
-            self._attr_icon = spec.icon
         self._attr_entity_registry_enabled_default = spec.enabled_by_default
 
     @property
@@ -201,8 +199,6 @@ class RawBlockNumber(RawBlockEntity, NumberEntity):
         self._attr_native_unit_of_measurement = spec.unit
         if spec.device_class is not None:
             self._attr_device_class = NumberDeviceClass(spec.device_class)
-        if spec.icon is not None:
-            self._attr_icon = spec.icon
 
     @property
     def native_value(self) -> float | None:
@@ -232,8 +228,6 @@ class RawBlockSelect(RawBlockEntity, SelectEntity):
         )
         self._spec = spec
         self._attr_options = list(spec.options.values())
-        if spec.icon is not None:
-            self._attr_icon = spec.icon
 
     @property
     def current_option(self) -> str | None:
@@ -278,8 +272,6 @@ class RawKeepAliveSwitch(RawBlockEntity, SwitchEntity, RestoreEntity):
         )
         self._spec = spec
         self._unsub: CALLBACK_TYPE | None = None
-        if spec.icon is not None:
-            self._attr_icon = spec.icon
 
     @property
     def is_on(self) -> bool:
@@ -362,7 +354,6 @@ class RawWriteCountSensor(SunSpecEntity, RestoreSensor):
 
     _attr_entity_category = EntityCategory.DIAGNOSTIC
     _attr_translation_key = "register_writes"
-    _attr_icon = "mdi:counter"
     _attr_state_class = SensorStateClass.TOTAL_INCREASING
 
     def __init__(

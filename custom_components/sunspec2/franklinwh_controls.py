@@ -220,7 +220,6 @@ class FranklinPowerNumber(FranklinEntity, NumberEntity):
     _attr_mode = NumberMode.BOX
     _attr_native_unit_of_measurement = "W"
     _attr_native_step = 1.0
-    _attr_icon = "mdi:battery-sync"
 
     @property
     def available(self) -> bool:
@@ -264,7 +263,6 @@ class FranklinBatteryButton(FranklinEntity, ButtonEntity):
         key = "franklinwh_release" if release else "franklinwh_standby"
         super().__init__(coordinator, entry, prefix, home, key)
         self._release = release
-        self._attr_icon = "mdi:battery-auto" if release else "mdi:battery-lock"
 
     async def async_press(self) -> None:
         await async_set_power(self.coordinator, None if self._release else 0)
@@ -275,7 +273,6 @@ class FranklinBatteryState(FranklinEntity, SensorEntity):
 
     _attr_device_class = SensorDeviceClass.ENUM
     _attr_options = ["charging", "discharging", "idle"]
-    _attr_icon = "mdi:battery"
 
     @property
     def native_value(self) -> str | None:

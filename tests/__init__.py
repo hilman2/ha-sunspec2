@@ -142,3 +142,19 @@ class MockSunSpecDataUpdateCoordinator(DataUpdateCoordinator):
 
     async def _async_update_data(self):
         """Update data via library."""
+
+
+def translated_entities_with_an_icon_of_their_own(hass: HomeAssistant) -> list[str]:
+    """Entity ids of this integration that have a translation key and set an icon in code.
+
+    The icon of such an entity lives in icons.json, and one set in code
+    overrides the file.
+    """
+    return [
+        entity.entity_id
+        for component in hass.data["entity_components"].values()
+        for entity in component.entities
+        if entity.platform.platform_name == DOMAIN
+        and entity.translation_key
+        and entity.icon is not None
+    ]

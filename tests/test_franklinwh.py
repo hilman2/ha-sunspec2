@@ -31,6 +31,7 @@ from custom_components.sunspec2.vendor_blocks import RawBlockSensor
 from custom_components.sunspec2.vendors import profile_for
 from custom_components.sunspec2.vendors.franklinwh import FRANKLINWH
 
+from . import translated_entities_with_an_icon_of_their_own
 from .const import MOCK_CONFIG
 from .fake_unit import FakeConnection
 from .fake_unit import FakeUnit
@@ -584,3 +585,7 @@ async def test_cancelled_verification_releases_the_gateway_and_drops_the_session
     finally:
         pending.cancel()
         await asyncio.gather(pending, return_exceptions=True)
+
+
+async def test_the_franklinwh_entities_take_their_icons_from_icons_json(hass, agate):
+    assert translated_entities_with_an_icon_of_their_own(hass) == []

@@ -69,7 +69,6 @@ class WriteControlSpec:
     point_name: str
     platform: str
     translation_key: str
-    icon: str
     #: Number only. ``None`` means "derive from the point's scale factor".
     native_min: float | None = None
     native_max: float | None = None
@@ -103,7 +102,6 @@ _MODEL_123: tuple[WriteControlSpec, ...] = (
         point_name="WMaxLimPct",
         platform=PLATFORM_NUMBER,
         translation_key="export_limit_pct",
-        icon="mdi:transmission-tower-export",
         native_min=0,
         native_max=EXPORT_LIMIT_HARD_MAX_PCT,
     ),
@@ -112,14 +110,12 @@ _MODEL_123: tuple[WriteControlSpec, ...] = (
         point_name="WMaxLim_Ena",
         platform=PLATFORM_SWITCH,
         translation_key="export_limit_enabled",
-        icon="mdi:transmission-tower-export",
     ),
     WriteControlSpec(
         model_id=123,
         point_name="WMaxLimPct_RvrtTms",
         platform=PLATFORM_NUMBER,
         translation_key="export_limit_revert_time",
-        icon="mdi:timer-sand",
         native_min=0,
         native_max=65535,
         native_step=1,
@@ -130,7 +126,6 @@ _MODEL_123: tuple[WriteControlSpec, ...] = (
         point_name="OutPFSet",
         platform=PLATFORM_NUMBER,
         translation_key="power_factor_set",
-        icon="mdi:angle-acute",
         native_min=-1.0,
         native_max=1.0,
         native_step=0.01,
@@ -140,14 +135,12 @@ _MODEL_123: tuple[WriteControlSpec, ...] = (
         point_name="OutPFSet_Ena",
         platform=PLATFORM_SWITCH,
         translation_key="power_factor_enabled",
-        icon="mdi:angle-acute",
     ),
     WriteControlSpec(
         model_id=123,
         point_name="Conn",
         platform=PLATFORM_SWITCH,
         translation_key="inverter_grid_connection",
-        icon="mdi:transmission-tower",
         # Off disconnects the inverter from the grid, so the switch is
         # there for whoever turns it on in the entity list.
         enabled_by_default=False,
@@ -170,7 +163,6 @@ _MODEL_704: tuple[WriteControlSpec, ...] = (
         point_name="WMaxLimPct",
         platform=PLATFORM_NUMBER,
         translation_key="export_limit_pct",
-        icon="mdi:transmission-tower-export",
         native_min=0,
         native_max=EXPORT_LIMIT_HARD_MAX_PCT,
     ),
@@ -179,14 +171,12 @@ _MODEL_704: tuple[WriteControlSpec, ...] = (
         point_name="WMaxLimPctEna",
         platform=PLATFORM_SWITCH,
         translation_key="export_limit_enabled",
-        icon="mdi:transmission-tower-export",
     ),
     WriteControlSpec(
         model_id=704,
         point_name="WMaxLimPctRvrtTms",
         platform=PLATFORM_NUMBER,
         translation_key="export_limit_revert_time",
-        icon="mdi:timer-sand",
         native_min=0,
         # The point is a uint32 here, a uint16 in model 123.
         native_max=4294967295,
@@ -198,7 +188,6 @@ _MODEL_704: tuple[WriteControlSpec, ...] = (
         point_name="WMaxLimPctRvrt",
         platform=PLATFORM_NUMBER,
         translation_key="export_limit_revert_value",
-        icon="mdi:undo-variant",
         native_min=0,
         native_max=EXPORT_LIMIT_HARD_MAX_PCT,
         # The percentage the inverter falls back to when the revert
@@ -214,7 +203,6 @@ _MODEL_704: tuple[WriteControlSpec, ...] = (
         point_name="WMaxLimPctEnaRvrt",
         platform=PLATFORM_SWITCH,
         translation_key="export_limit_revert_enabled",
-        icon="mdi:undo-variant",
         # Whether the limit stays enabled after the timer expires. With
         # this switch on and the revert value set, a lapse changes
         # nothing.
@@ -225,7 +213,6 @@ _MODEL_704: tuple[WriteControlSpec, ...] = (
         point_name="WSet",
         platform=PLATFORM_NUMBER,
         translation_key="active_power_setpoint",
-        icon="mdi:flash",
         # The point is an int32 in watts. Negative means import on a
         # device that supports it, so the range does not stop at zero.
         # The inverter rejects or clamps what it will not do.
@@ -239,7 +226,6 @@ _MODEL_704: tuple[WriteControlSpec, ...] = (
         point_name="WSetPct",
         platform=PLATFORM_NUMBER,
         translation_key="active_power_setpoint_pct",
-        icon="mdi:flash",
         native_min=-100,
         native_max=100,
         unit="%",
@@ -250,14 +236,12 @@ _MODEL_704: tuple[WriteControlSpec, ...] = (
         point_name="WSetEna",
         platform=PLATFORM_SWITCH,
         translation_key="active_power_setpoint_enabled",
-        icon="mdi:flash",
     ),
     WriteControlSpec(
         model_id=704,
         point_name="WSetMod",
         platform=PLATFORM_SELECT,
         translation_key="active_power_setpoint_mode",
-        icon="mdi:flash-outline",
         # WSetMod decides whether WSet (watts) or WSetPct (percent) is
         # the setpoint in force. An absolute setpoint that appears to do
         # nothing usually means WSetMod is on the other one.
@@ -284,7 +268,6 @@ _MODEL_124: tuple[WriteControlSpec, ...] = (
         point_name="InWRte",
         platform=PLATFORM_NUMBER,
         translation_key="battery_charge_rate",
-        icon="mdi:battery-charging-medium",
         native_min=0,
         native_max=100,
     ),
@@ -293,7 +276,6 @@ _MODEL_124: tuple[WriteControlSpec, ...] = (
         point_name="OutWRte",
         platform=PLATFORM_NUMBER,
         translation_key="battery_discharge_rate",
-        icon="mdi:battery-arrow-down",
         native_min=0,
         native_max=100,
     ),
@@ -302,7 +284,6 @@ _MODEL_124: tuple[WriteControlSpec, ...] = (
         point_name="WChaMax",
         platform=PLATFORM_NUMBER,
         translation_key="battery_max_charge_power",
-        icon="mdi:battery-charging",
         native_min=0,
         native_max=1000000,
         unit="W",
@@ -312,7 +293,6 @@ _MODEL_124: tuple[WriteControlSpec, ...] = (
         point_name="StorCtl_Mod",
         platform=PLATFORM_SELECT,
         translation_key="battery_control_mode",
-        icon="mdi:battery-sync",
         # StorCtl_Mod is a bitfield16, not an enum: bit 0 gates InWRte,
         # bit 1 gates OutWRte. It is one select with the four
         # combinations and not two switches on purpose. Two switches
@@ -327,7 +307,6 @@ _MODEL_124: tuple[WriteControlSpec, ...] = (
         point_name="InOutWRte_RvrtTms",
         platform=PLATFORM_NUMBER,
         translation_key="battery_rate_revert_time",
-        icon="mdi:timer-sand",
         native_min=0,
         native_max=65535,
         native_step=1,
@@ -338,7 +317,6 @@ _MODEL_124: tuple[WriteControlSpec, ...] = (
         point_name="MinRsvPct",
         platform=PLATFORM_NUMBER,
         translation_key="battery_min_reserve",
-        icon="mdi:battery-lock",
         native_min=0,
         native_max=100,
         # A backup reserve is set once and not automated, so the
@@ -350,7 +328,6 @@ _MODEL_124: tuple[WriteControlSpec, ...] = (
         point_name="ChaGriSet",
         platform=PLATFORM_SWITCH,
         translation_key="battery_grid_charging",
-        icon="mdi:transmission-tower-import",
         # ChaGriSet is an enum16, PV = 0 and GRID = 1: whether the
         # battery may take energy from the grid at all. On Fronius the
         # point is AND-linked with the same setting in the inverter's

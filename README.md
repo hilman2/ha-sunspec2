@@ -322,9 +322,9 @@ client, hence the name. The integration carries its own fork of it in
 inverter, over TCP and over RS-485, through
 [`modbus-connection`][modbus-connection], the Modbus transport Home
 Assistant's own integrations use. Meets the **Silver** tier of the Home
-Assistant quality scale and all but two rules of Gold:
+Assistant quality scale and all but one rule of Gold:
 [`quality_scale.yaml`][quality-scale] says rule by rule where, and
-which two are open.
+which one is open.
 
 MIT licensed, see [`LICENSE`](LICENSE). The embedded pysunspec2 fork
 stays under its Apache 2.0 license, see the `LICENSE` file next to it.

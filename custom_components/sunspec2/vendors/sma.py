@@ -185,9 +185,8 @@ RAW_SENSORS: tuple[RawSensor, ...] = (
         device_class="enum",
         options=DEVICE_CLASSES,
         diagnostic=True,
-        icon="mdi:shape-outline",
     ),
-    _sensor("sma_device", "device_type", "sma_device_type", diagnostic=True, icon="mdi:barcode"),
+    _sensor("sma_device", "device_type", "sma_device_type", diagnostic=True),
     _sensor(
         "sma_status",
         "status",
@@ -195,7 +194,6 @@ RAW_SENSORS: tuple[RawSensor, ...] = (
         device_class="enum",
         options=OPERATING_STATUS,
         transform=sma_tag,
-        icon="mdi:state-machine",
     ),
     _sensor(
         "sma_power_mode",
@@ -205,7 +203,6 @@ RAW_SENSORS: tuple[RawSensor, ...] = (
         options=ACTIVE_POWER_MODES,
         transform=sma_tag,
         diagnostic=True,
-        icon="mdi:speedometer",
     ),
     _sensor(
         "sma_battery",
@@ -222,7 +219,6 @@ RAW_SENSORS: tuple[RawSensor, ...] = (
         unit="%",
         state_class="measurement",
         diagnostic=True,
-        icon="mdi:battery-heart-variant",
     ),
     _sensor(
         "sma_battery",
@@ -254,7 +250,6 @@ RAW_SENSORS: tuple[RawSensor, ...] = (
         "battery_status_code",
         transform=sma_tag,
         diagnostic=True,
-        icon="mdi:battery-unknown",
     ),
     _sensor(
         "sma_battery_power",
@@ -303,7 +298,6 @@ RAW_SENSORS: tuple[RawSensor, ...] = (
         unit="s",
         device_class="duration",
         diagnostic=True,
-        icon="mdi:timer-sand",
     ),
 )
 
@@ -313,7 +307,6 @@ RAW_SELECTS: tuple[RawSelect, ...] = (
         field="control",
         key="sma_power_control",
         options=POWER_CONTROL,
-        icon="mdi:remote",
     ),
 )
 
@@ -327,7 +320,6 @@ RAW_NUMBERS: tuple[RawNumber, ...] = (
         step=10,
         unit="W",
         device_class="power",
-        icon="mdi:battery-arrow-up-outline",
     ),
 )
 
@@ -346,7 +338,6 @@ RAW_KEEPALIVES: tuple[RawKeepAlive, ...] = (
         # The flag goes out a moment before the value: SMA asks for a
         # second between transfers.
         settle_seconds=1.0,
-        icon="mdi:refresh-auto",
     ),
 )
 

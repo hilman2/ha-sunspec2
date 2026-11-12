@@ -42,11 +42,11 @@ from .write_controls import STORAGE_CONTROL_MODEL
 
 _LOGGER: logging.Logger = logging.getLogger(__package__)
 
-_SETPOINT_PRESENTATION: dict[Rate, tuple[str, str]] = {
-    Rate.CHARGE_LIMIT: ("battery_pv_charge_limit_w", "mdi:battery-charging-medium"),
-    Rate.DISCHARGE_LIMIT: ("battery_discharge_limit_w", "mdi:battery-arrow-down"),
-    Rate.GRID_CHARGE: ("battery_grid_charge_power_w", "mdi:transmission-tower-import"),
-    Rate.GRID_DISCHARGE: ("battery_grid_discharge_power_w", "mdi:transmission-tower-export"),
+_SETPOINT_TRANSLATION_KEYS: dict[Rate, str] = {
+    Rate.CHARGE_LIMIT: "battery_pv_charge_limit_w",
+    Rate.DISCHARGE_LIMIT: "battery_discharge_limit_w",
+    Rate.GRID_CHARGE: "battery_grid_charge_power_w",
+    Rate.GRID_DISCHARGE: "battery_grid_discharge_power_w",
 }
 
 
@@ -94,7 +94,6 @@ class StorageModeSelect(SunSpecEntity, SelectEntity):
 
     _attr_entity_category = EntityCategory.CONFIG
     _attr_translation_key = "battery_mode"
-    _attr_icon = "mdi:battery-sync"
 
     def __init__(
         self,
@@ -226,9 +225,7 @@ class StorageSetpointNumber(SunSpecEntity, RestoreNumber):
         )
         self._profile = profile
         self._rate = rate
-        translation_key, icon = _SETPOINT_PRESENTATION[rate]
-        self._attr_translation_key = translation_key
-        self._attr_icon = icon
+        self._attr_translation_key = _SETPOINT_TRANSLATION_KEYS[rate]
         self._attr_unique_id = get_sunspec_unique_id(
             config_entry.entry_id, f"{rate.value}_w", STORAGE_CONTROL_MODEL, 0
         )

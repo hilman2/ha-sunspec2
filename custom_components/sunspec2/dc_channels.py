@@ -129,10 +129,9 @@ class DcChannelSensor(SunSpecSensor):
         super().__init__(coordinator, config_entry, data)
         self._role: ModuleRole = data["role"]
         self._module_label: str = data["module_label"]
+        # The role names the sensor and picks its icon, in place of the
+        # module's SunSpec label and the icon of its unit.
         self._attr_translation_key = data["translation_key"]
-        # ``SunSpecSensor.name`` then returns the translation of the role
-        # instead of the module's SunSpec label.
-        self._name_is_translated = True
         # The unique id is keyed by role, not by module index: the generic
         # sensor for the same register keeps its "module:3:DCW" id, and
         # this sensor follows the battery if a firmware update renumbers

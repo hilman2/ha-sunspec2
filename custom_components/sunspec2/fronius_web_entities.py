@@ -118,7 +118,6 @@ class MeterLocationSensor(FroniusWebEntity, SensorEntity):
 
     _attr_device_class = SensorDeviceClass.ENUM
     _attr_entity_category = EntityCategory.DIAGNOSTIC
-    _attr_icon = "mdi:meter-electric-outline"
     _attr_options = list(METER_LOCATIONS.values())
 
     @property
@@ -143,14 +142,12 @@ class WebSwitchSpec:
         read: Called as ``read(data)``. Returns the flag, or None when
             unknown.
         write: Called as ``write(web, on)``. Sets the flag.
-        icon: The icon.
         category: Where the device card files it.
     """
 
     key: str
     read: Callable[[FroniusWebData], bool | None]
     write: Callable[[FroniusWebCoordinator, bool], Awaitable[None]]
-    icon: str
     category: EntityCategory = EntityCategory.CONFIG
 
 
@@ -176,19 +173,16 @@ WEB_SWITCHES: tuple[WebSwitchSpec, ...] = (
         "battery_charge_from_grid",
         lambda data: data.flag(CHARGE_FROM_GRID),
         _set_grid,
-        "mdi:transmission-tower-import",
     ),
     WebSwitchSpec(
         "battery_charge_from_ac",
         lambda data: data.flag(CHARGE_FROM_AC),
         _set_ac,
-        "mdi:battery-charging-wireless",
     ),
     WebSwitchSpec(
         "modbus_control_allowed",
         lambda data: data.modbus.get("control_allowed"),
         _set_modbus_control,
-        "mdi:lan-connect",
     ),
 )
 
@@ -204,7 +198,6 @@ class WebSwitch(FroniusWebEntity, SwitchEntity):
     ) -> None:
         super().__init__(web, config_entry, home, prefix, spec.key)
         self._spec = spec
-        self._attr_icon = spec.icon
         self._attr_entity_category = spec.category
 
     @property
@@ -228,7 +221,6 @@ class ModbusResetButton(FroniusWebEntity, ButtonEntity):
     """Hands the inverter's Modbus control state back to its defaults."""
 
     _attr_entity_category = EntityCategory.CONFIG
-    _attr_icon = "mdi:restart"
 
     async def async_press(self) -> None:
         try:
