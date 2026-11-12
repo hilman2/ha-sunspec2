@@ -184,9 +184,8 @@ class BatteryDirectionSensor(DcChannelSensor):
 class DcChannelEnergySensor(DcChannelSensor, SunSpecEnergySensor):
     """The lifetime counter of a channel, with the energy sensor's guards.
 
-    The order of the bases matters: ``DcChannelSensor`` names the entity
-    and ``SunSpecEnergySensor`` reads it, so the first must come first
-    for ``name`` and the second for ``native_value``.
+    ``DcChannelSensor`` gives the entity its role and unique id,
+    ``SunSpecEnergySensor`` its ``native_value``.
     """
 
 

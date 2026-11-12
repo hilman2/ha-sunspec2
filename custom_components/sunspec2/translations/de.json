@@ -713,7 +713,7 @@
         "name": "Hausverbrauch, gesamt"
       },
       "total_dc_power": {
-        "name": "DC-Leistung"
+        "name": "DC-Gesamtleistung"
       },
       "energy_manager_state": {
         "name": "Energiemanager",

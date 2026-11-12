@@ -713,7 +713,7 @@
         "name": "House consumption, total"
       },
       "total_dc_power": {
-        "name": "DC power"
+        "name": "Total DC power"
       },
       "energy_manager_state": {
         "name": "Energy manager",

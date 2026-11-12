@@ -76,12 +76,9 @@ rules:
   has-entity-name:
     status: done
     comment: |
-      SunSpecEntity sets _attr_has_entity_name = True (since v0.8.1).
-      The per-entity name carries only the point label (e.g. "Watts",
-      "DC Voltage") and the device name supplies the make-and-model
-      prefix from common model 1's Md field (e.g. "Powador 7.8 TL3"),
-      so the user sees "Powador 7.8 TL3 Watts" composed by HA without
-      hand-rolled prefix concatenation.
+      SunSpecEntity sets _attr_has_entity_name. An entity names only
+      itself ("AC power"); the device name, built from the Md field of
+      common model 1 and the model label, goes in front.
   runtime-data:
     status: done
     comment: |

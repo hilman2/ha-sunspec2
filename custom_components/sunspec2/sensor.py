@@ -500,19 +500,12 @@ class SunSpecSensor(SunSpecEntity, SensorEntity):
         # Drives the log throttle and the "back inside the ceiling"
         # recovery line; see the filter branch in native_value.
         self._implausible_rejections = 0
-        # has_entity_name = True (set on the SunSpecEntity base class)
-        # means HA composes the device name in front of the entity
-        # name automatically, so the name property here only carries
-        # the per-entity bit. The user sees
-        # "<device name from Md> <label>" in the UI - e.g.
-        # "Powador 7.8 TL3 Watts" instead of the old hand-rolled
-        # "Inverter Three Phase Watts".
-        #
-        # Repeating-group entries (model 160 mppt module 0/1, etc.)
-        # still need an index in the name to disambiguate. The user
-        # prefix from CONF_PREFIX is NOT included here - it lives on
-        # the device name instead (see SunSpecEntity.device_info) so
-        # multi-inverter setups disambiguate at the device level.
+        # The name for a point without a translation: the label of
+        # the SunSpec model definition, with the group and index in
+        # front for a point in a repeating group ("Module 0 DC Amps")
+        # and the model index for a second model of the same id. The
+        # user's prefix is not part of it. The prefix is on the device
+        # name, see SunSpecEntity.device_info.
         desc = self._meta.get("label", self.key)
         if self.unit == UnitOfElectricCurrent.AMPERE and "DC" in desc:
             self.use_icon = ICON_DC_AMPS
