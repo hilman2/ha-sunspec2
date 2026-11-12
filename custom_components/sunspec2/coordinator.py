@@ -494,11 +494,16 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator[dict[int, SunSpecModelW
         if self.data is None or self._rests_after(first_err):
             return await self._after_failed_cycle(first_err)
 
-        # This line fires once per poll, so on an inverter that sleeps
-        # through the night it is the loudest line in the log (#52). It
-        # stays a warning while the silence is unexplained and drops to
-        # debug once the downtime is expected.
-        retry_log = self._log.debug if self._downtime_is_expected() else self._log.warning
+        # A warning for the first failure of an outage, unless the
+        # inverter is expected to be away (#52). The cycles of the same
+        # outage that follow log at debug: one line when a device goes
+        # away and one when it is back is what Home Assistant asks for.
+        first_of_outage = self.consecutive_failed_cycles == 0
+        retry_log = (
+            self._log.warning
+            if first_of_outage and not self._downtime_is_expected()
+            else self._log.debug
+        )
         retry_log(
             "Update cycle failed (%s: %s); retrying in %ds",
             first_err.__class__.__name__,
@@ -1119,7 +1124,14 @@ class SunSpecDataUpdateCoordinator(DataUpdateCoordinator[dict[int, SunSpecModelW
                 exc,
             )
         else:
-            self._log.warning(
+            # A warning for the first error of its category in a row,
+            # debug for the ones that follow. The count stays in the
+            # line, and the Repairs issue below reports a fault that
+            # lasts.
+            loud_log = (
+                self._log.warning if self._consecutive_failures[cat] == 1 else self._log.debug
+            )
+            loud_log(
                 "%s (#%d in a row): %s",
                 exc.__class__.__name__,
                 self._consecutive_failures[cat],

@@ -9,7 +9,7 @@
 [![CI](https://github.com/hilman2/ha-sunspec2/actions/workflows/ci.yml/badge.svg)](https://github.com/hilman2/ha-sunspec2/actions/workflows/ci.yml)
 [![hacs](https://img.shields.io/badge/HACS-Default-41BDF5.svg)](https://github.com/hacs/default)
 [![GitHub release](https://img.shields.io/github/v/release/hilman2/ha-sunspec2)](https://github.com/hilman2/ha-sunspec2/releases)
-[![Quality Scale](https://img.shields.io/badge/Quality%20Scale-Gold-FFD700.svg)](https://developers.home-assistant.io/docs/core/integration-quality-scale/)
+[![Quality Scale](https://img.shields.io/badge/Quality%20Scale-Silver-C0C0C0.svg)](https://developers.home-assistant.io/docs/core/integration-quality-scale/)
 
 > [!NOTE]
 > **Update 2026.10.0:** the integration now talks to the inverter
@@ -321,9 +321,10 @@ client, hence the name. The integration carries its own fork of it in
 [`custom_components/sunspec2/pysunspec2/`][fork], and talks to the
 inverter, over TCP and over RS-485, through
 [`modbus-connection`][modbus-connection], the Modbus transport Home
-Assistant's own integrations use. Built to the Home Assistant quality
-scale: [`quality_scale.yaml`][quality-scale] says rule by rule where it
-is met and which rules are still open.
+Assistant's own integrations use. Meets the **Silver** tier of the Home
+Assistant quality scale and all but two rules of Gold:
+[`quality_scale.yaml`][quality-scale] says rule by rule where, and
+which two are open.
 
 MIT licensed, see [`LICENSE`](LICENSE). The embedded pysunspec2 fork
 stays under its Apache 2.0 license, see the `LICENSE` file next to it.

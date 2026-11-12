@@ -142,11 +142,11 @@ rules:
     comment: |
       ``codeowners`` in manifest.json.
   log-when-unavailable:
-    status: todo
+    status: done
     comment: |
-      The coordinator logs one line when the device answers again,
-      but a warning for every failed update cycle while the silence is
-      unexplained, where the rule asks for one.
+      The coordinator logs a warning when an update cycle fails for
+      the first time and one when the device answers again. The
+      failed cycles in between log at debug, with their count.
   parallel-updates:
     status: done
     comment: |
@@ -174,8 +174,8 @@ rules:
     status: done
     comment: |
       diagnostics.py. The host and the Fronius web token are redacted
-      in the entry data, and the host is taken out of every text in
-      the dump.
+      in the entry data, and the host and every IPv4 address in the
+      error texts.
   discovery-update-info:
     status: todo
     comment: |

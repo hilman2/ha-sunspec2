@@ -454,6 +454,35 @@ async def test_in_cycle_retry_exhausted_marks_cycle_failed(hass, sunspec_client_
     assert coordinator.consecutive_failed_cycles == 1
 
 
+async def test_an_outage_is_logged_when_it_starts_and_when_it_ends(
+    hass, sunspec_client_mock, monkeypatch, caplog
+):
+    """One warning per line when the device goes away, not one per failed poll."""
+    monkeypatch.setattr("custom_components.sunspec2.coordinator.INTERVAL_RETRY_DELAY_SECONDS", 0)
+    config_entry = await setup_mock_sunspec_config_entry(hass, MOCK_CONFIG_PREFIX)
+    coordinator = config_entry.runtime_data
+
+    def warnings(text):
+        return [
+            record.getMessage()
+            for record in caplog.records
+            if record.levelname == "WARNING" and text in record.getMessage()
+        ]
+
+    with patch.object(
+        coordinator.api, "async_get_data", side_effect=TransportError("no route to host")
+    ):
+        for _ in range(3):
+            await coordinator.async_refresh()
+    assert coordinator.consecutive_failed_cycles == 3
+    assert len(warnings("retrying in")) == 1
+    assert len(warnings("in a row")) == 1
+
+    await coordinator.async_refresh()
+    assert coordinator.consecutive_failed_cycles == 0
+    assert len(warnings("recovered after 3 failed update cycle")) == 1
+
+
 async def test_first_refresh_failure_skips_retry_delay(hass, sunspec_client_mock):
     """A failed first refresh must NOT trigger the in-cycle retry path.
 

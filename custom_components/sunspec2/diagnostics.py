@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import dataclasses
 import importlib.metadata
+import re
 from typing import Any
 
 from homeassistant.components.diagnostics import REDACTED
@@ -23,8 +24,10 @@ from homeassistant.core import HomeAssistant
 from .const import CONF_FRONIUS_WEB_TOKEN
 from .const import CONF_HOST
 from .const import CONF_MAX_AC_POWER_KW
+from .const import CONF_TRANSPORT
 from .const import MEASURED_POWER_POINT_HEADROOM
 from .const import NAMEPLATE_FILTER_HEADROOM
+from .const import TRANSPORT_TCP
 from .const import VERSION
 from .const import effective_peak_power_kw
 from .coordinator import SunSpec2ConfigEntry
@@ -122,22 +125,42 @@ async def async_get_config_entry_diagnostics(
             "sunspec2_integration": VERSION,
         },
     }
-    host = entry.data.get(CONF_HOST)
-    return _without_host(dump, host) if host else dump
+    # The entry data above is redacted by key. An error message names
+    # the address in its text, so the sections that hold error texts
+    # are redacted by content.
+    addresses = _address_pattern(entry)
+    for section in ("recent_errors", "fronius_web"):
+        dump[section] = _without_addresses(dump[section], addresses)
+    return dump
 
 
-def _without_host(value: Any, host: str) -> Any:
-    """``value`` with ``host`` taken out of every string in it.
+#: An IPv4 address anywhere in a text. An error raised for a host name
+#: carries the address the name resolved to.
+_IPV4 = r"(?<![\w.])(?:\d{1,3}\.){3}\d{1,3}(?![\w.])"
 
-    Redacting the entry data covers its ``host`` field. Error messages
-    name the host as well, and they are in the dump as text.
+
+def _address_pattern(entry: ConfigEntry) -> re.Pattern[str]:
+    """What to take out of an error text: every IPv4 address, and the host of a TCP entry.
+
+    A serial entry keeps its port path in ``host``. That path is no
+    address, and it is needed to make sense of the errors.
     """
+    host = entry.data.get(CONF_HOST)
+    if not host or entry.data.get(CONF_TRANSPORT, TRANSPORT_TCP) != TRANSPORT_TCP:
+        return re.compile(_IPV4)
+    # The host as a whole word only, so that a host named "inverter"
+    # leaves "inverter_three_phase" alone.
+    return re.compile(rf"{_IPV4}|(?<![\w.-]){re.escape(host)}(?![\w.-])", re.IGNORECASE)
+
+
+def _without_addresses(value: Any, addresses: re.Pattern[str]) -> Any:
+    """``value`` with every match of ``addresses`` redacted in its strings, at any depth."""
     if isinstance(value, str):
-        return value.replace(host, REDACTED)
+        return addresses.sub(REDACTED, value)
     if isinstance(value, dict):
-        return {key: _without_host(item, host) for key, item in value.items()}
+        return {key: _without_addresses(item, addresses) for key, item in value.items()}
     if isinstance(value, (list, tuple)):
-        return [_without_host(item, host) for item in value]
+        return [_without_addresses(item, addresses) for item in value]
     return value
 
 
