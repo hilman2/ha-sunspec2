@@ -4,24 +4,21 @@
   <img alt="SunSpec 2" src="custom_components/sunspec2/brand/logo@2x.png" width="360">
 </picture>
 
-# SunSpec 2
+# SunSpec 2: read and control your inverter and battery
 
 [![CI](https://github.com/hilman2/ha-sunspec2/actions/workflows/ci.yml/badge.svg)](https://github.com/hilman2/ha-sunspec2/actions/workflows/ci.yml)
 [![hacs](https://img.shields.io/badge/HACS-Default-41BDF5.svg)](https://github.com/hacs/default)
 [![GitHub release](https://img.shields.io/github/v/release/hilman2/ha-sunspec2)](https://github.com/hilman2/ha-sunspec2/releases)
 [![Quality Scale](https://img.shields.io/badge/Quality%20Scale-Silver-C0C0C0.svg)](https://developers.home-assistant.io/docs/core/integration-quality-scale/)
 
-> [!NOTE]
-> **Update 2026.10.0:** the integration now talks to the inverter
-> through the same connection code that Home Assistant's own
-> integrations use. You see no difference: same entities, same options,
-> nothing to migrate. The technical background is in the
-> [release notes](https://github.com/hilman2/ha-sunspec2/releases/tag/v2026.10.0).
+Reads **and controls** solar inverters, meters and batteries from Home
+Assistant, if they speak **SunSpec Modbus**. Besides every value the
+inverter reports, you can limit how much power goes into the grid and
+tell the battery when to charge and discharge.
 
-Connects solar inverters, meters and batteries to Home Assistant, if
-they speak **SunSpec Modbus**. SunSpec is a standard that many makers
-build into their inverters. Modbus is the way the data travels over
-your network. You do not need to know more than that.
+SunSpec is a standard that many makers build into their inverters.
+Modbus is the way the data travels over your network. You do not need
+to know more than that.
 
 Set up entirely in the UI: enter the inverter's IP address or let the
 integration search your network, tick the data you want, done. No YAML,
@@ -31,6 +28,10 @@ What you get:
 
 - Everything your inverter reports as a normal sensor: power, energy,
   voltages, currents, temperatures, operating state and error events
+- Controls where the inverter offers them: export limit, power factor,
+  battery charge and discharge power, battery modes and a timed battery
+  plan on some brands, and an action for your automations. See
+  [Battery and export control](#battery-and-export-control)
 - The total energy produced since day one, ready to use in the Energy
   dashboard, with no template sensor in between
 - One integration for every brand, so a SolarEdge and a KACO next to
