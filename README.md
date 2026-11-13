@@ -14,7 +14,7 @@
 Reads **and controls** solar inverters, meters and batteries from Home
 Assistant, if they speak **SunSpec Modbus**. Besides every value the
 inverter reports, you can limit how much power goes into the grid and
-tell the battery when to charge and discharge.
+steer the battery, where the inverter allows it.
 
 SunSpec is a standard that many makers build into their inverters.
 Modbus is the way the data travels over your network. You do not need
@@ -29,8 +29,8 @@ What you get:
 - Everything your inverter reports as a normal sensor: power, energy,
   voltages, currents, temperatures, operating state and error events
 - Controls where the inverter offers them: export limit, power factor,
-  battery charge and discharge power, battery modes and a timed battery
-  plan on some brands, and an action for your automations. See
+  battery charge and discharge power, and on Fronius battery modes and
+  a timed battery plan, plus actions for your automations. See
   [Battery and export control](#battery-and-export-control)
 - The total energy produced since day one, ready to use in the Energy
   dashboard, with no template sensor in between
