@@ -29,8 +29,8 @@ What you get:
 - Everything your inverter reports as a normal sensor: power, energy,
   voltages, currents, temperatures, operating state and error events
 - Controls where the inverter offers them: export limit, power factor,
-  battery charge and discharge power, and on Fronius battery modes and
-  a timed battery plan, plus actions for your automations. See
+  battery charge and discharge power, and, on Fronius, battery modes
+  and a timed battery plan, plus actions for your automations. See
   [Battery and export control](#battery-and-export-control)
 - The total energy produced since day one, ready to use in the Energy
   dashboard, with no template sensor in between
