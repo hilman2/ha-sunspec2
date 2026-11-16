@@ -179,6 +179,7 @@ class SunSpecApiClient:
         # client, so a reconnect that rebuilds the model objects keeps them.
         self._point_transforms: Mapping[tuple[int, str], Callable[[Any], Any]] = {}
         self._signed_nan_points: frozenset[tuple[int, str]] = frozenset()
+        self._zero_off_grid_points: frozenset[tuple[int, str]] = frozenset()
         # When the last model read finished, for _pace_model_read.
         self._last_model_read_end: float | None = None
         # The connection outlives the client. async_close() drops the link
@@ -1127,6 +1128,9 @@ class SunSpecApiClient:
             self._signed_nan_points = (
                 profile.signed_nan_points if profile is not None else frozenset()
             )
+            self._zero_off_grid_points = (
+                profile.zero_off_grid_points if profile is not None else frozenset()
+            )
         transforms = {
             point: transform
             for (target_model, point), transform in self._point_transforms.items()
@@ -1135,7 +1139,10 @@ class SunSpecApiClient:
         signed_nan = frozenset(
             point for target_model, point in self._signed_nan_points if target_model == model_id
         )
-        return SunSpecModelWrapper(models, transforms, signed_nan)
+        zero_off_grid = frozenset(
+            point for target_model, point in self._zero_off_grid_points if target_model == model_id
+        )
+        return SunSpecModelWrapper(models, transforms, signed_nan, zero_off_grid)
 
     async def _pace_model_read(self) -> None:
         """Keep the configured pause between the end of one model read and the next."""
