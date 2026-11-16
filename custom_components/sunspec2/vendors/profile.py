@@ -438,6 +438,12 @@ class VendorProfile:
             reading. SunSpec reserves 0x8000 for "not implemented" only in
             signed registers; in a uint16 it is the number 32768. These
             points read as no value instead.
+        zero_off_grid_points: Points, keyed by model id and point name, that
+            read 0 while the inverter's own voltage (``PhVphA``) and
+            frequency (``Hz``) both read 0. For a gateway that goes on
+            reporting an inverter's last power after the inverter has gone
+            off the grid for the night. Voltage and frequency are 0 only
+            when the device sent 0, not when it sent nothing.
         request_timeout: Seconds the device may take to answer one request,
             for a device known to need more than the link's default of 10.
             None for the default.
@@ -474,6 +480,7 @@ class VendorProfile:
     required_models: frozenset[int] = frozenset()
     point_transforms: Mapping[tuple[int, str], Callable[[Any], Any]] = field(default_factory=dict)
     signed_nan_points: frozenset[tuple[int, str]] = frozenset()
+    zero_off_grid_points: frozenset[tuple[int, str]] = frozenset()
     request_timeout: float | None = None
     collection_round_seconds: int | None = None
 

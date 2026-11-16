@@ -77,6 +77,17 @@ sensor would show "no event" for an inverter that has one. The author of
 christianvaes/homeassistant-apsystems_modbus reads both registers
 since version 0.6.0. No dump of an ECU with an active event is at hand,
 so the profile takes the flags from either word.
+
+The power of an inverter that is off. Once an inverter is off the grid
+for the night, its voltage and frequency read 0 while the ECU goes on
+showing its last power until its nightly reset: 1 W in the dump of
+issue #109, "a few watts" according to the author of
+christianvaes/homeassistant-apsystems_modbus (0.6.5, whose README
+describes the same ECU behaviour). A power with no voltage and no
+frequency behind it is not a measurement, so the profile reads it as 0 W
+(``zero_off_grid_points``). A stray 0 for one of the two while the
+inverter produces does not trigger it: both must read 0. Of a
+three-phase inverter only the voltage of phase A is looked at.
 """
 
 from __future__ import annotations
@@ -148,9 +159,9 @@ ASCII_FLAG_POINTS: frozenset[str] = frozenset({"123:WMaxLim_Ena"})
 #: needs minutes to pass it on.
 CONTROL_STEPS: dict[str, float] = {"123:WMaxLimPct": 1.0}
 
-#: The inverter models that carry ``Evt1`` (single phase, split phase,
-#: three phase, and the same three with float values).
-EVENT_MODELS: tuple[int, ...] = (101, 102, 103, 111, 112, 113)
+#: The inverter models: single phase, split phase, three phase, and the
+#: same three with float values. They carry ``Evt1`` and the power ``W``.
+INVERTER_MODELS: tuple[int, ...] = (101, 102, 103, 111, 112, 113)
 #: A 16-bit register SunSpec reserves for "not implemented".
 NOT_IMPLEMENTED_WORD = 0xFFFF
 
@@ -190,7 +201,8 @@ APSYSTEMS = VendorProfile(
     ascii_flag_points=ASCII_FLAG_POINTS,
     control_steps=CONTROL_STEPS,
     daily_energy_points=frozenset({"WH"}),
-    point_transforms={(model, "Evt1"): either_word for model in EVENT_MODELS},
+    point_transforms={(model, "Evt1"): either_word for model in INVERTER_MODELS},
+    zero_off_grid_points=frozenset((model, "W") for model in INVERTER_MODELS),
     request_timeout=REQUEST_TIMEOUT,
     collection_round_seconds=COLLECTION_ROUND_SECONDS,
 )

@@ -224,3 +224,54 @@ async def test_the_event_sensor_names_flags_from_the_first_register(
     point.value = 0x0000_FFFF
     assert events.native_value is None
     assert events.extra_state_attributes["active_flags"] == []
+
+
+@pytest.mark.parametrize(
+    ("voltage", "frequency", "expected"),
+    [
+        (0, 0, 0),  # off the grid for the night, the ECU still shows 1 W
+        (0, 5000, 1),  # a stray 0 for the voltage while the inverter produces
+        (2300, 0, 1),  # a stray 0 for the frequency
+        (2300, 5000, 1),
+        (None, 0, 1),  # no reading is not a reading of 0
+    ],
+)
+async def test_an_inverter_off_the_grid_shows_no_power(
+    hass, sunspec_apsystems_client_mock, voltage, frequency, expected
+):
+    entry = await _entry(hass)
+    component = hass.data["entity_components"]["sensor"]
+    power = next(e for e in component.entities if isinstance(e, SunSpecSensor) and e.key == "W")
+    model = entry.runtime_data.data[103]
+    model.getPoint("W").value = 1
+    model.getPoint("PhVphA").value = voltage
+    model.getPoint("Hz").value = frequency
+
+    assert power.native_value == expected
+
+
+async def test_the_power_of_other_makers_is_not_zeroed_off_the_grid(hass, sunspec_client_mock):
+    entry = create_mock_sunspec_config_entry(hass, data=MOCK_CONFIG)
+    client = SunSpecApiClient(host="test", port=123, unit_id=1, hass=hass)
+    await setup_mock_sunspec_config_entry(hass, config_entry=entry, client=client)
+    component = hass.data["entity_components"]["sensor"]
+    power = next(e for e in component.entities if isinstance(e, SunSpecSensor) and e.key == "W")
+    model = entry.runtime_data.data[103]
+    model.getPoint("PhVphA").value = 0
+    model.getPoint("Hz").value = 0
+
+    assert power.native_value != 0
+
+
+async def test_a_power_without_a_reading_stays_without_one_off_the_grid(
+    hass, sunspec_apsystems_client_mock
+):
+    entry = await _entry(hass)
+    component = hass.data["entity_components"]["sensor"]
+    power = next(e for e in component.entities if isinstance(e, SunSpecSensor) and e.key == "W")
+    model = entry.runtime_data.data[103]
+    model.getPoint("PhVphA").value = 0
+    model.getPoint("Hz").value = 0
+    model.getPoint("W").value = None
+
+    assert power.native_value is None

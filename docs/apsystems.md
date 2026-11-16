@@ -69,10 +69,9 @@ every 5 minutes, and Modbus only reads what the ECU has collected. Polling
 more often does not make the values fresher. With many micro inverters it
 overloads the ECU: testers with eight micro inverters behind one ECU-R
 got timeouts at a 20 second interval. If you see timeouts, raise the
-polling interval. One tester's ECU-R also became stable and fast again
-after the router stopped giving its wired connection internet access
-(the Wi-Fi connection can stay, so the EMA app keeps working). That is
-a single observation. Daily totals can differ by about 1 % from the EMA app.
+polling interval. If the ECU-R stays unstable, see
+[An ECU-R that is often unavailable](#an-ecu-r-that-is-often-unavailable).
+Daily totals can differ by about 1 % from the EMA app.
 
 The ECU starts a round on the clock, about 10 seconds past every fifth
 minute, and works through the micro inverters one by one. With many of
@@ -87,6 +86,27 @@ minute into the first round that starts at least a minute later. The
 polls in that time count as failed, so the sensors go unavailable after
 as many polls as when the ECU is off. Changing the export limit in that
 time fails with a message that says when to try again.
+
+## An ECU-R that is often unavailable
+
+First check that nothing else reads the ECU over Modbus, such as
+another integration or a second Home Assistant. The ECU answers one
+request at a time.
+
+If that is not it, the cause may be the ECU's internet access. One of
+our testers' ECU-R became stable and fast again once its wired connection
+had no internet. The author of
+[another APsystems integration](https://github.com/christianvaes/homeassistant-apsystems_modbus)
+saw the same on an ECU-R with firmware 1.3.24. Both are single
+observations, and why it helps is not known. To try it:
+
+1. Make sure the ECU is also on your Wi-Fi, so the EMA app keeps working.
+2. In your router, look up the ECU. It can be listed twice, once for the
+   cable and once for Wi-Fi. Pick the entry whose MAC address starts with
+   `80:97:1B`.
+3. Block or pause internet access for that entry only.
+
+The cable then carries only Modbus, inside your home network.
 
 ## When the ECU stops answering until you restart it
 
@@ -138,7 +158,10 @@ an observation:
   cannot tell them apart.
 - There is no timestamp or round counter. A value that did not change
   can be new or old.
-- At night a micro inverter can keep showing 1 W with 0 V and 0 Hz.
+- At night a micro inverter can keep showing a few watts with 0 V and
+  0 Hz. The **AC power** sensor shows 0 W then, since an inverter without
+  voltage and frequency is off the grid. If either reads above 0, the
+  power is shown as the ECU reports it.
 
 ## Energy produced today
 

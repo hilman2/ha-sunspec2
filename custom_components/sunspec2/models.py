@@ -17,6 +17,10 @@ from typing import Any
 #: The raw word SunSpec reserves for "not implemented" in an int16.
 SIGNED_NAN_WORD = 0x8000
 
+#: Points of an inverter model that show whether the inverter is on the grid.
+#: An inverter that is off measures neither a voltage nor a frequency.
+GRID_POINTS = ("PhVphA", "Hz")
+
 
 class SunSpecModelWrapper:
     """Wraps the list of pysunspec2 model instances for a single model id.
@@ -30,6 +34,7 @@ class SunSpecModelWrapper:
         models: list[Any],
         point_transforms: Mapping[str, Callable[[Any], Any]] | None = None,
         signed_nan_points: frozenset[str] = frozenset(),
+        zero_off_grid_points: frozenset[str] = frozenset(),
     ) -> None:
         """Wrap every instance a device exposes for one model id.
 
@@ -41,11 +46,15 @@ class SunSpecModelWrapper:
                 keyed by point name. The underlying points stay unchanged.
             signed_nan_points: Unsigned points whose raw 0x8000 means no
                 reading, by point name. See ``VendorProfile.signed_nan_points``.
+            zero_off_grid_points: Points that read 0 while the inverter is
+                off the grid, by point name. See
+                ``VendorProfile.zero_off_grid_points``.
         """
         self._models = models
         self.num_models = len(models)
         self._point_transforms = point_transforms or {}
         self._signed_nan_points = signed_nan_points
+        self._zero_off_grid_points = zero_off_grid_points
 
     def isValidPoint(self, point_name: str) -> bool:
         point = self.getPoint(point_name)
@@ -75,9 +84,27 @@ class SunSpecModelWrapper:
         if point_name in self._signed_nan_points and point.value == SIGNED_NAN_WORD:
             return None
         transform = self._point_transforms.get(point_name)
-        if transform is not None:
-            return transform(point.cvalue)
-        return point.cvalue
+        value = transform(point.cvalue) if transform is not None else point.cvalue
+        if (
+            value is not None
+            and point_name in self._zero_off_grid_points
+            and self._off_grid(model_index)
+        ):
+            return 0
+        return value
+
+    def _off_grid(self, model_index: int) -> bool:
+        """Whether the inverter reads 0 for both its voltage and its frequency.
+
+        A point the model lacks, or one without a reading, does not count as
+        0: nothing is known then, and the value stays what the device sent.
+        """
+        points = self._models[model_index].points
+        for name in GRID_POINTS:
+            point = points.get(name)
+            if point is None or point.cvalue != 0:
+                return False
+        return True
 
     def getMeta(self, point_name: str) -> dict[str, Any]:
         # The annotation is the assertion: pysunspec2 hands back an
