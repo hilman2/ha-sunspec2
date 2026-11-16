@@ -261,3 +261,17 @@ async def test_the_power_of_other_makers_is_not_zeroed_off_the_grid(hass, sunspe
     model.getPoint("Hz").value = 0
 
     assert power.native_value != 0
+
+
+async def test_a_power_without_a_reading_stays_without_one_off_the_grid(
+    hass, sunspec_apsystems_client_mock
+):
+    entry = await _entry(hass)
+    component = hass.data["entity_components"]["sensor"]
+    power = next(e for e in component.entities if isinstance(e, SunSpecSensor) and e.key == "W")
+    model = entry.runtime_data.data[103]
+    model.getPoint("PhVphA").value = 0
+    model.getPoint("Hz").value = 0
+    model.getPoint("W").value = None
+
+    assert power.native_value is None

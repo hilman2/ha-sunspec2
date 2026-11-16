@@ -86,8 +86,8 @@ christianvaes/homeassistant-apsystems_modbus (0.6.5, whose README
 describes the same ECU behaviour). A power with no voltage and no
 frequency behind it is not a measurement, so the profile reads it as 0 W
 (``zero_off_grid_points``). A stray 0 for one of the two while the
-inverter produces does not trigger it, and neither does a dropout during
-the day: the ECU then keeps the last voltage and frequency as well.
+inverter produces does not trigger it: both must read 0. Of a
+three-phase inverter only the voltage of phase A is looked at.
 """
 
 from __future__ import annotations

@@ -85,7 +85,11 @@ class SunSpecModelWrapper:
             return None
         transform = self._point_transforms.get(point_name)
         value = transform(point.cvalue) if transform is not None else point.cvalue
-        if point_name in self._zero_off_grid_points and self._off_grid(model_index):
+        if (
+            value is not None
+            and point_name in self._zero_off_grid_points
+            and self._off_grid(model_index)
+        ):
             return 0
         return value
 
