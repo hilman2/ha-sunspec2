@@ -1090,9 +1090,6 @@
       "discharge_ramp_rate": {
         "name": "Entladegradient"
       },
-      "max_charge_apparent_power": {
-        "name": "Maximale Lade-Scheinleistung"
-      },
       "state_of_charge": {
         "name": "Ladezustand"
       },

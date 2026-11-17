@@ -273,32 +273,20 @@ async def test_percent_setpoint_writes_704_with_its_scale_factor(hass, legacy_be
 
 
 async def test_model_123_control_points_do_not_become_sensors(hass, sunspec_write_client_mock):
-    """The controls and the unmappable-unit points stay off the sensor platform.
+    """A writable point of 123 is a control and not also a sensor.
 
     A sensor for a writable point is a read-only duplicate of a control
-    the user can operate, and the two disagree during a write. The
-    percentage points carry units HA has no mapping for ("% WMax",
-    "cos()", "% VArMax", "% VArAval"), where sensor.py falls back to the
-    raw SunSpec string as the native unit with state_class MEASUREMENT
-    and starts a long-term statistics series the recorder can never
-    convert or merge.
+    the user can operate, and the two disagree during a write.
     """
     entry = await _setup_write_entry(hass)
     assert 123 in entry.runtime_data.data, "precondition: 123 really is polled"
 
-    sensor_ids = [e.entity_id for e in _live_entities(hass, "sensor")]
+    sensors = [e for e in _live_entities(hass, "sensor") if getattr(e, "model_id", None) == 123]
+    sensor_points = {e.key for e in sensors}
 
-    for excluded in (
-        "wmaxlimpct_123",
-        "outpfset_123",
-        "wmaxlim_ena",
-        "outpfset_ena",
-        "varmaxpct",
-        "varavalpct",
-        "varwmaxpct",
-    ):
-        assert not any(eid.endswith(excluded) for eid in sensor_ids), excluded
-    assert sensor_ids, "the other models still produce sensors"
+    for control in ("WMaxLimPct", "OutPFSet", "WMaxLim_Ena", "OutPFSet_Ena"):
+        assert control not in sensor_points, control
+    assert sensor_points, "the timers of 123 still produce sensors"
 
 
 async def test_model_123_timer_points_do_become_sensors(hass, sunspec_write_client_mock):

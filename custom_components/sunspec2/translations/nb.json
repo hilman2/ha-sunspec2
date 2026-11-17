@@ -1090,9 +1090,6 @@
       "discharge_ramp_rate": {
         "name": "Rampehastighet for utladning"
       },
-      "max_charge_apparent_power": {
-        "name": "Maks. tilsynelatende ladeeffekt"
-      },
       "state_of_charge": {
         "name": "Ladetilstand"
       },

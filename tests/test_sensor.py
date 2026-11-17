@@ -4,6 +4,7 @@ import json
 import re
 from collections import Counter
 from pathlib import Path
+from typing import Any
 from unittest.mock import patch
 
 import pytest
@@ -1156,6 +1157,17 @@ def test_every_icon_belongs_to_a_translated_entity():
         assert icons[platform].keys() == names[platform].keys(), platform
 
 
+_DEFINITIONS = Path(__file__).parent.parent / "custom_components/sunspec2/pysunspec2/models/json"
+
+
+def _definition(model_id: int) -> dict[str, Any]:
+    """The top-level group of a SunSpec model definition."""
+    group: dict[str, Any] = json.loads(
+        (_DEFINITIONS / f"model_{model_id}.json").read_text("utf-8")
+    )["group"]
+    return group
+
+
 @pytest.mark.parametrize("language", LANGUAGES)
 def test_every_point_name_has_its_text_and_icon(language):
     """Without the text Home Assistant falls back to the device class: four sensors "Current"."""
@@ -1163,16 +1175,21 @@ def test_every_point_name_has_its_text_and_icon(language):
     texts = json.loads((component / "translations" / f"{language}.json").read_text("utf-8"))
     icons = json.loads((component / "icons.json").read_text("utf-8"))
 
-    for table in POINT_NAMES.values():
+    for model_id, table in POINT_NAMES.items():
+        groups = {group["name"]: group for group in _definition(model_id).get("groups", [])}
         for point, name in table.items():
             assert name.key in icons["entity"]["sensor"], name.key
             text = texts["entity"]["sensor"][name.key]["name"]
             used = set(re.findall(r"{(\w+)}", text))
             given = set(name.placeholders)
-            # A point in a group gets its index. A group that does not
-            # repeat, 704's PFWInj, need not show it.
-            allowed = given | {"index"} if ":" in point else given
-            assert given <= used <= allowed, (name.key, text)
+            group = groups.get(point.split(":")[0]) if ":" in point else None
+            # Every point of a repeating group shows its index, or the
+            # sensors of the group share a name. A group that does not
+            # repeat, 704's PFWInj, gets the index and need not show it.
+            if group is not None and "count" in group:
+                given.add("index")
+            allowed = given | {"index"} if group is not None else given
+            assert given <= used <= allowed, (model_id, point, text)
 
 
 def _sensor_points(model_id: int) -> list[str]:
@@ -1181,8 +1198,7 @@ def _sensor_points(model_id: int) -> list[str]:
     The test of ``SunSpecModelWrapper.isValidPoint`` without the value: an
     enum or bitfield, or a point with a unit.
     """
-    definitions = Path(__file__).parent.parent / "custom_components/sunspec2/pysunspec2/models/json"
-    group = json.loads((definitions / f"model_{model_id}.json").read_text("utf-8"))["group"]
+    group = _definition(model_id)
     keys = []
     for prefix, members in [("", group)] + [
         (f"{g['name']}:0:", g) for g in group.get("groups", [])

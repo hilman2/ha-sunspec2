@@ -1090,9 +1090,6 @@
       "discharge_ramp_rate": {
         "name": "Ramphastighet för urladdning"
       },
-      "max_charge_apparent_power": {
-        "name": "Max skenbar laddningseffekt"
-      },
       "state_of_charge": {
         "name": "Laddningsnivå"
       },

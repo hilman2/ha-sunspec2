@@ -192,7 +192,7 @@ _IMMEDIATE_CONTROLS: dict[str, str | PointName] = {
 _STORAGE: dict[str, str | PointName] = {
     "WChaGra": "charge_ramp_rate",
     "WDisChaGra": "discharge_ramp_rate",
-    "VAChaMax": "max_charge_apparent_power",
+    "VAChaMax": "max_charge_apparent_power_setting",
     "ChaState": "state_of_charge",
     "StorAval": "available_capacity",
     "InBatV": "internal_battery_voltage",

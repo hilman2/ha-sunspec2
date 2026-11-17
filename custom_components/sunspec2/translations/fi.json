@@ -1090,9 +1090,6 @@
       "discharge_ramp_rate": {
         "name": "Purun muutosnopeus"
       },
-      "max_charge_apparent_power": {
-        "name": "Suurin latauksen näennäisteho"
-      },
       "state_of_charge": {
         "name": "Varaustila"
       },

@@ -81,7 +81,7 @@ Sensors, which show what the battery and the solar strings are doing:
 | **Battery discharged energy** | Total energy that has come out of the battery over its life. Use it for the dashboard's "energy coming out of the battery" |
 | **PV power** | Power of all solar strings added together, in watts |
 
-The numbered **Module 1**, **Module 2** and so on sensors stay. They
+The numbered **Module 0**, **Module 1** and so on sensors stay. They
 show the same values for each string, numbered instead of named. The
 energy of each single string is only on those.
 

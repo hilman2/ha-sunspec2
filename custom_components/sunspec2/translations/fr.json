@@ -1090,9 +1090,6 @@
       "discharge_ramp_rate": {
         "name": "Gradient de décharge"
       },
-      "max_charge_apparent_power": {
-        "name": "Puissance apparente de charge max."
-      },
       "state_of_charge": {
         "name": "État de charge"
       },

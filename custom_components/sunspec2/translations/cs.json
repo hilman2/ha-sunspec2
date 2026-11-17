@@ -1090,9 +1090,6 @@
       "discharge_ramp_rate": {
         "name": "Gradient vybíjení"
       },
-      "max_charge_apparent_power": {
-        "name": "Maximální zdánlivý výkon nabíjení"
-      },
       "state_of_charge": {
         "name": "Stav nabití"
       },

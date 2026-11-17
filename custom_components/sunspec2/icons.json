@@ -120,7 +120,6 @@
       "reactive_power_limit_enabled": {"default": "mdi:toggle-switch-outline"},
       "charge_ramp_rate": {"default": "mdi:information-outline"},
       "discharge_ramp_rate": {"default": "mdi:information-outline"},
-      "max_charge_apparent_power": {"default": "mdi:solar-power"},
       "state_of_charge": {"default": "mdi:battery"},
       "available_capacity": {"default": "mdi:information-outline"},
       "internal_battery_voltage": {"default": "mdi:lightning-bolt"},
