@@ -25,6 +25,7 @@ from custom_components.sunspec2.errors import TransportError
 from custom_components.sunspec2.models import SunSpecModelWrapper
 
 from . import file_client
+from .const import LANGUAGES
 from .const import MOCK_CONFIG
 
 
@@ -363,7 +364,7 @@ def _user_error_calls() -> list[tuple[str, set[str]]]:
     return calls
 
 
-@pytest.mark.parametrize("language", ["en", "de"])
+@pytest.mark.parametrize("language", LANGUAGES)
 def test_every_user_error_has_its_message(language):
     """A key without a message reaches the user as the bare key, a missing value as ``{name}``."""
     translations = json.loads((_COMPONENT / "translations" / f"{language}.json").read_text("utf-8"))

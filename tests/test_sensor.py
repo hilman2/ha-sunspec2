@@ -1,13 +1,16 @@
 """Test SunSpec sensor."""
 
 import json
+import re
 from collections import Counter
 from pathlib import Path
+from typing import Any
 from unittest.mock import patch
 
 import pytest
 from homeassistant.components.sensor import SensorDeviceClass
 from homeassistant.components.sensor import SensorStateClass
+from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import PERCENTAGE
 from homeassistant.const import UnitOfApparentPower
 from homeassistant.const import UnitOfElectricPotential
@@ -20,15 +23,20 @@ from homeassistant.helpers import entity_registry as er
 
 from custom_components.sunspec2.const import CONF_ENABLED_MODELS
 from custom_components.sunspec2.const import CONF_MAX_AC_POWER_KW
+from custom_components.sunspec2.const import DEFAULT_MODELS
 from custom_components.sunspec2.const import DOMAIN
 from custom_components.sunspec2.const import IMPLAUSIBLE_LOG_EVERY
+from custom_components.sunspec2.const import is_excluded_sensor_point
 from custom_components.sunspec2.const import measured_power_headroom
+from custom_components.sunspec2.point_names import POINT_NAMES
+from custom_components.sunspec2.point_names import point_name
 from custom_components.sunspec2.sensor import HA_META
 from custom_components.sunspec2.sensor import ICON_DC_AMPS
-from custom_components.sunspec2.sensor import SUNSPEC_POINT_TRANSLATION_KEYS
 from custom_components.sunspec2.sensor import SunSpecEnergySensor
 from custom_components.sunspec2.sensor import SunSpecSensor
 from custom_components.sunspec2.sensor import _power_limit_in_native_unit
+from custom_components.sunspec2.vendors import PROFILES
+from custom_components.sunspec2.write_controls import WRITE_CAPABLE_MODELS
 
 from . import TEST_CONFIG_ENTRY_ID
 from . import TEST_INVERTER_MM_SENSOR_POWER_ENTITY_ID
@@ -45,6 +53,7 @@ from . import TEST_INVERTER_SENSOR_VAR_ID
 from . import create_mock_sunspec_config_entry
 from . import setup_mock_sunspec_config_entry
 from . import translated_entities_with_an_icon_of_their_own
+from .const import LANGUAGES
 from .const import MOCK_CONFIG
 from .const import MOCK_CONFIG_MM
 from .const import MOCK_CONFIG_PREFIX
@@ -62,13 +71,16 @@ async def test_sensor_overflow_error(
 
 
 async def test_sensor_dc(hass: HomeAssistant, sunspec_client_mock) -> None:
-    """Verify device information includes expected details."""
+    """A DC current of model 160 gets the DC icon, from icons.json through its key."""
 
     await setup_mock_sunspec_config_entry(hass)
 
-    entity_state = hass.states.get(TEST_INVERTER_SENSOR_DC_ENTITY_ID)
-    assert entity_state
-    assert entity_state.attributes["icon"] == ICON_DC_AMPS
+    entity = er.async_get(hass).async_get(TEST_INVERTER_SENSOR_DC_ENTITY_ID)
+    assert entity is not None
+    component = Path(__file__).parent.parent / "custom_components" / "sunspec2"
+    icons = json.loads((component / "icons.json").read_text("utf-8"))
+    assert entity.translation_key == "module_dc_current"
+    assert icons["entity"]["sensor"]["module_dc_current"]["default"] == ICON_DC_AMPS
 
 
 async def test_sensor_var(hass: HomeAssistant, sunspec_client_mock) -> None:
@@ -1085,16 +1097,42 @@ _CLIENT_MOCKS = [
 ]
 
 
+async def _setup_with_every_default_model(hass: HomeAssistant) -> ConfigEntry:
+    """Set up an entry that reads every model of the fixture a new installation ticks."""
+    entry = create_mock_sunspec_config_entry(
+        hass, data={**MOCK_CONFIG, CONF_ENABLED_MODELS: sorted(str(m) for m in DEFAULT_MODELS)}
+    )
+    await setup_mock_sunspec_config_entry(hass, config_entry=entry)
+    return entry
+
+
 @pytest.mark.parametrize("client_mock", _CLIENT_MOCKS)
 async def test_no_two_entities_of_a_device_share_a_name(hass, request, client_mock):
     """Home Assistant tells namesakes apart with a ``_2`` on the entity id and nothing else."""
     request.getfixturevalue(client_mock)
-    entry = await setup_mock_sunspec_config_entry(hass)
+    entry = await _setup_with_every_default_model(hass)
 
     entities = er.async_entries_for_config_entry(er.async_get(hass), entry.entry_id)
     names = Counter((entity.device_id, entity.domain, entity.original_name) for entity in entities)
 
     assert [name for name, count in names.items() if count > 1] == []
+
+
+@pytest.mark.parametrize("client_mock", _CLIENT_MOCKS)
+async def test_every_sensor_of_a_new_installation_has_a_translated_name(hass, request, client_mock):
+    """A sensor without a translation key shows the English label of its SunSpec model."""
+    request.getfixturevalue(client_mock)
+    entry = await _setup_with_every_default_model(hass)
+
+    sensors = [
+        entity
+        for entity in er.async_entries_for_config_entry(er.async_get(hass), entry.entry_id)
+        if entity.domain == "sensor"
+    ]
+
+    assert [sensor.entity_id for sensor in sensors if sensor.translation_key is None] == []
+    # A placeholder the name was not given stays in it as "{index}".
+    assert [sensor.original_name for sensor in sensors if "{" in (sensor.original_name or "")] == []
 
 
 @pytest.mark.parametrize("client_mock", _CLIENT_MOCKS)
@@ -1119,13 +1157,82 @@ def test_every_icon_belongs_to_a_translated_entity():
         assert icons[platform].keys() == names[platform].keys(), platform
 
 
-@pytest.mark.parametrize("language", ["en", "de"])
-def test_every_translated_point_has_its_name_and_icon(language):
-    """Without the name Home Assistant falls back to the device class: four sensors "Current"."""
-    component = Path(__file__).parent.parent / "custom_components" / "sunspec2"
-    names = json.loads((component / "translations" / f"{language}.json").read_text("utf-8"))
-    icons = json.loads((component / "icons.json").read_text("utf-8"))
-    slugs = set(SUNSPEC_POINT_TRANSLATION_KEYS.values())
+_DEFINITIONS = Path(__file__).parent.parent / "custom_components/sunspec2/pysunspec2/models/json"
 
-    assert slugs <= names["entity"]["sensor"].keys()
-    assert slugs <= icons["entity"]["sensor"].keys()
+
+def _definition(model_id: int) -> dict[str, Any]:
+    """The top-level group of a SunSpec model definition."""
+    group: dict[str, Any] = json.loads(
+        (_DEFINITIONS / f"model_{model_id}.json").read_text("utf-8")
+    )["group"]
+    return group
+
+
+@pytest.mark.parametrize("language", LANGUAGES)
+def test_every_point_name_has_its_text_and_icon(language):
+    """Without the text Home Assistant falls back to the device class: four sensors "Current"."""
+    component = Path(__file__).parent.parent / "custom_components" / "sunspec2"
+    texts = json.loads((component / "translations" / f"{language}.json").read_text("utf-8"))
+    icons = json.loads((component / "icons.json").read_text("utf-8"))
+
+    for model_id, table in POINT_NAMES.items():
+        groups = {group["name"]: group for group in _definition(model_id).get("groups", [])}
+        for point, name in table.items():
+            assert name.key in icons["entity"]["sensor"], name.key
+            text = texts["entity"]["sensor"][name.key]["name"]
+            used = set(re.findall(r"{(\w+)}", text))
+            given = set(name.placeholders)
+            group = groups.get(point.split(":")[0]) if ":" in point else None
+            # Every point of a repeating group shows its index, or the
+            # sensors of the group share a name. A group that does not
+            # repeat, 704's PFWInj, gets the index and need not show it.
+            if group is not None and "count" in group:
+                given.add("index")
+            allowed = given | {"index"} if group is not None else given
+            assert given <= used <= allowed, (model_id, point, text)
+
+
+def _sensor_points(model_id: int) -> list[str]:
+    """The keys of models.py a sensor can be built for, with group index 0.
+
+    The test of ``SunSpecModelWrapper.isValidPoint`` without the value: an
+    enum or bitfield, or a point with a unit.
+    """
+    group = _definition(model_id)
+    keys = []
+    for prefix, members in [("", group)] + [
+        (f"{g['name']}:0:", g) for g in group.get("groups", [])
+    ]:
+        for point in members.get("points", []):
+            if point["type"] in ("enum16", "bitfield32") or point.get("units") is not None:
+                keys.append(prefix + point["name"])
+    return keys
+
+
+#: The models whose every sensor has a translated name, see point_names.py.
+_NAMED_MODELS = sorted(
+    DEFAULT_MODELS
+    | WRITE_CAPABLE_MODELS
+    | {model for profile in PROFILES for model in profile.required_models}
+    | {120, 121, 122}
+)
+
+
+@pytest.mark.parametrize("model_id", _NAMED_MODELS)
+def test_every_sensor_point_of_a_model_read_by_default_has_a_name(model_id):
+    """A model sync that brings a new point fails here until the point has a name."""
+    unnamed = [
+        key
+        for key in _sensor_points(model_id)
+        if not is_excluded_sensor_point(model_id, key) and point_name(model_id, key) is None
+    ]
+
+    assert unnamed == []
+
+
+def test_a_point_in_a_repeating_group_gets_its_index():
+    name = point_name(160, "module:3:DCW")
+
+    assert name is not None
+    assert name.key == "module_dc_power"
+    assert name.placeholders == {"index": "3"}

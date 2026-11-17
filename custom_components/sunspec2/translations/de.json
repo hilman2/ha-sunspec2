@@ -195,7 +195,7 @@
         "name": "Wirkleistungs-Sollwert in Prozent"
       },
       "export_limit_revert_value": {
-        "name": "Ruecksprungwert Einspeiselimit"
+        "name": "Rücksprungwert Einspeiselimit"
       },
       "battery_charge_rate": {
         "name": "Batterie-Laderate"
@@ -406,7 +406,7 @@
         "name": "Wirkleistungs-Sollwert aktiv"
       },
       "export_limit_revert_enabled": {
-        "name": "Einspeiselimit bleibt nach Ruecksprung aktiv"
+        "name": "Einspeiselimit bleibt nach Rücksprung aktiv"
       },
       "battery_grid_charging": {
         "name": "Batterieladen aus dem Netz erlaubt"
@@ -963,6 +963,846 @@
       },
       "franklinwh_home_consumption": {
         "name": "Hausverbrauch"
+      },
+      "der_type": {
+        "name": "DER-Typ"
+      },
+      "rated_reactive_power": {
+        "name": "Nenn-Blindleistung {quadrant}"
+      },
+      "rated_min_power_factor": {
+        "name": "Minimaler Nenn-Leistungsfaktor {quadrant}"
+      },
+      "rated_usable_capacity": {
+        "name": "Nutzbare Nennkapazität (Ah)"
+      },
+      "rated_max_charge_power": {
+        "name": "Maximale Nenn-Ladeleistung"
+      },
+      "rated_max_discharge_power": {
+        "name": "Maximale Nenn-Entladeleistung"
+      },
+      "voltage_reference_offset": {
+        "name": "Offset der Referenzspannung"
+      },
+      "max_voltage_setting": {
+        "name": "Konfigurierte maximale AC-Spannung"
+      },
+      "min_voltage_setting": {
+        "name": "Konfigurierte minimale AC-Spannung"
+      },
+      "max_apparent_power_setting": {
+        "name": "Konfigurierte maximale Scheinleistung"
+      },
+      "max_reactive_power_setting": {
+        "name": "Konfigurierte maximale Blindleistung {quadrant}"
+      },
+      "active_power_ramp_rate": {
+        "name": "Wirkleistungsgradient"
+      },
+      "min_power_factor_setting": {
+        "name": "Konfigurierter minimaler Leistungsfaktor {quadrant}"
+      },
+      "reactive_power_action": {
+        "name": "Blindleistungsverhalten"
+      },
+      "apparent_power_calculation": {
+        "name": "Berechnung der Scheinleistung"
+      },
+      "max_ramp_rate": {
+        "name": "Maximaler Gradient"
+      },
+      "nominal_frequency": {
+        "name": "Nennfrequenz"
+      },
+      "connected_phase": {
+        "name": "Angeschlossene Phase"
+      },
+      "lifetime_apparent_energy": {
+        "name": "Gesamte Scheinenergie"
+      },
+      "lifetime_reactive_energy": {
+        "name": "Gesamte Blindenergie {quadrant}"
+      },
+      "available_reactive_power": {
+        "name": "Verfügbare Blindleistung"
+      },
+      "available_power": {
+        "name": "Verfügbare Leistung"
+      },
+      "setpoint_limits_reached": {
+        "name": "Erreichte Sollwertgrenzen"
+      },
+      "active_controls": {
+        "name": "Aktive Regelfunktionen"
+      },
+      "timestamp": {
+        "name": "Zeitstempel"
+      },
+      "grid_connection_time_window": {
+        "name": "Zeitfenster Netzverbindung"
+      },
+      "grid_connection_revert_time": {
+        "name": "Ablaufzeit Netzverbindung"
+      },
+      "export_limit_time_window": {
+        "name": "Zeitfenster Einspeiselimit"
+      },
+      "export_limit_ramp_time": {
+        "name": "Rampenzeit Einspeiselimit"
+      },
+      "power_factor_time_window": {
+        "name": "Zeitfenster Leistungsfaktor-Sollwert"
+      },
+      "power_factor_revert_time": {
+        "name": "Ablaufzeit Leistungsfaktor-Sollwert"
+      },
+      "power_factor_ramp_time": {
+        "name": "Rampenzeit Leistungsfaktor-Sollwert"
+      },
+      "reactive_power_limit_pct_max_power": {
+        "name": "Blindleistungslimit (% der Maximalleistung)"
+      },
+      "reactive_power_limit_pct_max_reactive_power": {
+        "name": "Blindleistungslimit (% der maximalen Blindleistung)"
+      },
+      "reactive_power_limit_pct_available": {
+        "name": "Blindleistungslimit (% der verfügbaren Blindleistung)"
+      },
+      "reactive_power_limit_time_window": {
+        "name": "Zeitfenster Blindleistungslimit"
+      },
+      "reactive_power_limit_revert_time": {
+        "name": "Ablaufzeit Blindleistungslimit"
+      },
+      "reactive_power_limit_ramp_time": {
+        "name": "Rampenzeit Blindleistungslimit"
+      },
+      "reactive_power_limit_mode": {
+        "name": "Modus Blindleistungslimit"
+      },
+      "reactive_power_limit_enabled": {
+        "name": "Blindleistungslimit aktiv"
+      },
+      "charge_ramp_rate": {
+        "name": "Ladegradient"
+      },
+      "discharge_ramp_rate": {
+        "name": "Entladegradient"
+      },
+      "state_of_charge": {
+        "name": "Ladezustand"
+      },
+      "available_capacity": {
+        "name": "Verfügbare Kapazität (Ah)"
+      },
+      "internal_battery_voltage": {
+        "name": "Interne Batteriespannung"
+      },
+      "charge_status": {
+        "name": "Ladestatus"
+      },
+      "battery_rate_time_window": {
+        "name": "Zeitfenster Batterie-Rate"
+      },
+      "battery_rate_ramp_time": {
+        "name": "Rampenzeit Batterie-Rate"
+      },
+      "global_events": {
+        "name": "Globale Ereignisse"
+      },
+      "module_dc_current": {
+        "name": "DC-Strom Eingang {index}"
+      },
+      "module_dc_voltage": {
+        "name": "DC-Spannung Eingang {index}"
+      },
+      "module_dc_power": {
+        "name": "DC-Leistung Eingang {index}"
+      },
+      "module_lifetime_energy": {
+        "name": "Gesamtenergie Eingang {index}"
+      },
+      "module_timestamp": {
+        "name": "Zeitstempel Eingang {index}"
+      },
+      "module_temperature": {
+        "name": "Temperatur Eingang {index}"
+      },
+      "module_operating_state": {
+        "name": "Betriebszustand Eingang {index}"
+      },
+      "module_events": {
+        "name": "Ereignisse Eingang {index}"
+      },
+      "average_voltage_l_n": {
+        "name": "Mittlere Spannung L-N"
+      },
+      "average_voltage_l_l": {
+        "name": "Mittlere Spannung L-L"
+      },
+      "watts_phase": {
+        "name": "AC-Leistung {phase}"
+      },
+      "apparent_power_phase": {
+        "name": "Scheinleistung {phase}"
+      },
+      "reactive_power_phase": {
+        "name": "Blindleistung {phase}"
+      },
+      "power_factor_phase": {
+        "name": "Leistungsfaktor {phase}"
+      },
+      "energy_exported": {
+        "name": "Eingespeiste Energie"
+      },
+      "energy_exported_phase": {
+        "name": "Eingespeiste Energie {phase}"
+      },
+      "energy_imported": {
+        "name": "Bezogene Energie"
+      },
+      "energy_imported_phase": {
+        "name": "Bezogene Energie {phase}"
+      },
+      "apparent_energy_exported": {
+        "name": "Eingespeiste Scheinenergie"
+      },
+      "apparent_energy_exported_phase": {
+        "name": "Eingespeiste Scheinenergie {phase}"
+      },
+      "apparent_energy_imported": {
+        "name": "Bezogene Scheinenergie"
+      },
+      "apparent_energy_imported_phase": {
+        "name": "Bezogene Scheinenergie {phase}"
+      },
+      "reactive_energy_imported": {
+        "name": "Bezogene Blindenergie {quadrant}"
+      },
+      "reactive_energy_imported_phase": {
+        "name": "Bezogene Blindenergie {quadrant} {phase}"
+      },
+      "reactive_energy_exported": {
+        "name": "Eingespeiste Blindenergie {quadrant}"
+      },
+      "reactive_energy_exported_phase": {
+        "name": "Eingespeiste Blindenergie {quadrant} {phase}"
+      },
+      "events": {
+        "name": "Ereignisse"
+      },
+      "ambient_temperature": {
+        "name": "Umgebungstemperatur"
+      },
+      "relative_humidity": {
+        "name": "Relative Luftfeuchtigkeit"
+      },
+      "barometric_pressure": {
+        "name": "Luftdruck"
+      },
+      "wind_speed": {
+        "name": "Windgeschwindigkeit"
+      },
+      "wind_direction": {
+        "name": "Windrichtung"
+      },
+      "rainfall": {
+        "name": "Niederschlag"
+      },
+      "snow_depth": {
+        "name": "Schneehöhe"
+      },
+      "electric_field": {
+        "name": "Elektrisches Feld"
+      },
+      "surface_wetness": {
+        "name": "Oberflächenfeuchte"
+      },
+      "soil_moisture": {
+        "name": "Bodenfeuchte"
+      },
+      "global_horizontal_irradiance": {
+        "name": "Globalstrahlung horizontal"
+      },
+      "module_back_temperature": {
+        "name": "Modulrückseitentemperatur"
+      },
+      "rated_dc_current": {
+        "name": "Nenn-DC-Strom"
+      },
+      "vendor_events": {
+        "name": "Herstellerereignisse"
+      },
+      "amp_hours": {
+        "name": "Amperestunden"
+      },
+      "temperature": {
+        "name": "Temperatur"
+      },
+      "performance_ratio": {
+        "name": "Performance Ratio"
+      },
+      "dc_energy": {
+        "name": "DC-Energie"
+      },
+      "string_events": {
+        "name": "String {index} Ereignisse"
+      },
+      "string_vendor_events": {
+        "name": "String {index} Herstellerereignisse"
+      },
+      "string_dc_current": {
+        "name": "String {index} DC-Strom"
+      },
+      "string_amp_hours": {
+        "name": "String {index} Amperestunden"
+      },
+      "string_dc_voltage": {
+        "name": "String {index} DC-Spannung"
+      },
+      "string_dc_power": {
+        "name": "String {index} DC-Leistung"
+      },
+      "string_dc_energy": {
+        "name": "String {index} DC-Energie"
+      },
+      "string_performance_ratio": {
+        "name": "String {index} Performance Ratio"
+      },
+      "status": {
+        "name": "Status"
+      },
+      "vendor_status": {
+        "name": "Herstellerstatus"
+      },
+      "control_mode": {
+        "name": "Steuermodus"
+      },
+      "output_current": {
+        "name": "Ausgangsstrom"
+      },
+      "output_voltage": {
+        "name": "Ausgangsspannung"
+      },
+      "output_energy": {
+        "name": "Ausgangsenergie"
+      },
+      "output_power": {
+        "name": "Ausgangsleistung"
+      },
+      "input_current": {
+        "name": "Eingangsstrom"
+      },
+      "input_voltage": {
+        "name": "Eingangsspannung"
+      },
+      "input_energy": {
+        "name": "Eingangsenergie"
+      },
+      "input_power": {
+        "name": "Eingangsleistung"
+      },
+      "tracker_type": {
+        "name": "Tracker-Typ"
+      },
+      "local_date": {
+        "name": "Lokales Datum"
+      },
+      "local_time": {
+        "name": "Lokale Uhrzeit"
+      },
+      "manual_elevation": {
+        "name": "Manueller Höhenwinkel"
+      },
+      "manual_azimuth": {
+        "name": "Manueller Azimut"
+      },
+      "global_mode": {
+        "name": "Globaler Modus"
+      },
+      "tracker_target_elevation": {
+        "name": "Tracker {index} Soll-Höhenwinkel"
+      },
+      "tracker_target_azimuth": {
+        "name": "Tracker {index} Soll-Azimut"
+      },
+      "tracker_elevation": {
+        "name": "Tracker {index} Höhenwinkel"
+      },
+      "tracker_azimuth": {
+        "name": "Tracker {index} Azimut"
+      },
+      "tracker_manual_elevation": {
+        "name": "Tracker {index} manueller Höhenwinkel"
+      },
+      "tracker_manual_azimuth": {
+        "name": "Tracker {index} manueller Azimut"
+      },
+      "tracker_mode": {
+        "name": "Tracker {index} Modus"
+      },
+      "ac_wiring_type": {
+        "name": "AC-Anschlussart"
+      },
+      "inverter_state": {
+        "name": "Wechselrichterzustand"
+      },
+      "grid_connection_state": {
+        "name": "Netzverbindungszustand"
+      },
+      "alarms": {
+        "name": "Alarme"
+      },
+      "der_mode": {
+        "name": "DER-Betriebsmerkmale"
+      },
+      "energy_injected": {
+        "name": "Eingespeiste Energie"
+      },
+      "energy_injected_phase": {
+        "name": "Eingespeiste Energie {phase}"
+      },
+      "energy_absorbed": {
+        "name": "Bezogene Energie"
+      },
+      "energy_absorbed_phase": {
+        "name": "Bezogene Energie {phase}"
+      },
+      "reactive_energy_injected": {
+        "name": "Abgegebene Blindenergie"
+      },
+      "reactive_energy_injected_phase": {
+        "name": "Abgegebene Blindenergie {phase}"
+      },
+      "reactive_energy_absorbed": {
+        "name": "Aufgenommene Blindenergie"
+      },
+      "reactive_energy_absorbed_phase": {
+        "name": "Aufgenommene Blindenergie {phase}"
+      },
+      "switch_temperature": {
+        "name": "IGBT/MOSFET-Temperatur"
+      },
+      "throttling": {
+        "name": "Leistungsreduzierung"
+      },
+      "throttling_source": {
+        "name": "Ursache der Leistungsreduzierung"
+      },
+      "rated_power_over_excited": {
+        "name": "Nenn-Wirkleistung, übererregt"
+      },
+      "rated_power_under_excited": {
+        "name": "Nenn-Wirkleistung, untererregt"
+      },
+      "rated_reactive_power_injected": {
+        "name": "Nenn-Blindleistung, abgegeben"
+      },
+      "rated_reactive_power_absorbed": {
+        "name": "Nenn-Blindleistung, aufgenommen"
+      },
+      "rated_max_charge_apparent_power": {
+        "name": "Maximale Nenn-Lade-Scheinleistung"
+      },
+      "rated_max_discharge_apparent_power": {
+        "name": "Maximale Nenn-Entlade-Scheinleistung"
+      },
+      "rated_nominal_voltage": {
+        "name": "AC-Nennspannung"
+      },
+      "rated_max_voltage": {
+        "name": "Maximale AC-Spannung (Nennwert)"
+      },
+      "rated_min_voltage": {
+        "name": "Minimale AC-Spannung (Nennwert)"
+      },
+      "reactive_susceptance": {
+        "name": "Blindleitwert"
+      },
+      "normal_operating_category": {
+        "name": "Kategorie Normalbetrieb"
+      },
+      "abnormal_operating_category": {
+        "name": "Kategorie gestörter Betrieb"
+      },
+      "supported_control_modes": {
+        "name": "Unterstützte Regelfunktionen"
+      },
+      "max_power_over_excited_setting": {
+        "name": "Konfigurierte Wirkleistung, übererregt"
+      },
+      "max_power_under_excited_setting": {
+        "name": "Konfigurierte Wirkleistung, untererregt"
+      },
+      "max_reactive_power_injected_setting": {
+        "name": "Konfigurierte maximale abgegebene Blindleistung"
+      },
+      "max_reactive_power_absorbed_setting": {
+        "name": "Konfigurierte maximale aufgenommene Blindleistung"
+      },
+      "max_charge_power_setting": {
+        "name": "Konfigurierte maximale Ladeleistung"
+      },
+      "max_discharge_power_setting": {
+        "name": "Konfigurierte maximale Entladeleistung"
+      },
+      "max_charge_apparent_power_setting": {
+        "name": "Konfigurierte maximale Lade-Scheinleistung"
+      },
+      "max_discharge_apparent_power_setting": {
+        "name": "Konfigurierte maximale Entlade-Scheinleistung"
+      },
+      "nominal_voltage_setting": {
+        "name": "Konfigurierte AC-Nennspannung"
+      },
+      "max_current_setting": {
+        "name": "Konfigurierter maximaler AC-Strom"
+      },
+      "pf_injecting_enabled": {
+        "name": "Leistungsfaktor (Einspeisung) aktiv"
+      },
+      "pf_injecting_revert_enabled": {
+        "name": "Leistungsfaktor (Einspeisung) bleibt nach Rücksprung aktiv"
+      },
+      "pf_injecting_revert_time": {
+        "name": "Ablaufzeit Leistungsfaktor (Einspeisung)"
+      },
+      "pf_injecting_revert_time_remaining": {
+        "name": "Restzeit Leistungsfaktor (Einspeisung)"
+      },
+      "pf_injecting_excitation": {
+        "name": "Erregung Leistungsfaktor (Einspeisung)"
+      },
+      "pf_injecting_revert_excitation": {
+        "name": "Erregung Leistungsfaktor (Einspeisung) nach Rücksprung"
+      },
+      "pf_absorbing_enabled": {
+        "name": "Leistungsfaktor (Bezug) aktiv"
+      },
+      "pf_absorbing_revert_enabled": {
+        "name": "Leistungsfaktor (Bezug) bleibt nach Rücksprung aktiv"
+      },
+      "pf_absorbing_revert_time": {
+        "name": "Ablaufzeit Leistungsfaktor (Bezug)"
+      },
+      "pf_absorbing_revert_time_remaining": {
+        "name": "Restzeit Leistungsfaktor (Bezug)"
+      },
+      "pf_absorbing_excitation": {
+        "name": "Erregung Leistungsfaktor (Bezug)"
+      },
+      "pf_absorbing_revert_excitation": {
+        "name": "Erregung Leistungsfaktor (Bezug) nach Rücksprung"
+      },
+      "export_limit_revert_time_remaining": {
+        "name": "Restzeit Einspeiselimit"
+      },
+      "active_power_setpoint_revert_value": {
+        "name": "Rücksprungwert Wirkleistungs-Sollwert"
+      },
+      "active_power_setpoint_pct": {
+        "name": "Wirkleistungs-Sollwert in Prozent"
+      },
+      "active_power_setpoint_pct_revert_value": {
+        "name": "Rücksprungwert Wirkleistungs-Sollwert in Prozent"
+      },
+      "active_power_setpoint_revert_enabled": {
+        "name": "Wirkleistungs-Sollwert bleibt nach Rücksprung aktiv"
+      },
+      "active_power_setpoint_revert_time": {
+        "name": "Ablaufzeit Wirkleistungs-Sollwert"
+      },
+      "active_power_setpoint_revert_time_remaining": {
+        "name": "Restzeit Wirkleistungs-Sollwert"
+      },
+      "reactive_power_setpoint_enabled": {
+        "name": "Blindleistungs-Sollwert aktiv"
+      },
+      "reactive_power_setpoint_mode": {
+        "name": "Modus Blindleistungs-Sollwert"
+      },
+      "reactive_power_priority": {
+        "name": "Blindleistungspriorität"
+      },
+      "reactive_power_setpoint": {
+        "name": "Blindleistungs-Sollwert"
+      },
+      "reactive_power_setpoint_revert_value": {
+        "name": "Rücksprungwert Blindleistungs-Sollwert"
+      },
+      "reactive_power_setpoint_pct": {
+        "name": "Blindleistungs-Sollwert in Prozent"
+      },
+      "reactive_power_setpoint_pct_revert_value": {
+        "name": "Rücksprungwert Blindleistungs-Sollwert in Prozent"
+      },
+      "reactive_power_setpoint_revert_enabled": {
+        "name": "Blindleistungs-Sollwert bleibt nach Rücksprung aktiv"
+      },
+      "reactive_power_setpoint_revert_time": {
+        "name": "Ablaufzeit Blindleistungs-Sollwert"
+      },
+      "reactive_power_setpoint_revert_time_remaining": {
+        "name": "Restzeit Blindleistungs-Sollwert"
+      },
+      "active_power_ramp_rate_reference": {
+        "name": "Bezugsgröße Wirkleistungsgradient"
+      },
+      "reactive_power_ramp_rate": {
+        "name": "Blindleistungsgradient"
+      },
+      "anti_islanding_enabled": {
+        "name": "Inselnetzerkennung aktiv"
+      },
+      "energy_available": {
+        "name": "Verfügbare Energie"
+      },
+      "state_of_health": {
+        "name": "Gesundheitszustand"
+      },
+      "port_alarms": {
+        "name": "Port-Alarme"
+      },
+      "dc_energy_injected": {
+        "name": "Abgegebene DC-Energie"
+      },
+      "dc_energy_absorbed": {
+        "name": "Aufgenommene DC-Energie"
+      },
+      "port_type": {
+        "name": "Port {index} Typ"
+      },
+      "port_dc_current": {
+        "name": "Port {index} DC-Strom"
+      },
+      "port_dc_voltage": {
+        "name": "Port {index} DC-Spannung"
+      },
+      "port_dc_power": {
+        "name": "Port {index} DC-Leistung"
+      },
+      "port_dc_energy_injected": {
+        "name": "Port {index} abgegebene DC-Energie"
+      },
+      "port_dc_energy_absorbed": {
+        "name": "Port {index} aufgenommene DC-Energie"
+      },
+      "port_temperature": {
+        "name": "Port {index} Temperatur"
+      },
+      "port_status": {
+        "name": "Port {index} Status"
+      },
+      "port_alarm": {
+        "name": "Port {index} Alarme"
+      },
+      "deprecated_model": {
+        "name": "Veraltetes Modell"
+      },
+      "depth_of_discharge": {
+        "name": "Entladetiefe"
+      },
+      "max_cell_voltage": {
+        "name": "Maximale Zellspannung"
+      },
+      "min_cell_voltage": {
+        "name": "Minimale Zellspannung"
+      },
+      "average_cell_voltage": {
+        "name": "Mittlere Zellspannung"
+      },
+      "max_module_temperature": {
+        "name": "Maximale Modultemperatur"
+      },
+      "min_module_temperature": {
+        "name": "Minimale Modultemperatur"
+      },
+      "average_module_temperature": {
+        "name": "Mittlere Modultemperatur"
+      },
+      "rated_charge_capacity": {
+        "name": "Nennkapazität (Ah)"
+      },
+      "self_discharge_rate": {
+        "name": "Selbstentladungsrate"
+      },
+      "rated_max_state_of_charge": {
+        "name": "Maximaler Ladezustand (Nennwert)"
+      },
+      "rated_min_state_of_charge": {
+        "name": "Minimaler Ladezustand (Nennwert)"
+      },
+      "max_reserve": {
+        "name": "Maximale Reserve"
+      },
+      "min_reserve": {
+        "name": "Minimale Reserve"
+      },
+      "battery_type": {
+        "name": "Batterietyp"
+      },
+      "battery_bank_state": {
+        "name": "Zustand der Batteriebank"
+      },
+      "vendor_battery_bank_state": {
+        "name": "Herstellerspezifischer Zustand der Batteriebank"
+      },
+      "external_battery_voltage": {
+        "name": "Externe Batteriespannung"
+      },
+      "max_battery_voltage": {
+        "name": "Maximale Batteriespannung"
+      },
+      "min_battery_voltage": {
+        "name": "Minimale Batteriespannung"
+      },
+      "max_charge_current": {
+        "name": "Maximaler Ladestrom"
+      },
+      "max_discharge_current": {
+        "name": "Maximaler Entladestrom"
+      },
+      "inverter_state_request": {
+        "name": "Angeforderter Wechselrichterzustand"
+      },
+      "battery_power_request": {
+        "name": "Angeforderte Batterieleistung"
+      },
+      "operation_command": {
+        "name": "Betriebsbefehl"
+      },
+      "inverter_state_command": {
+        "name": "Befehl Wechselrichterzustand"
+      },
+      "max_string_voltage": {
+        "name": "Maximale String-Spannung"
+      },
+      "min_string_voltage": {
+        "name": "Minimale String-Spannung"
+      },
+      "average_string_voltage": {
+        "name": "Mittlere String-Spannung"
+      },
+      "max_string_current": {
+        "name": "Maximaler String-Strom"
+      },
+      "min_string_current": {
+        "name": "Minimaler String-Strom"
+      },
+      "average_string_current": {
+        "name": "Mittlerer String-Strom"
+      },
+      "string_status": {
+        "name": "String {index} Status"
+      },
+      "string_connection_failure_reason": {
+        "name": "String {index} Grund des Verbindungsfehlers"
+      },
+      "string_state_of_charge": {
+        "name": "String {index} Ladezustand"
+      },
+      "string_state_of_health": {
+        "name": "String {index} Gesundheitszustand"
+      },
+      "string_current": {
+        "name": "String {index} Strom"
+      },
+      "string_max_cell_voltage": {
+        "name": "String {index} maximale Zellspannung"
+      },
+      "string_min_cell_voltage": {
+        "name": "String {index} minimale Zellspannung"
+      },
+      "string_average_cell_voltage": {
+        "name": "String {index} mittlere Zellspannung"
+      },
+      "string_max_module_temperature": {
+        "name": "String {index} maximale Modultemperatur"
+      },
+      "string_min_module_temperature": {
+        "name": "String {index} minimale Modultemperatur"
+      },
+      "string_average_module_temperature": {
+        "name": "String {index} mittlere Modultemperatur"
+      },
+      "string_disabled_reason": {
+        "name": "String {index} Grund der Deaktivierung"
+      },
+      "string_contactor_status": {
+        "name": "String {index} Schützstatus"
+      },
+      "string_events_1": {
+        "name": "String {index} Ereignisse"
+      },
+      "string_events_2": {
+        "name": "String {index} Ereignisse 2"
+      },
+      "string_vendor_events_1": {
+        "name": "String {index} Herstellerereignisse 1"
+      },
+      "string_vendor_events_2": {
+        "name": "String {index} Herstellerereignisse 2"
+      },
+      "string_enable_command": {
+        "name": "String {index} Aktivierungsbefehl"
+      },
+      "string_connect_command": {
+        "name": "String {index} Verbindungsbefehl"
+      },
+      "connection_failure_reason": {
+        "name": "Grund des Verbindungsfehlers"
+      },
+      "contactor_status": {
+        "name": "Schützstatus"
+      },
+      "enable_command": {
+        "name": "Aktivierungsbefehl"
+      },
+      "connect_command": {
+        "name": "Verbindungsbefehl"
+      },
+      "battery_module_state_of_charge": {
+        "name": "Modul {index} Ladezustand"
+      },
+      "battery_module_state_of_health": {
+        "name": "Modul {index} Gesundheitszustand"
+      },
+      "battery_module_max_cell_voltage": {
+        "name": "Modul {index} maximale Zellspannung"
+      },
+      "battery_module_min_cell_voltage": {
+        "name": "Modul {index} minimale Zellspannung"
+      },
+      "battery_module_average_cell_voltage": {
+        "name": "Modul {index} mittlere Zellspannung"
+      },
+      "battery_module_max_cell_temperature": {
+        "name": "Modul {index} maximale Zelltemperatur"
+      },
+      "battery_module_min_cell_temperature": {
+        "name": "Modul {index} minimale Zelltemperatur"
+      },
+      "battery_module_average_cell_temperature": {
+        "name": "Modul {index} mittlere Zelltemperatur"
+      },
+      "max_cell_temperature": {
+        "name": "Maximale Zelltemperatur"
+      },
+      "min_cell_temperature": {
+        "name": "Minimale Zelltemperatur"
+      },
+      "average_cell_temperature": {
+        "name": "Mittlere Zelltemperatur"
+      },
+      "cell_voltage": {
+        "name": "Zelle {index} Spannung"
+      },
+      "cell_temperature": {
+        "name": "Zelle {index} Temperatur"
+      },
+      "cell_status": {
+        "name": "Zelle {index} Status"
       }
     }
   },

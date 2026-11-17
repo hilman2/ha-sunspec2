@@ -57,7 +57,7 @@ sensors mean the same as on a GEN24. There are no battery energy
 sensors on this generation, because the inverter does not report the
 energy numbers.
 
-The numbered **Module 1**, **Module 2** and so on sensors stay. They
+The numbered **Module 0**, **Module 1** and so on sensors stay. They
 show the same values for each string, numbered instead of named.
 
 A Symo Hybrid also gets a **Battery mode** menu and four power fields

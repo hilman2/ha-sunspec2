@@ -1,0 +1,1904 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "description": "Jak chcete nastavit svůj střídač?",
+        "menu_options": {
+          "manual": "Modbus TCP - zadat IP adresu ručně",
+          "scan": "Modbus TCP - prohledat síť",
+          "serial": "Modbus RTU - sériový port (RS-485)"
+        }
+      },
+      "manual": {
+        "title": "Připojení ke střídači",
+        "description": "Zadejte IP adresu střídače, port Modbus TCP (výchozí 502) a ID jednotky Modbus (výchozí 1).",
+        "data": {
+          "host": "Hostitel nebo IP adresa",
+          "port": "Port Modbus TCP",
+          "unit_id": "ID jednotky Modbus"
+        },
+        "data_description": {
+          "host": "IP adresa nebo název hostitele střídače, případně brány, přes kterou je střídač připojen.",
+          "port": "Port Modbus TCP. 502, pokud zařízení nemá nastavený jiný.",
+          "unit_id": "Adresa Modbus zařízení, nazývaná také slave ID nebo ID zařízení. Často 1. Najdete ji v nastavení Modbus zařízení."
+        }
+      },
+      "scan": {
+        "title": "Vyhledat střídače v síti",
+        "description": "Prohledá zvolenou podsíť a najde hostitele s otevřeným portem Modbus TCP 502. Hostitelé, jejichž MAC adresa patří známému výrobci střídačů SunSpec, jsou uvedeni jako první. Vyhledávání jen zkouší navázat spojení TCP a nikdy neposílá žádné bajty Modbus, takže neovlivní ostatní zařízení Modbus v síti. Výchozí podsíť se zjistí z nastavení sítě hostitele, na kterém běží Home Assistant.",
+        "data": {
+          "subnet": "Podsíť k prohledání (zápis CIDR, např. 192.168.1.0/24)"
+        },
+        "data_description": {
+          "subnet": "Síť, která se má prohledat, v zápisu CIDR. Nejvýše /22, tedy 1022 adres."
+        }
+      },
+      "scan_results": {
+        "title": "Vyberte svůj střídač",
+        "description": "Tito hostitelé odpověděli na portu Modbus TCP 502. Hostitelé označení 'SunSpec vendor' mají MAC adresu známého výrobce střídačů a nejspíš jde o vaše zařízení.",
+        "data": {
+          "host": "Střídač"
+        },
+        "data_description": {
+          "host": "Zařízení, která odpověděla na portu Modbus. Známí výrobci střídačů jsou uvedeni jako první."
+        }
+      },
+      "serial": {
+        "title": "Připojení Modbus RTU",
+        "description": "Nastavte sériové připojení (RS-485) ke střídači s podporou SunSpec. Obvykle se používá převodník USB na RS-485 na /dev/ttyUSB0 (Linux) nebo COM3 (Windows). Přenosová rychlost bývá 9600 nebo 19200 - ověřte ji v návodu ke střídači.",
+        "data": {
+          "serial_port": "Sériový port (např. /dev/ttyUSB0 nebo COM3)",
+          "baudrate": "Přenosová rychlost",
+          "parity": "Parita",
+          "unit_id": "ID jednotky Modbus"
+        },
+        "data_description": {
+          "serial_port": "Sériový port převodníku RS-485.",
+          "baudrate": "Rychlost nastavená v zařízení. Obě strany musí používat stejnou.",
+          "parity": "Parita nastavená v zařízení.",
+          "unit_id": "Adresa Modbus zařízení, nazývaná také slave ID nebo ID zařízení. Často 1. Najdete ji v nastavení Modbus zařízení."
+        }
+      },
+      "settings": {
+        "title": "Nastavení střídače",
+        "description": "Vyberte modely senzorů a interval dotazování. Později je můžete změnit v možnostech zařízení.",
+        "data": {
+          "prefix": "Předpona názvů senzorů",
+          "scan_interval": "Interval dotazování",
+          "models_enabled": "Modely senzorů",
+          "max_ac_power_kw": "Špičkový výkon AC"
+        },
+        "data_description": {
+          "prefix": "Volitelná předpona názvů senzorů.",
+          "scan_interval": "Doba mezi čteními ze zařízení. Krátké intervaly zvyšují zatížení sítě a zařízení.",
+          "models_enabled": "Vyberte zjištěné modely SunSpec, které se mají zobrazit jako senzory. Vyberte alespoň jeden.",
+          "max_ac_power_kw": "Výkon AC, podle kterého se filtrují nevěrohodné hodnoty. Návrh vychází z typového štítku s rezervou 20 %. U výkonu DC a zdánlivého výkonu jsou povoleny vyšší hodnoty. Vymažte pole pro automatické zjištění."
+        }
+      },
+      "reconfigure": {
+        "title": "Přenastavit připojení střídače",
+        "description": "Změňte hostitele, port nebo ID jednotky stávajícího střídače SunSpec, aniž byste přišli o jeho historii. Nové připojení se ověří a záznam se aktualizuje jen tehdy, když střídač stále hlásí stejné sériové číslo.",
+        "data": {
+          "host": "Hostitel nebo IP adresa",
+          "port": "Port Modbus TCP",
+          "unit_id": "ID jednotky Modbus"
+        },
+        "data_description": {
+          "host": "IP adresa nebo název hostitele střídače, případně brány, přes kterou je střídač připojen.",
+          "port": "Port Modbus TCP. 502, pokud zařízení nemá nastavený jiný.",
+          "unit_id": "Adresa Modbus zařízení, nazývaná také slave ID nebo ID zařízení. Často 1. Najdete ji v nastavení Modbus zařízení."
+        }
+      }
+    },
+    "error": {
+      "connection": "Střídač není dostupný. Zkontrolujte hostitele, port a ID jednotky a zkuste to znovu.",
+      "timeout": "Při připojování ke střídači vypršel časový limit. Zařízení může být offline nebo spojení drží jiný klient Modbus.",
+      "device_error": "Střídač odpověděl chybou Modbus. Zkontrolujte, zda má zařízení aktuální firmware.",
+      "invalid_subnet": "Podsíť není platný zápis CIDR nebo je příliš velká k prohledání (použijte /22 nebo menší).",
+      "no_candidates": "V této podsíti nebyli nalezeni žádní hostitelé s otevřeným portem Modbus TCP 502.",
+      "no_models_selected": "Vyberte alespoň jeden model SunSpec. Po uložení prázdného výběru by integrace přestala dotazovat střídač a všechny senzory by zmizely.",
+      "unique_id_mismatch": "Střídač na této adrese hlásí jiné sériové číslo než ten, který jste původně nastavili. Historie vašich senzorů se na jiné zařízení nepřenese.",
+      "sma_unit_id": "Střídač odpovídá přes SunSpec na ID jednotky 126, ne na zadaném ID. SMA umisťuje SunSpec na vlastní ID jednotky Modbus plus 123. Pole bylo nastaveno na 126, odešlete formulář znovu."
+    },
+    "abort": {
+      "already_configured": "Tento střídač je již nastaven.",
+      "reconfigure_successful": "Nastavení připojení bylo aktualizováno."
+    }
+  },
+  "options": {
+    "step": {
+      "host_options": {
+        "title": "Nastavení připojení",
+        "description": "Zkontrolujte údaje o připojení a pokračujte k možnostem zařízení.",
+        "data": {
+          "host": "Hostitel nebo IP adresa",
+          "port": "Port Modbus TCP",
+          "unit_id": "ID jednotky Modbus"
+        },
+        "data_description": {
+          "host": "IP adresa nebo název hostitele střídače, případně brány, přes kterou je střídač připojen.",
+          "port": "Port Modbus TCP. 502, pokud zařízení nemá nastavený jiný.",
+          "unit_id": "Adresa Modbus zařízení, nazývaná také slave ID nebo ID zařízení. Často 1. Najdete ji v nastavení Modbus zařízení."
+        }
+      },
+      "model_options": {
+        "title": "Možnosti zařízení",
+        "description": "Upravte výběr senzorů a dotazování. Další nastavení jsou seskupena níže.",
+        "data": {
+          "scan_interval": "Interval dotazování",
+          "models_enabled": "Modely senzorů"
+        },
+        "data_description": {
+          "scan_interval": "Doba mezi čteními ze zařízení. Krátké intervaly zvyšují zatížení sítě a zařízení.",
+          "models_enabled": "Vyberte zjištěné modely SunSpec, které se mají zobrazit jako senzory. Vyberte alespoň jeden."
+        },
+        "sections": {
+          "advanced": {
+            "name": "Pokročilé",
+            "description": "Názvy senzorů, filtrování výkonu, pohotovostní režim a řešení potíží.",
+            "data": {
+              "max_ac_power_kw": "Špičkový výkon AC",
+              "prefix": "Předpona názvů senzorů",
+              "standby_when_idle": "Povolit, aby byl střídač při nečinnosti offline",
+              "scan_delay": "Pauza při vyhledávání modelů",
+              "model_read_delay": "Pauza mezi čtením modelů",
+              "capture_raw_registers": "Zaznamenávat diagnostické registry",
+              "rearm_on_change": "Po změně žádané hodnoty znovu zapnout regulaci"
+            },
+            "data_description": {
+              "max_ac_power_kw": "Výkon AC, podle kterého se filtrují nevěrohodné hodnoty. Návrh vychází z typového štítku s rezervou 20 %. U výkonu DC a zdánlivého výkonu jsou povoleny vyšší hodnoty. Vymažte pole pro automatické zjištění.",
+              "prefix": "Volitelná předpona názvů senzorů.",
+              "standby_when_idle": "Potlačí upozornění na připojení v Opravách u zařízení, která přejdou do offline bez hlášení pohotovostního režimu. Senzory budou i tak nedostupné. Hlášený pohotovostní režim se rozpozná automaticky.",
+              "scan_delay": "Pauza mezi modely při vyhledávání, ne při běžném dotazování. Zvyšte ji, pokud vyhledávání u pomalých zařízení selhává.",
+              "model_read_delay": "Pauza mezi čtením modelů při běžném dotazování. Nižší hodnoty zkracují obnovení dat i zápisy. Hodnota 0 pauzu vypne.",
+              "capture_raw_registers": "Přidá surová data registrů Modbus do stahované diagnostiky pro řešení potíží.",
+              "rearm_on_change": "Fronius GEN24 použije změněné limity až po vypnutí a zapnutí. Když je regulace aktivní, její přepínač se vypne, hodnota se zapíše a přepínač se o sekundu později znovu zapne. Během této sekundy limit neplatí."
+            }
+          },
+          "fronius": {
+            "name": "Webové rozhraní Fronius",
+            "description": "Volitelný přístup k dalším údajům o zařízení.",
+            "data": {
+              "fronius_web_password": "Heslo k webovému rozhraní",
+              "fronius_web_forget": "Zapomenout uložené přihlášení"
+            },
+            "data_description": {
+              "fronius_web_password": "Místní přihlášení \"customer\", ne váš účet Solar.web. Zpřístupní další údaje o zařízení a baterii. Ukládá se jen hash přihlášení, který platí pouze pro toto zařízení. Ponechte prázdné, pokud chcete zachovat uložené přihlášení.",
+              "fronius_web_forget": "Odstraní uložené přihlášení a vypne doplňkové funkce webového rozhraní."
+            }
+          }
+        }
+      }
+    },
+    "error": {
+      "no_models_selected": "Vyberte alespoň jeden model SunSpec. Po uložení prázdného výběru by integrace přestala dotazovat střídač a všechny senzory by zmizely.",
+      "connection": "Střídač teď není dostupný. Chvíli počkejte a zkuste to znovu, nebo zkontrolujte, zda je zařízení online.",
+      "web_auth_failed": "Střídač toto heslo k webovému rozhraní odmítl. Jde o místní přihlášení \"customer\" na vlastní webové stránce střídače, ne o účet Solar.web.",
+      "web_unreachable": "Webové rozhraní střídače neodpovědělo na portu 80."
+    }
+  },
+  "entity": {
+    "number": {
+      "export_limit_pct": {
+        "name": "Limit přetoků"
+      },
+      "export_limit_revert_time": {
+        "name": "Doba platnosti limitu přetoků"
+      },
+      "power_factor_set": {
+        "name": "Žádaný účiník"
+      },
+      "active_power_setpoint": {
+        "name": "Žádaný činný výkon"
+      },
+      "active_power_setpoint_pct": {
+        "name": "Žádaný činný výkon v %"
+      },
+      "export_limit_revert_value": {
+        "name": "Limit přetoků po vypršení"
+      },
+      "battery_charge_rate": {
+        "name": "Rychlost nabíjení baterie"
+      },
+      "battery_discharge_rate": {
+        "name": "Rychlost vybíjení baterie"
+      },
+      "battery_max_charge_power": {
+        "name": "Maximální nabíjecí výkon baterie"
+      },
+      "battery_rate_revert_time": {
+        "name": "Doba platnosti rychlostí baterie"
+      },
+      "battery_min_reserve": {
+        "name": "Minimální rezerva baterie"
+      },
+      "battery_pv_charge_limit_w": {
+        "name": "Limit nabíjení baterie z FV"
+      },
+      "battery_discharge_limit_w": {
+        "name": "Limit vybíjení baterie"
+      },
+      "battery_grid_charge_power_w": {
+        "name": "Výkon nabíjení baterie ze sítě"
+      },
+      "battery_grid_discharge_power_w": {
+        "name": "Výkon vybíjení baterie do sítě"
+      },
+      "scheduled_discharge_reserve_pct": {
+        "name": "Cíl plánu baterie"
+      },
+      "battery_capacity_kwh": {
+        "name": "Kapacita baterie"
+      },
+      "storage_ac_charge_limit": {
+        "name": "Limit nabíjení úložiště z AC"
+      },
+      "storage_backup_reserve": {
+        "name": "Záložní rezerva úložiště"
+      },
+      "storage_command_timeout": {
+        "name": "Časový limit příkazu úložiště"
+      },
+      "storage_charge_limit": {
+        "name": "Limit nabíjení úložiště"
+      },
+      "storage_discharge_limit": {
+        "name": "Limit vybíjení úložiště"
+      },
+      "site_limit": {
+        "name": "Limit lokality"
+      },
+      "active_power_limit": {
+        "name": "Limit činného výkonu"
+      },
+      "sma_power_setpoint": {
+        "name": "Externí žádaný výkon"
+      },
+      "battery_min_soc": {
+        "name": "Minimální stav nabití"
+      },
+      "battery_max_soc": {
+        "name": "Maximální stav nabití"
+      },
+      "battery_max_charge_power_limit": {
+        "name": "Limit nabíjecího výkonu"
+      },
+      "battery_max_discharge_power_limit": {
+        "name": "Limit vybíjecího výkonu"
+      },
+      "battery_dc_power_setpoint": {
+        "name": "Žádaný výkon DC"
+      },
+      "battery_limitation_charge_power": {
+        "name": "Udržovaný limit nabíjecího výkonu"
+      },
+      "battery_limitation_discharge_power": {
+        "name": "Udržovaný limit vybíjecího výkonu"
+      },
+      "battery_fallback_charge_power": {
+        "name": "Náhradní nabíjecí výkon"
+      },
+      "battery_fallback_discharge_power": {
+        "name": "Náhradní vybíjecí výkon"
+      },
+      "battery_fallback_time": {
+        "name": "Doba do náhradního režimu"
+      },
+      "franklinwh_power_target": {
+        "name": "Cílový výkon baterie"
+      }
+    },
+    "select": {
+      "battery_control_mode": {
+        "name": "Režim řízení baterie",
+        "state": {
+          "off": "Vypnuto",
+          "charge": "Pouze nabíjení",
+          "discharge": "Pouze vybíjení",
+          "both": "Nabíjení i vybíjení"
+        }
+      },
+      "battery_mode": {
+        "name": "Režim baterie",
+        "state": {
+          "auto": "Automaticky",
+          "pv_charge_limit": "Limit nabíjení z FV",
+          "discharge_limit": "Limit vybíjení",
+          "charge_and_discharge_limit": "Limit nabíjení z FV a vybíjení",
+          "charge_from_grid": "Nabíjení ze sítě",
+          "discharge_to_grid": "Vybíjení do sítě",
+          "block_discharging": "Zákaz vybíjení",
+          "block_charging": "Zákaz nabíjení"
+        }
+      },
+      "active_power_setpoint_mode": {
+        "name": "Režim žádaného činného výkonu",
+        "state": {
+          "w_max_pct": "Procenta z maxima",
+          "watts": "Watty"
+        }
+      },
+      "storage_control_mode": {
+        "name": "Režim řízení úložiště",
+        "state": {
+          "disabled": "Vypnuto",
+          "maximize_self_consumption": "Maximalizace vlastní spotřeby",
+          "time_of_use": "Časový tarif",
+          "backup_only": "Pouze záloha",
+          "remote_control": "Dálkové řízení"
+        }
+      },
+      "storage_ac_charge_policy": {
+        "name": "Pravidlo nabíjení úložiště z AC",
+        "state": {
+          "disabled": "Vypnuto",
+          "always_allowed": "Vždy povoleno",
+          "fixed_energy_limit": "Pevný limit energie",
+          "percent_of_production": "Procento z výroby"
+        }
+      },
+      "storage_default_mode": {
+        "name": "Výchozí režim úložiště",
+        "state": {
+          "solar_power_only": "Pouze výroba FV",
+          "charge_from_clipped_solar": "Nabíjení z oříznutého výkonu FV",
+          "charge_from_solar": "Nabíjení z FV",
+          "charge_from_solar_and_grid": "Nabíjení z FV a ze sítě",
+          "discharge_to_maximize_export": "Vybíjení pro maximální dodávku do sítě",
+          "discharge_to_minimize_import": "Vybíjení pro minimální odběr ze sítě",
+          "maximize_self_consumption": "Maximalizace vlastní spotřeby"
+        }
+      },
+      "storage_command_mode": {
+        "name": "Režim příkazu úložiště",
+        "state": {
+          "solar_power_only": "Pouze výroba FV",
+          "charge_from_clipped_solar": "Nabíjení z oříznutého výkonu FV",
+          "charge_from_solar": "Nabíjení z FV",
+          "charge_from_solar_and_grid": "Nabíjení z FV a ze sítě",
+          "discharge_to_maximize_export": "Vybíjení pro maximální dodávku do sítě",
+          "discharge_to_minimize_import": "Vybíjení pro minimální odběr ze sítě",
+          "maximize_self_consumption": "Maximalizace vlastní spotřeby"
+        }
+      },
+      "site_limit_mode": {
+        "name": "Režim limitu lokality",
+        "state": {
+          "disabled": "Vypnuto",
+          "export_control_export_import_meter": "Řízení přetoků (elektroměr dodávky/odběru)",
+          "export_control_consumption_meter": "Řízení přetoků (elektroměr spotřeby)",
+          "production_control": "Řízení výroby"
+        }
+      },
+      "site_limit_scope": {
+        "name": "Rozsah limitu lokality",
+        "state": {
+          "total": "Celkem",
+          "per_phase": "Na fázi"
+        }
+      },
+      "sma_power_control": {
+        "name": "Externí řízení výkonu",
+        "state": {
+          "inactive": "Neaktivní",
+          "active": "Aktivní"
+        }
+      },
+      "battery_plan_direction": {
+        "name": "Směr plánu baterie",
+        "state": {
+          "charge": "Nabíjení",
+          "discharge": "Vybíjení"
+        }
+      }
+    },
+    "switch": {
+      "export_limit_enabled": {
+        "name": "Limit přetoků aktivní"
+      },
+      "power_factor_enabled": {
+        "name": "Žádaný účiník aktivní"
+      },
+      "inverter_grid_connection": {
+        "name": "Připojení střídače k síti"
+      },
+      "active_power_setpoint_enabled": {
+        "name": "Žádaný činný výkon aktivní"
+      },
+      "export_limit_revert_enabled": {
+        "name": "Limit přetoků zůstává aktivní po vypršení"
+      },
+      "battery_grid_charging": {
+        "name": "Nabíjení baterie ze sítě povoleno"
+      },
+      "scheduled_discharge": {
+        "name": "Plán baterie"
+      },
+      "battery_charge_from_grid": {
+        "name": "Nabíjení baterie ze sítě (webové rozhraní)"
+      },
+      "battery_charge_from_ac": {
+        "name": "Nabíjení baterie z AC (webové rozhraní)"
+      },
+      "modbus_control_allowed": {
+        "name": "Řízení přes Modbus povoleno"
+      },
+      "storage_command_rearm": {
+        "name": "Obnovovat příkaz úložiště"
+      },
+      "active_power_limit_reassert": {
+        "name": "Udržovat limit činného výkonu"
+      },
+      "sma_power_setpoint_keepalive": {
+        "name": "Udržovat externí žádaný výkon"
+      },
+      "battery_limitation_hold": {
+        "name": "Udržovat limity výkonu"
+      }
+    },
+    "time": {
+      "scheduled_discharge_start": {
+        "name": "Začátek plánu baterie"
+      },
+      "scheduled_discharge_end": {
+        "name": "Konec plánu baterie"
+      }
+    },
+    "button": {
+      "reset_modbus_control": {
+        "name": "Resetovat řízení přes Modbus"
+      },
+      "franklinwh_standby": {
+        "name": "Držet baterii v pohotovostním režimu"
+      },
+      "franklinwh_release": {
+        "name": "Uvolnit řízení baterie"
+      }
+    },
+    "sensor": {
+      "amps": {
+        "name": "Proud AC"
+      },
+      "amps_l1": {
+        "name": "Proud AC L1"
+      },
+      "amps_l2": {
+        "name": "Proud AC L2"
+      },
+      "amps_l3": {
+        "name": "Proud AC L3"
+      },
+      "phase_voltage_l1_l2": {
+        "name": "Sdružené napětí L1-L2"
+      },
+      "phase_voltage_l2_l3": {
+        "name": "Sdružené napětí L2-L3"
+      },
+      "phase_voltage_l3_l1": {
+        "name": "Sdružené napětí L3-L1"
+      },
+      "phase_voltage_l1_n": {
+        "name": "Fázové napětí L1-N"
+      },
+      "phase_voltage_l2_n": {
+        "name": "Fázové napětí L2-N"
+      },
+      "phase_voltage_l3_n": {
+        "name": "Fázové napětí L3-N"
+      },
+      "watts": {
+        "name": "Výkon AC"
+      },
+      "frequency": {
+        "name": "Frekvence AC"
+      },
+      "apparent_power": {
+        "name": "Zdánlivý výkon"
+      },
+      "reactive_power": {
+        "name": "Jalový výkon"
+      },
+      "power_factor": {
+        "name": "Účiník"
+      },
+      "lifetime_energy": {
+        "name": "Celková vyrobená energie"
+      },
+      "daily_energy": {
+        "name": "Vyrobená energie dnes"
+      },
+      "counted_lifetime_energy": {
+        "name": "Celková vyrobená energie (sčítaná)"
+      },
+      "dc_current": {
+        "name": "Proud DC"
+      },
+      "dc_voltage": {
+        "name": "Napětí DC"
+      },
+      "dc_power": {
+        "name": "Výkon DC"
+      },
+      "cabinet_temperature": {
+        "name": "Teplota skříně"
+      },
+      "heat_sink_temperature": {
+        "name": "Teplota chladiče"
+      },
+      "transformer_temperature": {
+        "name": "Teplota transformátoru"
+      },
+      "other_temperature": {
+        "name": "Jiná teplota"
+      },
+      "operating_state": {
+        "name": "Provozní stav"
+      },
+      "vendor_operating_state": {
+        "name": "Provozní stav výrobce"
+      },
+      "events_1": {
+        "name": "Události"
+      },
+      "events_2": {
+        "name": "Události 2"
+      },
+      "vendor_events_1": {
+        "name": "Události výrobce 1"
+      },
+      "vendor_events_2": {
+        "name": "Události výrobce 2"
+      },
+      "vendor_events_3": {
+        "name": "Události výrobce 3"
+      },
+      "vendor_events_4": {
+        "name": "Události výrobce 4"
+      },
+      "rated_power": {
+        "name": "Jmenovitý výkon AC"
+      },
+      "rated_apparent_power": {
+        "name": "Jmenovitý zdánlivý výkon"
+      },
+      "rated_current": {
+        "name": "Jmenovitý proud AC"
+      },
+      "rated_storage_capacity": {
+        "name": "Jmenovitá kapacita úložiště"
+      },
+      "max_power_setting": {
+        "name": "Nastavený maximální výkon"
+      },
+      "voltage_reference": {
+        "name": "Referenční napětí"
+      },
+      "battery_charge_power": {
+        "name": "Nabíjecí výkon baterie"
+      },
+      "battery_discharge_power": {
+        "name": "Vybíjecí výkon baterie"
+      },
+      "battery_charged_energy": {
+        "name": "Energie nabitá do baterie"
+      },
+      "battery_discharged_energy": {
+        "name": "Energie vybitá z baterie"
+      },
+      "pv_power": {
+        "name": "Výkon FV"
+      },
+      "inverter_temperature": {
+        "name": "Teplota střídače"
+      },
+      "battery_cell_temperature": {
+        "name": "Teplota článků baterie"
+      },
+      "smart_meter_location": {
+        "name": "Umístění chytrého elektroměru",
+        "state": {
+          "feed_in_point": "Předávací místo",
+          "consumption_path": "Cesta spotřeby"
+        }
+      },
+      "grid_status": {
+        "name": "Stav sítě",
+        "state": {
+          "on_grid": "Na síti",
+          "off_grid": "Mimo síť"
+        }
+      },
+      "status_vendor4": {
+        "name": "Stavový kód výrobce"
+      },
+      "rrcr_state": {
+        "name": "Stav vstupu RRCR"
+      },
+      "register_writes": {
+        "name": "Zápisy do registrů"
+      },
+      "sma_device_class": {
+        "name": "Třída zařízení",
+        "state": {
+          "pv_inverter": "FV střídač",
+          "wind_inverter": "Větrný střídač",
+          "battery_inverter": "Bateriový střídač",
+          "load": "Spotřebič",
+          "sensor": "Senzor",
+          "energy_meter": "Elektroměr",
+          "communication": "Komunikační produkt"
+        }
+      },
+      "sma_device_type": {
+        "name": "Kód typu zařízení"
+      },
+      "sma_operating_status": {
+        "name": "Provozní status",
+        "state": {
+          "fault": "Porucha",
+          "off": "Vypnuto",
+          "ok": "OK",
+          "warning": "Varování"
+        }
+      },
+      "sma_active_power_mode": {
+        "name": "Provozní režim činného výkonu",
+        "state": {
+          "off": "Vypnuto",
+          "watts": "Watty",
+          "percent": "Procenta",
+          "external_setpoint": "Externí žádaná hodnota"
+        }
+      },
+      "sma_setpoint_timeout": {
+        "name": "Časový limit externí žádané hodnoty"
+      },
+      "battery_state_of_charge": {
+        "name": "Stav nabití baterie"
+      },
+      "battery_capacity_pct": {
+        "name": "Kapacita baterie"
+      },
+      "battery_status_code": {
+        "name": "Stavový kód baterie"
+      },
+      "battery_state_of_energy": {
+        "name": "Stav energie"
+      },
+      "battery_state_of_health": {
+        "name": "Stav zdraví"
+      },
+      "battery_temperature": {
+        "name": "Teplota"
+      },
+      "battery_temperature_max": {
+        "name": "Maximální teplota"
+      },
+      "battery_voltage": {
+        "name": "Napětí"
+      },
+      "battery_current": {
+        "name": "Proud"
+      },
+      "battery_power": {
+        "name": "Výkon"
+      },
+      "battery_energy_discharged": {
+        "name": "Vybitá energie"
+      },
+      "battery_energy_charged": {
+        "name": "Nabitá energie"
+      },
+      "battery_energy_available": {
+        "name": "Dostupná energie"
+      },
+      "battery_energy_max": {
+        "name": "Maximální energie"
+      },
+      "battery_rated_energy": {
+        "name": "Jmenovitá energie"
+      },
+      "battery_max_charge_power": {
+        "name": "Maximální nabíjecí výkon"
+      },
+      "battery_max_discharge_power": {
+        "name": "Maximální vybíjecí výkon"
+      },
+      "battery_status": {
+        "name": "Stav",
+        "state": {
+          "off": "Vypnuto",
+          "standby": "Pohotovostní režim",
+          "init": "Inicializace",
+          "charge": "Nabíjení",
+          "discharge": "Vybíjení",
+          "fault": "Porucha",
+          "preserve_charge": "Udržování nabití",
+          "idle": "Nečinnost",
+          "power_saving": "Úsporný režim"
+        }
+      },
+      "home_consumption_pv": {
+        "name": "Spotřeba domu z FV"
+      },
+      "home_consumption_battery": {
+        "name": "Spotřeba domu z baterie"
+      },
+      "home_consumption_grid": {
+        "name": "Spotřeba domu ze sítě"
+      },
+      "home_consumption_pv_total": {
+        "name": "Spotřeba domu z FV, celkem"
+      },
+      "home_consumption_battery_total": {
+        "name": "Spotřeba domu z baterie, celkem"
+      },
+      "home_consumption_grid_total": {
+        "name": "Spotřeba domu ze sítě, celkem"
+      },
+      "home_consumption_total": {
+        "name": "Spotřeba domu, celkem"
+      },
+      "total_dc_power": {
+        "name": "Celkový výkon DC"
+      },
+      "energy_manager_state": {
+        "name": "Správce energie",
+        "state": {
+          "idle": "Nečinnost",
+          "emergency_battery_charge": "Nouzové nabíjení baterie",
+          "winter_mode_step_1": "Zimní režim, stupeň 1",
+          "winter_mode_step_2": "Zimní režim, stupeň 2"
+        }
+      },
+      "controller_temperature": {
+        "name": "Teplota řídicí desky"
+      },
+      "isolation_resistance": {
+        "name": "Izolační odpor"
+      },
+      "power_limit_evu": {
+        "name": "Limit výkonu od distributora"
+      },
+      "energy_meter_type": {
+        "name": "Elektroměr",
+        "state": {
+          "sdm630": "SDM 630",
+          "b_control_em300lr": "B-control EM-300 LR",
+          "ksem": "KOSTAL Smart Energy Meter",
+          "kem_c": "KOSTAL Energy Meter, řada C",
+          "kem_p": "KOSTAL Energy Meter, řada P",
+          "kem_mp_p": "KOSTAL Energy Meter MP, řada P",
+          "none": "Žádný"
+        }
+      },
+      "energy_to_grid": {
+        "name": "Do sítě dodaná energie"
+      },
+      "pssb_fuse_state": {
+        "name": "Pojistková deska stringů",
+        "state": {
+          "fuse_fail": "Pojistka vadná",
+          "fuse_ok": "Pojistka v pořádku",
+          "unchecked": "Nekontrolováno"
+        }
+      },
+      "battery_ready": {
+        "name": "Připravenost",
+        "state": {
+          "not_ready": "Nepřipraveno",
+          "ready": "Připraveno"
+        }
+      },
+      "battery_dc_charge_energy": {
+        "name": "Nabito, strana DC"
+      },
+      "battery_dc_discharge_energy": {
+        "name": "Vybito, strana DC"
+      },
+      "battery_ac_charge_energy": {
+        "name": "Nabito, strana AC"
+      },
+      "battery_ac_discharge_energy": {
+        "name": "Vybito do sítě"
+      },
+      "battery_ac_charge_energy_grid": {
+        "name": "Nabito ze sítě"
+      },
+      "battery_work_capacity": {
+        "name": "Pracovní kapacita"
+      },
+      "battery_management_mode": {
+        "name": "Externí řízení",
+        "state": {
+          "none": "Vypnuto",
+          "digital_io": "Digitální I/O",
+          "modbus": "Modbus"
+        }
+      },
+      "apsystems_dc_voltage_1": {
+        "name": "Napětí DC vstupu 1"
+      },
+      "apsystems_dc_voltage_2": {
+        "name": "Napětí DC vstupu 2"
+      },
+      "apsystems_dc_voltage_3": {
+        "name": "Napětí DC vstupu 3"
+      },
+      "apsystems_dc_voltage_4": {
+        "name": "Napětí DC vstupu 4"
+      },
+      "apsystems_dc_voltage_5": {
+        "name": "Napětí DC vstupu 5"
+      },
+      "apsystems_dc_voltage_6": {
+        "name": "Napětí DC vstupu 6"
+      },
+      "apsystems_dc_voltage_7": {
+        "name": "Napětí DC vstupu 7"
+      },
+      "apsystems_dc_voltage_8": {
+        "name": "Napětí DC vstupu 8"
+      },
+      "apsystems_dc_current_1": {
+        "name": "Proud DC vstupu 1"
+      },
+      "apsystems_dc_current_2": {
+        "name": "Proud DC vstupu 2"
+      },
+      "apsystems_dc_current_3": {
+        "name": "Proud DC vstupu 3"
+      },
+      "apsystems_dc_current_4": {
+        "name": "Proud DC vstupu 4"
+      },
+      "apsystems_dc_current_5": {
+        "name": "Proud DC vstupu 5"
+      },
+      "apsystems_dc_current_6": {
+        "name": "Proud DC vstupu 6"
+      },
+      "apsystems_dc_current_7": {
+        "name": "Proud DC vstupu 7"
+      },
+      "apsystems_dc_current_8": {
+        "name": "Proud DC vstupu 8"
+      },
+      "apsystems_dc_power_1": {
+        "name": "Výkon DC vstupu 1"
+      },
+      "apsystems_dc_power_2": {
+        "name": "Výkon DC vstupu 2"
+      },
+      "apsystems_dc_power_3": {
+        "name": "Výkon DC vstupu 3"
+      },
+      "apsystems_dc_power_4": {
+        "name": "Výkon DC vstupu 4"
+      },
+      "apsystems_dc_power_5": {
+        "name": "Výkon DC vstupu 5"
+      },
+      "apsystems_dc_power_6": {
+        "name": "Výkon DC vstupu 6"
+      },
+      "apsystems_dc_power_7": {
+        "name": "Výkon DC vstupu 7"
+      },
+      "apsystems_dc_power_8": {
+        "name": "Výkon DC vstupu 8"
+      },
+      "saj_energy_today": {
+        "name": "Vyrobená energie dnes"
+      },
+      "saj_energy_month": {
+        "name": "Vyrobená energie tento měsíc"
+      },
+      "saj_dc_voltage_1": {
+        "name": "Napětí DC vstupu 1"
+      },
+      "saj_dc_voltage_2": {
+        "name": "Napětí DC vstupu 2"
+      },
+      "saj_dc_current_1": {
+        "name": "Proud DC vstupu 1"
+      },
+      "saj_dc_current_2": {
+        "name": "Proud DC vstupu 2"
+      },
+      "saj_dc_power_1": {
+        "name": "Výkon DC vstupu 1"
+      },
+      "saj_dc_power_2": {
+        "name": "Výkon DC vstupu 2"
+      },
+      "franklinwh_pv_total": {
+        "name": "Výkon FV z rozšiřujících registrů"
+      },
+      "franklinwh_pv_proximal": {
+        "name": "Místní výkon FV"
+      },
+      "franklinwh_pv_remote_1": {
+        "name": "Vzdálený výkon FV 1"
+      },
+      "franklinwh_pv_remote_2": {
+        "name": "Vzdálený výkon FV 2"
+      },
+      "franklinwh_home_load": {
+        "name": "Zátěž domu, hrubé měření"
+      },
+      "franklinwh_home_load_high_resolution": {
+        "name": "Zátěž domu"
+      },
+      "franklinwh_native_mode": {
+        "name": "Nativní provozní režim",
+        "state": {
+          "emergency_backup": "Nouzová záloha",
+          "self_consumption": "Vlastní spotřeba",
+          "time_of_use": "Časový tarif"
+        }
+      },
+      "franklinwh_self_reserve": {
+        "name": "Rezerva pro vlastní spotřebu"
+      },
+      "franklinwh_tou_reserve": {
+        "name": "Hlášená rezerva pro časový tarif"
+      },
+      "franklinwh_active_reserve": {
+        "name": "Hlášená aktivní rezerva"
+      },
+      "franklinwh_pv_energy": {
+        "name": "Energie FV z rozšiřujících registrů"
+      },
+      "franklinwh_pv_proximal_energy": {
+        "name": "Místní energie FV"
+      },
+      "franklinwh_battery_state": {
+        "name": "Činnost baterie",
+        "state": {
+          "charging": "Nabíjení",
+          "discharging": "Vybíjení",
+          "idle": "Nečinnost"
+        }
+      },
+      "franklinwh_home_consumption": {
+        "name": "Spotřeba domu"
+      },
+      "der_type": {
+        "name": "Typ DER"
+      },
+      "rated_reactive_power": {
+        "name": "Jmenovitý jalový výkon {quadrant}"
+      },
+      "rated_min_power_factor": {
+        "name": "Jmenovitý minimální účiník {quadrant}"
+      },
+      "rated_usable_capacity": {
+        "name": "Jmenovitá využitelná kapacita (Ah)"
+      },
+      "rated_max_charge_power": {
+        "name": "Jmenovitý maximální nabíjecí výkon"
+      },
+      "rated_max_discharge_power": {
+        "name": "Jmenovitý maximální vybíjecí výkon"
+      },
+      "voltage_reference_offset": {
+        "name": "Posun referenčního napětí"
+      },
+      "max_voltage_setting": {
+        "name": "Nastavené maximální napětí AC"
+      },
+      "min_voltage_setting": {
+        "name": "Nastavené minimální napětí AC"
+      },
+      "max_apparent_power_setting": {
+        "name": "Nastavený maximální zdánlivý výkon"
+      },
+      "max_reactive_power_setting": {
+        "name": "Nastavený maximální jalový výkon {quadrant}"
+      },
+      "active_power_ramp_rate": {
+        "name": "Gradient činného výkonu"
+      },
+      "min_power_factor_setting": {
+        "name": "Nastavený minimální účiník {quadrant}"
+      },
+      "reactive_power_action": {
+        "name": "Chování jalového výkonu"
+      },
+      "apparent_power_calculation": {
+        "name": "Výpočet zdánlivého výkonu"
+      },
+      "max_ramp_rate": {
+        "name": "Maximální gradient"
+      },
+      "nominal_frequency": {
+        "name": "Jmenovitá frekvence"
+      },
+      "connected_phase": {
+        "name": "Připojená fáze"
+      },
+      "lifetime_apparent_energy": {
+        "name": "Celková zdánlivá energie"
+      },
+      "lifetime_reactive_energy": {
+        "name": "Celková jalová energie {quadrant}"
+      },
+      "available_reactive_power": {
+        "name": "Dostupný jalový výkon"
+      },
+      "available_power": {
+        "name": "Dostupný výkon"
+      },
+      "setpoint_limits_reached": {
+        "name": "Dosažené meze žádaných hodnot"
+      },
+      "active_controls": {
+        "name": "Aktivní regulace"
+      },
+      "timestamp": {
+        "name": "Časové razítko"
+      },
+      "grid_connection_time_window": {
+        "name": "Časové okno připojení k síti"
+      },
+      "grid_connection_revert_time": {
+        "name": "Doba platnosti připojení k síti"
+      },
+      "export_limit_time_window": {
+        "name": "Časové okno limitu přetoků"
+      },
+      "export_limit_ramp_time": {
+        "name": "Doba náběhu limitu přetoků"
+      },
+      "power_factor_time_window": {
+        "name": "Časové okno žádaného účiníku"
+      },
+      "power_factor_revert_time": {
+        "name": "Doba platnosti žádaného účiníku"
+      },
+      "power_factor_ramp_time": {
+        "name": "Doba náběhu žádaného účiníku"
+      },
+      "reactive_power_limit_pct_max_power": {
+        "name": "Limit jalového výkonu (% maximálního výkonu)"
+      },
+      "reactive_power_limit_pct_max_reactive_power": {
+        "name": "Limit jalového výkonu (% maximálního jalového výkonu)"
+      },
+      "reactive_power_limit_pct_available": {
+        "name": "Limit jalového výkonu (% dostupného jalového výkonu)"
+      },
+      "reactive_power_limit_time_window": {
+        "name": "Časové okno limitu jalového výkonu"
+      },
+      "reactive_power_limit_revert_time": {
+        "name": "Doba platnosti limitu jalového výkonu"
+      },
+      "reactive_power_limit_ramp_time": {
+        "name": "Doba náběhu limitu jalového výkonu"
+      },
+      "reactive_power_limit_mode": {
+        "name": "Režim limitu jalového výkonu"
+      },
+      "reactive_power_limit_enabled": {
+        "name": "Limit jalového výkonu aktivní"
+      },
+      "charge_ramp_rate": {
+        "name": "Gradient nabíjení"
+      },
+      "discharge_ramp_rate": {
+        "name": "Gradient vybíjení"
+      },
+      "state_of_charge": {
+        "name": "Stav nabití"
+      },
+      "available_capacity": {
+        "name": "Dostupná kapacita (Ah)"
+      },
+      "internal_battery_voltage": {
+        "name": "Vnitřní napětí baterie"
+      },
+      "charge_status": {
+        "name": "Stav nabíjení"
+      },
+      "battery_rate_time_window": {
+        "name": "Časové okno rychlostí baterie"
+      },
+      "battery_rate_ramp_time": {
+        "name": "Doba náběhu rychlostí baterie"
+      },
+      "global_events": {
+        "name": "Globální události"
+      },
+      "module_dc_current": {
+        "name": "Proud DC vstupu {index}"
+      },
+      "module_dc_voltage": {
+        "name": "Napětí DC vstupu {index}"
+      },
+      "module_dc_power": {
+        "name": "Výkon DC vstupu {index}"
+      },
+      "module_lifetime_energy": {
+        "name": "Celková energie vstupu {index}"
+      },
+      "module_timestamp": {
+        "name": "Časové razítko vstupu {index}"
+      },
+      "module_temperature": {
+        "name": "Teplota vstupu {index}"
+      },
+      "module_operating_state": {
+        "name": "Provozní stav vstupu {index}"
+      },
+      "module_events": {
+        "name": "Události vstupu {index}"
+      },
+      "average_voltage_l_n": {
+        "name": "Průměrné napětí L-N"
+      },
+      "average_voltage_l_l": {
+        "name": "Průměrné napětí L-L"
+      },
+      "watts_phase": {
+        "name": "Výkon AC {phase}"
+      },
+      "apparent_power_phase": {
+        "name": "Zdánlivý výkon {phase}"
+      },
+      "reactive_power_phase": {
+        "name": "Jalový výkon {phase}"
+      },
+      "power_factor_phase": {
+        "name": "Účiník {phase}"
+      },
+      "energy_exported": {
+        "name": "Energie dodaná do sítě"
+      },
+      "energy_exported_phase": {
+        "name": "Energie dodaná do sítě {phase}"
+      },
+      "energy_imported": {
+        "name": "Energie odebraná ze sítě"
+      },
+      "energy_imported_phase": {
+        "name": "Energie odebraná ze sítě {phase}"
+      },
+      "apparent_energy_exported": {
+        "name": "Zdánlivá energie dodaná do sítě"
+      },
+      "apparent_energy_exported_phase": {
+        "name": "Zdánlivá energie dodaná do sítě {phase}"
+      },
+      "apparent_energy_imported": {
+        "name": "Zdánlivá energie odebraná ze sítě"
+      },
+      "apparent_energy_imported_phase": {
+        "name": "Zdánlivá energie odebraná ze sítě {phase}"
+      },
+      "reactive_energy_imported": {
+        "name": "Jalová energie odebraná ze sítě {quadrant}"
+      },
+      "reactive_energy_imported_phase": {
+        "name": "Jalová energie odebraná ze sítě {quadrant} {phase}"
+      },
+      "reactive_energy_exported": {
+        "name": "Jalová energie dodaná do sítě {quadrant}"
+      },
+      "reactive_energy_exported_phase": {
+        "name": "Jalová energie dodaná do sítě {quadrant} {phase}"
+      },
+      "events": {
+        "name": "Události"
+      },
+      "ambient_temperature": {
+        "name": "Okolní teplota"
+      },
+      "relative_humidity": {
+        "name": "Relativní vlhkost"
+      },
+      "barometric_pressure": {
+        "name": "Atmosférický tlak"
+      },
+      "wind_speed": {
+        "name": "Rychlost větru"
+      },
+      "wind_direction": {
+        "name": "Směr větru"
+      },
+      "rainfall": {
+        "name": "Srážky"
+      },
+      "snow_depth": {
+        "name": "Výška sněhu"
+      },
+      "electric_field": {
+        "name": "Elektrické pole"
+      },
+      "surface_wetness": {
+        "name": "Vlhkost povrchu"
+      },
+      "soil_moisture": {
+        "name": "Vlhkost půdy"
+      },
+      "global_horizontal_irradiance": {
+        "name": "Globální horizontální ozáření"
+      },
+      "module_back_temperature": {
+        "name": "Teplota zadní strany modulu"
+      },
+      "rated_dc_current": {
+        "name": "Jmenovitý proud DC"
+      },
+      "vendor_events": {
+        "name": "Události výrobce"
+      },
+      "amp_hours": {
+        "name": "Ampérhodiny"
+      },
+      "temperature": {
+        "name": "Teplota"
+      },
+      "performance_ratio": {
+        "name": "Výkonnostní poměr"
+      },
+      "dc_energy": {
+        "name": "Energie DC"
+      },
+      "string_events": {
+        "name": "Události stringu {index}"
+      },
+      "string_vendor_events": {
+        "name": "Události výrobce stringu {index}"
+      },
+      "string_dc_current": {
+        "name": "Proud DC stringu {index}"
+      },
+      "string_amp_hours": {
+        "name": "Ampérhodiny stringu {index}"
+      },
+      "string_dc_voltage": {
+        "name": "Napětí DC stringu {index}"
+      },
+      "string_dc_power": {
+        "name": "Výkon DC stringu {index}"
+      },
+      "string_dc_energy": {
+        "name": "Energie DC stringu {index}"
+      },
+      "string_performance_ratio": {
+        "name": "Výkonnostní poměr stringu {index}"
+      },
+      "status": {
+        "name": "Stav"
+      },
+      "vendor_status": {
+        "name": "Stav výrobce"
+      },
+      "control_mode": {
+        "name": "Režim řízení"
+      },
+      "output_current": {
+        "name": "Výstupní proud"
+      },
+      "output_voltage": {
+        "name": "Výstupní napětí"
+      },
+      "output_energy": {
+        "name": "Výstupní energie"
+      },
+      "output_power": {
+        "name": "Výstupní výkon"
+      },
+      "input_current": {
+        "name": "Vstupní proud"
+      },
+      "input_voltage": {
+        "name": "Vstupní napětí"
+      },
+      "input_energy": {
+        "name": "Vstupní energie"
+      },
+      "input_power": {
+        "name": "Vstupní výkon"
+      },
+      "tracker_type": {
+        "name": "Typ trackeru"
+      },
+      "local_date": {
+        "name": "Místní datum"
+      },
+      "local_time": {
+        "name": "Místní čas"
+      },
+      "manual_elevation": {
+        "name": "Ruční elevace"
+      },
+      "manual_azimuth": {
+        "name": "Ruční azimut"
+      },
+      "global_mode": {
+        "name": "Globální režim"
+      },
+      "tracker_target_elevation": {
+        "name": "Cílová elevace trackeru {index}"
+      },
+      "tracker_target_azimuth": {
+        "name": "Cílový azimut trackeru {index}"
+      },
+      "tracker_elevation": {
+        "name": "Elevace trackeru {index}"
+      },
+      "tracker_azimuth": {
+        "name": "Azimut trackeru {index}"
+      },
+      "tracker_manual_elevation": {
+        "name": "Ruční elevace trackeru {index}"
+      },
+      "tracker_manual_azimuth": {
+        "name": "Ruční azimut trackeru {index}"
+      },
+      "tracker_mode": {
+        "name": "Režim trackeru {index}"
+      },
+      "ac_wiring_type": {
+        "name": "Typ zapojení AC"
+      },
+      "inverter_state": {
+        "name": "Stav střídače"
+      },
+      "grid_connection_state": {
+        "name": "Stav připojení k síti"
+      },
+      "alarms": {
+        "name": "Alarmy"
+      },
+      "der_mode": {
+        "name": "Provozní charakteristiky DER"
+      },
+      "energy_injected": {
+        "name": "Dodaná energie"
+      },
+      "energy_injected_phase": {
+        "name": "Dodaná energie {phase}"
+      },
+      "energy_absorbed": {
+        "name": "Odebraná energie"
+      },
+      "energy_absorbed_phase": {
+        "name": "Odebraná energie {phase}"
+      },
+      "reactive_energy_injected": {
+        "name": "Dodaná jalová energie"
+      },
+      "reactive_energy_injected_phase": {
+        "name": "Dodaná jalová energie {phase}"
+      },
+      "reactive_energy_absorbed": {
+        "name": "Odebraná jalová energie"
+      },
+      "reactive_energy_absorbed_phase": {
+        "name": "Odebraná jalová energie {phase}"
+      },
+      "switch_temperature": {
+        "name": "Teplota IGBT/MOSFET"
+      },
+      "throttling": {
+        "name": "Omezení výkonu"
+      },
+      "throttling_source": {
+        "name": "Příčina omezení výkonu"
+      },
+      "rated_power_over_excited": {
+        "name": "Jmenovitý činný výkon, přebuzení"
+      },
+      "rated_power_under_excited": {
+        "name": "Jmenovitý činný výkon, podbuzení"
+      },
+      "rated_reactive_power_injected": {
+        "name": "Jmenovitý dodávaný jalový výkon"
+      },
+      "rated_reactive_power_absorbed": {
+        "name": "Jmenovitý odebíraný jalový výkon"
+      },
+      "rated_max_charge_apparent_power": {
+        "name": "Jmenovitý maximální zdánlivý výkon nabíjení"
+      },
+      "rated_max_discharge_apparent_power": {
+        "name": "Jmenovitý maximální zdánlivý výkon vybíjení"
+      },
+      "rated_nominal_voltage": {
+        "name": "Jmenovité napětí AC"
+      },
+      "rated_max_voltage": {
+        "name": "Jmenovité maximální napětí AC"
+      },
+      "rated_min_voltage": {
+        "name": "Jmenovité minimální napětí AC"
+      },
+      "reactive_susceptance": {
+        "name": "Susceptance"
+      },
+      "normal_operating_category": {
+        "name": "Kategorie normálního provozu"
+      },
+      "abnormal_operating_category": {
+        "name": "Kategorie abnormálního provozu"
+      },
+      "supported_control_modes": {
+        "name": "Podporované režimy regulace"
+      },
+      "max_power_over_excited_setting": {
+        "name": "Nastavený činný výkon, přebuzení"
+      },
+      "max_power_under_excited_setting": {
+        "name": "Nastavený činný výkon, podbuzení"
+      },
+      "max_reactive_power_injected_setting": {
+        "name": "Nastavený maximální dodávaný jalový výkon"
+      },
+      "max_reactive_power_absorbed_setting": {
+        "name": "Nastavený maximální odebíraný jalový výkon"
+      },
+      "max_charge_power_setting": {
+        "name": "Nastavený maximální nabíjecí výkon"
+      },
+      "max_discharge_power_setting": {
+        "name": "Nastavený maximální vybíjecí výkon"
+      },
+      "max_charge_apparent_power_setting": {
+        "name": "Nastavený maximální zdánlivý výkon nabíjení"
+      },
+      "max_discharge_apparent_power_setting": {
+        "name": "Nastavený maximální zdánlivý výkon vybíjení"
+      },
+      "nominal_voltage_setting": {
+        "name": "Nastavené jmenovité napětí AC"
+      },
+      "max_current_setting": {
+        "name": "Nastavený maximální proud AC"
+      },
+      "pf_injecting_enabled": {
+        "name": "Účiník (dodávka) aktivní"
+      },
+      "pf_injecting_revert_enabled": {
+        "name": "Účiník (dodávka) zůstává aktivní po vypršení"
+      },
+      "pf_injecting_revert_time": {
+        "name": "Doba platnosti účiníku (dodávka)"
+      },
+      "pf_injecting_revert_time_remaining": {
+        "name": "Zbývající doba platnosti účiníku (dodávka)"
+      },
+      "pf_injecting_excitation": {
+        "name": "Buzení účiníku (dodávka)"
+      },
+      "pf_injecting_revert_excitation": {
+        "name": "Buzení účiníku (dodávka) po vypršení"
+      },
+      "pf_absorbing_enabled": {
+        "name": "Účiník (odběr) aktivní"
+      },
+      "pf_absorbing_revert_enabled": {
+        "name": "Účiník (odběr) zůstává aktivní po vypršení"
+      },
+      "pf_absorbing_revert_time": {
+        "name": "Doba platnosti účiníku (odběr)"
+      },
+      "pf_absorbing_revert_time_remaining": {
+        "name": "Zbývající doba platnosti účiníku (odběr)"
+      },
+      "pf_absorbing_excitation": {
+        "name": "Buzení účiníku (odběr)"
+      },
+      "pf_absorbing_revert_excitation": {
+        "name": "Buzení účiníku (odběr) po vypršení"
+      },
+      "export_limit_revert_time_remaining": {
+        "name": "Zbývající doba platnosti limitu přetoků"
+      },
+      "active_power_setpoint_revert_value": {
+        "name": "Žádaný činný výkon po vypršení"
+      },
+      "active_power_setpoint_pct": {
+        "name": "Žádaný činný výkon v %"
+      },
+      "active_power_setpoint_pct_revert_value": {
+        "name": "Žádaný činný výkon v % po vypršení"
+      },
+      "active_power_setpoint_revert_enabled": {
+        "name": "Žádaný činný výkon zůstává aktivní po vypršení"
+      },
+      "active_power_setpoint_revert_time": {
+        "name": "Doba platnosti žádaného činného výkonu"
+      },
+      "active_power_setpoint_revert_time_remaining": {
+        "name": "Zbývající doba platnosti žádaného činného výkonu"
+      },
+      "reactive_power_setpoint_enabled": {
+        "name": "Žádaný jalový výkon aktivní"
+      },
+      "reactive_power_setpoint_mode": {
+        "name": "Režim žádaného jalového výkonu"
+      },
+      "reactive_power_priority": {
+        "name": "Priorita jalového výkonu"
+      },
+      "reactive_power_setpoint": {
+        "name": "Žádaný jalový výkon"
+      },
+      "reactive_power_setpoint_revert_value": {
+        "name": "Žádaný jalový výkon po vypršení"
+      },
+      "reactive_power_setpoint_pct": {
+        "name": "Žádaný jalový výkon v %"
+      },
+      "reactive_power_setpoint_pct_revert_value": {
+        "name": "Žádaný jalový výkon v % po vypršení"
+      },
+      "reactive_power_setpoint_revert_enabled": {
+        "name": "Žádaný jalový výkon zůstává aktivní po vypršení"
+      },
+      "reactive_power_setpoint_revert_time": {
+        "name": "Doba platnosti žádaného jalového výkonu"
+      },
+      "reactive_power_setpoint_revert_time_remaining": {
+        "name": "Zbývající doba platnosti žádaného jalového výkonu"
+      },
+      "active_power_ramp_rate_reference": {
+        "name": "Vztažná hodnota gradientu činného výkonu"
+      },
+      "reactive_power_ramp_rate": {
+        "name": "Gradient jalového výkonu"
+      },
+      "anti_islanding_enabled": {
+        "name": "Ochrana proti ostrovnímu provozu aktivní"
+      },
+      "energy_available": {
+        "name": "Dostupná energie"
+      },
+      "state_of_health": {
+        "name": "Stav zdraví"
+      },
+      "port_alarms": {
+        "name": "Alarmy portů"
+      },
+      "dc_energy_injected": {
+        "name": "Dodaná energie DC"
+      },
+      "dc_energy_absorbed": {
+        "name": "Odebraná energie DC"
+      },
+      "port_type": {
+        "name": "Typ portu {index}"
+      },
+      "port_dc_current": {
+        "name": "Proud DC portu {index}"
+      },
+      "port_dc_voltage": {
+        "name": "Napětí DC portu {index}"
+      },
+      "port_dc_power": {
+        "name": "Výkon DC portu {index}"
+      },
+      "port_dc_energy_injected": {
+        "name": "Dodaná energie DC portu {index}"
+      },
+      "port_dc_energy_absorbed": {
+        "name": "Odebraná energie DC portu {index}"
+      },
+      "port_temperature": {
+        "name": "Teplota portu {index}"
+      },
+      "port_status": {
+        "name": "Stav portu {index}"
+      },
+      "port_alarm": {
+        "name": "Alarmy portu {index}"
+      },
+      "deprecated_model": {
+        "name": "Zastaralý model"
+      },
+      "depth_of_discharge": {
+        "name": "Hloubka vybití"
+      },
+      "max_cell_voltage": {
+        "name": "Maximální napětí článku"
+      },
+      "min_cell_voltage": {
+        "name": "Minimální napětí článku"
+      },
+      "average_cell_voltage": {
+        "name": "Průměrné napětí článku"
+      },
+      "max_module_temperature": {
+        "name": "Maximální teplota modulu"
+      },
+      "min_module_temperature": {
+        "name": "Minimální teplota modulu"
+      },
+      "average_module_temperature": {
+        "name": "Průměrná teplota modulu"
+      },
+      "rated_charge_capacity": {
+        "name": "Jmenovitá kapacita (Ah)"
+      },
+      "self_discharge_rate": {
+        "name": "Míra samovybíjení"
+      },
+      "rated_max_state_of_charge": {
+        "name": "Jmenovitý maximální stav nabití"
+      },
+      "rated_min_state_of_charge": {
+        "name": "Jmenovitý minimální stav nabití"
+      },
+      "max_reserve": {
+        "name": "Maximální rezerva"
+      },
+      "min_reserve": {
+        "name": "Minimální rezerva"
+      },
+      "battery_type": {
+        "name": "Typ baterie"
+      },
+      "battery_bank_state": {
+        "name": "Stav bateriové banky"
+      },
+      "vendor_battery_bank_state": {
+        "name": "Stav bateriové banky výrobce"
+      },
+      "external_battery_voltage": {
+        "name": "Externí napětí baterie"
+      },
+      "max_battery_voltage": {
+        "name": "Maximální napětí baterie"
+      },
+      "min_battery_voltage": {
+        "name": "Minimální napětí baterie"
+      },
+      "max_charge_current": {
+        "name": "Maximální nabíjecí proud"
+      },
+      "max_discharge_current": {
+        "name": "Maximální vybíjecí proud"
+      },
+      "inverter_state_request": {
+        "name": "Požadovaný stav střídače"
+      },
+      "battery_power_request": {
+        "name": "Požadovaný výkon baterie"
+      },
+      "operation_command": {
+        "name": "Provozní příkaz"
+      },
+      "inverter_state_command": {
+        "name": "Příkaz stavu střídače"
+      },
+      "max_string_voltage": {
+        "name": "Maximální napětí stringu"
+      },
+      "min_string_voltage": {
+        "name": "Minimální napětí stringu"
+      },
+      "average_string_voltage": {
+        "name": "Průměrné napětí stringu"
+      },
+      "max_string_current": {
+        "name": "Maximální proud stringu"
+      },
+      "min_string_current": {
+        "name": "Minimální proud stringu"
+      },
+      "average_string_current": {
+        "name": "Průměrný proud stringu"
+      },
+      "string_status": {
+        "name": "Stav stringu {index}"
+      },
+      "string_connection_failure_reason": {
+        "name": "Příčina chyby připojení stringu {index}"
+      },
+      "string_state_of_charge": {
+        "name": "Stav nabití stringu {index}"
+      },
+      "string_state_of_health": {
+        "name": "Stav zdraví stringu {index}"
+      },
+      "string_current": {
+        "name": "Proud stringu {index}"
+      },
+      "string_max_cell_voltage": {
+        "name": "Maximální napětí článku stringu {index}"
+      },
+      "string_min_cell_voltage": {
+        "name": "Minimální napětí článku stringu {index}"
+      },
+      "string_average_cell_voltage": {
+        "name": "Průměrné napětí článku stringu {index}"
+      },
+      "string_max_module_temperature": {
+        "name": "Maximální teplota modulu stringu {index}"
+      },
+      "string_min_module_temperature": {
+        "name": "Minimální teplota modulu stringu {index}"
+      },
+      "string_average_module_temperature": {
+        "name": "Průměrná teplota modulu stringu {index}"
+      },
+      "string_disabled_reason": {
+        "name": "Příčina vypnutí stringu {index}"
+      },
+      "string_contactor_status": {
+        "name": "Stav stykače stringu {index}"
+      },
+      "string_events_1": {
+        "name": "Události stringu {index}"
+      },
+      "string_events_2": {
+        "name": "Události 2 stringu {index}"
+      },
+      "string_vendor_events_1": {
+        "name": "Události výrobce 1 stringu {index}"
+      },
+      "string_vendor_events_2": {
+        "name": "Události výrobce 2 stringu {index}"
+      },
+      "string_enable_command": {
+        "name": "Příkaz k aktivaci stringu {index}"
+      },
+      "string_connect_command": {
+        "name": "Příkaz k připojení stringu {index}"
+      },
+      "connection_failure_reason": {
+        "name": "Příčina chyby připojení"
+      },
+      "contactor_status": {
+        "name": "Stav stykače"
+      },
+      "enable_command": {
+        "name": "Příkaz k aktivaci"
+      },
+      "connect_command": {
+        "name": "Příkaz k připojení"
+      },
+      "battery_module_state_of_charge": {
+        "name": "Stav nabití modulu {index}"
+      },
+      "battery_module_state_of_health": {
+        "name": "Stav zdraví modulu {index}"
+      },
+      "battery_module_max_cell_voltage": {
+        "name": "Maximální napětí článku modulu {index}"
+      },
+      "battery_module_min_cell_voltage": {
+        "name": "Minimální napětí článku modulu {index}"
+      },
+      "battery_module_average_cell_voltage": {
+        "name": "Průměrné napětí článku modulu {index}"
+      },
+      "battery_module_max_cell_temperature": {
+        "name": "Maximální teplota článku modulu {index}"
+      },
+      "battery_module_min_cell_temperature": {
+        "name": "Minimální teplota článku modulu {index}"
+      },
+      "battery_module_average_cell_temperature": {
+        "name": "Průměrná teplota článku modulu {index}"
+      },
+      "max_cell_temperature": {
+        "name": "Maximální teplota článku"
+      },
+      "min_cell_temperature": {
+        "name": "Minimální teplota článku"
+      },
+      "average_cell_temperature": {
+        "name": "Průměrná teplota článku"
+      },
+      "cell_voltage": {
+        "name": "Napětí článku {index}"
+      },
+      "cell_temperature": {
+        "name": "Teplota článku {index}"
+      },
+      "cell_status": {
+        "name": "Stav článku {index}"
+      }
+    }
+  },
+  "exceptions": {
+    "entry_not_loaded": {
+      "message": "Položka nastavení SunSpec {entry_id} není načtena"
+    },
+    "no_export_limit": {
+      "message": "Střídač neposkytuje model SunSpec 123 ani model 704, takže nemá žádný limit přetoků, který by šlo nastavit"
+    },
+    "export_limit_failed": {
+      "message": "Nastavení limitu přetoků se nezdařilo: {error}"
+    },
+    "no_battery_plan": {
+      "message": "Toto zařízení nepodporuje plán baterie"
+    },
+    "direction_unsupported": {
+      "message": "Baterie nepodporuje směr {direction}"
+    },
+    "write_failed": {
+      "message": "Nepodařilo se zapsat {target}: {error}"
+    },
+    "not_a_register": {
+      "message": "{register} není registr tohoto zařízení"
+    },
+    "invalid_option": {
+      "message": "{option} není volbou pro {target} na tomto zařízení"
+    },
+    "battery_mode_failed": {
+      "message": "Nastavení režimu baterie {mode} se nezdařilo: {error}"
+    },
+    "no_battery": {
+      "message": "Střídač nehlásí žádnou baterii (WChaMax je 0)"
+    },
+    "franklinwh_unavailable": {
+      "message": "Ovládání baterie FranklinWH není k dispozici"
+    },
+    "power_not_finite": {
+      "message": "Výkon baterie musí být konečné číslo"
+    },
+    "franklinwh_failed": {
+      "message": "Příkaz pro baterii FranklinWH se nezdařil: {error}"
+    },
+    "web_refused": {
+      "message": "Webové rozhraní střídače požadavek odmítlo: {error}"
+    }
+  },
+  "issues": {
+    "transport_error": {
+      "title": "Střídač SunSpec není dostupný",
+      "description": "Integrace se nemůže připojit ke střídači SunSpec na {host}:{port} (ID jednotky {unit_id}). Tři cykly aktualizace po sobě selhaly.\n\nPoslední chyba: {error}\n\nCo zkontrolovat:\n- Střídač je zapnutý\n- Střídač je v síti dostupný (zkuste ping {host})\n- Port TCP {port} neblokuje žádný firewall\n- Jediné spojení TCP střídače neblokuje jiný klient Modbus"
+    },
+    "protocol_error": {
+      "title": "Zařízení nekomunikuje přes SunSpec",
+      "description": "Integrace se k zařízení na {host}:{port} (ID jednotky {unit_id}) připojila, ale zařízení neodpovídá jako zařízení SunSpec.\n\nPoslední chyba: {error}\n\nCo zkontrolovat:\n- Zařízení skutečně podporuje SunSpec (některá zařízení Modbus používají mapu registrů specifickou pro výrobce)\n- ID jednotky je správné (některé střídače používají ID jednotky 1, jiné 0 nebo 247)\n- Zařízení má aktuální firmware - starší firmware má někdy chybnou implementaci SunSpec"
+    },
+    "device_error": {
+      "title": "Střídač hlásí výjimku Modbus",
+      "description": "Střídač SunSpec na {host}:{port} (ID jednotky {unit_id}) odpověděl výjimkou Modbus. Tři cykly aktualizace po sobě selhaly.\n\nPoslední chyba: {error}\n\nCo zkontrolovat:\n- Střídač je v normálním provozním stavu (ne v poruše)\n- Vybrané modely odpovídají tomu, co střídač skutečně podporuje\n- Stáhněte diagnostiku této integrace a přiložte ji k hlášení chyby"
+    },
+    "cjne_conflict": {
+      "title": "cjne/ha-sunspec je stále aktivní",
+      "description": "SunSpec 2 nelze spustit pro střídač na {host}:{port} (ID jednotky {unit_id}), protože pro stejné zařízení stále běží integrace cjne/ha-sunspec.\n\nKACO Powador a většina ostatních střídačů SunSpec dovolují vždy jen JEDNO spojení Modbus TCP. Toto spojení teď drží cjne, takže SunSpec 2 nemůže zařízení dotazovat. Souběh obou integrací na stejném střídači by navíc vytvořil duplicitní senzory a nestabilní hodnoty.\n\nPřechod z cjne na SunSpec 2:\n\n1. Otevřete HACS a odinstalujte integraci cjne/ha-sunspec\n2. Restartujte Home Assistant\n3. SunSpec 2 to automaticky zkusí znovu a převezme stávající entity\n\nPomocník pro migraci SunSpec 2 zachová ID vašich entit i jejich historii v nástroji Recorder."
+    },
+    "stale_model": {
+      "title": "Model SunSpec {model_id} zmizel",
+      "description": "Střídač na {host}:{port} (ID jednotky {unit_id}) dříve poskytoval model SunSpec {model_id}, ale ten už {missing_minutes} min chybí při každém vyhledávání.\n\nObvykle to znamená, že střídač model trvale odebral (aktualizace firmwaru, změna nastavení výrobcem nebo odpojení příslušného hardwarového modulu). Související senzory zůstávají v registru entit, ale budou ukazovat poslední platnou hodnotu.\n\nPokud je už nepotřebujete, otevřete stránku dotčeného zařízení a odeberte zařízení pomocí ikony koše. Příslušné entity se odstraní automaticky.\n\nPokud se model sám vrátí, toto upozornění v Opravách při příštím úspěšném čtení automaticky zmizí."
+    }
+  },
+  "services": {
+    "set_battery_plan": {
+      "name": "Nastavit plán baterie",
+      "description": "Změní nastavení plánu najednou. Změny se projeví při příštím úspěšném dotazování, vypnutí plán zastaví okamžitě.",
+      "fields": {
+        "config_entry_id": {
+          "name": "Zařízení SunSpec"
+        },
+        "direction": {
+          "name": "Směr"
+        },
+        "start": {
+          "name": "Začátek"
+        },
+        "end": {
+          "name": "Konec"
+        },
+        "target_pct": {
+          "name": "Cílový stav nabití"
+        },
+        "capacity_kwh": {
+          "name": "Kapacita baterie"
+        },
+        "enabled": {
+          "name": "Aktivní"
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,1904 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "description": "Hur vill du ställa in din växelriktare?",
+        "menu_options": {
+          "manual": "Modbus TCP - ange IP-adress manuellt",
+          "scan": "Modbus TCP - sök igenom mitt nätverk",
+          "serial": "Modbus RTU - seriell port (RS-485)"
+        }
+      },
+      "manual": {
+        "title": "Anslutning till växelriktaren",
+        "description": "Ange växelriktarens IP-adress, Modbus TCP-port (standard 502) och Modbus enhets-ID (standard 1).",
+        "data": {
+          "host": "Värd eller IP-adress",
+          "port": "Modbus TCP-port",
+          "unit_id": "Modbus enhets-ID"
+        },
+        "data_description": {
+          "host": "IP-adressen eller värdnamnet för växelriktaren, eller för gatewayen framför den.",
+          "port": "Modbus TCP-porten. 502 om enheten inte är inställd på en annan.",
+          "unit_id": "Enhetens Modbus-adress, även kallad slav-ID eller device ID. Ofta 1. Den står i enhetens Modbus-inställningar."
+        }
+      },
+      "scan": {
+        "title": "Sök efter växelriktare i nätverket",
+        "description": "Söker igenom det valda subnätet efter värdar som har Modbus TCP-port 502 öppen. Värdar vars MAC-adress tillhör en känd tillverkare av SunSpec-växelriktare visas först. Sökningen gör bara ett TCP-anslutningsförsök och skickar aldrig några Modbus-data, så den stör inte andra Modbus-enheter i nätverket. Standardsubnätet hämtas från nätverkskonfigurationen på Home Assistant-värden.",
+        "data": {
+          "subnet": "Subnät att söka igenom (CIDR-notation, t.ex. 192.168.1.0/24)"
+        },
+        "data_description": {
+          "subnet": "Nätverket som ska sökas igenom, i CIDR-notation. Högst ett /22, vilket är 1022 adresser."
+        }
+      },
+      "scan_results": {
+        "title": "Välj din växelriktare",
+        "description": "De här värdarna svarade på Modbus TCP-port 502. Värdar markerade med 'SunSpec vendor' har en MAC-adress från en känd växelriktartillverkare och är troligen din enhet.",
+        "data": {
+          "host": "Växelriktare"
+        },
+        "data_description": {
+          "host": "Enheterna som svarade på Modbus-porten. Kända växelriktartillverkare visas först."
+        }
+      },
+      "serial": {
+        "title": "Modbus RTU-anslutning",
+        "description": "Konfigurera en seriell anslutning (RS-485) till en växelriktare med stöd för SunSpec. Vanligast är en USB-till-RS-485-adapter på /dev/ttyUSB0 (Linux) eller COM3 (Windows). Baudhastigheten är oftast 9600 eller 19200 - se växelriktarens manual.",
+        "data": {
+          "serial_port": "Seriell port (t.ex. /dev/ttyUSB0 eller COM3)",
+          "baudrate": "Baudhastighet",
+          "parity": "Paritet",
+          "unit_id": "Modbus enhets-ID"
+        },
+        "data_description": {
+          "serial_port": "RS-485-adapterns seriella port.",
+          "baudrate": "Hastigheten som är inställd på enheten. Båda sidor måste använda samma.",
+          "parity": "Pariteten som är inställd på enheten.",
+          "unit_id": "Enhetens Modbus-adress, även kallad slav-ID eller device ID. Ofta 1. Den står i enhetens Modbus-inställningar."
+        }
+      },
+      "settings": {
+        "title": "Inställningar för växelriktaren",
+        "description": "Välj sensormodeller och ett uppdateringsintervall. Du kan ändra detta senare i enhetens alternativ.",
+        "data": {
+          "prefix": "Prefix för sensornamn",
+          "scan_interval": "Uppdateringsintervall",
+          "models_enabled": "Sensormodeller",
+          "max_ac_power_kw": "AC-toppeffekt"
+        },
+        "data_description": {
+          "prefix": "Valfritt prefix för sensornamn.",
+          "scan_interval": "Tid mellan avläsningarna av enheten. Korta intervall ökar belastningen på nätverket och enheten.",
+          "models_enabled": "Välj vilka identifierade SunSpec-modeller som ska visas som sensorer. Välj minst en.",
+          "max_ac_power_kw": "AC-effekt som används för att filtrera bort orimliga mätvärden. Föreslås utifrån märkdata med 20 % marginal. DC-effekt och skenbar effekt tillåter högre värden. Töm fältet för automatisk identifiering."
+        }
+      },
+      "reconfigure": {
+        "title": "Konfigurera om anslutningen till växelriktaren",
+        "description": "Uppdatera värd, port eller enhets-ID för en befintlig SunSpec-växelriktare utan att förlora dess historik. Den nya anslutningen testas och posten uppdateras bara om växelriktaren fortfarande rapporterar samma serienummer.",
+        "data": {
+          "host": "Värd eller IP-adress",
+          "port": "Modbus TCP-port",
+          "unit_id": "Modbus enhets-ID"
+        },
+        "data_description": {
+          "host": "IP-adressen eller värdnamnet för växelriktaren, eller för gatewayen framför den.",
+          "port": "Modbus TCP-porten. 502 om enheten inte är inställd på en annan.",
+          "unit_id": "Enhetens Modbus-adress, även kallad slav-ID eller device ID. Ofta 1. Den står i enhetens Modbus-inställningar."
+        }
+      }
+    },
+    "error": {
+      "connection": "Det går inte att nå växelriktaren. Kontrollera värd, port och enhets-ID och försök sedan igen.",
+      "timeout": "Tidsgränsen överskreds vid anslutning till växelriktaren. Enheten kan vara offline, eller så håller en annan Modbus-klient anslutningen.",
+      "device_error": "Växelriktaren svarade med ett Modbus-fel. Kontrollera att enhetens firmware är uppdaterad.",
+      "invalid_subnet": "Subnätet är inte giltig CIDR-notation, eller så är det för stort för att sökas igenom (använd /22 eller mindre).",
+      "no_candidates": "Inga värdar med Modbus TCP-port 502 öppen hittades i det här subnätet.",
+      "no_models_selected": "Välj minst en SunSpec-modell. Om ett tomt val sparas slutar integrationen att läsa av växelriktaren och alla sensorer försvinner.",
+      "unique_id_mismatch": "Växelriktaren på den här adressen rapporterar ett annat serienummer än den du ursprungligen konfigurerade. Din sensorhistorik flyttas inte över till en annan enhet.",
+      "sma_unit_id": "Växelriktaren svarar på SunSpec under enhets-ID 126, inte under det angivna. SMA lägger SunSpec på sitt eget Modbus enhets-ID plus 123. Fältet har satts till 126; skicka igen."
+    },
+    "abort": {
+      "already_configured": "Den här växelriktaren är redan konfigurerad.",
+      "reconfigure_successful": "Anslutningsinställningarna har uppdaterats."
+    }
+  },
+  "options": {
+    "step": {
+      "host_options": {
+        "title": "Anslutningsinställningar",
+        "description": "Kontrollera anslutningsuppgifterna och fortsätt sedan till enhetens alternativ.",
+        "data": {
+          "host": "Värd eller IP-adress",
+          "port": "Modbus TCP-port",
+          "unit_id": "Modbus enhets-ID"
+        },
+        "data_description": {
+          "host": "IP-adressen eller värdnamnet för växelriktaren, eller för gatewayen framför den.",
+          "port": "Modbus TCP-porten. 502 om enheten inte är inställd på en annan.",
+          "unit_id": "Enhetens Modbus-adress, även kallad slav-ID eller device ID. Ofta 1. Den står i enhetens Modbus-inställningar."
+        }
+      },
+      "model_options": {
+        "title": "Enhetsalternativ",
+        "description": "Justera sensorval och avläsning. Fler inställningar finns grupperade nedan.",
+        "data": {
+          "scan_interval": "Uppdateringsintervall",
+          "models_enabled": "Sensormodeller"
+        },
+        "data_description": {
+          "scan_interval": "Tid mellan avläsningarna av enheten. Korta intervall ökar belastningen på nätverket och enheten.",
+          "models_enabled": "Välj vilka identifierade SunSpec-modeller som ska visas som sensorer. Välj minst en."
+        },
+        "sections": {
+          "advanced": {
+            "name": "Avancerat",
+            "description": "Sensornamn, effektfiltrering, viloläge och felsökning.",
+            "data": {
+              "max_ac_power_kw": "AC-toppeffekt",
+              "prefix": "Prefix för sensornamn",
+              "standby_when_idle": "Tillåt att växelriktaren går offline när den är inaktiv",
+              "scan_delay": "Paus vid modellsökning",
+              "model_read_delay": "Paus vid modellavläsning",
+              "capture_raw_registers": "Samla in diagnostikregister",
+              "rearm_on_change": "Återaktivera styrningar efter ändrat börvärde"
+            },
+            "data_description": {
+              "max_ac_power_kw": "AC-effekt som används för att filtrera bort orimliga mätvärden. Föreslås utifrån märkdata med 20 % marginal. DC-effekt och skenbar effekt tillåter högre värden. Töm fältet för automatisk identifiering.",
+              "prefix": "Valfritt prefix för sensornamn.",
+              "standby_when_idle": "Undertrycker anslutningsärenden i Reparationer för enheter som går offline utan att rapportera viloläge. Sensorerna blir ändå otillgängliga. Rapporterat viloläge identifieras automatiskt.",
+              "scan_delay": "Paus mellan modeller under identifieringen, inte under normal avläsning. Öka den om identifieringen misslyckas på långsamma enheter.",
+              "model_read_delay": "Paus mellan modellavläsningar under normal avläsning. Lägre värden förkortar uppdateringar och skrivåtgärder. Ange 0 för att ta bort pausen.",
+              "capture_raw_registers": "Lägger till rå Modbus-registerdata i diagnostiknedladdningar för felsökning.",
+              "rearm_on_change": "Fronius GEN24 kräver en av/på-cykel för att ändrade gränser ska börja gälla. Medan en styrning är aktiverad stängs dess strömbrytare av, värdet skrivs och strömbrytaren slås på igen en sekund senare. Gränsen är inaktiv under den sekunden."
+            }
+          },
+          "fronius": {
+            "name": "Fronius webbgränssnitt",
+            "description": "Valfri åtkomst till ytterligare enhetsdata.",
+            "data": {
+              "fronius_web_password": "Lösenord för webbgränssnittet",
+              "fronius_web_forget": "Glöm sparad inloggning"
+            },
+            "data_description": {
+              "fronius_web_password": "Den lokala inloggningen \"customer\", inte ditt Solar.web-konto. Aktiverar ytterligare enhets- och batteridata. Endast en enhetsspecifik inloggningshash sparas. Lämna tomt för att behålla den sparade inloggningen.",
+              "fronius_web_forget": "Tar bort den sparade inloggningen och inaktiverar de extra funktionerna via webbgränssnittet."
+            }
+          }
+        }
+      }
+    },
+    "error": {
+      "no_models_selected": "Välj minst en SunSpec-modell. Om ett tomt val sparas slutar integrationen att läsa av växelriktaren och alla sensorer försvinner.",
+      "connection": "Det går inte att nå växelriktaren just nu. Vänta en stund och försök igen, eller kontrollera att enheten är online.",
+      "web_auth_failed": "Växelriktaren avvisade lösenordet för webbgränssnittet. Det är den lokala inloggningen \"customer\" på växelriktarens egen webbsida, inte Solar.web-kontot.",
+      "web_unreachable": "Växelriktarens webbgränssnitt svarade inte på port 80."
+    }
+  },
+  "entity": {
+    "number": {
+      "export_limit_pct": {
+        "name": "Exportgräns"
+      },
+      "export_limit_revert_time": {
+        "name": "Exportgräns, återgångstid"
+      },
+      "power_factor_set": {
+        "name": "Börvärde för effektfaktor"
+      },
+      "active_power_setpoint": {
+        "name": "Börvärde för aktiv effekt"
+      },
+      "active_power_setpoint_pct": {
+        "name": "Börvärde för aktiv effekt i procent"
+      },
+      "export_limit_revert_value": {
+        "name": "Exportgräns, återgångsvärde"
+      },
+      "battery_charge_rate": {
+        "name": "Batteriets laddningstakt"
+      },
+      "battery_discharge_rate": {
+        "name": "Batteriets urladdningstakt"
+      },
+      "battery_max_charge_power": {
+        "name": "Batteriets max laddningseffekt"
+      },
+      "battery_rate_revert_time": {
+        "name": "Laddnings-/urladdningstakt, återgångstid"
+      },
+      "battery_min_reserve": {
+        "name": "Minsta batterireserv"
+      },
+      "battery_pv_charge_limit_w": {
+        "name": "Batteriets PV-laddningsgräns"
+      },
+      "battery_discharge_limit_w": {
+        "name": "Batteriets urladdningsgräns"
+      },
+      "battery_grid_charge_power_w": {
+        "name": "Batteriets laddningseffekt från elnätet"
+      },
+      "battery_grid_discharge_power_w": {
+        "name": "Batteriets urladdningseffekt till elnätet"
+      },
+      "scheduled_discharge_reserve_pct": {
+        "name": "Batteriplanens mål"
+      },
+      "battery_capacity_kwh": {
+        "name": "Batterikapacitet"
+      },
+      "storage_ac_charge_limit": {
+        "name": "AC-laddningsgräns för lagring"
+      },
+      "storage_backup_reserve": {
+        "name": "Backupreserv för lagring"
+      },
+      "storage_command_timeout": {
+        "name": "Tidsgräns för lagringskommando"
+      },
+      "storage_charge_limit": {
+        "name": "Laddningsgräns för lagring"
+      },
+      "storage_discharge_limit": {
+        "name": "Urladdningsgräns för lagring"
+      },
+      "site_limit": {
+        "name": "Anläggningsgräns"
+      },
+      "active_power_limit": {
+        "name": "Gräns för aktiv effekt"
+      },
+      "sma_power_setpoint": {
+        "name": "Externt effektbörvärde"
+      },
+      "battery_min_soc": {
+        "name": "Min laddningsnivå"
+      },
+      "battery_max_soc": {
+        "name": "Max laddningsnivå"
+      },
+      "battery_max_charge_power_limit": {
+        "name": "Gräns för laddningseffekt"
+      },
+      "battery_max_discharge_power_limit": {
+        "name": "Gräns för urladdningseffekt"
+      },
+      "battery_dc_power_setpoint": {
+        "name": "Börvärde för DC-effekt"
+      },
+      "battery_limitation_charge_power": {
+        "name": "Fasthållen gräns för laddningseffekt"
+      },
+      "battery_limitation_discharge_power": {
+        "name": "Fasthållen gräns för urladdningseffekt"
+      },
+      "battery_fallback_charge_power": {
+        "name": "Laddningseffekt i reservläge"
+      },
+      "battery_fallback_discharge_power": {
+        "name": "Urladdningseffekt i reservläge"
+      },
+      "battery_fallback_time": {
+        "name": "Tid till reservläge"
+      },
+      "franklinwh_power_target": {
+        "name": "Batteriets effektmål"
+      }
+    },
+    "select": {
+      "battery_control_mode": {
+        "name": "Batteriets styrläge",
+        "state": {
+          "off": "Av",
+          "charge": "Endast laddning",
+          "discharge": "Endast urladdning",
+          "both": "Laddning och urladdning"
+        }
+      },
+      "battery_mode": {
+        "name": "Batteriläge",
+        "state": {
+          "auto": "Automatiskt",
+          "pv_charge_limit": "PV-laddningsgräns",
+          "discharge_limit": "Urladdningsgräns",
+          "charge_and_discharge_limit": "PV-laddnings- och urladdningsgräns",
+          "charge_from_grid": "Ladda från elnätet",
+          "discharge_to_grid": "Ladda ur till elnätet",
+          "block_discharging": "Blockera urladdning",
+          "block_charging": "Blockera laddning"
+        }
+      },
+      "active_power_setpoint_mode": {
+        "name": "Börvärde för aktiv effekt, läge",
+        "state": {
+          "w_max_pct": "Procent av max",
+          "watts": "Watt"
+        }
+      },
+      "storage_control_mode": {
+        "name": "Styrläge för lagring",
+        "state": {
+          "disabled": "Inaktiverat",
+          "maximize_self_consumption": "Maximera egenförbrukning",
+          "time_of_use": "Tidstariff",
+          "backup_only": "Endast backup",
+          "remote_control": "Fjärrstyrning"
+        }
+      },
+      "storage_ac_charge_policy": {
+        "name": "AC-laddningsregel för lagring",
+        "state": {
+          "disabled": "Inaktiverad",
+          "always_allowed": "Alltid tillåten",
+          "fixed_energy_limit": "Fast energigräns",
+          "percent_of_production": "Procent av produktionen"
+        }
+      },
+      "storage_default_mode": {
+        "name": "Standardläge för lagring",
+        "state": {
+          "solar_power_only": "Endast solel",
+          "charge_from_clipped_solar": "Ladda från kapad solel",
+          "charge_from_solar": "Ladda från solel",
+          "charge_from_solar_and_grid": "Ladda från solel och elnätet",
+          "discharge_to_maximize_export": "Ladda ur för maximal export",
+          "discharge_to_minimize_import": "Ladda ur för minimal import",
+          "maximize_self_consumption": "Maximera egenförbrukning"
+        }
+      },
+      "storage_command_mode": {
+        "name": "Kommandoläge för lagring",
+        "state": {
+          "solar_power_only": "Endast solel",
+          "charge_from_clipped_solar": "Ladda från kapad solel",
+          "charge_from_solar": "Ladda från solel",
+          "charge_from_solar_and_grid": "Ladda från solel och elnätet",
+          "discharge_to_maximize_export": "Ladda ur för maximal export",
+          "discharge_to_minimize_import": "Ladda ur för minimal import",
+          "maximize_self_consumption": "Maximera egenförbrukning"
+        }
+      },
+      "site_limit_mode": {
+        "name": "Läge för anläggningsgräns",
+        "state": {
+          "disabled": "Inaktiverat",
+          "export_control_export_import_meter": "Exportstyrning (export-/importmätare)",
+          "export_control_consumption_meter": "Exportstyrning (förbrukningsmätare)",
+          "production_control": "Produktionsstyrning"
+        }
+      },
+      "site_limit_scope": {
+        "name": "Omfattning för anläggningsgräns",
+        "state": {
+          "total": "Totalt",
+          "per_phase": "Per fas"
+        }
+      },
+      "sma_power_control": {
+        "name": "Extern effektstyrning",
+        "state": {
+          "inactive": "Inaktiv",
+          "active": "Aktiv"
+        }
+      },
+      "battery_plan_direction": {
+        "name": "Batteriplanens riktning",
+        "state": {
+          "charge": "Laddning",
+          "discharge": "Urladdning"
+        }
+      }
+    },
+    "switch": {
+      "export_limit_enabled": {
+        "name": "Exportgräns aktiverad"
+      },
+      "power_factor_enabled": {
+        "name": "Börvärde för effektfaktor aktiverat"
+      },
+      "inverter_grid_connection": {
+        "name": "Växelriktarens nätanslutning"
+      },
+      "active_power_setpoint_enabled": {
+        "name": "Börvärde för aktiv effekt aktiverat"
+      },
+      "export_limit_revert_enabled": {
+        "name": "Exportgräns förblir aktiv efter återgång"
+      },
+      "battery_grid_charging": {
+        "name": "Laddning av batteriet från elnätet tillåten"
+      },
+      "scheduled_discharge": {
+        "name": "Batteriplan"
+      },
+      "battery_charge_from_grid": {
+        "name": "Laddning av batteriet från elnätet (webbgränssnitt)"
+      },
+      "battery_charge_from_ac": {
+        "name": "Laddning av batteriet från AC (webbgränssnitt)"
+      },
+      "modbus_control_allowed": {
+        "name": "Modbus-styrning tillåten"
+      },
+      "storage_command_rearm": {
+        "name": "Förnya lagringskommandot"
+      },
+      "active_power_limit_reassert": {
+        "name": "Upprätthåll gränsen för aktiv effekt"
+      },
+      "sma_power_setpoint_keepalive": {
+        "name": "Upprätthåll externt effektbörvärde"
+      },
+      "battery_limitation_hold": {
+        "name": "Håll fast effektgränserna"
+      }
+    },
+    "time": {
+      "scheduled_discharge_start": {
+        "name": "Batteriplanens start"
+      },
+      "scheduled_discharge_end": {
+        "name": "Batteriplanens slut"
+      }
+    },
+    "button": {
+      "reset_modbus_control": {
+        "name": "Återställ Modbus-styrning"
+      },
+      "franklinwh_standby": {
+        "name": "Håll batteriet i viloläge"
+      },
+      "franklinwh_release": {
+        "name": "Släpp batteristyrningen"
+      }
+    },
+    "sensor": {
+      "amps": {
+        "name": "AC-ström"
+      },
+      "amps_l1": {
+        "name": "AC-ström L1"
+      },
+      "amps_l2": {
+        "name": "AC-ström L2"
+      },
+      "amps_l3": {
+        "name": "AC-ström L3"
+      },
+      "phase_voltage_l1_l2": {
+        "name": "Huvudspänning L1-L2"
+      },
+      "phase_voltage_l2_l3": {
+        "name": "Huvudspänning L2-L3"
+      },
+      "phase_voltage_l3_l1": {
+        "name": "Huvudspänning L3-L1"
+      },
+      "phase_voltage_l1_n": {
+        "name": "Fasspänning L1-N"
+      },
+      "phase_voltage_l2_n": {
+        "name": "Fasspänning L2-N"
+      },
+      "phase_voltage_l3_n": {
+        "name": "Fasspänning L3-N"
+      },
+      "watts": {
+        "name": "AC-effekt"
+      },
+      "frequency": {
+        "name": "AC-frekvens"
+      },
+      "apparent_power": {
+        "name": "Skenbar effekt"
+      },
+      "reactive_power": {
+        "name": "Reaktiv effekt"
+      },
+      "power_factor": {
+        "name": "Effektfaktor"
+      },
+      "lifetime_energy": {
+        "name": "Total producerad energi"
+      },
+      "daily_energy": {
+        "name": "Producerad energi i dag"
+      },
+      "counted_lifetime_energy": {
+        "name": "Total producerad energi (räknad)"
+      },
+      "dc_current": {
+        "name": "DC-ström"
+      },
+      "dc_voltage": {
+        "name": "DC-spänning"
+      },
+      "dc_power": {
+        "name": "DC-effekt"
+      },
+      "cabinet_temperature": {
+        "name": "Kapslingstemperatur"
+      },
+      "heat_sink_temperature": {
+        "name": "Kylflänstemperatur"
+      },
+      "transformer_temperature": {
+        "name": "Transformatortemperatur"
+      },
+      "other_temperature": {
+        "name": "Övrig temperatur"
+      },
+      "operating_state": {
+        "name": "Drifttillstånd"
+      },
+      "vendor_operating_state": {
+        "name": "Tillverkarspecifikt drifttillstånd"
+      },
+      "events_1": {
+        "name": "Händelser"
+      },
+      "events_2": {
+        "name": "Händelser 2"
+      },
+      "vendor_events_1": {
+        "name": "Tillverkarhändelser 1"
+      },
+      "vendor_events_2": {
+        "name": "Tillverkarhändelser 2"
+      },
+      "vendor_events_3": {
+        "name": "Tillverkarhändelser 3"
+      },
+      "vendor_events_4": {
+        "name": "Tillverkarhändelser 4"
+      },
+      "rated_power": {
+        "name": "AC-märkeffekt"
+      },
+      "rated_apparent_power": {
+        "name": "Skenbar märkeffekt"
+      },
+      "rated_current": {
+        "name": "AC-märkström"
+      },
+      "rated_storage_capacity": {
+        "name": "Lagringskapacitet (märkvärde)"
+      },
+      "max_power_setting": {
+        "name": "Konfigurerad max effekt"
+      },
+      "voltage_reference": {
+        "name": "Referensspänning"
+      },
+      "battery_charge_power": {
+        "name": "Batteriets laddningseffekt"
+      },
+      "battery_discharge_power": {
+        "name": "Batteriets urladdningseffekt"
+      },
+      "battery_charged_energy": {
+        "name": "Batteriets laddade energi"
+      },
+      "battery_discharged_energy": {
+        "name": "Batteriets urladdade energi"
+      },
+      "pv_power": {
+        "name": "PV-effekt"
+      },
+      "inverter_temperature": {
+        "name": "Växelriktarens temperatur"
+      },
+      "battery_cell_temperature": {
+        "name": "Batteriets celltemperatur"
+      },
+      "smart_meter_location": {
+        "name": "Smartmätarens placering",
+        "state": {
+          "feed_in_point": "Inmatningspunkt",
+          "consumption_path": "Förbrukningsgren"
+        }
+      },
+      "grid_status": {
+        "name": "Status för elnätet",
+        "state": {
+          "on_grid": "Nätansluten",
+          "off_grid": "Ödrift"
+        }
+      },
+      "status_vendor4": {
+        "name": "Tillverkarens statuskod"
+      },
+      "rrcr_state": {
+        "name": "RRCR-ingångens tillstånd"
+      },
+      "register_writes": {
+        "name": "Registerskrivningar"
+      },
+      "sma_device_class": {
+        "name": "Enhetsklass",
+        "state": {
+          "pv_inverter": "PV-växelriktare",
+          "wind_inverter": "Vindkraftsväxelriktare",
+          "battery_inverter": "Batteriväxelriktare",
+          "load": "Last",
+          "sensor": "Sensor",
+          "energy_meter": "Energimätare",
+          "communication": "Kommunikationsprodukt"
+        }
+      },
+      "sma_device_type": {
+        "name": "Enhetstypkod"
+      },
+      "sma_operating_status": {
+        "name": "Driftstatus",
+        "state": {
+          "fault": "Fel",
+          "off": "Av",
+          "ok": "OK",
+          "warning": "Varning"
+        }
+      },
+      "sma_active_power_mode": {
+        "name": "Driftläge för aktiv effekt",
+        "state": {
+          "off": "Av",
+          "watts": "Watt",
+          "percent": "Procent",
+          "external_setpoint": "Externt börvärde"
+        }
+      },
+      "sma_setpoint_timeout": {
+        "name": "Tidsgräns för externt börvärde"
+      },
+      "battery_state_of_charge": {
+        "name": "Batteriets laddningsnivå"
+      },
+      "battery_capacity_pct": {
+        "name": "Batterikapacitet"
+      },
+      "battery_status_code": {
+        "name": "Batteriets statuskod"
+      },
+      "battery_state_of_energy": {
+        "name": "Energinivå"
+      },
+      "battery_state_of_health": {
+        "name": "Hälsotillstånd"
+      },
+      "battery_temperature": {
+        "name": "Temperatur"
+      },
+      "battery_temperature_max": {
+        "name": "Max temperatur"
+      },
+      "battery_voltage": {
+        "name": "Spänning"
+      },
+      "battery_current": {
+        "name": "Ström"
+      },
+      "battery_power": {
+        "name": "Effekt"
+      },
+      "battery_energy_discharged": {
+        "name": "Urladdad energi"
+      },
+      "battery_energy_charged": {
+        "name": "Laddad energi"
+      },
+      "battery_energy_available": {
+        "name": "Tillgänglig energi"
+      },
+      "battery_energy_max": {
+        "name": "Max energi"
+      },
+      "battery_rated_energy": {
+        "name": "Märkenergi"
+      },
+      "battery_max_charge_power": {
+        "name": "Max laddningseffekt"
+      },
+      "battery_max_discharge_power": {
+        "name": "Max urladdningseffekt"
+      },
+      "battery_status": {
+        "name": "Status",
+        "state": {
+          "off": "Av",
+          "standby": "Viloläge",
+          "init": "Initierar",
+          "charge": "Laddar",
+          "discharge": "Laddar ur",
+          "fault": "Fel",
+          "preserve_charge": "Bevarar laddningen",
+          "idle": "Inaktiv",
+          "power_saving": "Energisparläge"
+        }
+      },
+      "home_consumption_pv": {
+        "name": "Husförbrukning från PV"
+      },
+      "home_consumption_battery": {
+        "name": "Husförbrukning från batteriet"
+      },
+      "home_consumption_grid": {
+        "name": "Husförbrukning från elnätet"
+      },
+      "home_consumption_pv_total": {
+        "name": "Husförbrukning från PV, totalt"
+      },
+      "home_consumption_battery_total": {
+        "name": "Husförbrukning från batteriet, totalt"
+      },
+      "home_consumption_grid_total": {
+        "name": "Husförbrukning från elnätet, totalt"
+      },
+      "home_consumption_total": {
+        "name": "Husförbrukning, totalt"
+      },
+      "total_dc_power": {
+        "name": "Total DC-effekt"
+      },
+      "energy_manager_state": {
+        "name": "Energihanterare",
+        "state": {
+          "idle": "Inaktiv",
+          "emergency_battery_charge": "Nödladdning av batteriet",
+          "winter_mode_step_1": "Vinterläge, steg 1",
+          "winter_mode_step_2": "Vinterläge, steg 2"
+        }
+      },
+      "controller_temperature": {
+        "name": "Styrkortets temperatur"
+      },
+      "isolation_resistance": {
+        "name": "Isolationsresistans"
+      },
+      "power_limit_evu": {
+        "name": "Nätbolagets effektbegränsning"
+      },
+      "energy_meter_type": {
+        "name": "Energimätare",
+        "state": {
+          "sdm630": "SDM 630",
+          "b_control_em300lr": "B-control EM-300 LR",
+          "ksem": "KOSTAL Smart Energy Meter",
+          "kem_c": "KOSTAL Energy Meter, serie C",
+          "kem_p": "KOSTAL Energy Meter, serie P",
+          "kem_mp_p": "KOSTAL Energy Meter MP, serie P",
+          "none": "Ingen"
+        }
+      },
+      "energy_to_grid": {
+        "name": "Energi inmatad i elnätet"
+      },
+      "pssb_fuse_state": {
+        "name": "Strängsäkringskort",
+        "state": {
+          "fuse_fail": "Säkringsfel",
+          "fuse_ok": "Säkring OK",
+          "unchecked": "Ej kontrollerad"
+        }
+      },
+      "battery_ready": {
+        "name": "Redo",
+        "state": {
+          "not_ready": "Inte redo",
+          "ready": "Redo"
+        }
+      },
+      "battery_dc_charge_energy": {
+        "name": "Laddad, DC-sidan"
+      },
+      "battery_dc_discharge_energy": {
+        "name": "Urladdad, DC-sidan"
+      },
+      "battery_ac_charge_energy": {
+        "name": "Laddad, AC-sidan"
+      },
+      "battery_ac_discharge_energy": {
+        "name": "Urladdad till elnätet"
+      },
+      "battery_ac_charge_energy_grid": {
+        "name": "Laddad från elnätet"
+      },
+      "battery_work_capacity": {
+        "name": "Användbar kapacitet"
+      },
+      "battery_management_mode": {
+        "name": "Extern styrning",
+        "state": {
+          "none": "Av",
+          "digital_io": "Digitala in-/utgångar",
+          "modbus": "Modbus"
+        }
+      },
+      "apsystems_dc_voltage_1": {
+        "name": "DC-spänning ingång 1"
+      },
+      "apsystems_dc_voltage_2": {
+        "name": "DC-spänning ingång 2"
+      },
+      "apsystems_dc_voltage_3": {
+        "name": "DC-spänning ingång 3"
+      },
+      "apsystems_dc_voltage_4": {
+        "name": "DC-spänning ingång 4"
+      },
+      "apsystems_dc_voltage_5": {
+        "name": "DC-spänning ingång 5"
+      },
+      "apsystems_dc_voltage_6": {
+        "name": "DC-spänning ingång 6"
+      },
+      "apsystems_dc_voltage_7": {
+        "name": "DC-spänning ingång 7"
+      },
+      "apsystems_dc_voltage_8": {
+        "name": "DC-spänning ingång 8"
+      },
+      "apsystems_dc_current_1": {
+        "name": "DC-ström ingång 1"
+      },
+      "apsystems_dc_current_2": {
+        "name": "DC-ström ingång 2"
+      },
+      "apsystems_dc_current_3": {
+        "name": "DC-ström ingång 3"
+      },
+      "apsystems_dc_current_4": {
+        "name": "DC-ström ingång 4"
+      },
+      "apsystems_dc_current_5": {
+        "name": "DC-ström ingång 5"
+      },
+      "apsystems_dc_current_6": {
+        "name": "DC-ström ingång 6"
+      },
+      "apsystems_dc_current_7": {
+        "name": "DC-ström ingång 7"
+      },
+      "apsystems_dc_current_8": {
+        "name": "DC-ström ingång 8"
+      },
+      "apsystems_dc_power_1": {
+        "name": "DC-effekt ingång 1"
+      },
+      "apsystems_dc_power_2": {
+        "name": "DC-effekt ingång 2"
+      },
+      "apsystems_dc_power_3": {
+        "name": "DC-effekt ingång 3"
+      },
+      "apsystems_dc_power_4": {
+        "name": "DC-effekt ingång 4"
+      },
+      "apsystems_dc_power_5": {
+        "name": "DC-effekt ingång 5"
+      },
+      "apsystems_dc_power_6": {
+        "name": "DC-effekt ingång 6"
+      },
+      "apsystems_dc_power_7": {
+        "name": "DC-effekt ingång 7"
+      },
+      "apsystems_dc_power_8": {
+        "name": "DC-effekt ingång 8"
+      },
+      "saj_energy_today": {
+        "name": "Producerad energi i dag"
+      },
+      "saj_energy_month": {
+        "name": "Producerad energi denna månad"
+      },
+      "saj_dc_voltage_1": {
+        "name": "DC-spänning ingång 1"
+      },
+      "saj_dc_voltage_2": {
+        "name": "DC-spänning ingång 2"
+      },
+      "saj_dc_current_1": {
+        "name": "DC-ström ingång 1"
+      },
+      "saj_dc_current_2": {
+        "name": "DC-ström ingång 2"
+      },
+      "saj_dc_power_1": {
+        "name": "DC-effekt ingång 1"
+      },
+      "saj_dc_power_2": {
+        "name": "DC-effekt ingång 2"
+      },
+      "franklinwh_pv_total": {
+        "name": "Soleffekt från tilläggsregister"
+      },
+      "franklinwh_pv_proximal": {
+        "name": "Lokal soleffekt"
+      },
+      "franklinwh_pv_remote_1": {
+        "name": "Extern soleffekt 1"
+      },
+      "franklinwh_pv_remote_2": {
+        "name": "Extern soleffekt 2"
+      },
+      "franklinwh_home_load": {
+        "name": "Husets last, grovt mätvärde"
+      },
+      "franklinwh_home_load_high_resolution": {
+        "name": "Husets last"
+      },
+      "franklinwh_native_mode": {
+        "name": "Inbyggt driftläge",
+        "state": {
+          "emergency_backup": "Nödbackup",
+          "self_consumption": "Egenförbrukning",
+          "time_of_use": "Tidstariff"
+        }
+      },
+      "franklinwh_self_reserve": {
+        "name": "Reserv för egenförbrukning"
+      },
+      "franklinwh_tou_reserve": {
+        "name": "Rapporterad reserv för tidstariff"
+      },
+      "franklinwh_active_reserve": {
+        "name": "Rapporterad aktiv reserv"
+      },
+      "franklinwh_pv_energy": {
+        "name": "Solenergi från tilläggsregister"
+      },
+      "franklinwh_pv_proximal_energy": {
+        "name": "Lokal solenergi"
+      },
+      "franklinwh_battery_state": {
+        "name": "Batteriaktivitet",
+        "state": {
+          "charging": "Laddar",
+          "discharging": "Laddar ur",
+          "idle": "Inaktiv"
+        }
+      },
+      "franklinwh_home_consumption": {
+        "name": "Husförbrukning"
+      },
+      "der_type": {
+        "name": "DER-typ"
+      },
+      "rated_reactive_power": {
+        "name": "Reaktiv märkeffekt {quadrant}"
+      },
+      "rated_min_power_factor": {
+        "name": "Min effektfaktor (märkvärde) {quadrant}"
+      },
+      "rated_usable_capacity": {
+        "name": "Användbar märkkapacitet (Ah)"
+      },
+      "rated_max_charge_power": {
+        "name": "Max laddningseffekt (märkvärde)"
+      },
+      "rated_max_discharge_power": {
+        "name": "Max urladdningseffekt (märkvärde)"
+      },
+      "voltage_reference_offset": {
+        "name": "Referensspänningens offset"
+      },
+      "max_voltage_setting": {
+        "name": "Konfigurerad max AC-spänning"
+      },
+      "min_voltage_setting": {
+        "name": "Konfigurerad min AC-spänning"
+      },
+      "max_apparent_power_setting": {
+        "name": "Konfigurerad max skenbar effekt"
+      },
+      "max_reactive_power_setting": {
+        "name": "Konfigurerad max reaktiv effekt {quadrant}"
+      },
+      "active_power_ramp_rate": {
+        "name": "Ramphastighet för aktiv effekt"
+      },
+      "min_power_factor_setting": {
+        "name": "Konfigurerad min effektfaktor {quadrant}"
+      },
+      "reactive_power_action": {
+        "name": "Åtgärd för reaktiv effekt"
+      },
+      "apparent_power_calculation": {
+        "name": "Beräkning av skenbar effekt"
+      },
+      "max_ramp_rate": {
+        "name": "Max ramphastighet"
+      },
+      "nominal_frequency": {
+        "name": "Nominell frekvens"
+      },
+      "connected_phase": {
+        "name": "Ansluten fas"
+      },
+      "lifetime_apparent_energy": {
+        "name": "Total skenbar energi"
+      },
+      "lifetime_reactive_energy": {
+        "name": "Total reaktiv energi {quadrant}"
+      },
+      "available_reactive_power": {
+        "name": "Tillgänglig reaktiv effekt"
+      },
+      "available_power": {
+        "name": "Tillgänglig effekt"
+      },
+      "setpoint_limits_reached": {
+        "name": "Nådda börvärdesgränser"
+      },
+      "active_controls": {
+        "name": "Aktiva styrfunktioner"
+      },
+      "timestamp": {
+        "name": "Tidsstämpel"
+      },
+      "grid_connection_time_window": {
+        "name": "Nätanslutning, tidsfönster"
+      },
+      "grid_connection_revert_time": {
+        "name": "Nätanslutning, återgångstid"
+      },
+      "export_limit_time_window": {
+        "name": "Exportgräns, tidsfönster"
+      },
+      "export_limit_ramp_time": {
+        "name": "Exportgräns, ramptid"
+      },
+      "power_factor_time_window": {
+        "name": "Börvärde för effektfaktor, tidsfönster"
+      },
+      "power_factor_revert_time": {
+        "name": "Börvärde för effektfaktor, återgångstid"
+      },
+      "power_factor_ramp_time": {
+        "name": "Börvärde för effektfaktor, ramptid"
+      },
+      "reactive_power_limit_pct_max_power": {
+        "name": "Gräns för reaktiv effekt (% av max effekt)"
+      },
+      "reactive_power_limit_pct_max_reactive_power": {
+        "name": "Gräns för reaktiv effekt (% av max reaktiv effekt)"
+      },
+      "reactive_power_limit_pct_available": {
+        "name": "Gräns för reaktiv effekt (% av tillgänglig reaktiv effekt)"
+      },
+      "reactive_power_limit_time_window": {
+        "name": "Gräns för reaktiv effekt, tidsfönster"
+      },
+      "reactive_power_limit_revert_time": {
+        "name": "Gräns för reaktiv effekt, återgångstid"
+      },
+      "reactive_power_limit_ramp_time": {
+        "name": "Gräns för reaktiv effekt, ramptid"
+      },
+      "reactive_power_limit_mode": {
+        "name": "Gräns för reaktiv effekt, läge"
+      },
+      "reactive_power_limit_enabled": {
+        "name": "Gräns för reaktiv effekt aktiverad"
+      },
+      "charge_ramp_rate": {
+        "name": "Ramphastighet för laddning"
+      },
+      "discharge_ramp_rate": {
+        "name": "Ramphastighet för urladdning"
+      },
+      "state_of_charge": {
+        "name": "Laddningsnivå"
+      },
+      "available_capacity": {
+        "name": "Tillgänglig kapacitet (Ah)"
+      },
+      "internal_battery_voltage": {
+        "name": "Intern batterispänning"
+      },
+      "charge_status": {
+        "name": "Laddningsstatus"
+      },
+      "battery_rate_time_window": {
+        "name": "Laddnings-/urladdningstakt, tidsfönster"
+      },
+      "battery_rate_ramp_time": {
+        "name": "Laddnings-/urladdningstakt, ramptid"
+      },
+      "global_events": {
+        "name": "Globala händelser"
+      },
+      "module_dc_current": {
+        "name": "Ingång {index} DC-ström"
+      },
+      "module_dc_voltage": {
+        "name": "Ingång {index} DC-spänning"
+      },
+      "module_dc_power": {
+        "name": "Ingång {index} DC-effekt"
+      },
+      "module_lifetime_energy": {
+        "name": "Ingång {index} total energi"
+      },
+      "module_timestamp": {
+        "name": "Ingång {index} tidsstämpel"
+      },
+      "module_temperature": {
+        "name": "Ingång {index} temperatur"
+      },
+      "module_operating_state": {
+        "name": "Ingång {index} drifttillstånd"
+      },
+      "module_events": {
+        "name": "Ingång {index} händelser"
+      },
+      "average_voltage_l_n": {
+        "name": "Genomsnittlig spänning L-N"
+      },
+      "average_voltage_l_l": {
+        "name": "Genomsnittlig spänning L-L"
+      },
+      "watts_phase": {
+        "name": "AC-effekt {phase}"
+      },
+      "apparent_power_phase": {
+        "name": "Skenbar effekt {phase}"
+      },
+      "reactive_power_phase": {
+        "name": "Reaktiv effekt {phase}"
+      },
+      "power_factor_phase": {
+        "name": "Effektfaktor {phase}"
+      },
+      "energy_exported": {
+        "name": "Exporterad energi"
+      },
+      "energy_exported_phase": {
+        "name": "Exporterad energi {phase}"
+      },
+      "energy_imported": {
+        "name": "Importerad energi"
+      },
+      "energy_imported_phase": {
+        "name": "Importerad energi {phase}"
+      },
+      "apparent_energy_exported": {
+        "name": "Exporterad skenbar energi"
+      },
+      "apparent_energy_exported_phase": {
+        "name": "Exporterad skenbar energi {phase}"
+      },
+      "apparent_energy_imported": {
+        "name": "Importerad skenbar energi"
+      },
+      "apparent_energy_imported_phase": {
+        "name": "Importerad skenbar energi {phase}"
+      },
+      "reactive_energy_imported": {
+        "name": "Importerad reaktiv energi {quadrant}"
+      },
+      "reactive_energy_imported_phase": {
+        "name": "Importerad reaktiv energi {quadrant} {phase}"
+      },
+      "reactive_energy_exported": {
+        "name": "Exporterad reaktiv energi {quadrant}"
+      },
+      "reactive_energy_exported_phase": {
+        "name": "Exporterad reaktiv energi {quadrant} {phase}"
+      },
+      "events": {
+        "name": "Händelser"
+      },
+      "ambient_temperature": {
+        "name": "Omgivningstemperatur"
+      },
+      "relative_humidity": {
+        "name": "Relativ luftfuktighet"
+      },
+      "barometric_pressure": {
+        "name": "Lufttryck"
+      },
+      "wind_speed": {
+        "name": "Vindhastighet"
+      },
+      "wind_direction": {
+        "name": "Vindriktning"
+      },
+      "rainfall": {
+        "name": "Nederbörd"
+      },
+      "snow_depth": {
+        "name": "Snödjup"
+      },
+      "electric_field": {
+        "name": "Elektriskt fält"
+      },
+      "surface_wetness": {
+        "name": "Ytfuktighet"
+      },
+      "soil_moisture": {
+        "name": "Markfuktighet"
+      },
+      "global_horizontal_irradiance": {
+        "name": "Global horisontell instrålning"
+      },
+      "module_back_temperature": {
+        "name": "Modulens baksidestemperatur"
+      },
+      "rated_dc_current": {
+        "name": "DC-märkström"
+      },
+      "vendor_events": {
+        "name": "Tillverkarhändelser"
+      },
+      "amp_hours": {
+        "name": "Amperetimmar"
+      },
+      "temperature": {
+        "name": "Temperatur"
+      },
+      "performance_ratio": {
+        "name": "Prestandakvot"
+      },
+      "dc_energy": {
+        "name": "DC-energi"
+      },
+      "string_events": {
+        "name": "Sträng {index} händelser"
+      },
+      "string_vendor_events": {
+        "name": "Sträng {index} tillverkarhändelser"
+      },
+      "string_dc_current": {
+        "name": "Sträng {index} DC-ström"
+      },
+      "string_amp_hours": {
+        "name": "Sträng {index} amperetimmar"
+      },
+      "string_dc_voltage": {
+        "name": "Sträng {index} DC-spänning"
+      },
+      "string_dc_power": {
+        "name": "Sträng {index} DC-effekt"
+      },
+      "string_dc_energy": {
+        "name": "Sträng {index} DC-energi"
+      },
+      "string_performance_ratio": {
+        "name": "Sträng {index} prestandakvot"
+      },
+      "status": {
+        "name": "Status"
+      },
+      "vendor_status": {
+        "name": "Tillverkarstatus"
+      },
+      "control_mode": {
+        "name": "Styrläge"
+      },
+      "output_current": {
+        "name": "Utgångsström"
+      },
+      "output_voltage": {
+        "name": "Utgångsspänning"
+      },
+      "output_energy": {
+        "name": "Utgångsenergi"
+      },
+      "output_power": {
+        "name": "Utgångseffekt"
+      },
+      "input_current": {
+        "name": "Ingångsström"
+      },
+      "input_voltage": {
+        "name": "Ingångsspänning"
+      },
+      "input_energy": {
+        "name": "Ingångsenergi"
+      },
+      "input_power": {
+        "name": "Ingångseffekt"
+      },
+      "tracker_type": {
+        "name": "Typ av solföljare"
+      },
+      "local_date": {
+        "name": "Lokalt datum"
+      },
+      "local_time": {
+        "name": "Lokal tid"
+      },
+      "manual_elevation": {
+        "name": "Manuell höjdvinkel"
+      },
+      "manual_azimuth": {
+        "name": "Manuell azimut"
+      },
+      "global_mode": {
+        "name": "Globalt läge"
+      },
+      "tracker_target_elevation": {
+        "name": "Solföljare {index} önskad höjdvinkel"
+      },
+      "tracker_target_azimuth": {
+        "name": "Solföljare {index} önskad azimut"
+      },
+      "tracker_elevation": {
+        "name": "Solföljare {index} höjdvinkel"
+      },
+      "tracker_azimuth": {
+        "name": "Solföljare {index} azimut"
+      },
+      "tracker_manual_elevation": {
+        "name": "Solföljare {index} manuell höjdvinkel"
+      },
+      "tracker_manual_azimuth": {
+        "name": "Solföljare {index} manuell azimut"
+      },
+      "tracker_mode": {
+        "name": "Solföljare {index} läge"
+      },
+      "ac_wiring_type": {
+        "name": "AC-anslutningstyp"
+      },
+      "inverter_state": {
+        "name": "Växelriktarens tillstånd"
+      },
+      "grid_connection_state": {
+        "name": "Nätanslutningens tillstånd"
+      },
+      "alarms": {
+        "name": "Larm"
+      },
+      "der_mode": {
+        "name": "DER-driftegenskaper"
+      },
+      "energy_injected": {
+        "name": "Inmatad energi"
+      },
+      "energy_injected_phase": {
+        "name": "Inmatad energi {phase}"
+      },
+      "energy_absorbed": {
+        "name": "Uttagen energi"
+      },
+      "energy_absorbed_phase": {
+        "name": "Uttagen energi {phase}"
+      },
+      "reactive_energy_injected": {
+        "name": "Inmatad reaktiv energi"
+      },
+      "reactive_energy_injected_phase": {
+        "name": "Inmatad reaktiv energi {phase}"
+      },
+      "reactive_energy_absorbed": {
+        "name": "Uttagen reaktiv energi"
+      },
+      "reactive_energy_absorbed_phase": {
+        "name": "Uttagen reaktiv energi {phase}"
+      },
+      "switch_temperature": {
+        "name": "IGBT/MOSFET-temperatur"
+      },
+      "throttling": {
+        "name": "Effektreduktion"
+      },
+      "throttling_source": {
+        "name": "Orsak till effektreduktion"
+      },
+      "rated_power_over_excited": {
+        "name": "Aktiv märkeffekt, övermagnetiserad"
+      },
+      "rated_power_under_excited": {
+        "name": "Aktiv märkeffekt, undermagnetiserad"
+      },
+      "rated_reactive_power_injected": {
+        "name": "Reaktiv märkeffekt, inmatad"
+      },
+      "rated_reactive_power_absorbed": {
+        "name": "Reaktiv märkeffekt, uttagen"
+      },
+      "rated_max_charge_apparent_power": {
+        "name": "Max skenbar laddningseffekt (märkvärde)"
+      },
+      "rated_max_discharge_apparent_power": {
+        "name": "Max skenbar urladdningseffekt (märkvärde)"
+      },
+      "rated_nominal_voltage": {
+        "name": "Nominell AC-spänning (märkvärde)"
+      },
+      "rated_max_voltage": {
+        "name": "Max AC-spänning (märkvärde)"
+      },
+      "rated_min_voltage": {
+        "name": "Min AC-spänning (märkvärde)"
+      },
+      "reactive_susceptance": {
+        "name": "Reaktiv susceptans"
+      },
+      "normal_operating_category": {
+        "name": "Kategori för normal drift"
+      },
+      "abnormal_operating_category": {
+        "name": "Kategori för onormal drift"
+      },
+      "supported_control_modes": {
+        "name": "Styrfunktioner som stöds"
+      },
+      "max_power_over_excited_setting": {
+        "name": "Konfigurerad aktiv effekt, övermagnetiserad"
+      },
+      "max_power_under_excited_setting": {
+        "name": "Konfigurerad aktiv effekt, undermagnetiserad"
+      },
+      "max_reactive_power_injected_setting": {
+        "name": "Konfigurerad max inmatad reaktiv effekt"
+      },
+      "max_reactive_power_absorbed_setting": {
+        "name": "Konfigurerad max uttagen reaktiv effekt"
+      },
+      "max_charge_power_setting": {
+        "name": "Konfigurerad max laddningseffekt"
+      },
+      "max_discharge_power_setting": {
+        "name": "Konfigurerad max urladdningseffekt"
+      },
+      "max_charge_apparent_power_setting": {
+        "name": "Konfigurerad max skenbar laddningseffekt"
+      },
+      "max_discharge_apparent_power_setting": {
+        "name": "Konfigurerad max skenbar urladdningseffekt"
+      },
+      "nominal_voltage_setting": {
+        "name": "Konfigurerad nominell AC-spänning"
+      },
+      "max_current_setting": {
+        "name": "Konfigurerad max AC-ström"
+      },
+      "pf_injecting_enabled": {
+        "name": "Effektfaktor (inmatning) aktiverad"
+      },
+      "pf_injecting_revert_enabled": {
+        "name": "Effektfaktor (inmatning) förblir aktiv efter återgång"
+      },
+      "pf_injecting_revert_time": {
+        "name": "Effektfaktor (inmatning), återgångstid"
+      },
+      "pf_injecting_revert_time_remaining": {
+        "name": "Effektfaktor (inmatning), återstående återgångstid"
+      },
+      "pf_injecting_excitation": {
+        "name": "Effektfaktor (inmatning), magnetisering"
+      },
+      "pf_injecting_revert_excitation": {
+        "name": "Effektfaktor (inmatning), magnetisering efter återgång"
+      },
+      "pf_absorbing_enabled": {
+        "name": "Effektfaktor (uttag) aktiverad"
+      },
+      "pf_absorbing_revert_enabled": {
+        "name": "Effektfaktor (uttag) förblir aktiv efter återgång"
+      },
+      "pf_absorbing_revert_time": {
+        "name": "Effektfaktor (uttag), återgångstid"
+      },
+      "pf_absorbing_revert_time_remaining": {
+        "name": "Effektfaktor (uttag), återstående återgångstid"
+      },
+      "pf_absorbing_excitation": {
+        "name": "Effektfaktor (uttag), magnetisering"
+      },
+      "pf_absorbing_revert_excitation": {
+        "name": "Effektfaktor (uttag), magnetisering efter återgång"
+      },
+      "export_limit_revert_time_remaining": {
+        "name": "Exportgräns, återstående återgångstid"
+      },
+      "active_power_setpoint_revert_value": {
+        "name": "Börvärde för aktiv effekt, återgångsvärde"
+      },
+      "active_power_setpoint_pct": {
+        "name": "Börvärde för aktiv effekt i procent"
+      },
+      "active_power_setpoint_pct_revert_value": {
+        "name": "Börvärde för aktiv effekt i procent, återgångsvärde"
+      },
+      "active_power_setpoint_revert_enabled": {
+        "name": "Börvärde för aktiv effekt förblir aktivt efter återgång"
+      },
+      "active_power_setpoint_revert_time": {
+        "name": "Börvärde för aktiv effekt, återgångstid"
+      },
+      "active_power_setpoint_revert_time_remaining": {
+        "name": "Börvärde för aktiv effekt, återstående återgångstid"
+      },
+      "reactive_power_setpoint_enabled": {
+        "name": "Börvärde för reaktiv effekt aktiverat"
+      },
+      "reactive_power_setpoint_mode": {
+        "name": "Börvärde för reaktiv effekt, läge"
+      },
+      "reactive_power_priority": {
+        "name": "Prioritet för reaktiv effekt"
+      },
+      "reactive_power_setpoint": {
+        "name": "Börvärde för reaktiv effekt"
+      },
+      "reactive_power_setpoint_revert_value": {
+        "name": "Börvärde för reaktiv effekt, återgångsvärde"
+      },
+      "reactive_power_setpoint_pct": {
+        "name": "Börvärde för reaktiv effekt i procent"
+      },
+      "reactive_power_setpoint_pct_revert_value": {
+        "name": "Börvärde för reaktiv effekt i procent, återgångsvärde"
+      },
+      "reactive_power_setpoint_revert_enabled": {
+        "name": "Börvärde för reaktiv effekt förblir aktivt efter återgång"
+      },
+      "reactive_power_setpoint_revert_time": {
+        "name": "Börvärde för reaktiv effekt, återgångstid"
+      },
+      "reactive_power_setpoint_revert_time_remaining": {
+        "name": "Börvärde för reaktiv effekt, återstående återgångstid"
+      },
+      "active_power_ramp_rate_reference": {
+        "name": "Ramphastighet för aktiv effekt, referens"
+      },
+      "reactive_power_ramp_rate": {
+        "name": "Ramphastighet för reaktiv effekt"
+      },
+      "anti_islanding_enabled": {
+        "name": "Ödriftsskydd aktiverat"
+      },
+      "energy_available": {
+        "name": "Tillgänglig energi"
+      },
+      "state_of_health": {
+        "name": "Hälsotillstånd"
+      },
+      "port_alarms": {
+        "name": "Portlarm"
+      },
+      "dc_energy_injected": {
+        "name": "Inmatad DC-energi"
+      },
+      "dc_energy_absorbed": {
+        "name": "Uttagen DC-energi"
+      },
+      "port_type": {
+        "name": "Port {index} typ"
+      },
+      "port_dc_current": {
+        "name": "Port {index} DC-ström"
+      },
+      "port_dc_voltage": {
+        "name": "Port {index} DC-spänning"
+      },
+      "port_dc_power": {
+        "name": "Port {index} DC-effekt"
+      },
+      "port_dc_energy_injected": {
+        "name": "Port {index} inmatad DC-energi"
+      },
+      "port_dc_energy_absorbed": {
+        "name": "Port {index} uttagen DC-energi"
+      },
+      "port_temperature": {
+        "name": "Port {index} temperatur"
+      },
+      "port_status": {
+        "name": "Port {index} status"
+      },
+      "port_alarm": {
+        "name": "Port {index} larm"
+      },
+      "deprecated_model": {
+        "name": "Föråldrad modell"
+      },
+      "depth_of_discharge": {
+        "name": "Urladdningsdjup"
+      },
+      "max_cell_voltage": {
+        "name": "Max cellspänning"
+      },
+      "min_cell_voltage": {
+        "name": "Min cellspänning"
+      },
+      "average_cell_voltage": {
+        "name": "Genomsnittlig cellspänning"
+      },
+      "max_module_temperature": {
+        "name": "Max modultemperatur"
+      },
+      "min_module_temperature": {
+        "name": "Min modultemperatur"
+      },
+      "average_module_temperature": {
+        "name": "Genomsnittlig modultemperatur"
+      },
+      "rated_charge_capacity": {
+        "name": "Märkkapacitet (Ah)"
+      },
+      "self_discharge_rate": {
+        "name": "Självurladdningstakt"
+      },
+      "rated_max_state_of_charge": {
+        "name": "Max laddningsnivå (märkvärde)"
+      },
+      "rated_min_state_of_charge": {
+        "name": "Min laddningsnivå (märkvärde)"
+      },
+      "max_reserve": {
+        "name": "Max reserv"
+      },
+      "min_reserve": {
+        "name": "Min reserv"
+      },
+      "battery_type": {
+        "name": "Batterityp"
+      },
+      "battery_bank_state": {
+        "name": "Batteribankens tillstånd"
+      },
+      "vendor_battery_bank_state": {
+        "name": "Batteribankens tillverkarspecifika tillstånd"
+      },
+      "external_battery_voltage": {
+        "name": "Extern batterispänning"
+      },
+      "max_battery_voltage": {
+        "name": "Max batterispänning"
+      },
+      "min_battery_voltage": {
+        "name": "Min batterispänning"
+      },
+      "max_charge_current": {
+        "name": "Max laddström"
+      },
+      "max_discharge_current": {
+        "name": "Max urladdningsström"
+      },
+      "inverter_state_request": {
+        "name": "Begärt tillstånd för växelriktaren"
+      },
+      "battery_power_request": {
+        "name": "Begärd batterieffekt"
+      },
+      "operation_command": {
+        "name": "Driftkommando"
+      },
+      "inverter_state_command": {
+        "name": "Kommando för växelriktarens tillstånd"
+      },
+      "max_string_voltage": {
+        "name": "Max strängspänning"
+      },
+      "min_string_voltage": {
+        "name": "Min strängspänning"
+      },
+      "average_string_voltage": {
+        "name": "Genomsnittlig strängspänning"
+      },
+      "max_string_current": {
+        "name": "Max strängström"
+      },
+      "min_string_current": {
+        "name": "Min strängström"
+      },
+      "average_string_current": {
+        "name": "Genomsnittlig strängström"
+      },
+      "string_status": {
+        "name": "Sträng {index} status"
+      },
+      "string_connection_failure_reason": {
+        "name": "Sträng {index} orsak till anslutningsfel"
+      },
+      "string_state_of_charge": {
+        "name": "Sträng {index} laddningsnivå"
+      },
+      "string_state_of_health": {
+        "name": "Sträng {index} hälsotillstånd"
+      },
+      "string_current": {
+        "name": "Sträng {index} ström"
+      },
+      "string_max_cell_voltage": {
+        "name": "Sträng {index} max cellspänning"
+      },
+      "string_min_cell_voltage": {
+        "name": "Sträng {index} min cellspänning"
+      },
+      "string_average_cell_voltage": {
+        "name": "Sträng {index} genomsnittlig cellspänning"
+      },
+      "string_max_module_temperature": {
+        "name": "Sträng {index} max modultemperatur"
+      },
+      "string_min_module_temperature": {
+        "name": "Sträng {index} min modultemperatur"
+      },
+      "string_average_module_temperature": {
+        "name": "Sträng {index} genomsnittlig modultemperatur"
+      },
+      "string_disabled_reason": {
+        "name": "Sträng {index} orsak till inaktivering"
+      },
+      "string_contactor_status": {
+        "name": "Sträng {index} kontaktorstatus"
+      },
+      "string_events_1": {
+        "name": "Sträng {index} händelser"
+      },
+      "string_events_2": {
+        "name": "Sträng {index} händelser 2"
+      },
+      "string_vendor_events_1": {
+        "name": "Sträng {index} tillverkarhändelser 1"
+      },
+      "string_vendor_events_2": {
+        "name": "Sträng {index} tillverkarhändelser 2"
+      },
+      "string_enable_command": {
+        "name": "Sträng {index} aktiveringskommando"
+      },
+      "string_connect_command": {
+        "name": "Sträng {index} anslutningskommando"
+      },
+      "connection_failure_reason": {
+        "name": "Orsak till anslutningsfel"
+      },
+      "contactor_status": {
+        "name": "Kontaktorstatus"
+      },
+      "enable_command": {
+        "name": "Aktiveringskommando"
+      },
+      "connect_command": {
+        "name": "Anslutningskommando"
+      },
+      "battery_module_state_of_charge": {
+        "name": "Modul {index} laddningsnivå"
+      },
+      "battery_module_state_of_health": {
+        "name": "Modul {index} hälsotillstånd"
+      },
+      "battery_module_max_cell_voltage": {
+        "name": "Modul {index} max cellspänning"
+      },
+      "battery_module_min_cell_voltage": {
+        "name": "Modul {index} min cellspänning"
+      },
+      "battery_module_average_cell_voltage": {
+        "name": "Modul {index} genomsnittlig cellspänning"
+      },
+      "battery_module_max_cell_temperature": {
+        "name": "Modul {index} max celltemperatur"
+      },
+      "battery_module_min_cell_temperature": {
+        "name": "Modul {index} min celltemperatur"
+      },
+      "battery_module_average_cell_temperature": {
+        "name": "Modul {index} genomsnittlig celltemperatur"
+      },
+      "max_cell_temperature": {
+        "name": "Max celltemperatur"
+      },
+      "min_cell_temperature": {
+        "name": "Min celltemperatur"
+      },
+      "average_cell_temperature": {
+        "name": "Genomsnittlig celltemperatur"
+      },
+      "cell_voltage": {
+        "name": "Cell {index} spänning"
+      },
+      "cell_temperature": {
+        "name": "Cell {index} temperatur"
+      },
+      "cell_status": {
+        "name": "Cell {index} status"
+      }
+    }
+  },
+  "exceptions": {
+    "entry_not_loaded": {
+      "message": "SunSpec-konfigurationsposten {entry_id} är inte inläst"
+    },
+    "no_export_limit": {
+      "message": "Växelriktaren har varken SunSpec-modell 123 eller modell 704, så den har ingen exportgräns att ställa in"
+    },
+    "export_limit_failed": {
+      "message": "Det gick inte att ställa in exportgränsen: {error}"
+    },
+    "no_battery_plan": {
+      "message": "Den här enheten stöder inte någon batteriplan"
+    },
+    "direction_unsupported": {
+      "message": "Batteriet stöder inte riktningen {direction}"
+    },
+    "write_failed": {
+      "message": "Det gick inte att skriva {target}: {error}"
+    },
+    "not_a_register": {
+      "message": "{register} är inte ett register i den här enheten"
+    },
+    "invalid_option": {
+      "message": "{option} är inte ett alternativ för {target} på den här enheten"
+    },
+    "battery_mode_failed": {
+      "message": "Det gick inte att ställa in batteriläget {mode}: {error}"
+    },
+    "no_battery": {
+      "message": "Växelriktaren rapporterar inget batteri (WChaMax är 0)"
+    },
+    "franklinwh_unavailable": {
+      "message": "Batteristyrningen för FranklinWH är inte tillgänglig"
+    },
+    "power_not_finite": {
+      "message": "Batterieffekten måste vara ett ändligt tal"
+    },
+    "franklinwh_failed": {
+      "message": "Batterikommandot till FranklinWH misslyckades: {error}"
+    },
+    "web_refused": {
+      "message": "Växelriktarens webbgränssnitt nekade: {error}"
+    }
+  },
+  "issues": {
+    "transport_error": {
+      "title": "Det går inte att nå SunSpec-växelriktaren",
+      "description": "Integrationen kan inte ansluta till SunSpec-växelriktaren på {host}:{port} (enhets-ID {unit_id}). Tre uppdateringscykler i rad har misslyckats.\n\nSenaste fel: {error}\n\nKontrollera följande:\n- Växelriktaren är påslagen\n- Växelriktaren kan nås i nätverket (prova ping {host})\n- Ingen brandvägg blockerar TCP-port {port}\n- Ingen annan Modbus-klient upptar växelriktarens enda TCP-anslutning"
+    },
+    "protocol_error": {
+      "title": "Enheten talar inte SunSpec",
+      "description": "Integrationen nådde enheten på {host}:{port} (enhets-ID {unit_id}), men den svarar inte som en SunSpec-enhet.\n\nSenaste fel: {error}\n\nKontrollera följande:\n- Enheten har verkligen stöd för SunSpec (vissa Modbus-enheter använder en tillverkarspecifik registerkarta)\n- Enhets-ID är rätt (vissa växelriktare använder enhets-ID 1, andra 0 eller 247)\n- Enhetens firmware är uppdaterad - äldre firmware har ibland felaktiga SunSpec-implementeringar"
+    },
+    "device_error": {
+      "title": "Växelriktaren rapporterar ett Modbus-undantag",
+      "description": "SunSpec-växelriktaren på {host}:{port} (enhets-ID {unit_id}) svarade med ett Modbus-undantag. Tre uppdateringscykler i rad har misslyckats.\n\nSenaste fel: {error}\n\nKontrollera följande:\n- Växelriktaren är i normalt drifttillstånd (inte i felläge)\n- De valda modellerna motsvarar det som växelriktaren faktiskt stöder\n- Ladda ned diagnostik från den här integrationen och bifoga den till en felrapport"
+    },
+    "cjne_conflict": {
+      "title": "cjne/ha-sunspec är fortfarande aktiv",
+      "description": "SunSpec 2 kan inte starta för växelriktaren på {host}:{port} (enhets-ID {unit_id}) eftersom integrationen cjne/ha-sunspec fortfarande körs för samma enhet.\n\nKACO Powador och de flesta andra SunSpec-växelriktare tillåter bara EN Modbus TCP-anslutning åt gången. cjne håller för närvarande den anslutningen, så SunSpec 2 kan inte läsa av enheten. Att köra båda integrationerna mot samma växelriktare skulle också ge dubbla sensorer och instabila värden.\n\nSå här byter du från cjne till SunSpec 2:\n\n1. Öppna HACS och avinstallera integrationen cjne/ha-sunspec\n2. Starta om Home Assistant\n3. SunSpec 2 försöker igen automatiskt och tar över de befintliga entiteterna\n\nMigreringshjälpen i SunSpec 2 behåller dina entitets-ID:n och din historik i Recorder."
+    },
+    "stale_model": {
+      "title": "SunSpec-modell {model_id} har försvunnit",
+      "description": "Växelriktaren på {host}:{port} (enhets-ID {unit_id}) visade tidigare SunSpec-modell {model_id}, men modellen har nu saknats i varje sökning i {missing_minutes} minuter.\n\nDet betyder oftast att växelriktaren har tagit bort modellen permanent (firmwareuppdatering, ändrad konfiguration hos tillverkaren eller att den underliggande hårdvarumodulen har kopplats bort). De tillhörande sensorerna finns kvar i entitetsregistret men behåller sitt senaste giltiga värde.\n\nOm du inte längre behöver dem öppnar du enhetsinformationssidan för den berörda enheten och tar bort enheten med papperskorgsikonen. De tillhörande entiteterna rensas då bort automatiskt.\n\nOm modellen kommer tillbaka av sig själv försvinner det här ärendet i Reparationer automatiskt vid nästa lyckade avläsning."
+    }
+  },
+  "services": {
+    "set_battery_plan": {
+      "name": "Ställ in batteriplan",
+      "description": "Uppdatera planens inställningar samtidigt. Ändringar gäller från nästa lyckade avläsning; om planen inaktiveras stoppas den direkt.",
+      "fields": {
+        "config_entry_id": {
+          "name": "SunSpec-enhet"
+        },
+        "direction": {
+          "name": "Riktning"
+        },
+        "start": {
+          "name": "Start"
+        },
+        "end": {
+          "name": "Slut"
+        },
+        "target_pct": {
+          "name": "Mål för laddningsnivå"
+        },
+        "capacity_kwh": {
+          "name": "Batterikapacitet"
+        },
+        "enabled": {
+          "name": "Aktiverad"
+        }
+      }
+    }
+  }
+}

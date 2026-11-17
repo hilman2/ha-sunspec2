@@ -50,72 +50,13 @@ from .coordinator import SunSpecDataUpdateCoordinator
 from .entity import SunSpecEntity
 from .entity import get_sunspec_unique_id
 from .franklinwh_controls import franklinwh_sensors
+from .point_names import point_name
 
 # The coordinator serialises all I/O through its per-gateway lock, so
 # the platform needs no concurrency limit of its own.
 PARALLEL_UPDATES = 0
 
 _LOGGER: logging.Logger = logging.getLogger(__package__)
-
-# The points with a translated name: SunSpec point name to the key under
-# ``entity.sensor`` in translations/*.json. Any other point is named by
-# the label of its SunSpec model definition, which is English.
-#
-# A point in a repeating group (``module:0:DCA``) keeps the label with
-# its index in front; a translation has no place for the index.
-SUNSPEC_POINT_TRANSLATION_KEYS: dict[str, str] = {
-    # Inverter common (model 101 / 102 / 103)
-    "A": "amps",
-    "AphA": "amps_l1",
-    "AphB": "amps_l2",
-    "AphC": "amps_l3",
-    "PPVphAB": "phase_voltage_l1_l2",
-    "PPVphBC": "phase_voltage_l2_l3",
-    "PPVphCA": "phase_voltage_l3_l1",
-    "PhVphA": "phase_voltage_l1_n",
-    "PhVphB": "phase_voltage_l2_n",
-    "PhVphC": "phase_voltage_l3_n",
-    "W": "watts",
-    "Hz": "frequency",
-    "VA": "apparent_power",
-    "VAr": "reactive_power",
-    "PF": "power_factor",
-    "WH": "lifetime_energy",
-    "DCA": "dc_current",
-    "DCV": "dc_voltage",
-    "DCW": "dc_power",
-    "TmpCab": "cabinet_temperature",
-    "TmpSnk": "heat_sink_temperature",
-    "TmpTrns": "transformer_temperature",
-    "TmpOt": "other_temperature",
-    "St": "operating_state",
-    "StVnd": "vendor_operating_state",
-    "Evt1": "events_1",
-    "Evt2": "events_2",
-    "EvtVnd1": "vendor_events_1",
-    "EvtVnd2": "vendor_events_2",
-    "EvtVnd3": "vendor_events_3",
-    "EvtVnd4": "vendor_events_4",
-    # Inverter Nameplate (model 120)
-    "WRtg": "rated_power",
-    "VARtg": "rated_apparent_power",
-    "ARtg": "rated_current",
-    "WHRtg": "rated_storage_capacity",
-    # Inverter Settings (model 121)
-    "WMax": "max_power_setting",
-    "VRef": "voltage_reference",
-}
-
-# The models in which the points above mean what their translation says:
-# inverters, nameplate and settings, meters, string combiners and the
-# DER models. Elsewhere the same name is another quantity, ``A`` a DC
-# current in the battery model 802 and ``VA`` a voltage in 64411, so a
-# sensor of another model keeps the label of its own definition.
-TRANSLATED_NAME_MODELS = frozenset(
-    {101, 102, 103, 111, 112, 113, 120, 121}
-    | {201, 202, 203, 204, 211, 212, 213, 214, 220}
-    | {401, 402, 403, 404, 701, 702, 714}
-)
 
 ICON_DEFAULT = "mdi:information-outline"
 ICON_AC_AMPS = "mdi:current-ac"
@@ -488,19 +429,17 @@ class SunSpecSensor(SunSpecEntity, SensorEntity):
         self._name = " ".join(name_parts)
 
         # The translation key gives the sensor its name (translations/)
-        # and its icon (icons.json). A point gets one in the models where
-        # the translation holds, see TRANSLATED_NAME_MODELS. Without one
-        # the sensor has the label of its model definition and the icon
-        # of its unit.
-        if ":" not in self.key:
-            vendor = coordinator.vendor
-            if vendor is not None and self.key in vendor.daily_energy_points:
-                self._attr_translation_key = "daily_energy"
-            elif (
-                self.model_id in TRANSLATED_NAME_MODELS
-                and self.key in SUNSPEC_POINT_TRANSLATION_KEYS
-            ):
-                self._attr_translation_key = SUNSPEC_POINT_TRANSLATION_KEYS[self.key]
+        # and its icon (icons.json), see point_names.py for which point
+        # gets which. Without one the sensor has the label of its model
+        # definition and the icon of its unit.
+        vendor = coordinator.vendor
+        if vendor is not None and self.key in vendor.daily_energy_points:
+            self._attr_translation_key = "daily_energy"
+        else:
+            translated = point_name(self.model_id, self.key)
+            if translated is not None:
+                self._attr_translation_key = translated.key
+                self._attr_translation_placeholders = translated.placeholders
 
         # Temperatures, state enums and event bitfields are diagnostic:
         # Home Assistant lists them under "Diagnostic" on the device

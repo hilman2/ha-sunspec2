@@ -358,7 +358,7 @@ async def test_the_held_limits_are_written_again_before_the_inverter_falls_back(
 
 
 async def test_a_point_is_named_for_what_it_means_in_its_model(hass, sunspec_kostal_client_mock):
-    """``W`` is the AC power of the inverter and the total power of the battery."""
+    """``W`` is the AC power of the inverter and the DC power of the battery."""
     entry = create_mock_sunspec_config_entry(
         hass, data={**MOCK_CONFIG, CONF_ENABLED_MODELS: [103, 802]}
     )
@@ -368,4 +368,4 @@ async def test_a_point_is_named_for_what_it_means_in_its_model(hass, sunspec_kos
         sensor.model_id: sensor.name for sensor in sensors if getattr(sensor, "key", "") == "W"
     }
 
-    assert names == {103: "AC power", 802: "Total Power"}
+    assert names == {103: "AC power", 802: "DC power"}
