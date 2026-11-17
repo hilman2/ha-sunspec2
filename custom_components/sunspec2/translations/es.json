@@ -1,0 +1,1907 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "description": "¿Cómo quieres configurar tu inversor?",
+        "menu_options": {
+          "manual": "Modbus TCP - introducir la IP manualmente",
+          "scan": "Modbus TCP - buscar en mi red",
+          "serial": "Modbus RTU - puerto serie (RS-485)"
+        }
+      },
+      "manual": {
+        "title": "Conexión del inversor",
+        "description": "Introduce la dirección IP del inversor, el puerto Modbus TCP (por defecto 502) y el ID de unidad Modbus (por defecto 1).",
+        "data": {
+          "host": "Host o IP",
+          "port": "Puerto Modbus TCP",
+          "unit_id": "ID de unidad Modbus"
+        },
+        "data_description": {
+          "host": "La dirección IP o el nombre de host del inversor, o de la pasarela que tiene delante.",
+          "port": "El puerto Modbus TCP. 502, salvo que el dispositivo tenga configurado otro.",
+          "unit_id": "La dirección Modbus del dispositivo, también llamada ID de esclavo o ID de dispositivo. A menudo es 1. Aparece en los ajustes Modbus del dispositivo."
+        }
+      },
+      "scan": {
+        "title": "Buscar inversores en la red",
+        "description": "Busca en la subred elegida hosts con el puerto Modbus TCP 502 abierto. Los hosts cuya dirección MAC pertenece a un fabricante conocido de inversores SunSpec aparecen primero. La búsqueda solo prueba a abrir una conexión TCP y nunca envía bytes Modbus, por lo que no interfiere con otros dispositivos Modbus de la red. La subred predeterminada se detecta a partir de la configuración de red del host de Home Assistant.",
+        "data": {
+          "subnet": "Subred en la que buscar (notación CIDR, p. ej. 192.168.1.0/24)"
+        },
+        "data_description": {
+          "subnet": "La red en la que buscar, en notación CIDR. Como máximo una /22, que son 1022 direcciones."
+        }
+      },
+      "scan_results": {
+        "title": "Elige tu inversor",
+        "description": "Estos hosts respondieron en el puerto Modbus TCP 502. Los hosts marcados como 'SunSpec vendor' tienen una dirección MAC de un fabricante conocido de inversores y lo más probable es que sean tu dispositivo.",
+        "data": {
+          "host": "Inversor"
+        },
+        "data_description": {
+          "host": "Los dispositivos que respondieron en el puerto Modbus. Los fabricantes de inversores conocidos aparecen primero."
+        }
+      },
+      "serial": {
+        "title": "Conexión Modbus RTU",
+        "description": "Configura una conexión por línea serie (RS-485) con un inversor compatible con SunSpec. Lo habitual es un adaptador USB a RS-485 en /dev/ttyUSB0 (Linux) o COM3 (Windows). La velocidad en baudios suele ser 9600 o 19200; consulta el manual de tu inversor.",
+        "data": {
+          "serial_port": "Puerto serie (p. ej. /dev/ttyUSB0 o COM3)",
+          "baudrate": "Velocidad en baudios",
+          "parity": "Paridad",
+          "unit_id": "ID de unidad Modbus"
+        },
+        "data_description": {
+          "serial_port": "El puerto serie del adaptador RS-485.",
+          "baudrate": "La velocidad configurada en el dispositivo. Ambos extremos deben usar la misma.",
+          "parity": "La paridad configurada en el dispositivo.",
+          "unit_id": "La dirección Modbus del dispositivo, también llamada ID de esclavo o ID de dispositivo. A menudo es 1. Aparece en los ajustes Modbus del dispositivo."
+        }
+      },
+      "settings": {
+        "title": "Ajustes del inversor",
+        "description": "Elige los modelos de sensores y un intervalo de sondeo. Puedes cambiarlos más tarde en las opciones del dispositivo.",
+        "data": {
+          "prefix": "Prefijo del nombre de los sensores",
+          "scan_interval": "Intervalo de sondeo",
+          "models_enabled": "Modelos de sensores",
+          "max_ac_power_kw": "Potencia pico de CA"
+        },
+        "data_description": {
+          "prefix": "Prefijo opcional para los nombres de los sensores.",
+          "scan_interval": "Tiempo entre lecturas del dispositivo. Los intervalos cortos aumentan la carga de la red y del dispositivo.",
+          "models_enabled": "Selecciona los modelos SunSpec detectados que se mostrarán como sensores. Selecciona al menos uno.",
+          "max_ac_power_kw": "Potencia de CA usada para filtrar lecturas inverosímiles. Se propone a partir de la placa de características con un margen del 20 %. La potencia de CC y la potencia aparente admiten lecturas más altas. Déjalo vacío para usar la detección automática."
+        }
+      },
+      "reconfigure": {
+        "title": "Reconfigurar la conexión del inversor",
+        "description": "Actualiza el host, el puerto o el ID de unidad de un inversor SunSpec existente sin perder su historial. Se prueba la nueva conexión y la entrada solo se actualiza si el inversor sigue informando del mismo número de serie.",
+        "data": {
+          "host": "Host o IP",
+          "port": "Puerto Modbus TCP",
+          "unit_id": "ID de unidad Modbus"
+        },
+        "data_description": {
+          "host": "La dirección IP o el nombre de host del inversor, o de la pasarela que tiene delante.",
+          "port": "El puerto Modbus TCP. 502, salvo que el dispositivo tenga configurado otro.",
+          "unit_id": "La dirección Modbus del dispositivo, también llamada ID de esclavo o ID de dispositivo. A menudo es 1. Aparece en los ajustes Modbus del dispositivo."
+        }
+      }
+    },
+    "error": {
+      "connection": "No se puede contactar con el inversor. Comprueba el host, el puerto y el ID de unidad, y vuelve a intentarlo.",
+      "timeout": "Se agotó el tiempo de espera al contactar con el inversor. Puede que el dispositivo esté desconectado o que otro cliente Modbus esté ocupando la conexión.",
+      "device_error": "El inversor respondió con un error Modbus. Comprueba que el firmware del dispositivo esté actualizado.",
+      "invalid_subnet": "La subred no está en una notación CIDR válida o es demasiado grande para buscar en ella (usa una /22 o menor).",
+      "no_candidates": "No se encontró ningún host con el puerto Modbus TCP 502 abierto en esta subred.",
+      "no_models_selected": "Selecciona al menos un modelo SunSpec. Guardar una selección vacía haría que la integración dejara de consultar el inversor y desaparecerían todos los sensores.",
+      "unique_id_mismatch": "El inversor en esta dirección informa de un número de serie distinto del que configuraste originalmente. No se traspasará el historial de tus sensores a otro dispositivo.",
+      "sma_unit_id": "El inversor responde a SunSpec en el ID de unidad 126, no en el introducido. SMA ofrece SunSpec en su propio ID de unidad Modbus más 123. El campo se ha cambiado a 126; vuelve a enviarlo."
+    },
+    "abort": {
+      "already_configured": "Este inversor ya está configurado.",
+      "reconfigure_successful": "Ajustes de conexión actualizados."
+    }
+  },
+  "options": {
+    "step": {
+      "host_options": {
+        "title": "Ajustes de conexión",
+        "description": "Comprueba los datos de conexión y continúa con las opciones del dispositivo.",
+        "data": {
+          "host": "Host o IP",
+          "port": "Puerto Modbus TCP",
+          "unit_id": "ID de unidad Modbus"
+        },
+        "data_description": {
+          "host": "La dirección IP o el nombre de host del inversor, o de la pasarela que tiene delante.",
+          "port": "El puerto Modbus TCP. 502, salvo que el dispositivo tenga configurado otro.",
+          "unit_id": "La dirección Modbus del dispositivo, también llamada ID de esclavo o ID de dispositivo. A menudo es 1. Aparece en los ajustes Modbus del dispositivo."
+        }
+      },
+      "model_options": {
+        "title": "Opciones del dispositivo",
+        "description": "Ajusta la selección de sensores y el sondeo. Más abajo hay otros ajustes agrupados.",
+        "data": {
+          "scan_interval": "Intervalo de sondeo",
+          "models_enabled": "Modelos de sensores"
+        },
+        "data_description": {
+          "scan_interval": "Tiempo entre lecturas del dispositivo. Los intervalos cortos aumentan la carga de la red y del dispositivo.",
+          "models_enabled": "Selecciona los modelos SunSpec detectados que se mostrarán como sensores. Selecciona al menos uno."
+        },
+        "sections": {
+          "advanced": {
+            "name": "Avanzado",
+            "description": "Nombres de sensores, filtrado de potencia, modo de espera y resolución de problemas.",
+            "data": {
+              "max_ac_power_kw": "Potencia pico de CA",
+              "prefix": "Prefijo del nombre de los sensores",
+              "standby_when_idle": "Permitir que el inversor se desconecte cuando está inactivo",
+              "scan_delay": "Pausa en la búsqueda de modelos",
+              "model_read_delay": "Pausa en la lectura de modelos",
+              "capture_raw_registers": "Capturar registros de diagnóstico",
+              "rearm_on_change": "Reactivar los controles tras cambiar una consigna"
+            },
+            "data_description": {
+              "max_ac_power_kw": "Potencia de CA usada para filtrar lecturas inverosímiles. Se propone a partir de la placa de características con un margen del 20 %. La potencia de CC y la potencia aparente admiten lecturas más altas. Déjalo vacío para usar la detección automática.",
+              "prefix": "Prefijo opcional para los nombres de los sensores.",
+              "standby_when_idle": "Suprime los avisos de conexión en Reparaciones para los dispositivos que se desconectan sin informar de que están en espera. Los sensores siguen pasando a no disponibles. El modo de espera que informa el dispositivo se detecta automáticamente.",
+              "scan_delay": "Pausa entre modelos durante la detección, no durante el sondeo normal. Auméntala si la detección falla en dispositivos lentos.",
+              "model_read_delay": "Pausa entre lecturas de modelos durante el sondeo normal. Los valores bajos acortan las actualizaciones y las acciones de escritura. Pon 0 para eliminar la pausa.",
+              "capture_raw_registers": "Añade los datos sin procesar de los registros Modbus a las descargas de diagnóstico para la resolución de problemas.",
+              "rearm_on_change": "Fronius GEN24 necesita un ciclo de apagado y encendido para aplicar los límites modificados. Mientras un control está habilitado, su interruptor se apaga, se escribe el valor y el interruptor se vuelve a encender un segundo después. Durante ese segundo el límite no está activo."
+            }
+          },
+          "fronius": {
+            "name": "Interfaz web de Fronius",
+            "description": "Acceso opcional a datos adicionales del dispositivo.",
+            "data": {
+              "fronius_web_password": "Contraseña de la interfaz web",
+              "fronius_web_forget": "Olvidar el inicio de sesión guardado"
+            },
+            "data_description": {
+              "fronius_web_password": "Inicio de sesión local \"customer\", no tu cuenta de Solar.web. Habilita datos adicionales del dispositivo y de la batería. Solo se guarda un hash del inicio de sesión específico del dispositivo. Déjalo vacío para conservar el inicio de sesión guardado.",
+              "fronius_web_forget": "Elimina el inicio de sesión guardado y desactiva las funciones adicionales de la interfaz web."
+            }
+          }
+        }
+      }
+    },
+    "error": {
+      "no_models_selected": "Selecciona al menos un modelo SunSpec. Guardar una selección vacía haría que la integración dejara de consultar el inversor y desaparecerían todos los sensores.",
+      "connection": "No se puede contactar con el inversor en este momento. Espera un poco y vuelve a intentarlo, o comprueba que el dispositivo esté en línea.",
+      "web_auth_failed": "El inversor rechazó esa contraseña de la interfaz web. Es el inicio de sesión local \"customer\" de la propia página web del inversor, no la cuenta de Solar.web.",
+      "web_unreachable": "La interfaz web del inversor no respondió en el puerto 80."
+    }
+  },
+  "entity": {
+    "number": {
+      "export_limit_pct": {
+        "name": "Límite de vertido"
+      },
+      "export_limit_revert_time": {
+        "name": "Tiempo de reversión del límite de vertido"
+      },
+      "power_factor_set": {
+        "name": "Consigna de factor de potencia"
+      },
+      "active_power_setpoint": {
+        "name": "Consigna de potencia activa"
+      },
+      "active_power_setpoint_pct": {
+        "name": "Consigna de potencia activa en porcentaje"
+      },
+      "export_limit_revert_value": {
+        "name": "Valor de reversión del límite de vertido"
+      },
+      "battery_charge_rate": {
+        "name": "Tasa de carga de la batería"
+      },
+      "battery_discharge_rate": {
+        "name": "Tasa de descarga de la batería"
+      },
+      "battery_max_charge_power": {
+        "name": "Potencia máxima de carga de la batería"
+      },
+      "battery_rate_revert_time": {
+        "name": "Tiempo de reversión de las tasas de la batería"
+      },
+      "battery_min_reserve": {
+        "name": "Reserva mínima de la batería"
+      },
+      "battery_pv_charge_limit_w": {
+        "name": "Límite de carga FV de la batería"
+      },
+      "battery_discharge_limit_w": {
+        "name": "Límite de descarga de la batería"
+      },
+      "battery_grid_charge_power_w": {
+        "name": "Potencia de carga de la batería desde la red"
+      },
+      "battery_grid_discharge_power_w": {
+        "name": "Potencia de descarga de la batería a la red"
+      },
+      "scheduled_discharge_reserve_pct": {
+        "name": "Objetivo del plan de batería"
+      },
+      "battery_capacity_kwh": {
+        "name": "Capacidad de la batería"
+      },
+      "storage_ac_charge_limit": {
+        "name": "Límite de carga de CA del almacenamiento"
+      },
+      "storage_backup_reserve": {
+        "name": "Reserva de respaldo del almacenamiento"
+      },
+      "storage_command_timeout": {
+        "name": "Tiempo de espera del comando de almacenamiento"
+      },
+      "storage_charge_limit": {
+        "name": "Límite de carga del almacenamiento"
+      },
+      "storage_discharge_limit": {
+        "name": "Límite de descarga del almacenamiento"
+      },
+      "site_limit": {
+        "name": "Límite de la instalación"
+      },
+      "active_power_limit": {
+        "name": "Límite de potencia activa"
+      },
+      "sma_power_setpoint": {
+        "name": "Consigna de potencia externa"
+      },
+      "battery_min_soc": {
+        "name": "Estado de carga mínimo"
+      },
+      "battery_max_soc": {
+        "name": "Estado de carga máximo"
+      },
+      "battery_max_charge_power_limit": {
+        "name": "Límite de potencia de carga"
+      },
+      "battery_max_discharge_power_limit": {
+        "name": "Límite de potencia de descarga"
+      },
+      "battery_dc_power_setpoint": {
+        "name": "Consigna de potencia de CC"
+      },
+      "battery_limitation_charge_power": {
+        "name": "Límite de potencia de carga mantenido"
+      },
+      "battery_limitation_discharge_power": {
+        "name": "Límite de potencia de descarga mantenido"
+      },
+      "battery_fallback_charge_power": {
+        "name": "Potencia de carga en modo de seguridad"
+      },
+      "battery_fallback_discharge_power": {
+        "name": "Potencia de descarga en modo de seguridad"
+      },
+      "battery_fallback_time": {
+        "name": "Tiempo hasta el modo de seguridad"
+      },
+      "franklinwh_power_target": {
+        "name": "Objetivo de potencia de la batería"
+      }
+    },
+    "select": {
+      "battery_control_mode": {
+        "name": "Modo de control de la batería",
+        "state": {
+          "off": "Apagado",
+          "charge": "Solo carga",
+          "discharge": "Solo descarga",
+          "both": "Carga y descarga"
+        }
+      },
+      "battery_mode": {
+        "name": "Modo de la batería",
+        "state": {
+          "auto": "Automático",
+          "pv_charge_limit": "Límite de carga FV",
+          "discharge_limit": "Límite de descarga",
+          "charge_and_discharge_limit": "Límite de carga FV y de descarga",
+          "charge_from_grid": "Cargar desde la red",
+          "discharge_to_grid": "Descargar a la red",
+          "block_discharging": "Bloquear la descarga",
+          "block_charging": "Bloquear la carga"
+        }
+      },
+      "active_power_setpoint_mode": {
+        "name": "Modo de consigna de potencia activa",
+        "state": {
+          "w_max_pct": "Porcentaje del máximo",
+          "watts": "Vatios"
+        }
+      },
+      "storage_control_mode": {
+        "name": "Modo de control del almacenamiento",
+        "state": {
+          "disabled": "Desactivado",
+          "maximize_self_consumption": "Maximizar el autoconsumo",
+          "time_of_use": "Franjas horarias",
+          "backup_only": "Solo respaldo",
+          "remote_control": "Control remoto"
+        }
+      },
+      "storage_ac_charge_policy": {
+        "name": "Política de carga de CA del almacenamiento",
+        "state": {
+          "disabled": "Desactivada",
+          "always_allowed": "Siempre permitida",
+          "fixed_energy_limit": "Límite de energía fijo",
+          "percent_of_production": "Porcentaje de la producción"
+        }
+      },
+      "storage_default_mode": {
+        "name": "Modo predeterminado del almacenamiento",
+        "state": {
+          "solar_power_only": "Solo energía solar",
+          "charge_from_clipped_solar": "Cargar con energía solar recortada",
+          "charge_from_solar": "Cargar con energía solar",
+          "charge_from_solar_and_grid": "Cargar con energía solar y de la red",
+          "discharge_to_maximize_export": "Descargar para maximizar el vertido",
+          "discharge_to_minimize_import": "Descargar para minimizar el consumo de la red",
+          "maximize_self_consumption": "Maximizar el autoconsumo"
+        }
+      },
+      "storage_command_mode": {
+        "name": "Modo de comando del almacenamiento",
+        "state": {
+          "solar_power_only": "Solo energía solar",
+          "charge_from_clipped_solar": "Cargar con energía solar recortada",
+          "charge_from_solar": "Cargar con energía solar",
+          "charge_from_solar_and_grid": "Cargar con energía solar y de la red",
+          "discharge_to_maximize_export": "Descargar para maximizar el vertido",
+          "discharge_to_minimize_import": "Descargar para minimizar el consumo de la red",
+          "maximize_self_consumption": "Maximizar el autoconsumo"
+        }
+      },
+      "site_limit_mode": {
+        "name": "Modo del límite de la instalación",
+        "state": {
+          "disabled": "Desactivado",
+          "export_control_export_import_meter": "Control de vertido (contador de vertido/consumo de la red)",
+          "export_control_consumption_meter": "Control de vertido (contador de consumo)",
+          "production_control": "Control de producción"
+        }
+      },
+      "site_limit_scope": {
+        "name": "Alcance del límite de la instalación",
+        "state": {
+          "total": "Total",
+          "per_phase": "Por fase"
+        }
+      },
+      "sma_power_control": {
+        "name": "Control de potencia externo",
+        "state": {
+          "inactive": "Inactivo",
+          "active": "Activo"
+        }
+      },
+      "battery_plan_direction": {
+        "name": "Sentido del plan de batería",
+        "state": {
+          "charge": "Carga",
+          "discharge": "Descarga"
+        }
+      }
+    },
+    "switch": {
+      "export_limit_enabled": {
+        "name": "Límite de vertido habilitado"
+      },
+      "power_factor_enabled": {
+        "name": "Consigna de factor de potencia habilitada"
+      },
+      "inverter_grid_connection": {
+        "name": "Conexión del inversor a la red"
+      },
+      "active_power_setpoint_enabled": {
+        "name": "Consigna de potencia activa habilitada"
+      },
+      "export_limit_revert_enabled": {
+        "name": "Límite de vertido sigue activo tras la reversión"
+      },
+      "battery_grid_charging": {
+        "name": "Carga de la batería desde la red permitida"
+      },
+      "scheduled_discharge": {
+        "name": "Plan de batería"
+      },
+      "battery_charge_from_grid": {
+        "name": "Carga de la batería desde la red (interfaz web)"
+      },
+      "battery_charge_from_ac": {
+        "name": "Carga de la batería desde CA (interfaz web)"
+      },
+      "modbus_control_allowed": {
+        "name": "Control por Modbus permitido"
+      },
+      "storage_command_rearm": {
+        "name": "Renovar el comando de almacenamiento"
+      },
+      "active_power_limit_reassert": {
+        "name": "Mantener el límite de potencia activa"
+      },
+      "sma_power_setpoint_keepalive": {
+        "name": "Mantener la consigna de potencia externa"
+      },
+      "battery_limitation_hold": {
+        "name": "Mantener los límites de potencia"
+      }
+    },
+    "time": {
+      "scheduled_discharge_start": {
+        "name": "Inicio del plan de batería"
+      },
+      "scheduled_discharge_end": {
+        "name": "Fin del plan de batería"
+      }
+    },
+    "button": {
+      "reset_modbus_control": {
+        "name": "Restablecer el control por Modbus"
+      },
+      "franklinwh_standby": {
+        "name": "Mantener la batería en espera"
+      },
+      "franklinwh_release": {
+        "name": "Liberar el control de la batería"
+      }
+    },
+    "sensor": {
+      "amps": {
+        "name": "Corriente de CA"
+      },
+      "amps_l1": {
+        "name": "Corriente de CA L1"
+      },
+      "amps_l2": {
+        "name": "Corriente de CA L2"
+      },
+      "amps_l3": {
+        "name": "Corriente de CA L3"
+      },
+      "phase_voltage_l1_l2": {
+        "name": "Tensión de fase L1-L2"
+      },
+      "phase_voltage_l2_l3": {
+        "name": "Tensión de fase L2-L3"
+      },
+      "phase_voltage_l3_l1": {
+        "name": "Tensión de fase L3-L1"
+      },
+      "phase_voltage_l1_n": {
+        "name": "Tensión de fase L1-N"
+      },
+      "phase_voltage_l2_n": {
+        "name": "Tensión de fase L2-N"
+      },
+      "phase_voltage_l3_n": {
+        "name": "Tensión de fase L3-N"
+      },
+      "watts": {
+        "name": "Potencia de CA"
+      },
+      "frequency": {
+        "name": "Frecuencia de CA"
+      },
+      "apparent_power": {
+        "name": "Potencia aparente"
+      },
+      "reactive_power": {
+        "name": "Potencia reactiva"
+      },
+      "power_factor": {
+        "name": "Factor de potencia"
+      },
+      "lifetime_energy": {
+        "name": "Energía producida total"
+      },
+      "daily_energy": {
+        "name": "Energía producida hoy"
+      },
+      "counted_lifetime_energy": {
+        "name": "Energía producida total (contabilizada)"
+      },
+      "dc_current": {
+        "name": "Corriente de CC"
+      },
+      "dc_voltage": {
+        "name": "Tensión de CC"
+      },
+      "dc_power": {
+        "name": "Potencia de CC"
+      },
+      "cabinet_temperature": {
+        "name": "Temperatura de la carcasa"
+      },
+      "heat_sink_temperature": {
+        "name": "Temperatura del disipador"
+      },
+      "transformer_temperature": {
+        "name": "Temperatura del transformador"
+      },
+      "other_temperature": {
+        "name": "Otra temperatura"
+      },
+      "operating_state": {
+        "name": "Estado de funcionamiento"
+      },
+      "vendor_operating_state": {
+        "name": "Estado de funcionamiento del fabricante"
+      },
+      "events_1": {
+        "name": "Eventos"
+      },
+      "events_2": {
+        "name": "Eventos 2"
+      },
+      "vendor_events_1": {
+        "name": "Eventos del fabricante 1"
+      },
+      "vendor_events_2": {
+        "name": "Eventos del fabricante 2"
+      },
+      "vendor_events_3": {
+        "name": "Eventos del fabricante 3"
+      },
+      "vendor_events_4": {
+        "name": "Eventos del fabricante 4"
+      },
+      "rated_power": {
+        "name": "Potencia nominal de CA"
+      },
+      "rated_apparent_power": {
+        "name": "Potencia aparente nominal"
+      },
+      "rated_current": {
+        "name": "Corriente nominal de CA"
+      },
+      "rated_storage_capacity": {
+        "name": "Capacidad de almacenamiento nominal"
+      },
+      "max_power_setting": {
+        "name": "Potencia máxima configurada"
+      },
+      "voltage_reference": {
+        "name": "Tensión de referencia"
+      },
+      "battery_charge_power": {
+        "name": "Potencia de carga de la batería"
+      },
+      "battery_discharge_power": {
+        "name": "Potencia de descarga de la batería"
+      },
+      "battery_charged_energy": {
+        "name": "Energía cargada en la batería"
+      },
+      "battery_discharged_energy": {
+        "name": "Energía descargada de la batería"
+      },
+      "pv_power": {
+        "name": "Potencia FV"
+      },
+      "inverter_temperature": {
+        "name": "Temperatura del inversor"
+      },
+      "battery_cell_temperature": {
+        "name": "Temperatura de celda de la batería"
+      },
+      "smart_meter_location": {
+        "name": "Ubicación del contador inteligente",
+        "state": {
+          "feed_in_point": "Punto de conexión a la red",
+          "consumption_path": "Rama de consumo"
+        }
+      },
+      "grid_status": {
+        "name": "Estado de la red",
+        "state": {
+          "on_grid": "En la red",
+          "off_grid": "Sin conexión a la red"
+        }
+      },
+      "status_vendor4": {
+        "name": "Código de estado del fabricante"
+      },
+      "rrcr_state": {
+        "name": "Estado de la entrada RRCR"
+      },
+      "register_writes": {
+        "name": "Escrituras de registros"
+      },
+      "sma_device_class": {
+        "name": "Clase de dispositivo",
+        "state": {
+          "pv_inverter": "Inversor FV",
+          "wind_inverter": "Inversor eólico",
+          "battery_inverter": "Inversor de batería",
+          "load": "Carga",
+          "sensor": "Sensor",
+          "energy_meter": "Contador de energía",
+          "communication": "Producto de comunicación"
+        }
+      },
+      "sma_device_type": {
+        "name": "Código de tipo de dispositivo"
+      },
+      "sma_operating_status": {
+        "name": "Estado operativo",
+        "state": {
+          "fault": "Fallo",
+          "off": "Apagado",
+          "ok": "Correcto",
+          "warning": "Advertencia"
+        }
+      },
+      "sma_active_power_mode": {
+        "name": "Modo de funcionamiento de potencia activa",
+        "state": {
+          "off": "Apagado",
+          "watts": "Vatios",
+          "percent": "Porcentaje",
+          "external_setpoint": "Consigna externa"
+        }
+      },
+      "sma_setpoint_timeout": {
+        "name": "Tiempo de espera de la consigna externa"
+      },
+      "battery_state_of_charge": {
+        "name": "Estado de carga de la batería"
+      },
+      "battery_capacity_pct": {
+        "name": "Capacidad de la batería"
+      },
+      "battery_status_code": {
+        "name": "Código de estado de la batería"
+      },
+      "battery_state_of_energy": {
+        "name": "Estado de energía"
+      },
+      "battery_state_of_health": {
+        "name": "Estado de salud"
+      },
+      "battery_temperature": {
+        "name": "Temperatura"
+      },
+      "battery_temperature_max": {
+        "name": "Temperatura máxima"
+      },
+      "battery_voltage": {
+        "name": "Tensión"
+      },
+      "battery_current": {
+        "name": "Corriente"
+      },
+      "battery_power": {
+        "name": "Potencia"
+      },
+      "battery_energy_discharged": {
+        "name": "Energía descargada"
+      },
+      "battery_energy_charged": {
+        "name": "Energía cargada"
+      },
+      "battery_energy_available": {
+        "name": "Energía disponible"
+      },
+      "battery_energy_max": {
+        "name": "Energía máxima"
+      },
+      "battery_rated_energy": {
+        "name": "Energía nominal"
+      },
+      "battery_max_charge_power": {
+        "name": "Potencia máxima de carga"
+      },
+      "battery_max_discharge_power": {
+        "name": "Potencia máxima de descarga"
+      },
+      "battery_status": {
+        "name": "Estado",
+        "state": {
+          "off": "Apagado",
+          "standby": "En espera",
+          "init": "Inicializando",
+          "charge": "Cargando",
+          "discharge": "Descargando",
+          "fault": "Fallo",
+          "preserve_charge": "Conservando la carga",
+          "idle": "En reposo",
+          "power_saving": "Ahorro de energía"
+        }
+      },
+      "home_consumption_pv": {
+        "name": "Consumo de la vivienda desde FV"
+      },
+      "home_consumption_battery": {
+        "name": "Consumo de la vivienda desde la batería"
+      },
+      "home_consumption_grid": {
+        "name": "Consumo de la vivienda desde la red"
+      },
+      "home_consumption_pv_total": {
+        "name": "Consumo de la vivienda desde FV, total"
+      },
+      "home_consumption_battery_total": {
+        "name": "Consumo de la vivienda desde la batería, total"
+      },
+      "home_consumption_grid_total": {
+        "name": "Consumo de la vivienda desde la red, total"
+      },
+      "home_consumption_total": {
+        "name": "Consumo de la vivienda, total"
+      },
+      "total_dc_power": {
+        "name": "Potencia total de CC"
+      },
+      "energy_manager_state": {
+        "name": "Gestor de energía",
+        "state": {
+          "idle": "En reposo",
+          "emergency_battery_charge": "Carga de emergencia de la batería",
+          "winter_mode_step_1": "Modo invierno, nivel 1",
+          "winter_mode_step_2": "Modo invierno, nivel 2"
+        }
+      },
+      "controller_temperature": {
+        "name": "Temperatura de la placa de control"
+      },
+      "isolation_resistance": {
+        "name": "Resistencia de aislamiento"
+      },
+      "power_limit_evu": {
+        "name": "Límite de potencia de la distribuidora"
+      },
+      "energy_meter_type": {
+        "name": "Contador de energía",
+        "state": {
+          "sdm630": "SDM 630",
+          "b_control_em300lr": "B-control EM-300 LR",
+          "ksem": "KOSTAL Smart Energy Meter",
+          "kem_c": "KOSTAL Energy Meter, serie C",
+          "kem_p": "KOSTAL Energy Meter, serie P",
+          "kem_mp_p": "KOSTAL Energy Meter MP, serie P",
+          "none": "Ninguno"
+        }
+      },
+      "energy_to_grid": {
+        "name": "Energía vertida a la red"
+      },
+      "pssb_fuse_state": {
+        "name": "Placa de fusibles de las cadenas",
+        "state": {
+          "fuse_fail": "Fusible fundido",
+          "fuse_ok": "Fusible correcto",
+          "unchecked": "Sin comprobar"
+        }
+      },
+      "battery_ready": {
+        "name": "Preparada",
+        "state": {
+          "not_ready": "No preparada",
+          "ready": "Preparada"
+        }
+      },
+      "battery_dc_charge_energy": {
+        "name": "Energía cargada, lado de CC"
+      },
+      "battery_dc_discharge_energy": {
+        "name": "Energía descargada, lado de CC"
+      },
+      "battery_ac_charge_energy": {
+        "name": "Energía cargada, lado de CA"
+      },
+      "battery_ac_discharge_energy": {
+        "name": "Energía descargada a la red"
+      },
+      "battery_ac_charge_energy_grid": {
+        "name": "Energía cargada desde la red"
+      },
+      "battery_work_capacity": {
+        "name": "Capacidad útil"
+      },
+      "battery_management_mode": {
+        "name": "Gestión externa",
+        "state": {
+          "none": "Desactivada",
+          "digital_io": "E/S digital",
+          "modbus": "Modbus"
+        }
+      },
+      "apsystems_dc_voltage_1": {
+        "name": "Tensión de CC de la entrada 1"
+      },
+      "apsystems_dc_voltage_2": {
+        "name": "Tensión de CC de la entrada 2"
+      },
+      "apsystems_dc_voltage_3": {
+        "name": "Tensión de CC de la entrada 3"
+      },
+      "apsystems_dc_voltage_4": {
+        "name": "Tensión de CC de la entrada 4"
+      },
+      "apsystems_dc_voltage_5": {
+        "name": "Tensión de CC de la entrada 5"
+      },
+      "apsystems_dc_voltage_6": {
+        "name": "Tensión de CC de la entrada 6"
+      },
+      "apsystems_dc_voltage_7": {
+        "name": "Tensión de CC de la entrada 7"
+      },
+      "apsystems_dc_voltage_8": {
+        "name": "Tensión de CC de la entrada 8"
+      },
+      "apsystems_dc_current_1": {
+        "name": "Corriente de CC de la entrada 1"
+      },
+      "apsystems_dc_current_2": {
+        "name": "Corriente de CC de la entrada 2"
+      },
+      "apsystems_dc_current_3": {
+        "name": "Corriente de CC de la entrada 3"
+      },
+      "apsystems_dc_current_4": {
+        "name": "Corriente de CC de la entrada 4"
+      },
+      "apsystems_dc_current_5": {
+        "name": "Corriente de CC de la entrada 5"
+      },
+      "apsystems_dc_current_6": {
+        "name": "Corriente de CC de la entrada 6"
+      },
+      "apsystems_dc_current_7": {
+        "name": "Corriente de CC de la entrada 7"
+      },
+      "apsystems_dc_current_8": {
+        "name": "Corriente de CC de la entrada 8"
+      },
+      "apsystems_dc_power_1": {
+        "name": "Potencia de CC de la entrada 1"
+      },
+      "apsystems_dc_power_2": {
+        "name": "Potencia de CC de la entrada 2"
+      },
+      "apsystems_dc_power_3": {
+        "name": "Potencia de CC de la entrada 3"
+      },
+      "apsystems_dc_power_4": {
+        "name": "Potencia de CC de la entrada 4"
+      },
+      "apsystems_dc_power_5": {
+        "name": "Potencia de CC de la entrada 5"
+      },
+      "apsystems_dc_power_6": {
+        "name": "Potencia de CC de la entrada 6"
+      },
+      "apsystems_dc_power_7": {
+        "name": "Potencia de CC de la entrada 7"
+      },
+      "apsystems_dc_power_8": {
+        "name": "Potencia de CC de la entrada 8"
+      },
+      "saj_energy_today": {
+        "name": "Energía producida hoy"
+      },
+      "saj_energy_month": {
+        "name": "Energía producida este mes"
+      },
+      "saj_dc_voltage_1": {
+        "name": "Tensión de CC de la entrada 1"
+      },
+      "saj_dc_voltage_2": {
+        "name": "Tensión de CC de la entrada 2"
+      },
+      "saj_dc_current_1": {
+        "name": "Corriente de CC de la entrada 1"
+      },
+      "saj_dc_current_2": {
+        "name": "Corriente de CC de la entrada 2"
+      },
+      "saj_dc_power_1": {
+        "name": "Potencia de CC de la entrada 1"
+      },
+      "saj_dc_power_2": {
+        "name": "Potencia de CC de la entrada 2"
+      },
+      "franklinwh_pv_total": {
+        "name": "Potencia solar de los registros de extensión"
+      },
+      "franklinwh_pv_proximal": {
+        "name": "Potencia solar local"
+      },
+      "franklinwh_pv_remote_1": {
+        "name": "Potencia solar remota 1"
+      },
+      "franklinwh_pv_remote_2": {
+        "name": "Potencia solar remota 2"
+      },
+      "franklinwh_home_load": {
+        "name": "Carga de la vivienda, lectura aproximada"
+      },
+      "franklinwh_home_load_high_resolution": {
+        "name": "Carga de la vivienda"
+      },
+      "franklinwh_native_mode": {
+        "name": "Modo de funcionamiento nativo",
+        "state": {
+          "emergency_backup": "Respaldo de emergencia",
+          "self_consumption": "Autoconsumo",
+          "time_of_use": "Franjas horarias"
+        }
+      },
+      "franklinwh_self_reserve": {
+        "name": "Reserva para autoconsumo"
+      },
+      "franklinwh_tou_reserve": {
+        "name": "Reserva para franjas horarias notificada"
+      },
+      "franklinwh_active_reserve": {
+        "name": "Reserva activa notificada"
+      },
+      "franklinwh_pv_energy": {
+        "name": "Energía solar de los registros de extensión"
+      },
+      "franklinwh_pv_proximal_energy": {
+        "name": "Energía solar local"
+      },
+      "franklinwh_battery_state": {
+        "name": "Actividad de la batería",
+        "state": {
+          "charging": "Cargando",
+          "discharging": "Descargando",
+          "idle": "En reposo"
+        }
+      },
+      "franklinwh_home_consumption": {
+        "name": "Consumo de la vivienda"
+      },
+      "der_type": {
+        "name": "Tipo de DER"
+      },
+      "rated_reactive_power": {
+        "name": "Potencia reactiva nominal {quadrant}"
+      },
+      "rated_min_power_factor": {
+        "name": "Factor de potencia mínimo nominal {quadrant}"
+      },
+      "rated_usable_capacity": {
+        "name": "Capacidad útil nominal (Ah)"
+      },
+      "rated_max_charge_power": {
+        "name": "Potencia máxima de carga nominal"
+      },
+      "rated_max_discharge_power": {
+        "name": "Potencia máxima de descarga nominal"
+      },
+      "voltage_reference_offset": {
+        "name": "Desplazamiento de la tensión de referencia"
+      },
+      "max_voltage_setting": {
+        "name": "Tensión máxima de CA configurada"
+      },
+      "min_voltage_setting": {
+        "name": "Tensión mínima de CA configurada"
+      },
+      "max_apparent_power_setting": {
+        "name": "Potencia aparente máxima configurada"
+      },
+      "max_reactive_power_setting": {
+        "name": "Potencia reactiva máxima configurada {quadrant}"
+      },
+      "active_power_ramp_rate": {
+        "name": "Gradiente de potencia activa"
+      },
+      "min_power_factor_setting": {
+        "name": "Factor de potencia mínimo configurado {quadrant}"
+      },
+      "reactive_power_action": {
+        "name": "Comportamiento de la potencia reactiva"
+      },
+      "apparent_power_calculation": {
+        "name": "Cálculo de la potencia aparente"
+      },
+      "max_ramp_rate": {
+        "name": "Gradiente máximo"
+      },
+      "nominal_frequency": {
+        "name": "Frecuencia nominal"
+      },
+      "connected_phase": {
+        "name": "Fase conectada"
+      },
+      "lifetime_apparent_energy": {
+        "name": "Energía aparente total"
+      },
+      "lifetime_reactive_energy": {
+        "name": "Energía reactiva total {quadrant}"
+      },
+      "available_reactive_power": {
+        "name": "Potencia reactiva disponible"
+      },
+      "available_power": {
+        "name": "Potencia disponible"
+      },
+      "setpoint_limits_reached": {
+        "name": "Límites de consigna alcanzados"
+      },
+      "active_controls": {
+        "name": "Controles activos"
+      },
+      "timestamp": {
+        "name": "Marca de tiempo"
+      },
+      "grid_connection_time_window": {
+        "name": "Ventana de tiempo de la conexión a la red"
+      },
+      "grid_connection_revert_time": {
+        "name": "Tiempo de reversión de la conexión a la red"
+      },
+      "export_limit_time_window": {
+        "name": "Ventana de tiempo del límite de vertido"
+      },
+      "export_limit_ramp_time": {
+        "name": "Tiempo de rampa del límite de vertido"
+      },
+      "power_factor_time_window": {
+        "name": "Ventana de tiempo de la consigna de factor de potencia"
+      },
+      "power_factor_revert_time": {
+        "name": "Tiempo de reversión de la consigna de factor de potencia"
+      },
+      "power_factor_ramp_time": {
+        "name": "Tiempo de rampa de la consigna de factor de potencia"
+      },
+      "reactive_power_limit_pct_max_power": {
+        "name": "Límite de potencia reactiva (% de la potencia máxima)"
+      },
+      "reactive_power_limit_pct_max_reactive_power": {
+        "name": "Límite de potencia reactiva (% de la potencia reactiva máxima)"
+      },
+      "reactive_power_limit_pct_available": {
+        "name": "Límite de potencia reactiva (% de la potencia reactiva disponible)"
+      },
+      "reactive_power_limit_time_window": {
+        "name": "Ventana de tiempo del límite de potencia reactiva"
+      },
+      "reactive_power_limit_revert_time": {
+        "name": "Tiempo de reversión del límite de potencia reactiva"
+      },
+      "reactive_power_limit_ramp_time": {
+        "name": "Tiempo de rampa del límite de potencia reactiva"
+      },
+      "reactive_power_limit_mode": {
+        "name": "Modo del límite de potencia reactiva"
+      },
+      "reactive_power_limit_enabled": {
+        "name": "Límite de potencia reactiva habilitado"
+      },
+      "charge_ramp_rate": {
+        "name": "Gradiente de carga"
+      },
+      "discharge_ramp_rate": {
+        "name": "Gradiente de descarga"
+      },
+      "max_charge_apparent_power": {
+        "name": "Potencia aparente máxima de carga"
+      },
+      "state_of_charge": {
+        "name": "Estado de carga"
+      },
+      "available_capacity": {
+        "name": "Capacidad disponible (Ah)"
+      },
+      "internal_battery_voltage": {
+        "name": "Tensión interna de la batería"
+      },
+      "charge_status": {
+        "name": "Situación de carga"
+      },
+      "battery_rate_time_window": {
+        "name": "Ventana de tiempo de las tasas de la batería"
+      },
+      "battery_rate_ramp_time": {
+        "name": "Tiempo de rampa de las tasas de la batería"
+      },
+      "global_events": {
+        "name": "Eventos globales"
+      },
+      "module_dc_current": {
+        "name": "Corriente de CC de la entrada {index}"
+      },
+      "module_dc_voltage": {
+        "name": "Tensión de CC de la entrada {index}"
+      },
+      "module_dc_power": {
+        "name": "Potencia de CC de la entrada {index}"
+      },
+      "module_lifetime_energy": {
+        "name": "Energía total de la entrada {index}"
+      },
+      "module_timestamp": {
+        "name": "Marca de tiempo de la entrada {index}"
+      },
+      "module_temperature": {
+        "name": "Temperatura de la entrada {index}"
+      },
+      "module_operating_state": {
+        "name": "Estado de funcionamiento de la entrada {index}"
+      },
+      "module_events": {
+        "name": "Eventos de la entrada {index}"
+      },
+      "average_voltage_l_n": {
+        "name": "Tensión media L-N"
+      },
+      "average_voltage_l_l": {
+        "name": "Tensión media L-L"
+      },
+      "watts_phase": {
+        "name": "Potencia de CA {phase}"
+      },
+      "apparent_power_phase": {
+        "name": "Potencia aparente {phase}"
+      },
+      "reactive_power_phase": {
+        "name": "Potencia reactiva {phase}"
+      },
+      "power_factor_phase": {
+        "name": "Factor de potencia {phase}"
+      },
+      "energy_exported": {
+        "name": "Energía vertida a la red"
+      },
+      "energy_exported_phase": {
+        "name": "Energía vertida a la red {phase}"
+      },
+      "energy_imported": {
+        "name": "Energía consumida de la red"
+      },
+      "energy_imported_phase": {
+        "name": "Energía consumida de la red {phase}"
+      },
+      "apparent_energy_exported": {
+        "name": "Energía aparente vertida a la red"
+      },
+      "apparent_energy_exported_phase": {
+        "name": "Energía aparente vertida a la red {phase}"
+      },
+      "apparent_energy_imported": {
+        "name": "Energía aparente consumida de la red"
+      },
+      "apparent_energy_imported_phase": {
+        "name": "Energía aparente consumida de la red {phase}"
+      },
+      "reactive_energy_imported": {
+        "name": "Energía reactiva consumida de la red {quadrant}"
+      },
+      "reactive_energy_imported_phase": {
+        "name": "Energía reactiva consumida de la red {quadrant} {phase}"
+      },
+      "reactive_energy_exported": {
+        "name": "Energía reactiva vertida a la red {quadrant}"
+      },
+      "reactive_energy_exported_phase": {
+        "name": "Energía reactiva vertida a la red {quadrant} {phase}"
+      },
+      "events": {
+        "name": "Eventos"
+      },
+      "ambient_temperature": {
+        "name": "Temperatura ambiente"
+      },
+      "relative_humidity": {
+        "name": "Humedad relativa"
+      },
+      "barometric_pressure": {
+        "name": "Presión atmosférica"
+      },
+      "wind_speed": {
+        "name": "Velocidad del viento"
+      },
+      "wind_direction": {
+        "name": "Dirección del viento"
+      },
+      "rainfall": {
+        "name": "Precipitación"
+      },
+      "snow_depth": {
+        "name": "Espesor de nieve"
+      },
+      "electric_field": {
+        "name": "Campo eléctrico"
+      },
+      "surface_wetness": {
+        "name": "Humedad superficial"
+      },
+      "soil_moisture": {
+        "name": "Humedad del suelo"
+      },
+      "global_horizontal_irradiance": {
+        "name": "Irradiancia global horizontal"
+      },
+      "module_back_temperature": {
+        "name": "Temperatura posterior del módulo"
+      },
+      "rated_dc_current": {
+        "name": "Corriente nominal de CC"
+      },
+      "vendor_events": {
+        "name": "Eventos del fabricante"
+      },
+      "amp_hours": {
+        "name": "Amperios hora"
+      },
+      "temperature": {
+        "name": "Temperatura"
+      },
+      "performance_ratio": {
+        "name": "Índice de rendimiento (PR)"
+      },
+      "dc_energy": {
+        "name": "Energía de CC"
+      },
+      "string_events": {
+        "name": "Eventos de la cadena {index}"
+      },
+      "string_vendor_events": {
+        "name": "Eventos del fabricante de la cadena {index}"
+      },
+      "string_dc_current": {
+        "name": "Corriente de CC de la cadena {index}"
+      },
+      "string_amp_hours": {
+        "name": "Amperios hora de la cadena {index}"
+      },
+      "string_dc_voltage": {
+        "name": "Tensión de CC de la cadena {index}"
+      },
+      "string_dc_power": {
+        "name": "Potencia de CC de la cadena {index}"
+      },
+      "string_dc_energy": {
+        "name": "Energía de CC de la cadena {index}"
+      },
+      "string_performance_ratio": {
+        "name": "Índice de rendimiento (PR) de la cadena {index}"
+      },
+      "status": {
+        "name": "Estado"
+      },
+      "vendor_status": {
+        "name": "Estado del fabricante"
+      },
+      "control_mode": {
+        "name": "Modo de control"
+      },
+      "output_current": {
+        "name": "Corriente de salida"
+      },
+      "output_voltage": {
+        "name": "Tensión de salida"
+      },
+      "output_energy": {
+        "name": "Energía de salida"
+      },
+      "output_power": {
+        "name": "Potencia de salida"
+      },
+      "input_current": {
+        "name": "Corriente de entrada"
+      },
+      "input_voltage": {
+        "name": "Tensión de entrada"
+      },
+      "input_energy": {
+        "name": "Energía de entrada"
+      },
+      "input_power": {
+        "name": "Potencia de entrada"
+      },
+      "tracker_type": {
+        "name": "Tipo de seguidor"
+      },
+      "local_date": {
+        "name": "Fecha local"
+      },
+      "local_time": {
+        "name": "Hora local"
+      },
+      "manual_elevation": {
+        "name": "Elevación manual"
+      },
+      "manual_azimuth": {
+        "name": "Azimut manual"
+      },
+      "global_mode": {
+        "name": "Modo global"
+      },
+      "tracker_target_elevation": {
+        "name": "Elevación objetivo del seguidor {index}"
+      },
+      "tracker_target_azimuth": {
+        "name": "Azimut objetivo del seguidor {index}"
+      },
+      "tracker_elevation": {
+        "name": "Elevación del seguidor {index}"
+      },
+      "tracker_azimuth": {
+        "name": "Azimut del seguidor {index}"
+      },
+      "tracker_manual_elevation": {
+        "name": "Elevación manual del seguidor {index}"
+      },
+      "tracker_manual_azimuth": {
+        "name": "Azimut manual del seguidor {index}"
+      },
+      "tracker_mode": {
+        "name": "Modo del seguidor {index}"
+      },
+      "ac_wiring_type": {
+        "name": "Tipo de conexión de CA"
+      },
+      "inverter_state": {
+        "name": "Estado del inversor"
+      },
+      "grid_connection_state": {
+        "name": "Estado de la conexión a la red"
+      },
+      "alarms": {
+        "name": "Alarmas"
+      },
+      "der_mode": {
+        "name": "Características de funcionamiento del DER"
+      },
+      "energy_injected": {
+        "name": "Energía inyectada"
+      },
+      "energy_injected_phase": {
+        "name": "Energía inyectada {phase}"
+      },
+      "energy_absorbed": {
+        "name": "Energía absorbida"
+      },
+      "energy_absorbed_phase": {
+        "name": "Energía absorbida {phase}"
+      },
+      "reactive_energy_injected": {
+        "name": "Energía reactiva inyectada"
+      },
+      "reactive_energy_injected_phase": {
+        "name": "Energía reactiva inyectada {phase}"
+      },
+      "reactive_energy_absorbed": {
+        "name": "Energía reactiva absorbida"
+      },
+      "reactive_energy_absorbed_phase": {
+        "name": "Energía reactiva absorbida {phase}"
+      },
+      "switch_temperature": {
+        "name": "Temperatura de IGBT/MOSFET"
+      },
+      "throttling": {
+        "name": "Reducción de potencia"
+      },
+      "throttling_source": {
+        "name": "Causa de la reducción de potencia"
+      },
+      "rated_power_over_excited": {
+        "name": "Potencia activa nominal en sobreexcitación"
+      },
+      "rated_power_under_excited": {
+        "name": "Potencia activa nominal en subexcitación"
+      },
+      "rated_reactive_power_injected": {
+        "name": "Potencia reactiva nominal inyectada"
+      },
+      "rated_reactive_power_absorbed": {
+        "name": "Potencia reactiva nominal absorbida"
+      },
+      "rated_max_charge_apparent_power": {
+        "name": "Potencia aparente máxima de carga nominal"
+      },
+      "rated_max_discharge_apparent_power": {
+        "name": "Potencia aparente máxima de descarga nominal"
+      },
+      "rated_nominal_voltage": {
+        "name": "Tensión nominal de CA"
+      },
+      "rated_max_voltage": {
+        "name": "Tensión máxima de CA nominal"
+      },
+      "rated_min_voltage": {
+        "name": "Tensión mínima de CA nominal"
+      },
+      "reactive_susceptance": {
+        "name": "Susceptancia reactiva"
+      },
+      "normal_operating_category": {
+        "name": "Categoría de funcionamiento normal"
+      },
+      "abnormal_operating_category": {
+        "name": "Categoría de funcionamiento anómalo"
+      },
+      "supported_control_modes": {
+        "name": "Modos de control compatibles"
+      },
+      "max_power_over_excited_setting": {
+        "name": "Potencia activa configurada en sobreexcitación"
+      },
+      "max_power_under_excited_setting": {
+        "name": "Potencia activa configurada en subexcitación"
+      },
+      "max_reactive_power_injected_setting": {
+        "name": "Potencia reactiva máxima inyectada configurada"
+      },
+      "max_reactive_power_absorbed_setting": {
+        "name": "Potencia reactiva máxima absorbida configurada"
+      },
+      "max_charge_power_setting": {
+        "name": "Potencia máxima de carga configurada"
+      },
+      "max_discharge_power_setting": {
+        "name": "Potencia máxima de descarga configurada"
+      },
+      "max_charge_apparent_power_setting": {
+        "name": "Potencia aparente máxima de carga configurada"
+      },
+      "max_discharge_apparent_power_setting": {
+        "name": "Potencia aparente máxima de descarga configurada"
+      },
+      "nominal_voltage_setting": {
+        "name": "Tensión nominal de CA configurada"
+      },
+      "max_current_setting": {
+        "name": "Corriente máxima de CA configurada"
+      },
+      "pf_injecting_enabled": {
+        "name": "Factor de potencia (inyección) habilitado"
+      },
+      "pf_injecting_revert_enabled": {
+        "name": "Factor de potencia (inyección) sigue activo tras la reversión"
+      },
+      "pf_injecting_revert_time": {
+        "name": "Tiempo de reversión del factor de potencia (inyección)"
+      },
+      "pf_injecting_revert_time_remaining": {
+        "name": "Tiempo restante hasta la reversión del factor de potencia (inyección)"
+      },
+      "pf_injecting_excitation": {
+        "name": "Excitación del factor de potencia (inyección)"
+      },
+      "pf_injecting_revert_excitation": {
+        "name": "Excitación del factor de potencia (inyección) tras la reversión"
+      },
+      "pf_absorbing_enabled": {
+        "name": "Factor de potencia (absorción) habilitado"
+      },
+      "pf_absorbing_revert_enabled": {
+        "name": "Factor de potencia (absorción) sigue activo tras la reversión"
+      },
+      "pf_absorbing_revert_time": {
+        "name": "Tiempo de reversión del factor de potencia (absorción)"
+      },
+      "pf_absorbing_revert_time_remaining": {
+        "name": "Tiempo restante hasta la reversión del factor de potencia (absorción)"
+      },
+      "pf_absorbing_excitation": {
+        "name": "Excitación del factor de potencia (absorción)"
+      },
+      "pf_absorbing_revert_excitation": {
+        "name": "Excitación del factor de potencia (absorción) tras la reversión"
+      },
+      "export_limit_revert_time_remaining": {
+        "name": "Tiempo restante hasta la reversión del límite de vertido"
+      },
+      "active_power_setpoint_revert_value": {
+        "name": "Valor de reversión de la consigna de potencia activa"
+      },
+      "active_power_setpoint_pct": {
+        "name": "Consigna de potencia activa en porcentaje"
+      },
+      "active_power_setpoint_pct_revert_value": {
+        "name": "Valor de reversión de la consigna de potencia activa en porcentaje"
+      },
+      "active_power_setpoint_revert_enabled": {
+        "name": "Consigna de potencia activa sigue activa tras la reversión"
+      },
+      "active_power_setpoint_revert_time": {
+        "name": "Tiempo de reversión de la consigna de potencia activa"
+      },
+      "active_power_setpoint_revert_time_remaining": {
+        "name": "Tiempo restante hasta la reversión de la consigna de potencia activa"
+      },
+      "reactive_power_setpoint_enabled": {
+        "name": "Consigna de potencia reactiva habilitada"
+      },
+      "reactive_power_setpoint_mode": {
+        "name": "Modo de la consigna de potencia reactiva"
+      },
+      "reactive_power_priority": {
+        "name": "Prioridad de la potencia reactiva"
+      },
+      "reactive_power_setpoint": {
+        "name": "Consigna de potencia reactiva"
+      },
+      "reactive_power_setpoint_revert_value": {
+        "name": "Valor de reversión de la consigna de potencia reactiva"
+      },
+      "reactive_power_setpoint_pct": {
+        "name": "Consigna de potencia reactiva en porcentaje"
+      },
+      "reactive_power_setpoint_pct_revert_value": {
+        "name": "Valor de reversión de la consigna de potencia reactiva en porcentaje"
+      },
+      "reactive_power_setpoint_revert_enabled": {
+        "name": "Consigna de potencia reactiva sigue activa tras la reversión"
+      },
+      "reactive_power_setpoint_revert_time": {
+        "name": "Tiempo de reversión de la consigna de potencia reactiva"
+      },
+      "reactive_power_setpoint_revert_time_remaining": {
+        "name": "Tiempo restante hasta la reversión de la consigna de potencia reactiva"
+      },
+      "active_power_ramp_rate_reference": {
+        "name": "Referencia del gradiente de potencia activa"
+      },
+      "reactive_power_ramp_rate": {
+        "name": "Gradiente de potencia reactiva"
+      },
+      "anti_islanding_enabled": {
+        "name": "Protección anti-isla habilitada"
+      },
+      "energy_available": {
+        "name": "Energía disponible"
+      },
+      "state_of_health": {
+        "name": "Estado de salud"
+      },
+      "port_alarms": {
+        "name": "Alarmas de puerto"
+      },
+      "dc_energy_injected": {
+        "name": "Energía de CC inyectada"
+      },
+      "dc_energy_absorbed": {
+        "name": "Energía de CC absorbida"
+      },
+      "port_type": {
+        "name": "Tipo del puerto {index}"
+      },
+      "port_dc_current": {
+        "name": "Corriente de CC del puerto {index}"
+      },
+      "port_dc_voltage": {
+        "name": "Tensión de CC del puerto {index}"
+      },
+      "port_dc_power": {
+        "name": "Potencia de CC del puerto {index}"
+      },
+      "port_dc_energy_injected": {
+        "name": "Energía de CC inyectada por el puerto {index}"
+      },
+      "port_dc_energy_absorbed": {
+        "name": "Energía de CC absorbida por el puerto {index}"
+      },
+      "port_temperature": {
+        "name": "Temperatura del puerto {index}"
+      },
+      "port_status": {
+        "name": "Estado del puerto {index}"
+      },
+      "port_alarm": {
+        "name": "Alarmas del puerto {index}"
+      },
+      "deprecated_model": {
+        "name": "Modelo obsoleto"
+      },
+      "depth_of_discharge": {
+        "name": "Profundidad de descarga"
+      },
+      "max_cell_voltage": {
+        "name": "Tensión máxima de celda"
+      },
+      "min_cell_voltage": {
+        "name": "Tensión mínima de celda"
+      },
+      "average_cell_voltage": {
+        "name": "Tensión media de celda"
+      },
+      "max_module_temperature": {
+        "name": "Temperatura máxima de módulo"
+      },
+      "min_module_temperature": {
+        "name": "Temperatura mínima de módulo"
+      },
+      "average_module_temperature": {
+        "name": "Temperatura media de módulo"
+      },
+      "rated_charge_capacity": {
+        "name": "Capacidad nominal (Ah)"
+      },
+      "self_discharge_rate": {
+        "name": "Tasa de autodescarga"
+      },
+      "rated_max_state_of_charge": {
+        "name": "Estado de carga máximo nominal"
+      },
+      "rated_min_state_of_charge": {
+        "name": "Estado de carga mínimo nominal"
+      },
+      "max_reserve": {
+        "name": "Reserva máxima"
+      },
+      "min_reserve": {
+        "name": "Reserva mínima"
+      },
+      "battery_type": {
+        "name": "Tipo de batería"
+      },
+      "battery_bank_state": {
+        "name": "Estado del banco de baterías"
+      },
+      "vendor_battery_bank_state": {
+        "name": "Estado del banco de baterías del fabricante"
+      },
+      "external_battery_voltage": {
+        "name": "Tensión externa de la batería"
+      },
+      "max_battery_voltage": {
+        "name": "Tensión máxima de la batería"
+      },
+      "min_battery_voltage": {
+        "name": "Tensión mínima de la batería"
+      },
+      "max_charge_current": {
+        "name": "Corriente máxima de carga"
+      },
+      "max_discharge_current": {
+        "name": "Corriente máxima de descarga"
+      },
+      "inverter_state_request": {
+        "name": "Estado del inversor solicitado"
+      },
+      "battery_power_request": {
+        "name": "Potencia de la batería solicitada"
+      },
+      "operation_command": {
+        "name": "Comando de funcionamiento"
+      },
+      "inverter_state_command": {
+        "name": "Comando de estado del inversor"
+      },
+      "max_string_voltage": {
+        "name": "Tensión máxima de cadena"
+      },
+      "min_string_voltage": {
+        "name": "Tensión mínima de cadena"
+      },
+      "average_string_voltage": {
+        "name": "Tensión media de cadena"
+      },
+      "max_string_current": {
+        "name": "Corriente máxima de cadena"
+      },
+      "min_string_current": {
+        "name": "Corriente mínima de cadena"
+      },
+      "average_string_current": {
+        "name": "Corriente media de cadena"
+      },
+      "string_status": {
+        "name": "Estado de la cadena {index}"
+      },
+      "string_connection_failure_reason": {
+        "name": "Motivo del fallo de conexión de la cadena {index}"
+      },
+      "string_state_of_charge": {
+        "name": "Estado de carga de la cadena {index}"
+      },
+      "string_state_of_health": {
+        "name": "Estado de salud de la cadena {index}"
+      },
+      "string_current": {
+        "name": "Corriente de la cadena {index}"
+      },
+      "string_max_cell_voltage": {
+        "name": "Tensión máxima de celda de la cadena {index}"
+      },
+      "string_min_cell_voltage": {
+        "name": "Tensión mínima de celda de la cadena {index}"
+      },
+      "string_average_cell_voltage": {
+        "name": "Tensión media de celda de la cadena {index}"
+      },
+      "string_max_module_temperature": {
+        "name": "Temperatura máxima de módulo de la cadena {index}"
+      },
+      "string_min_module_temperature": {
+        "name": "Temperatura mínima de módulo de la cadena {index}"
+      },
+      "string_average_module_temperature": {
+        "name": "Temperatura media de módulo de la cadena {index}"
+      },
+      "string_disabled_reason": {
+        "name": "Motivo de desactivación de la cadena {index}"
+      },
+      "string_contactor_status": {
+        "name": "Estado del contactor de la cadena {index}"
+      },
+      "string_events_1": {
+        "name": "Eventos de la cadena {index}"
+      },
+      "string_events_2": {
+        "name": "Eventos 2 de la cadena {index}"
+      },
+      "string_vendor_events_1": {
+        "name": "Eventos del fabricante 1 de la cadena {index}"
+      },
+      "string_vendor_events_2": {
+        "name": "Eventos del fabricante 2 de la cadena {index}"
+      },
+      "string_enable_command": {
+        "name": "Comando de habilitación de la cadena {index}"
+      },
+      "string_connect_command": {
+        "name": "Comando de conexión de la cadena {index}"
+      },
+      "connection_failure_reason": {
+        "name": "Motivo del fallo de conexión"
+      },
+      "contactor_status": {
+        "name": "Estado del contactor"
+      },
+      "enable_command": {
+        "name": "Comando de habilitación"
+      },
+      "connect_command": {
+        "name": "Comando de conexión"
+      },
+      "battery_module_state_of_charge": {
+        "name": "Estado de carga del módulo {index}"
+      },
+      "battery_module_state_of_health": {
+        "name": "Estado de salud del módulo {index}"
+      },
+      "battery_module_max_cell_voltage": {
+        "name": "Tensión máxima de celda del módulo {index}"
+      },
+      "battery_module_min_cell_voltage": {
+        "name": "Tensión mínima de celda del módulo {index}"
+      },
+      "battery_module_average_cell_voltage": {
+        "name": "Tensión media de celda del módulo {index}"
+      },
+      "battery_module_max_cell_temperature": {
+        "name": "Temperatura máxima de celda del módulo {index}"
+      },
+      "battery_module_min_cell_temperature": {
+        "name": "Temperatura mínima de celda del módulo {index}"
+      },
+      "battery_module_average_cell_temperature": {
+        "name": "Temperatura media de celda del módulo {index}"
+      },
+      "max_cell_temperature": {
+        "name": "Temperatura máxima de celda"
+      },
+      "min_cell_temperature": {
+        "name": "Temperatura mínima de celda"
+      },
+      "average_cell_temperature": {
+        "name": "Temperatura media de celda"
+      },
+      "cell_voltage": {
+        "name": "Tensión de la celda {index}"
+      },
+      "cell_temperature": {
+        "name": "Temperatura de la celda {index}"
+      },
+      "cell_status": {
+        "name": "Estado de la celda {index}"
+      }
+    }
+  },
+  "exceptions": {
+    "entry_not_loaded": {
+      "message": "La entrada de configuración de SunSpec {entry_id} no está cargada"
+    },
+    "no_export_limit": {
+      "message": "El inversor no ofrece ni el modelo SunSpec 123 ni el modelo 704, por lo que no tiene ningún límite de vertido que ajustar"
+    },
+    "export_limit_failed": {
+      "message": "No se pudo ajustar el límite de vertido: {error}"
+    },
+    "no_battery_plan": {
+      "message": "Este dispositivo no admite un plan de batería"
+    },
+    "direction_unsupported": {
+      "message": "La batería no admite {direction}"
+    },
+    "write_failed": {
+      "message": "No se pudo escribir {target}: {error}"
+    },
+    "not_a_register": {
+      "message": "{register} no es un registro de este dispositivo"
+    },
+    "invalid_option": {
+      "message": "{option} no es una opción de {target} en este dispositivo"
+    },
+    "battery_mode_failed": {
+      "message": "No se pudo ajustar el modo de batería {mode}: {error}"
+    },
+    "no_battery": {
+      "message": "El inversor no informa de ninguna batería (WChaMax es 0)"
+    },
+    "franklinwh_unavailable": {
+      "message": "Los controles de batería de FranklinWH no están disponibles"
+    },
+    "power_not_finite": {
+      "message": "La potencia de la batería debe ser un número finito"
+    },
+    "franklinwh_failed": {
+      "message": "Falló el comando de batería de FranklinWH: {error}"
+    },
+    "web_refused": {
+      "message": "La interfaz web del inversor lo rechazó: {error}"
+    }
+  },
+  "issues": {
+    "transport_error": {
+      "title": "No se puede contactar con el inversor SunSpec",
+      "description": "La integración no puede conectarse al inversor SunSpec en {host}:{port} (ID de unidad {unit_id}). Han fallado tres ciclos de actualización consecutivos.\n\nÚltimo error: {error}\n\nQué comprobar:\n- El inversor está encendido\n- El inversor es accesible en la red (prueba ping {host})\n- Ningún cortafuegos bloquea el puerto TCP {port}\n- Ningún otro cliente Modbus está acaparando la única conexión TCP del inversor"
+    },
+    "protocol_error": {
+      "title": "El dispositivo no habla SunSpec",
+      "description": "La integración llegó al dispositivo en {host}:{port} (ID de unidad {unit_id}), pero no responde como un dispositivo SunSpec.\n\nÚltimo error: {error}\n\nQué comprobar:\n- El dispositivo admite realmente SunSpec (algunos dispositivos Modbus usan un mapa de registros propio del fabricante)\n- El ID de unidad es correcto (algunos inversores usan el ID de unidad 1, otros 0 o 247)\n- El firmware del dispositivo está actualizado: los firmwares antiguos a veces tienen implementaciones de SunSpec defectuosas"
+    },
+    "device_error": {
+      "title": "El inversor informa de una excepción Modbus",
+      "description": "El inversor SunSpec en {host}:{port} (ID de unidad {unit_id}) respondió con una excepción Modbus. Han fallado tres ciclos de actualización consecutivos.\n\nÚltimo error: {error}\n\nQué comprobar:\n- El inversor está en un estado de funcionamiento normal (no en modo de fallo)\n- Los modelos habilitados coinciden con los que el inversor admite realmente\n- Descarga los diagnósticos de esta integración y adjúntalos a un informe de error"
+    },
+    "cjne_conflict": {
+      "title": "cjne/ha-sunspec sigue activo",
+      "description": "SunSpec 2 no puede iniciarse para el inversor en {host}:{port} (ID de unidad {unit_id}) porque la integración cjne/ha-sunspec sigue ejecutándose para el mismo dispositivo.\n\nKACO Powador y la mayoría de los demás inversores SunSpec solo permiten UNA conexión Modbus TCP a la vez. cjne ocupa ahora esa conexión, por lo que SunSpec 2 no puede consultar el dispositivo. Ejecutar ambas integraciones contra el mismo inversor también produciría sensores duplicados y valores inestables.\n\nPara migrar de cjne a SunSpec 2:\n\n1. Abre HACS y desinstala la integración cjne/ha-sunspec\n2. Reinicia Home Assistant\n3. SunSpec 2 lo volverá a intentar automáticamente y asumirá las entidades existentes\n\nEl asistente de migración de SunSpec 2 conservará tus ID de entidad y el historial del Recorder."
+    },
+    "stale_model": {
+      "title": "Ha desaparecido el modelo SunSpec {model_id}",
+      "description": "El inversor en {host}:{port} (ID de unidad {unit_id}) ofrecía antes el modelo SunSpec {model_id}, pero lleva {missing_minutes} minutos sin aparecer en ninguna exploración.\n\nNormalmente esto significa que el inversor ha retirado el modelo de forma permanente (actualización de firmware, reconfiguración del fabricante o desconexión del módulo de hardware correspondiente). Los sensores asociados siguen en tu registro de entidades, pero se quedarán en su último valor válido.\n\nSi ya no los necesitas, abre la página de información del dispositivo afectado y usa el icono de la papelera para eliminar el dispositivo. Las entidades correspondientes se limpiarán automáticamente.\n\nSi el modelo vuelve por sí solo, este aviso de Reparaciones desaparecerá automáticamente en la siguiente lectura correcta."
+    }
+  },
+  "services": {
+    "set_battery_plan": {
+      "name": "Ajustar el plan de batería",
+      "description": "Actualiza los ajustes del plan de una sola vez. Los cambios se aplican en el siguiente sondeo correcto; al deshabilitarlo, el plan se detiene de inmediato.",
+      "fields": {
+        "config_entry_id": {
+          "name": "Dispositivo SunSpec"
+        },
+        "direction": {
+          "name": "Sentido"
+        },
+        "start": {
+          "name": "Inicio"
+        },
+        "end": {
+          "name": "Fin"
+        },
+        "target_pct": {
+          "name": "Estado de carga objetivo"
+        },
+        "capacity_kwh": {
+          "name": "Capacidad de la batería"
+        },
+        "enabled": {
+          "name": "Habilitado"
+        }
+      }
+    }
+  }
+}

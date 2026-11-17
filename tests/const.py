@@ -1,5 +1,7 @@
 """Constants for SunSpec tests."""
 
+from pathlib import Path
+
 from custom_components.sunspec2.const import CONF_BAUDRATE
 from custom_components.sunspec2.const import CONF_ENABLED_MODELS
 from custom_components.sunspec2.const import CONF_HOST
@@ -95,3 +97,12 @@ TEST_NUMBER_POWER_FACTOR = "number.test_1547_1_immediate_controls_power_factor_s
 TEST_SWITCH_EXPORT_LIMIT_ENA = "switch.test_1547_1_immediate_controls_export_limit_enabled"
 TEST_SWITCH_POWER_FACTOR_ENA = "switch.test_1547_1_immediate_controls_power_factor_enabled"
 TEST_SWITCH_CONN = "switch.test_1547_1_immediate_controls_inverter_grid_connection"
+
+#: Every language the integration ships a translation for, from the
+#: files in translations/.
+LANGUAGES = sorted(
+    path.stem
+    for path in (
+        Path(__file__).parent.parent / "custom_components" / "sunspec2" / "translations"
+    ).glob("*.json")
+)

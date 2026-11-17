@@ -248,19 +248,19 @@ rules:
     status: done
     comment: |
       Every entity the integration defines itself has a translation
-      key, with its name in translations/en.json and de.json. The
-      generic SunSpec sensors do for the points in
-      SUNSPEC_POINT_TRANSLATION_KEYS (sensor.py), in the models where
-      the point means what the translation says. Any other SunSpec
-      point is named by the label of its model definition, which
-      exists in English only, and a point in a repeating group keeps
-      that label with its index.
+      key, with its name in every file under translations/. The
+      generic SunSpec sensors get theirs from point_names.py, which
+      names every point of the models a new installation reads. A
+      point of a model the user ticks beyond those is named by the
+      label of its model definition, which exists in English only.
+      tests/test_translations.py holds every language to the keys
+      and placeholders of en.json.
   exception-translations:
     status: done
     comment: |
       Every error an action or an entity raises for the user goes
       through ``errors.user_error`` and has its message under
-      ``exceptions`` in translations/en.json and de.json.
+      ``exceptions`` in every file under translations/.
       tests/test_errors.py compares the keys and placeholders.
   icon-translations:
     status: done

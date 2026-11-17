@@ -1,0 +1,1907 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "description": "Miten haluat määrittää invertterisi?",
+        "menu_options": {
+          "manual": "Modbus TCP - syötä IP-osoite käsin",
+          "scan": "Modbus TCP - etsi verkostani",
+          "serial": "Modbus RTU - sarjaportti (RS-485)"
+        }
+      },
+      "manual": {
+        "title": "Invertterin yhteys",
+        "description": "Anna invertterin IP-osoite, Modbus TCP -portti (oletus 502) ja Modbus-yksikkötunnus (oletus 1).",
+        "data": {
+          "host": "Isäntänimi tai IP-osoite",
+          "port": "Modbus TCP -portti",
+          "unit_id": "Modbus-yksikkötunnus"
+        },
+        "data_description": {
+          "host": "Invertterin tai sen edessä olevan yhdyskäytävän IP-osoite tai isäntänimi.",
+          "port": "Modbus TCP -portti. 502, ellei laitteeseen ole asetettu muuta.",
+          "unit_id": "Laitteen Modbus-osoite, toiselta nimeltään slave ID tai device ID. Usein 1. Näet sen laitteen Modbus-asetuksista."
+        }
+      },
+      "scan": {
+        "title": "Etsi inverttereitä verkosta",
+        "description": "Etsii valitusta aliverkosta laitteita, joissa Modbus TCP -portti 502 on auki. Laitteet, joiden MAC-osoite kuuluu tunnetulle SunSpec-invertterivalmistajalle, näytetään ensin. Haku kokeilee vain TCP-yhteyden avaamista eikä lähetä yhtään Modbus-tavua, joten se ei häiritse verkon muita Modbus-laitteita. Oletusaliverkko tunnistetaan Home Assistant -laitteen verkkoasetuksista.",
+        "data": {
+          "subnet": "Haettava aliverkko (CIDR-muoto, esim. 192.168.1.0/24)"
+        },
+        "data_description": {
+          "subnet": "Haettava verkko CIDR-muodossa. Enintään /22 eli 1022 osoitetta."
+        }
+      },
+      "scan_results": {
+        "title": "Valitse invertterisi",
+        "description": "Nämä laitteet vastasivat Modbus TCP -portissa 502. Merkinnällä 'SunSpec vendor' varustettujen laitteiden MAC-osoite on tunnetulta invertterivalmistajalta, ja ne ovat todennäköisimmin sinun laitteesi.",
+        "data": {
+          "host": "Invertteri"
+        },
+        "data_description": {
+          "host": "Laitteet, jotka vastasivat Modbus-portissa. Tunnettujen invertterivalmistajien laitteet näytetään ensin."
+        }
+      },
+      "serial": {
+        "title": "Modbus RTU -yhteys",
+        "description": "Määritä sarjaliikenneyhteys (RS-485) SunSpec-yhteensopivaan invertteriin. Tavallinen kokoonpano on USB-RS-485-sovitin, joka näkyy nimellä /dev/ttyUSB0 (Linux) tai COM3 (Windows). Siirtonopeus on yleensä 9600 tai 19200, tarkista se invertterin käyttöohjeesta.",
+        "data": {
+          "serial_port": "Sarjaportti (esim. /dev/ttyUSB0 tai COM3)",
+          "baudrate": "Siirtonopeus (baud)",
+          "parity": "Pariteetti",
+          "unit_id": "Modbus-yksikkötunnus"
+        },
+        "data_description": {
+          "serial_port": "RS-485-sovittimen sarjaportti.",
+          "baudrate": "Laitteeseen asetettu nopeus. Molempien päiden on käytettävä samaa.",
+          "parity": "Laitteeseen asetettu pariteetti.",
+          "unit_id": "Laitteen Modbus-osoite, toiselta nimeltään slave ID tai device ID. Usein 1. Näet sen laitteen Modbus-asetuksista."
+        }
+      },
+      "settings": {
+        "title": "Invertterin asetukset",
+        "description": "Valitse sensorimallit ja kyselyväli. Voit muuttaa näitä myöhemmin laitteen asetuksista.",
+        "data": {
+          "prefix": "Sensorien nimen etuliite",
+          "scan_interval": "Kyselyväli",
+          "models_enabled": "Sensorimallit",
+          "max_ac_power_kw": "AC-huipputeho"
+        },
+        "data_description": {
+          "prefix": "Valinnainen etuliite sensorien nimille.",
+          "scan_interval": "Aika laitteen lukukertojen välillä. Lyhyt väli lisää verkon ja laitteen kuormitusta.",
+          "models_enabled": "Valitse tunnistetut SunSpec-mallit, jotka näytetään sensoreina. Valitse vähintään yksi.",
+          "max_ac_power_kw": "AC-teho, jonka avulla epäuskottavat lukemat suodatetaan pois. Ehdotettu arvo on tyyppikilven teho + 20 % varaa. DC-teho ja näennäisteho saavat ylittää sen. Tyhjennä kenttä, niin raja tunnistetaan automaattisesti."
+        }
+      },
+      "reconfigure": {
+        "title": "Muuta invertterin yhteyttä",
+        "description": "Päivitä olemassa olevan SunSpec-invertterin isäntänimi, portti tai yksikkötunnus menettämättä sen historiaa. Uusi yhteys testataan, ja asetukset päivitetään vain, jos invertteri ilmoittaa edelleen saman sarjanumeron.",
+        "data": {
+          "host": "Isäntänimi tai IP-osoite",
+          "port": "Modbus TCP -portti",
+          "unit_id": "Modbus-yksikkötunnus"
+        },
+        "data_description": {
+          "host": "Invertterin tai sen edessä olevan yhdyskäytävän IP-osoite tai isäntänimi.",
+          "port": "Modbus TCP -portti. 502, ellei laitteeseen ole asetettu muuta.",
+          "unit_id": "Laitteen Modbus-osoite, toiselta nimeltään slave ID tai device ID. Usein 1. Näet sen laitteen Modbus-asetuksista."
+        }
+      }
+    },
+    "error": {
+      "connection": "Invertteriin ei saada yhteyttä. Tarkista isäntänimi, portti ja yksikkötunnus ja yritä uudelleen.",
+      "timeout": "Invertteri ei vastannut ajoissa. Laite voi olla pois verkosta, tai toinen Modbus-asiakas voi pitää yhteyttä varattuna.",
+      "device_error": "Invertteri vastasi Modbus-virheellä. Tarkista, että laitteen laiteohjelmisto on ajan tasalla.",
+      "invalid_subnet": "Aliverkko ei ole kelvollinen CIDR-merkintä, tai se on liian suuri haettavaksi (käytä /22 tai pienempää).",
+      "no_candidates": "Tästä aliverkosta ei löytynyt laitteita, joissa Modbus TCP -portti 502 on auki.",
+      "no_models_selected": "Valitse vähintään yksi SunSpec-malli. Tyhjän valinnan tallentaminen lopettaisi invertterin kyselyn, ja kaikki sensorit katoaisivat.",
+      "unique_id_mismatch": "Tämän osoitteen invertteri ilmoittaa eri sarjanumeron kuin alun perin määrittämäsi. Sensorihistoriaa ei siirretä toiselle laitteelle.",
+      "sma_unit_id": "Invertteri vastaa SunSpec-kyselyihin yksikkötunnuksella 126, ei syöttämälläsi tunnuksella. SMA:n SunSpec-tunnus on laitteen oma Modbus-yksikkötunnus + 123. Kentän arvoksi on asetettu 126, lähetä lomake uudelleen."
+    },
+    "abort": {
+      "already_configured": "Tämä invertteri on jo määritetty.",
+      "reconfigure_successful": "Yhteysasetukset päivitetty."
+    }
+  },
+  "options": {
+    "step": {
+      "host_options": {
+        "title": "Yhteysasetukset",
+        "description": "Tarkista yhteystiedot ja jatka sitten laitteen asetuksiin.",
+        "data": {
+          "host": "Isäntänimi tai IP-osoite",
+          "port": "Modbus TCP -portti",
+          "unit_id": "Modbus-yksikkötunnus"
+        },
+        "data_description": {
+          "host": "Invertterin tai sen edessä olevan yhdyskäytävän IP-osoite tai isäntänimi.",
+          "port": "Modbus TCP -portti. 502, ellei laitteeseen ole asetettu muuta.",
+          "unit_id": "Laitteen Modbus-osoite, toiselta nimeltään slave ID tai device ID. Usein 1. Näet sen laitteen Modbus-asetuksista."
+        }
+      },
+      "model_options": {
+        "title": "Laitteen asetukset",
+        "description": "Muuta sensorien valintaa ja kyselyä. Lisäasetukset on ryhmitelty alle.",
+        "data": {
+          "scan_interval": "Kyselyväli",
+          "models_enabled": "Sensorimallit"
+        },
+        "data_description": {
+          "scan_interval": "Aika laitteen lukukertojen välillä. Lyhyt väli lisää verkon ja laitteen kuormitusta.",
+          "models_enabled": "Valitse tunnistetut SunSpec-mallit, jotka näytetään sensoreina. Valitse vähintään yksi."
+        },
+        "sections": {
+          "advanced": {
+            "name": "Lisäasetukset",
+            "description": "Sensorien nimet, tehosuodatus, valmiustila ja vianmääritys.",
+            "data": {
+              "max_ac_power_kw": "AC-huipputeho",
+              "prefix": "Sensorien nimen etuliite",
+              "standby_when_idle": "Salli invertterin kadota verkosta joutoaikana",
+              "scan_delay": "Mallihaun tauko",
+              "model_read_delay": "Mallien lukutauko",
+              "capture_raw_registers": "Tallenna diagnostiikkarekisterit",
+              "rearm_on_change": "Ota ohjaukset uudelleen käyttöön asetusarvon muutoksen jälkeen"
+            },
+            "data_description": {
+              "max_ac_power_kw": "AC-teho, jonka avulla epäuskottavat lukemat suodatetaan pois. Ehdotettu arvo on tyyppikilven teho + 20 % varaa. DC-teho ja näennäisteho saavat ylittää sen. Tyhjennä kenttä, niin raja tunnistetaan automaattisesti.",
+              "prefix": "Valinnainen etuliite sensorien nimille.",
+              "standby_when_idle": "Estää yhteysongelmien Korjaukset-ilmoitukset laitteilta, jotka katoavat verkosta ilmoittamatta valmiustilasta. Sensorit näkyvät silti tilassa Ei saatavilla. Ilmoitettu valmiustila tunnistetaan automaattisesti.",
+              "scan_delay": "Tauko mallien välillä laitteen tunnistuksen aikana, ei tavallisen kyselyn aikana. Pidennä sitä, jos tunnistus epäonnistuu hitailla laitteilla.",
+              "model_read_delay": "Tauko mallien lukujen välillä tavallisen kyselyn aikana. Pienempi arvo nopeuttaa päivityksiä ja kirjoitustoimintoja. Arvo 0 poistaa tauon.",
+              "capture_raw_registers": "Lisää raa'at Modbus-rekisteritiedot diagnostiikkalatauksiin vianmääritystä varten.",
+              "rearm_on_change": "Fronius GEN24 ottaa muutetut rajat käyttöön vasta, kun ohjaus käännetään pois ja takaisin päälle. Kun ohjaus on käytössä, sen kytkin käännetään pois, arvo kirjoitetaan ja kytkin käännetään päälle sekunnin kuluttua. Raja ei ole voimassa tämän sekunnin aikana."
+            }
+          },
+          "fronius": {
+            "name": "Fronius-verkkokäyttöliittymä",
+            "description": "Valinnainen pääsy laitteen lisätietoihin.",
+            "data": {
+              "fronius_web_password": "Verkkokäyttöliittymän salasana",
+              "fronius_web_forget": "Unohda tallennettu kirjautuminen"
+            },
+            "data_description": {
+              "fronius_web_password": "Paikallinen käyttäjä \"customer\", ei Solar.web-tilisi. Ottaa käyttöön laitteen ja akun lisätiedot. Vain laitekohtainen kirjautumistiiviste tallennetaan. Jätä tyhjäksi, niin tallennettu kirjautuminen säilyy.",
+              "fronius_web_forget": "Poistaa tallennetun kirjautumisen ja poistaa verkkokäyttöliittymän lisäominaisuudet käytöstä."
+            }
+          }
+        }
+      }
+    },
+    "error": {
+      "no_models_selected": "Valitse vähintään yksi SunSpec-malli. Tyhjän valinnan tallentaminen lopettaisi invertterin kyselyn, ja kaikki sensorit katoaisivat.",
+      "connection": "Invertteriin ei juuri nyt saada yhteyttä. Odota hetki ja yritä uudelleen, tai tarkista, että laite on verkossa.",
+      "web_auth_failed": "Invertteri hylkäsi verkkokäyttöliittymän salasanan. Kyseessä on invertterin oman verkkosivun paikallinen käyttäjä \"customer\", ei Solar.web-tili.",
+      "web_unreachable": "Invertterin verkkokäyttöliittymä ei vastannut portissa 80."
+    }
+  },
+  "entity": {
+    "number": {
+      "export_limit_pct": {
+        "name": "Syöttörajoitus"
+      },
+      "export_limit_revert_time": {
+        "name": "Syöttörajoituksen palautusaika"
+      },
+      "power_factor_set": {
+        "name": "Tehokertoimen asetusarvo"
+      },
+      "active_power_setpoint": {
+        "name": "Pätötehon asetusarvo"
+      },
+      "active_power_setpoint_pct": {
+        "name": "Pätötehon asetusarvo prosentteina"
+      },
+      "export_limit_revert_value": {
+        "name": "Syöttörajoituksen palautusarvo"
+      },
+      "battery_charge_rate": {
+        "name": "Akun latausnopeus"
+      },
+      "battery_discharge_rate": {
+        "name": "Akun purkunopeus"
+      },
+      "battery_max_charge_power": {
+        "name": "Akun suurin latausteho"
+      },
+      "battery_rate_revert_time": {
+        "name": "Akun lataus- ja purkunopeuden palautusaika"
+      },
+      "battery_min_reserve": {
+        "name": "Akun vähimmäisvaraus"
+      },
+      "battery_pv_charge_limit_w": {
+        "name": "Akun PV-latausrajoitus"
+      },
+      "battery_discharge_limit_w": {
+        "name": "Akun purkurajoitus"
+      },
+      "battery_grid_charge_power_w": {
+        "name": "Akun latausteho verkosta"
+      },
+      "battery_grid_discharge_power_w": {
+        "name": "Akun purkuteho verkkoon"
+      },
+      "scheduled_discharge_reserve_pct": {
+        "name": "Akkusuunnitelman tavoite"
+      },
+      "battery_capacity_kwh": {
+        "name": "Akun kapasiteetti"
+      },
+      "storage_ac_charge_limit": {
+        "name": "Energiavaraston AC-latausrajoitus"
+      },
+      "storage_backup_reserve": {
+        "name": "Energiavaraston varavaraus"
+      },
+      "storage_command_timeout": {
+        "name": "Energiavaraston komennon aikakatkaisu"
+      },
+      "storage_charge_limit": {
+        "name": "Energiavaraston latausrajoitus"
+      },
+      "storage_discharge_limit": {
+        "name": "Energiavaraston purkurajoitus"
+      },
+      "site_limit": {
+        "name": "Kohteen tehorajoitus"
+      },
+      "active_power_limit": {
+        "name": "Pätötehon rajoitus"
+      },
+      "sma_power_setpoint": {
+        "name": "Ulkoinen tehon asetusarvo"
+      },
+      "battery_min_soc": {
+        "name": "Vähimmäisvaraustila"
+      },
+      "battery_max_soc": {
+        "name": "Enimmäisvaraustila"
+      },
+      "battery_max_charge_power_limit": {
+        "name": "Lataustehon rajoitus"
+      },
+      "battery_max_discharge_power_limit": {
+        "name": "Purkutehon rajoitus"
+      },
+      "battery_dc_power_setpoint": {
+        "name": "DC-tehon asetusarvo"
+      },
+      "battery_limitation_charge_power": {
+        "name": "Voimassa pidettävä lataustehon rajoitus"
+      },
+      "battery_limitation_discharge_power": {
+        "name": "Voimassa pidettävä purkutehon rajoitus"
+      },
+      "battery_fallback_charge_power": {
+        "name": "Latausteho varatoiminnossa"
+      },
+      "battery_fallback_discharge_power": {
+        "name": "Purkuteho varatoiminnossa"
+      },
+      "battery_fallback_time": {
+        "name": "Aika varatoimintoon"
+      },
+      "franklinwh_power_target": {
+        "name": "Akun tehotavoite"
+      }
+    },
+    "select": {
+      "battery_control_mode": {
+        "name": "Akun ohjaustila",
+        "state": {
+          "off": "Pois",
+          "charge": "Vain lataus",
+          "discharge": "Vain purku",
+          "both": "Lataus ja purku"
+        }
+      },
+      "battery_mode": {
+        "name": "Akun toimintatila",
+        "state": {
+          "auto": "Automaattinen",
+          "pv_charge_limit": "PV-latausrajoitus",
+          "discharge_limit": "Purkurajoitus",
+          "charge_and_discharge_limit": "PV-lataus- ja purkurajoitus",
+          "charge_from_grid": "Lataus verkosta",
+          "discharge_to_grid": "Purku verkkoon",
+          "block_discharging": "Estä purku",
+          "block_charging": "Estä lataus"
+        }
+      },
+      "active_power_setpoint_mode": {
+        "name": "Pätötehon asetusarvon tila",
+        "state": {
+          "w_max_pct": "Prosenttia enimmäistehosta",
+          "watts": "Watteina"
+        }
+      },
+      "storage_control_mode": {
+        "name": "Energiavaraston ohjaustila",
+        "state": {
+          "disabled": "Pois käytöstä",
+          "maximize_self_consumption": "Maksimoi omakäyttö",
+          "time_of_use": "Aikatariffi",
+          "backup_only": "Vain varavoima",
+          "remote_control": "Etäohjaus"
+        }
+      },
+      "storage_ac_charge_policy": {
+        "name": "Energiavaraston AC-latauskäytäntö",
+        "state": {
+          "disabled": "Pois käytöstä",
+          "always_allowed": "Aina sallittu",
+          "fixed_energy_limit": "Kiinteä energiaraja",
+          "percent_of_production": "Prosenttia tuotannosta"
+        }
+      },
+      "storage_default_mode": {
+        "name": "Energiavaraston oletustila",
+        "state": {
+          "solar_power_only": "Vain aurinkosähkö",
+          "charge_from_clipped_solar": "Lataus leikatusta aurinkosähköstä",
+          "charge_from_solar": "Lataus aurinkosähköstä",
+          "charge_from_solar_and_grid": "Lataus aurinkosähköstä ja verkosta",
+          "discharge_to_maximize_export": "Purku verkkoon syötön maksimoimiseksi",
+          "discharge_to_minimize_import": "Purku verkosta oton minimoimiseksi",
+          "maximize_self_consumption": "Maksimoi omakäyttö"
+        }
+      },
+      "storage_command_mode": {
+        "name": "Energiavaraston komentotila",
+        "state": {
+          "solar_power_only": "Vain aurinkosähkö",
+          "charge_from_clipped_solar": "Lataus leikatusta aurinkosähköstä",
+          "charge_from_solar": "Lataus aurinkosähköstä",
+          "charge_from_solar_and_grid": "Lataus aurinkosähköstä ja verkosta",
+          "discharge_to_maximize_export": "Purku verkkoon syötön maksimoimiseksi",
+          "discharge_to_minimize_import": "Purku verkosta oton minimoimiseksi",
+          "maximize_self_consumption": "Maksimoi omakäyttö"
+        }
+      },
+      "site_limit_mode": {
+        "name": "Kohteen tehorajoituksen tila",
+        "state": {
+          "disabled": "Pois käytöstä",
+          "export_control_export_import_meter": "Syöttörajoitus (syöttö- ja ottomittari)",
+          "export_control_consumption_meter": "Syöttörajoitus (kulutusmittari)",
+          "production_control": "Tuotannon rajoitus"
+        }
+      },
+      "site_limit_scope": {
+        "name": "Kohteen tehorajoituksen laajuus",
+        "state": {
+          "total": "Yhteensä",
+          "per_phase": "Vaihekohtainen"
+        }
+      },
+      "sma_power_control": {
+        "name": "Ulkoinen tehonohjaus",
+        "state": {
+          "inactive": "Ei aktiivinen",
+          "active": "Aktiivinen"
+        }
+      },
+      "battery_plan_direction": {
+        "name": "Akkusuunnitelman suunta",
+        "state": {
+          "charge": "Lataus",
+          "discharge": "Purku"
+        }
+      }
+    },
+    "switch": {
+      "export_limit_enabled": {
+        "name": "Syöttörajoitus käytössä"
+      },
+      "power_factor_enabled": {
+        "name": "Tehokertoimen asetusarvo käytössä"
+      },
+      "inverter_grid_connection": {
+        "name": "Invertteri kytketty verkkoon"
+      },
+      "active_power_setpoint_enabled": {
+        "name": "Pätötehon asetusarvo käytössä"
+      },
+      "export_limit_revert_enabled": {
+        "name": "Syöttörajoitus pysyy päällä palautuksen jälkeen"
+      },
+      "battery_grid_charging": {
+        "name": "Akun lataus verkosta sallittu"
+      },
+      "scheduled_discharge": {
+        "name": "Akkusuunnitelma"
+      },
+      "battery_charge_from_grid": {
+        "name": "Akun lataus verkosta (verkkokäyttöliittymä)"
+      },
+      "battery_charge_from_ac": {
+        "name": "Akun lataus AC-puolelta (verkkokäyttöliittymä)"
+      },
+      "modbus_control_allowed": {
+        "name": "Modbus-ohjaus sallittu"
+      },
+      "storage_command_rearm": {
+        "name": "Energiavaraston komennon uusinta"
+      },
+      "active_power_limit_reassert": {
+        "name": "Pidä pätötehon rajoitus voimassa"
+      },
+      "sma_power_setpoint_keepalive": {
+        "name": "Pidä ulkoinen tehon asetusarvo voimassa"
+      },
+      "battery_limitation_hold": {
+        "name": "Pidä tehorajoitukset voimassa"
+      }
+    },
+    "time": {
+      "scheduled_discharge_start": {
+        "name": "Akkusuunnitelman alku"
+      },
+      "scheduled_discharge_end": {
+        "name": "Akkusuunnitelman loppu"
+      }
+    },
+    "button": {
+      "reset_modbus_control": {
+        "name": "Nollaa Modbus-ohjaus"
+      },
+      "franklinwh_standby": {
+        "name": "Pidä akku valmiustilassa"
+      },
+      "franklinwh_release": {
+        "name": "Vapauta akun ohjaus"
+      }
+    },
+    "sensor": {
+      "amps": {
+        "name": "AC-virta"
+      },
+      "amps_l1": {
+        "name": "AC-virta L1"
+      },
+      "amps_l2": {
+        "name": "AC-virta L2"
+      },
+      "amps_l3": {
+        "name": "AC-virta L3"
+      },
+      "phase_voltage_l1_l2": {
+        "name": "Pääjännite L1-L2"
+      },
+      "phase_voltage_l2_l3": {
+        "name": "Pääjännite L2-L3"
+      },
+      "phase_voltage_l3_l1": {
+        "name": "Pääjännite L3-L1"
+      },
+      "phase_voltage_l1_n": {
+        "name": "Vaihejännite L1-N"
+      },
+      "phase_voltage_l2_n": {
+        "name": "Vaihejännite L2-N"
+      },
+      "phase_voltage_l3_n": {
+        "name": "Vaihejännite L3-N"
+      },
+      "watts": {
+        "name": "AC-teho"
+      },
+      "frequency": {
+        "name": "AC-taajuus"
+      },
+      "apparent_power": {
+        "name": "Näennäisteho"
+      },
+      "reactive_power": {
+        "name": "Loisteho"
+      },
+      "power_factor": {
+        "name": "Tehokerroin"
+      },
+      "lifetime_energy": {
+        "name": "Tuotettu energia yhteensä"
+      },
+      "daily_energy": {
+        "name": "Tuotettu energia tänään"
+      },
+      "counted_lifetime_energy": {
+        "name": "Tuotettu energia yhteensä (laskettu)"
+      },
+      "dc_current": {
+        "name": "DC-virta"
+      },
+      "dc_voltage": {
+        "name": "DC-jännite"
+      },
+      "dc_power": {
+        "name": "DC-teho"
+      },
+      "cabinet_temperature": {
+        "name": "Kotelon lämpötila"
+      },
+      "heat_sink_temperature": {
+        "name": "Jäähdytyselementin lämpötila"
+      },
+      "transformer_temperature": {
+        "name": "Muuntajan lämpötila"
+      },
+      "other_temperature": {
+        "name": "Muu lämpötila"
+      },
+      "operating_state": {
+        "name": "Toimintatila"
+      },
+      "vendor_operating_state": {
+        "name": "Valmistajan toimintatila"
+      },
+      "events_1": {
+        "name": "Tapahtumat"
+      },
+      "events_2": {
+        "name": "Tapahtumat 2"
+      },
+      "vendor_events_1": {
+        "name": "Valmistajan tapahtumat 1"
+      },
+      "vendor_events_2": {
+        "name": "Valmistajan tapahtumat 2"
+      },
+      "vendor_events_3": {
+        "name": "Valmistajan tapahtumat 3"
+      },
+      "vendor_events_4": {
+        "name": "Valmistajan tapahtumat 4"
+      },
+      "rated_power": {
+        "name": "Nimellinen AC-teho"
+      },
+      "rated_apparent_power": {
+        "name": "Nimellinen näennäisteho"
+      },
+      "rated_current": {
+        "name": "Nimellinen AC-virta"
+      },
+      "rated_storage_capacity": {
+        "name": "Nimellinen varastointikapasiteetti"
+      },
+      "max_power_setting": {
+        "name": "Asetettu enimmäisteho"
+      },
+      "voltage_reference": {
+        "name": "Vertailujännite"
+      },
+      "battery_charge_power": {
+        "name": "Akun latausteho"
+      },
+      "battery_discharge_power": {
+        "name": "Akun purkuteho"
+      },
+      "battery_charged_energy": {
+        "name": "Akkuun ladattu energia"
+      },
+      "battery_discharged_energy": {
+        "name": "Akusta purettu energia"
+      },
+      "pv_power": {
+        "name": "PV-teho"
+      },
+      "inverter_temperature": {
+        "name": "Invertterin lämpötila"
+      },
+      "battery_cell_temperature": {
+        "name": "Akun kennolämpötila"
+      },
+      "smart_meter_location": {
+        "name": "Älymittarin sijainti",
+        "state": {
+          "feed_in_point": "Liittymispiste",
+          "consumption_path": "Kulutuspolku"
+        }
+      },
+      "grid_status": {
+        "name": "Verkon tila",
+        "state": {
+          "on_grid": "Verkossa",
+          "off_grid": "Irti verkosta"
+        }
+      },
+      "status_vendor4": {
+        "name": "Valmistajan tilakoodi"
+      },
+      "rrcr_state": {
+        "name": "RRCR-tulon tila"
+      },
+      "register_writes": {
+        "name": "Rekisterikirjoitukset"
+      },
+      "sma_device_class": {
+        "name": "Laiteluokka",
+        "state": {
+          "pv_inverter": "PV-invertteri",
+          "wind_inverter": "Tuulivoimainvertteri",
+          "battery_inverter": "Akkuinvertteri",
+          "load": "Kuorma",
+          "sensor": "Sensori",
+          "energy_meter": "Energiamittari",
+          "communication": "Tiedonsiirtotuote"
+        }
+      },
+      "sma_device_type": {
+        "name": "Laitetyypin koodi"
+      },
+      "sma_operating_status": {
+        "name": "Käyttötila",
+        "state": {
+          "fault": "Vika",
+          "off": "Pois",
+          "ok": "OK",
+          "warning": "Varoitus"
+        }
+      },
+      "sma_active_power_mode": {
+        "name": "Pätötehon toimintatila",
+        "state": {
+          "off": "Pois",
+          "watts": "Watteina",
+          "percent": "Prosentteina",
+          "external_setpoint": "Ulkoinen asetusarvo"
+        }
+      },
+      "sma_setpoint_timeout": {
+        "name": "Ulkoisen asetusarvon aikakatkaisu"
+      },
+      "battery_state_of_charge": {
+        "name": "Akun varaustila"
+      },
+      "battery_capacity_pct": {
+        "name": "Akun kapasiteetti"
+      },
+      "battery_status_code": {
+        "name": "Akun tilakoodi"
+      },
+      "battery_state_of_energy": {
+        "name": "Energian varaustila"
+      },
+      "battery_state_of_health": {
+        "name": "Kuntotila"
+      },
+      "battery_temperature": {
+        "name": "Lämpötila"
+      },
+      "battery_temperature_max": {
+        "name": "Korkein lämpötila"
+      },
+      "battery_voltage": {
+        "name": "Jännite"
+      },
+      "battery_current": {
+        "name": "Virta"
+      },
+      "battery_power": {
+        "name": "Teho"
+      },
+      "battery_energy_discharged": {
+        "name": "Purettu energia"
+      },
+      "battery_energy_charged": {
+        "name": "Ladattu energia"
+      },
+      "battery_energy_available": {
+        "name": "Käytettävissä oleva energia"
+      },
+      "battery_energy_max": {
+        "name": "Enimmäisenergia"
+      },
+      "battery_rated_energy": {
+        "name": "Nimellinen energia"
+      },
+      "battery_max_charge_power": {
+        "name": "Suurin latausteho"
+      },
+      "battery_max_discharge_power": {
+        "name": "Suurin purkuteho"
+      },
+      "battery_status": {
+        "name": "Tila",
+        "state": {
+          "off": "Pois",
+          "standby": "Valmiustila",
+          "init": "Alustetaan",
+          "charge": "Latautuu",
+          "discharge": "Purkautuu",
+          "fault": "Vika",
+          "preserve_charge": "Varaus säilytetään",
+          "idle": "Joutokäynti",
+          "power_saving": "Virransäästö"
+        }
+      },
+      "home_consumption_pv": {
+        "name": "Talon kulutus PV-tuotannosta"
+      },
+      "home_consumption_battery": {
+        "name": "Talon kulutus akusta"
+      },
+      "home_consumption_grid": {
+        "name": "Talon kulutus verkosta"
+      },
+      "home_consumption_pv_total": {
+        "name": "Talon kulutus PV-tuotannosta, yhteensä"
+      },
+      "home_consumption_battery_total": {
+        "name": "Talon kulutus akusta, yhteensä"
+      },
+      "home_consumption_grid_total": {
+        "name": "Talon kulutus verkosta, yhteensä"
+      },
+      "home_consumption_total": {
+        "name": "Talon kulutus yhteensä"
+      },
+      "total_dc_power": {
+        "name": "DC-kokonaisteho"
+      },
+      "energy_manager_state": {
+        "name": "Energianhallinta",
+        "state": {
+          "idle": "Valmiina",
+          "emergency_battery_charge": "Akun hätälataus",
+          "winter_mode_step_1": "Talvitila, vaihe 1",
+          "winter_mode_step_2": "Talvitila, vaihe 2"
+        }
+      },
+      "controller_temperature": {
+        "name": "Ohjainkortin lämpötila"
+      },
+      "isolation_resistance": {
+        "name": "Eristysresistanssi"
+      },
+      "power_limit_evu": {
+        "name": "Verkkoyhtiön tehorajoitus"
+      },
+      "energy_meter_type": {
+        "name": "Energiamittari",
+        "state": {
+          "sdm630": "SDM 630",
+          "b_control_em300lr": "B-control EM-300 LR",
+          "ksem": "KOSTAL Smart Energy Meter",
+          "kem_c": "KOSTAL Energy Meter, sarja C",
+          "kem_p": "KOSTAL Energy Meter, sarja P",
+          "kem_mp_p": "KOSTAL Energy Meter MP, sarja P",
+          "none": "Ei mitään"
+        }
+      },
+      "energy_to_grid": {
+        "name": "Verkkoon syötetty energia"
+      },
+      "pssb_fuse_state": {
+        "name": "Ketjujen sulakekortti",
+        "state": {
+          "fuse_fail": "Sulake palanut",
+          "fuse_ok": "Sulake kunnossa",
+          "unchecked": "Tarkistamatta"
+        }
+      },
+      "battery_ready": {
+        "name": "Valmis",
+        "state": {
+          "not_ready": "Ei valmis",
+          "ready": "Valmis"
+        }
+      },
+      "battery_dc_charge_energy": {
+        "name": "Ladattu, DC-puoli"
+      },
+      "battery_dc_discharge_energy": {
+        "name": "Purettu, DC-puoli"
+      },
+      "battery_ac_charge_energy": {
+        "name": "Ladattu, AC-puoli"
+      },
+      "battery_ac_discharge_energy": {
+        "name": "Purettu verkkoon"
+      },
+      "battery_ac_charge_energy_grid": {
+        "name": "Ladattu verkosta"
+      },
+      "battery_work_capacity": {
+        "name": "Käyttökapasiteetti"
+      },
+      "battery_management_mode": {
+        "name": "Ulkoinen ohjaus",
+        "state": {
+          "none": "Pois",
+          "digital_io": "Digitaalinen I/O",
+          "modbus": "Modbus"
+        }
+      },
+      "apsystems_dc_voltage_1": {
+        "name": "DC-jännite, tulo 1"
+      },
+      "apsystems_dc_voltage_2": {
+        "name": "DC-jännite, tulo 2"
+      },
+      "apsystems_dc_voltage_3": {
+        "name": "DC-jännite, tulo 3"
+      },
+      "apsystems_dc_voltage_4": {
+        "name": "DC-jännite, tulo 4"
+      },
+      "apsystems_dc_voltage_5": {
+        "name": "DC-jännite, tulo 5"
+      },
+      "apsystems_dc_voltage_6": {
+        "name": "DC-jännite, tulo 6"
+      },
+      "apsystems_dc_voltage_7": {
+        "name": "DC-jännite, tulo 7"
+      },
+      "apsystems_dc_voltage_8": {
+        "name": "DC-jännite, tulo 8"
+      },
+      "apsystems_dc_current_1": {
+        "name": "DC-virta, tulo 1"
+      },
+      "apsystems_dc_current_2": {
+        "name": "DC-virta, tulo 2"
+      },
+      "apsystems_dc_current_3": {
+        "name": "DC-virta, tulo 3"
+      },
+      "apsystems_dc_current_4": {
+        "name": "DC-virta, tulo 4"
+      },
+      "apsystems_dc_current_5": {
+        "name": "DC-virta, tulo 5"
+      },
+      "apsystems_dc_current_6": {
+        "name": "DC-virta, tulo 6"
+      },
+      "apsystems_dc_current_7": {
+        "name": "DC-virta, tulo 7"
+      },
+      "apsystems_dc_current_8": {
+        "name": "DC-virta, tulo 8"
+      },
+      "apsystems_dc_power_1": {
+        "name": "DC-teho, tulo 1"
+      },
+      "apsystems_dc_power_2": {
+        "name": "DC-teho, tulo 2"
+      },
+      "apsystems_dc_power_3": {
+        "name": "DC-teho, tulo 3"
+      },
+      "apsystems_dc_power_4": {
+        "name": "DC-teho, tulo 4"
+      },
+      "apsystems_dc_power_5": {
+        "name": "DC-teho, tulo 5"
+      },
+      "apsystems_dc_power_6": {
+        "name": "DC-teho, tulo 6"
+      },
+      "apsystems_dc_power_7": {
+        "name": "DC-teho, tulo 7"
+      },
+      "apsystems_dc_power_8": {
+        "name": "DC-teho, tulo 8"
+      },
+      "saj_energy_today": {
+        "name": "Tuotettu energia tänään"
+      },
+      "saj_energy_month": {
+        "name": "Tuotettu energia tässä kuussa"
+      },
+      "saj_dc_voltage_1": {
+        "name": "DC-jännite, tulo 1"
+      },
+      "saj_dc_voltage_2": {
+        "name": "DC-jännite, tulo 2"
+      },
+      "saj_dc_current_1": {
+        "name": "DC-virta, tulo 1"
+      },
+      "saj_dc_current_2": {
+        "name": "DC-virta, tulo 2"
+      },
+      "saj_dc_power_1": {
+        "name": "DC-teho, tulo 1"
+      },
+      "saj_dc_power_2": {
+        "name": "DC-teho, tulo 2"
+      },
+      "franklinwh_pv_total": {
+        "name": "Aurinkosähköteho laajennusrekistereistä"
+      },
+      "franklinwh_pv_proximal": {
+        "name": "Paikallinen aurinkosähköteho"
+      },
+      "franklinwh_pv_remote_1": {
+        "name": "Etäinen aurinkosähköteho 1"
+      },
+      "franklinwh_pv_remote_2": {
+        "name": "Etäinen aurinkosähköteho 2"
+      },
+      "franklinwh_home_load": {
+        "name": "Talon kuorma, karkea lukema"
+      },
+      "franklinwh_home_load_high_resolution": {
+        "name": "Talon kuorma"
+      },
+      "franklinwh_native_mode": {
+        "name": "Laitteen oma toimintatila",
+        "state": {
+          "emergency_backup": "Hätävaravoima",
+          "self_consumption": "Omakäyttö",
+          "time_of_use": "Aikatariffi"
+        }
+      },
+      "franklinwh_self_reserve": {
+        "name": "Omakäytön varaus"
+      },
+      "franklinwh_tou_reserve": {
+        "name": "Ilmoitettu aikatariffin varaus"
+      },
+      "franklinwh_active_reserve": {
+        "name": "Ilmoitettu voimassa oleva varaus"
+      },
+      "franklinwh_pv_energy": {
+        "name": "Aurinkosähköenergia laajennusrekistereistä"
+      },
+      "franklinwh_pv_proximal_energy": {
+        "name": "Paikallinen aurinkosähköenergia"
+      },
+      "franklinwh_battery_state": {
+        "name": "Akun toiminta",
+        "state": {
+          "charging": "Latautuu",
+          "discharging": "Purkautuu",
+          "idle": "Joutokäynti"
+        }
+      },
+      "franklinwh_home_consumption": {
+        "name": "Talon kulutus"
+      },
+      "der_type": {
+        "name": "DER-tyyppi"
+      },
+      "rated_reactive_power": {
+        "name": "Nimellinen loisteho {quadrant}"
+      },
+      "rated_min_power_factor": {
+        "name": "Nimellinen pienin tehokerroin {quadrant}"
+      },
+      "rated_usable_capacity": {
+        "name": "Nimellinen käytettävä kapasiteetti (Ah)"
+      },
+      "rated_max_charge_power": {
+        "name": "Nimellinen suurin latausteho"
+      },
+      "rated_max_discharge_power": {
+        "name": "Nimellinen suurin purkuteho"
+      },
+      "voltage_reference_offset": {
+        "name": "Vertailujännitteen poikkeama"
+      },
+      "max_voltage_setting": {
+        "name": "Asetettu suurin AC-jännite"
+      },
+      "min_voltage_setting": {
+        "name": "Asetettu pienin AC-jännite"
+      },
+      "max_apparent_power_setting": {
+        "name": "Asetettu suurin näennäisteho"
+      },
+      "max_reactive_power_setting": {
+        "name": "Asetettu suurin loisteho {quadrant}"
+      },
+      "active_power_ramp_rate": {
+        "name": "Pätötehon muutosnopeus"
+      },
+      "min_power_factor_setting": {
+        "name": "Asetettu pienin tehokerroin {quadrant}"
+      },
+      "reactive_power_action": {
+        "name": "Loistehon käyttäytyminen"
+      },
+      "apparent_power_calculation": {
+        "name": "Näennäistehon laskentatapa"
+      },
+      "max_ramp_rate": {
+        "name": "Suurin muutosnopeus"
+      },
+      "nominal_frequency": {
+        "name": "Nimellistaajuus"
+      },
+      "connected_phase": {
+        "name": "Kytketty vaihe"
+      },
+      "lifetime_apparent_energy": {
+        "name": "Näennäisenergia yhteensä"
+      },
+      "lifetime_reactive_energy": {
+        "name": "Loisenergia yhteensä {quadrant}"
+      },
+      "available_reactive_power": {
+        "name": "Käytettävissä oleva loisteho"
+      },
+      "available_power": {
+        "name": "Käytettävissä oleva teho"
+      },
+      "setpoint_limits_reached": {
+        "name": "Saavutetut asetusarvorajat"
+      },
+      "active_controls": {
+        "name": "Aktiiviset ohjaukset"
+      },
+      "timestamp": {
+        "name": "Aikaleima"
+      },
+      "grid_connection_time_window": {
+        "name": "Verkkoon kytkennän aikaikkuna"
+      },
+      "grid_connection_revert_time": {
+        "name": "Verkkoon kytkennän palautusaika"
+      },
+      "export_limit_time_window": {
+        "name": "Syöttörajoituksen aikaikkuna"
+      },
+      "export_limit_ramp_time": {
+        "name": "Syöttörajoituksen muutosaika"
+      },
+      "power_factor_time_window": {
+        "name": "Tehokertoimen asetusarvon aikaikkuna"
+      },
+      "power_factor_revert_time": {
+        "name": "Tehokertoimen asetusarvon palautusaika"
+      },
+      "power_factor_ramp_time": {
+        "name": "Tehokertoimen asetusarvon muutosaika"
+      },
+      "reactive_power_limit_pct_max_power": {
+        "name": "Loistehon rajoitus (% enimmäistehosta)"
+      },
+      "reactive_power_limit_pct_max_reactive_power": {
+        "name": "Loistehon rajoitus (% suurimmasta loistehosta)"
+      },
+      "reactive_power_limit_pct_available": {
+        "name": "Loistehon rajoitus (% käytettävissä olevasta loistehosta)"
+      },
+      "reactive_power_limit_time_window": {
+        "name": "Loistehon rajoituksen aikaikkuna"
+      },
+      "reactive_power_limit_revert_time": {
+        "name": "Loistehon rajoituksen palautusaika"
+      },
+      "reactive_power_limit_ramp_time": {
+        "name": "Loistehon rajoituksen muutosaika"
+      },
+      "reactive_power_limit_mode": {
+        "name": "Loistehon rajoituksen tila"
+      },
+      "reactive_power_limit_enabled": {
+        "name": "Loistehon rajoitus käytössä"
+      },
+      "charge_ramp_rate": {
+        "name": "Latauksen muutosnopeus"
+      },
+      "discharge_ramp_rate": {
+        "name": "Purun muutosnopeus"
+      },
+      "max_charge_apparent_power": {
+        "name": "Suurin latauksen näennäisteho"
+      },
+      "state_of_charge": {
+        "name": "Varaustila"
+      },
+      "available_capacity": {
+        "name": "Käytettävissä oleva kapasiteetti (Ah)"
+      },
+      "internal_battery_voltage": {
+        "name": "Akun sisäinen jännite"
+      },
+      "charge_status": {
+        "name": "Latauksen tila"
+      },
+      "battery_rate_time_window": {
+        "name": "Akun lataus- ja purkunopeuden aikaikkuna"
+      },
+      "battery_rate_ramp_time": {
+        "name": "Akun lataus- ja purkunopeuden muutosaika"
+      },
+      "global_events": {
+        "name": "Yleiset tapahtumat"
+      },
+      "module_dc_current": {
+        "name": "Tulon {index} DC-virta"
+      },
+      "module_dc_voltage": {
+        "name": "Tulon {index} DC-jännite"
+      },
+      "module_dc_power": {
+        "name": "Tulon {index} DC-teho"
+      },
+      "module_lifetime_energy": {
+        "name": "Tulon {index} energia yhteensä"
+      },
+      "module_timestamp": {
+        "name": "Tulon {index} aikaleima"
+      },
+      "module_temperature": {
+        "name": "Tulon {index} lämpötila"
+      },
+      "module_operating_state": {
+        "name": "Tulon {index} toimintatila"
+      },
+      "module_events": {
+        "name": "Tulon {index} tapahtumat"
+      },
+      "average_voltage_l_n": {
+        "name": "Keskimääräinen vaihejännite L-N"
+      },
+      "average_voltage_l_l": {
+        "name": "Keskimääräinen pääjännite L-L"
+      },
+      "watts_phase": {
+        "name": "AC-teho {phase}"
+      },
+      "apparent_power_phase": {
+        "name": "Näennäisteho {phase}"
+      },
+      "reactive_power_phase": {
+        "name": "Loisteho {phase}"
+      },
+      "power_factor_phase": {
+        "name": "Tehokerroin {phase}"
+      },
+      "energy_exported": {
+        "name": "Verkkoon syötetty energia"
+      },
+      "energy_exported_phase": {
+        "name": "Verkkoon syötetty energia {phase}"
+      },
+      "energy_imported": {
+        "name": "Verkosta otettu energia"
+      },
+      "energy_imported_phase": {
+        "name": "Verkosta otettu energia {phase}"
+      },
+      "apparent_energy_exported": {
+        "name": "Verkkoon syötetty näennäisenergia"
+      },
+      "apparent_energy_exported_phase": {
+        "name": "Verkkoon syötetty näennäisenergia {phase}"
+      },
+      "apparent_energy_imported": {
+        "name": "Verkosta otettu näennäisenergia"
+      },
+      "apparent_energy_imported_phase": {
+        "name": "Verkosta otettu näennäisenergia {phase}"
+      },
+      "reactive_energy_imported": {
+        "name": "Verkosta otettu loisenergia {quadrant}"
+      },
+      "reactive_energy_imported_phase": {
+        "name": "Verkosta otettu loisenergia {quadrant} {phase}"
+      },
+      "reactive_energy_exported": {
+        "name": "Verkkoon syötetty loisenergia {quadrant}"
+      },
+      "reactive_energy_exported_phase": {
+        "name": "Verkkoon syötetty loisenergia {quadrant} {phase}"
+      },
+      "events": {
+        "name": "Tapahtumat"
+      },
+      "ambient_temperature": {
+        "name": "Ympäristön lämpötila"
+      },
+      "relative_humidity": {
+        "name": "Suhteellinen kosteus"
+      },
+      "barometric_pressure": {
+        "name": "Ilmanpaine"
+      },
+      "wind_speed": {
+        "name": "Tuulennopeus"
+      },
+      "wind_direction": {
+        "name": "Tuulensuunta"
+      },
+      "rainfall": {
+        "name": "Sademäärä"
+      },
+      "snow_depth": {
+        "name": "Lumensyvyys"
+      },
+      "electric_field": {
+        "name": "Sähkökenttä"
+      },
+      "surface_wetness": {
+        "name": "Pinnan kosteus"
+      },
+      "soil_moisture": {
+        "name": "Maaperän kosteus"
+      },
+      "global_horizontal_irradiance": {
+        "name": "Vaakatason kokonaissäteily"
+      },
+      "module_back_temperature": {
+        "name": "Paneelin takapinnan lämpötila"
+      },
+      "rated_dc_current": {
+        "name": "Nimellinen DC-virta"
+      },
+      "vendor_events": {
+        "name": "Valmistajan tapahtumat"
+      },
+      "amp_hours": {
+        "name": "Ampeeritunnit"
+      },
+      "temperature": {
+        "name": "Lämpötila"
+      },
+      "performance_ratio": {
+        "name": "Suorituskykysuhde"
+      },
+      "dc_energy": {
+        "name": "DC-energia"
+      },
+      "string_events": {
+        "name": "Ketjun {index} tapahtumat"
+      },
+      "string_vendor_events": {
+        "name": "Ketjun {index} valmistajan tapahtumat"
+      },
+      "string_dc_current": {
+        "name": "Ketjun {index} DC-virta"
+      },
+      "string_amp_hours": {
+        "name": "Ketjun {index} ampeeritunnit"
+      },
+      "string_dc_voltage": {
+        "name": "Ketjun {index} DC-jännite"
+      },
+      "string_dc_power": {
+        "name": "Ketjun {index} DC-teho"
+      },
+      "string_dc_energy": {
+        "name": "Ketjun {index} DC-energia"
+      },
+      "string_performance_ratio": {
+        "name": "Ketjun {index} suorituskykysuhde"
+      },
+      "status": {
+        "name": "Tila"
+      },
+      "vendor_status": {
+        "name": "Valmistajan tila"
+      },
+      "control_mode": {
+        "name": "Ohjaustila"
+      },
+      "output_current": {
+        "name": "Lähtövirta"
+      },
+      "output_voltage": {
+        "name": "Lähtöjännite"
+      },
+      "output_energy": {
+        "name": "Lähtöenergia"
+      },
+      "output_power": {
+        "name": "Lähtöteho"
+      },
+      "input_current": {
+        "name": "Tulovirta"
+      },
+      "input_voltage": {
+        "name": "Tulojännite"
+      },
+      "input_energy": {
+        "name": "Tuloenergia"
+      },
+      "input_power": {
+        "name": "Tuloteho"
+      },
+      "tracker_type": {
+        "name": "Seuraimen tyyppi"
+      },
+      "local_date": {
+        "name": "Paikallinen päivämäärä"
+      },
+      "local_time": {
+        "name": "Paikallinen aika"
+      },
+      "manual_elevation": {
+        "name": "Manuaalinen korkeuskulma"
+      },
+      "manual_azimuth": {
+        "name": "Manuaalinen atsimuutti"
+      },
+      "global_mode": {
+        "name": "Yleinen tila"
+      },
+      "tracker_target_elevation": {
+        "name": "Seuraimen {index} tavoitekorkeuskulma"
+      },
+      "tracker_target_azimuth": {
+        "name": "Seuraimen {index} tavoiteatsimuutti"
+      },
+      "tracker_elevation": {
+        "name": "Seuraimen {index} korkeuskulma"
+      },
+      "tracker_azimuth": {
+        "name": "Seuraimen {index} atsimuutti"
+      },
+      "tracker_manual_elevation": {
+        "name": "Seuraimen {index} manuaalinen korkeuskulma"
+      },
+      "tracker_manual_azimuth": {
+        "name": "Seuraimen {index} manuaalinen atsimuutti"
+      },
+      "tracker_mode": {
+        "name": "Seuraimen {index} tila"
+      },
+      "ac_wiring_type": {
+        "name": "AC-kytkentätapa"
+      },
+      "inverter_state": {
+        "name": "Invertterin tila"
+      },
+      "grid_connection_state": {
+        "name": "Verkkoon kytkennän tila"
+      },
+      "alarms": {
+        "name": "Hälytykset"
+      },
+      "der_mode": {
+        "name": "DER-toimintaominaisuudet"
+      },
+      "energy_injected": {
+        "name": "Annettu energia"
+      },
+      "energy_injected_phase": {
+        "name": "Annettu energia {phase}"
+      },
+      "energy_absorbed": {
+        "name": "Otettu energia"
+      },
+      "energy_absorbed_phase": {
+        "name": "Otettu energia {phase}"
+      },
+      "reactive_energy_injected": {
+        "name": "Annettu loisenergia"
+      },
+      "reactive_energy_injected_phase": {
+        "name": "Annettu loisenergia {phase}"
+      },
+      "reactive_energy_absorbed": {
+        "name": "Otettu loisenergia"
+      },
+      "reactive_energy_absorbed_phase": {
+        "name": "Otettu loisenergia {phase}"
+      },
+      "switch_temperature": {
+        "name": "IGBT/MOSFET-lämpötila"
+      },
+      "throttling": {
+        "name": "Tehon alennus"
+      },
+      "throttling_source": {
+        "name": "Tehon alennuksen syy"
+      },
+      "rated_power_over_excited": {
+        "name": "Nimellinen pätöteho, ylimagnetoitu"
+      },
+      "rated_power_under_excited": {
+        "name": "Nimellinen pätöteho, alimagnetoitu"
+      },
+      "rated_reactive_power_injected": {
+        "name": "Nimellinen loisteho, anto"
+      },
+      "rated_reactive_power_absorbed": {
+        "name": "Nimellinen loisteho, otto"
+      },
+      "rated_max_charge_apparent_power": {
+        "name": "Nimellinen suurin latauksen näennäisteho"
+      },
+      "rated_max_discharge_apparent_power": {
+        "name": "Nimellinen suurin purun näennäisteho"
+      },
+      "rated_nominal_voltage": {
+        "name": "Nimellinen AC-jännite"
+      },
+      "rated_max_voltage": {
+        "name": "Nimellinen suurin AC-jännite"
+      },
+      "rated_min_voltage": {
+        "name": "Nimellinen pienin AC-jännite"
+      },
+      "reactive_susceptance": {
+        "name": "Suskeptanssi"
+      },
+      "normal_operating_category": {
+        "name": "Normaalin toiminnan luokka"
+      },
+      "abnormal_operating_category": {
+        "name": "Poikkeavan toiminnan luokka"
+      },
+      "supported_control_modes": {
+        "name": "Tuetut ohjaustoiminnot"
+      },
+      "max_power_over_excited_setting": {
+        "name": "Asetettu pätöteho, ylimagnetoitu"
+      },
+      "max_power_under_excited_setting": {
+        "name": "Asetettu pätöteho, alimagnetoitu"
+      },
+      "max_reactive_power_injected_setting": {
+        "name": "Asetettu suurin loisteho, anto"
+      },
+      "max_reactive_power_absorbed_setting": {
+        "name": "Asetettu suurin loisteho, otto"
+      },
+      "max_charge_power_setting": {
+        "name": "Asetettu suurin latausteho"
+      },
+      "max_discharge_power_setting": {
+        "name": "Asetettu suurin purkuteho"
+      },
+      "max_charge_apparent_power_setting": {
+        "name": "Asetettu suurin latauksen näennäisteho"
+      },
+      "max_discharge_apparent_power_setting": {
+        "name": "Asetettu suurin purun näennäisteho"
+      },
+      "nominal_voltage_setting": {
+        "name": "Asetettu nimellinen AC-jännite"
+      },
+      "max_current_setting": {
+        "name": "Asetettu suurin AC-virta"
+      },
+      "pf_injecting_enabled": {
+        "name": "Tehokerroin (anto) käytössä"
+      },
+      "pf_injecting_revert_enabled": {
+        "name": "Tehokerroin (anto) pysyy päällä palautuksen jälkeen"
+      },
+      "pf_injecting_revert_time": {
+        "name": "Tehokertoimen (anto) palautusaika"
+      },
+      "pf_injecting_revert_time_remaining": {
+        "name": "Tehokertoimen (anto) palautusaikaa jäljellä"
+      },
+      "pf_injecting_excitation": {
+        "name": "Tehokertoimen (anto) magnetointi"
+      },
+      "pf_injecting_revert_excitation": {
+        "name": "Tehokertoimen (anto) magnetointi palautuksen jälkeen"
+      },
+      "pf_absorbing_enabled": {
+        "name": "Tehokerroin (otto) käytössä"
+      },
+      "pf_absorbing_revert_enabled": {
+        "name": "Tehokerroin (otto) pysyy päällä palautuksen jälkeen"
+      },
+      "pf_absorbing_revert_time": {
+        "name": "Tehokertoimen (otto) palautusaika"
+      },
+      "pf_absorbing_revert_time_remaining": {
+        "name": "Tehokertoimen (otto) palautusaikaa jäljellä"
+      },
+      "pf_absorbing_excitation": {
+        "name": "Tehokertoimen (otto) magnetointi"
+      },
+      "pf_absorbing_revert_excitation": {
+        "name": "Tehokertoimen (otto) magnetointi palautuksen jälkeen"
+      },
+      "export_limit_revert_time_remaining": {
+        "name": "Syöttörajoituksen palautusaikaa jäljellä"
+      },
+      "active_power_setpoint_revert_value": {
+        "name": "Pätötehon asetusarvon palautusarvo"
+      },
+      "active_power_setpoint_pct": {
+        "name": "Pätötehon asetusarvo prosentteina"
+      },
+      "active_power_setpoint_pct_revert_value": {
+        "name": "Pätötehon prosenttiasetusarvon palautusarvo"
+      },
+      "active_power_setpoint_revert_enabled": {
+        "name": "Pätötehon asetusarvo pysyy päällä palautuksen jälkeen"
+      },
+      "active_power_setpoint_revert_time": {
+        "name": "Pätötehon asetusarvon palautusaika"
+      },
+      "active_power_setpoint_revert_time_remaining": {
+        "name": "Pätötehon asetusarvon palautusaikaa jäljellä"
+      },
+      "reactive_power_setpoint_enabled": {
+        "name": "Loistehon asetusarvo käytössä"
+      },
+      "reactive_power_setpoint_mode": {
+        "name": "Loistehon asetusarvon tila"
+      },
+      "reactive_power_priority": {
+        "name": "Loistehon prioriteetti"
+      },
+      "reactive_power_setpoint": {
+        "name": "Loistehon asetusarvo"
+      },
+      "reactive_power_setpoint_revert_value": {
+        "name": "Loistehon asetusarvon palautusarvo"
+      },
+      "reactive_power_setpoint_pct": {
+        "name": "Loistehon asetusarvo prosentteina"
+      },
+      "reactive_power_setpoint_pct_revert_value": {
+        "name": "Loistehon prosenttiasetusarvon palautusarvo"
+      },
+      "reactive_power_setpoint_revert_enabled": {
+        "name": "Loistehon asetusarvo pysyy päällä palautuksen jälkeen"
+      },
+      "reactive_power_setpoint_revert_time": {
+        "name": "Loistehon asetusarvon palautusaika"
+      },
+      "reactive_power_setpoint_revert_time_remaining": {
+        "name": "Loistehon asetusarvon palautusaikaa jäljellä"
+      },
+      "active_power_ramp_rate_reference": {
+        "name": "Pätötehon muutosnopeuden vertailuarvo"
+      },
+      "reactive_power_ramp_rate": {
+        "name": "Loistehon muutosnopeus"
+      },
+      "anti_islanding_enabled": {
+        "name": "Saarekekäytön esto käytössä"
+      },
+      "energy_available": {
+        "name": "Käytettävissä oleva energia"
+      },
+      "state_of_health": {
+        "name": "Kuntotila"
+      },
+      "port_alarms": {
+        "name": "Porttien hälytykset"
+      },
+      "dc_energy_injected": {
+        "name": "Annettu DC-energia"
+      },
+      "dc_energy_absorbed": {
+        "name": "Otettu DC-energia"
+      },
+      "port_type": {
+        "name": "Portin {index} tyyppi"
+      },
+      "port_dc_current": {
+        "name": "Portin {index} DC-virta"
+      },
+      "port_dc_voltage": {
+        "name": "Portin {index} DC-jännite"
+      },
+      "port_dc_power": {
+        "name": "Portin {index} DC-teho"
+      },
+      "port_dc_energy_injected": {
+        "name": "Portin {index} annettu DC-energia"
+      },
+      "port_dc_energy_absorbed": {
+        "name": "Portin {index} otettu DC-energia"
+      },
+      "port_temperature": {
+        "name": "Portin {index} lämpötila"
+      },
+      "port_status": {
+        "name": "Portin {index} tila"
+      },
+      "port_alarm": {
+        "name": "Portin {index} hälytykset"
+      },
+      "deprecated_model": {
+        "name": "Vanhentunut malli"
+      },
+      "depth_of_discharge": {
+        "name": "Purkautumissyvyys"
+      },
+      "max_cell_voltage": {
+        "name": "Suurin kennojännite"
+      },
+      "min_cell_voltage": {
+        "name": "Pienin kennojännite"
+      },
+      "average_cell_voltage": {
+        "name": "Keskimääräinen kennojännite"
+      },
+      "max_module_temperature": {
+        "name": "Moduulien korkein lämpötila"
+      },
+      "min_module_temperature": {
+        "name": "Moduulien alin lämpötila"
+      },
+      "average_module_temperature": {
+        "name": "Moduulien keskilämpötila"
+      },
+      "rated_charge_capacity": {
+        "name": "Nimellinen kapasiteetti (Ah)"
+      },
+      "self_discharge_rate": {
+        "name": "Itsepurkautumisnopeus"
+      },
+      "rated_max_state_of_charge": {
+        "name": "Nimellinen enimmäisvaraustila"
+      },
+      "rated_min_state_of_charge": {
+        "name": "Nimellinen vähimmäisvaraustila"
+      },
+      "max_reserve": {
+        "name": "Enimmäisvaraus"
+      },
+      "min_reserve": {
+        "name": "Vähimmäisvaraus"
+      },
+      "battery_type": {
+        "name": "Akun tyyppi"
+      },
+      "battery_bank_state": {
+        "name": "Akuston tila"
+      },
+      "vendor_battery_bank_state": {
+        "name": "Valmistajan akuston tila"
+      },
+      "external_battery_voltage": {
+        "name": "Ulkoinen akkujännite"
+      },
+      "max_battery_voltage": {
+        "name": "Suurin akkujännite"
+      },
+      "min_battery_voltage": {
+        "name": "Pienin akkujännite"
+      },
+      "max_charge_current": {
+        "name": "Suurin latausvirta"
+      },
+      "max_discharge_current": {
+        "name": "Suurin purkuvirta"
+      },
+      "inverter_state_request": {
+        "name": "Pyydetty invertterin tila"
+      },
+      "battery_power_request": {
+        "name": "Pyydetty akkuteho"
+      },
+      "operation_command": {
+        "name": "Käyttökomento"
+      },
+      "inverter_state_command": {
+        "name": "Invertterin tilakomento"
+      },
+      "max_string_voltage": {
+        "name": "Ketjujen suurin jännite"
+      },
+      "min_string_voltage": {
+        "name": "Ketjujen pienin jännite"
+      },
+      "average_string_voltage": {
+        "name": "Ketjujen keskimääräinen jännite"
+      },
+      "max_string_current": {
+        "name": "Ketjujen suurin virta"
+      },
+      "min_string_current": {
+        "name": "Ketjujen pienin virta"
+      },
+      "average_string_current": {
+        "name": "Ketjujen keskimääräinen virta"
+      },
+      "string_status": {
+        "name": "Ketjun {index} tila"
+      },
+      "string_connection_failure_reason": {
+        "name": "Ketjun {index} kytkentävian syy"
+      },
+      "string_state_of_charge": {
+        "name": "Ketjun {index} varaustila"
+      },
+      "string_state_of_health": {
+        "name": "Ketjun {index} kuntotila"
+      },
+      "string_current": {
+        "name": "Ketjun {index} virta"
+      },
+      "string_max_cell_voltage": {
+        "name": "Ketjun {index} suurin kennojännite"
+      },
+      "string_min_cell_voltage": {
+        "name": "Ketjun {index} pienin kennojännite"
+      },
+      "string_average_cell_voltage": {
+        "name": "Ketjun {index} keskimääräinen kennojännite"
+      },
+      "string_max_module_temperature": {
+        "name": "Ketjun {index} moduulien korkein lämpötila"
+      },
+      "string_min_module_temperature": {
+        "name": "Ketjun {index} moduulien alin lämpötila"
+      },
+      "string_average_module_temperature": {
+        "name": "Ketjun {index} moduulien keskilämpötila"
+      },
+      "string_disabled_reason": {
+        "name": "Ketjun {index} käytöstä poiston syy"
+      },
+      "string_contactor_status": {
+        "name": "Ketjun {index} kontaktorin tila"
+      },
+      "string_events_1": {
+        "name": "Ketjun {index} tapahtumat"
+      },
+      "string_events_2": {
+        "name": "Ketjun {index} tapahtumat 2"
+      },
+      "string_vendor_events_1": {
+        "name": "Ketjun {index} valmistajan tapahtumat 1"
+      },
+      "string_vendor_events_2": {
+        "name": "Ketjun {index} valmistajan tapahtumat 2"
+      },
+      "string_enable_command": {
+        "name": "Ketjun {index} käyttöönottokomento"
+      },
+      "string_connect_command": {
+        "name": "Ketjun {index} kytkentäkomento"
+      },
+      "connection_failure_reason": {
+        "name": "Kytkentävian syy"
+      },
+      "contactor_status": {
+        "name": "Kontaktorin tila"
+      },
+      "enable_command": {
+        "name": "Käyttöönottokomento"
+      },
+      "connect_command": {
+        "name": "Kytkentäkomento"
+      },
+      "battery_module_state_of_charge": {
+        "name": "Moduulin {index} varaustila"
+      },
+      "battery_module_state_of_health": {
+        "name": "Moduulin {index} kuntotila"
+      },
+      "battery_module_max_cell_voltage": {
+        "name": "Moduulin {index} suurin kennojännite"
+      },
+      "battery_module_min_cell_voltage": {
+        "name": "Moduulin {index} pienin kennojännite"
+      },
+      "battery_module_average_cell_voltage": {
+        "name": "Moduulin {index} keskimääräinen kennojännite"
+      },
+      "battery_module_max_cell_temperature": {
+        "name": "Moduulin {index} kennojen korkein lämpötila"
+      },
+      "battery_module_min_cell_temperature": {
+        "name": "Moduulin {index} kennojen alin lämpötila"
+      },
+      "battery_module_average_cell_temperature": {
+        "name": "Moduulin {index} kennojen keskilämpötila"
+      },
+      "max_cell_temperature": {
+        "name": "Kennojen korkein lämpötila"
+      },
+      "min_cell_temperature": {
+        "name": "Kennojen alin lämpötila"
+      },
+      "average_cell_temperature": {
+        "name": "Kennojen keskilämpötila"
+      },
+      "cell_voltage": {
+        "name": "Kennon {index} jännite"
+      },
+      "cell_temperature": {
+        "name": "Kennon {index} lämpötila"
+      },
+      "cell_status": {
+        "name": "Kennon {index} tila"
+      }
+    }
+  },
+  "exceptions": {
+    "entry_not_loaded": {
+      "message": "SunSpec-konfigurointimerkintää {entry_id} ei ole ladattu"
+    },
+    "no_export_limit": {
+      "message": "Invertterissä ei ole SunSpec-mallia 123 eikä mallia 704, joten sille ei voi asettaa syöttörajoitusta"
+    },
+    "export_limit_failed": {
+      "message": "Syöttörajoituksen asettaminen epäonnistui: {error}"
+    },
+    "no_battery_plan": {
+      "message": "Tämä laite ei tue akkusuunnitelmaa"
+    },
+    "direction_unsupported": {
+      "message": "Akku ei tue suuntaa {direction}"
+    },
+    "write_failed": {
+      "message": "Kirjoitus kohteeseen {target} epäonnistui: {error}"
+    },
+    "not_a_register": {
+      "message": "{register} ei ole tämän laitteen rekisteri"
+    },
+    "invalid_option": {
+      "message": "{option} ei ole kohteen {target} vaihtoehto tässä laitteessa"
+    },
+    "battery_mode_failed": {
+      "message": "Akun toimintatilan {mode} asettaminen epäonnistui: {error}"
+    },
+    "no_battery": {
+      "message": "Invertteri ei ilmoita akkua (WChaMax on 0)"
+    },
+    "franklinwh_unavailable": {
+      "message": "FranklinWH-akun ohjaukset eivät ole käytettävissä"
+    },
+    "power_not_finite": {
+      "message": "Akun tehon on oltava äärellinen luku"
+    },
+    "franklinwh_failed": {
+      "message": "FranklinWH-akun komento epäonnistui: {error}"
+    },
+    "web_refused": {
+      "message": "Invertterin verkkokäyttöliittymä hylkäsi pyynnön: {error}"
+    }
+  },
+  "issues": {
+    "transport_error": {
+      "title": "SunSpec-invertteriin ei saada yhteyttä",
+      "description": "Integraatio ei saa yhteyttä SunSpec-invertteriin osoitteessa {host}:{port} (yksikkötunnus {unit_id}). Kolme peräkkäistä päivityskierrosta on epäonnistunut.\n\nViimeisin virhe: {error}\n\nTarkista:\n- Invertterissä on virta päällä\n- Invertteri on tavoitettavissa verkossa (kokeile ping {host})\n- Mikään palomuuri ei estä TCP-porttia {port}\n- Mikään muu Modbus-asiakas ei varaa invertterin ainoaa TCP-yhteyspaikkaa"
+    },
+    "protocol_error": {
+      "title": "Laite ei käytä SunSpec-protokollaa",
+      "description": "Integraatio tavoitti laitteen osoitteessa {host}:{port} (yksikkötunnus {unit_id}), mutta laite ei vastaa SunSpec-laitteena.\n\nViimeisin virhe: {error}\n\nTarkista:\n- Laite todella tukee SunSpec-protokollaa (jotkin Modbus-laitteet käyttävät valmistajakohtaista rekisterikarttaa)\n- Yksikkötunnus on oikea (jotkin invertterit käyttävät tunnusta 1, toiset 0 tai 247)\n- Laitteen laiteohjelmisto on ajan tasalla, sillä vanhemmissa laiteohjelmistoissa SunSpec-toteutus on joskus virheellinen"
+    },
+    "device_error": {
+      "title": "Invertteri ilmoittaa Modbus-poikkeuksen",
+      "description": "SunSpec-invertteri osoitteessa {host}:{port} (yksikkötunnus {unit_id}) vastasi Modbus-poikkeuksella. Kolme peräkkäistä päivityskierrosta on epäonnistunut.\n\nViimeisin virhe: {error}\n\nTarkista:\n- Invertteri on normaalissa toimintatilassa (ei vikatilassa)\n- Käyttöön valitut mallit vastaavat sitä, mitä invertteri todella tukee\n- Lataa tämän integraation diagnostiikkatiedot ja liitä ne vikailmoitukseen"
+    },
+    "cjne_conflict": {
+      "title": "cjne/ha-sunspec on yhä käytössä",
+      "description": "SunSpec 2 ei voi käynnistyä invertterille osoitteessa {host}:{port} (yksikkötunnus {unit_id}), koska cjne/ha-sunspec-integraatio on yhä käynnissä samalle laitteelle.\n\nKACO Powador ja useimmat muut SunSpec-invertterit sallivat vain YHDEN Modbus TCP -yhteyden kerrallaan. cjne/ha-sunspec pitää tätä yhteyttä nyt varattuna, joten SunSpec 2 ei voi kysellä laitetta. Kahden integraation käyttäminen samaan invertteriin tuottaisi lisäksi päällekkäisiä sensoreita ja epävakaita arvoja.\n\nNäin siirryt cjne/ha-sunspec-integraatiosta SunSpec 2 -integraatioon:\n\n1. Avaa HACS ja poista cjne/ha-sunspec-integraatio\n2. Käynnistä Home Assistant uudelleen\n3. SunSpec 2 yrittää automaattisesti uudelleen ja ottaa olemassa olevat entiteetit käyttöön\n\nSunSpec 2:n siirtotoiminto säilyttää entiteettitunnuksesi ja Recorder-historiasi."
+    },
+    "stale_model": {
+      "title": "SunSpec-malli {model_id} on kadonnut",
+      "description": "Invertteri osoitteessa {host}:{port} (yksikkötunnus {unit_id}) tarjosi aiemmin SunSpec-mallin {model_id}, mutta malli on nyt puuttunut jokaisesta hausta {missing_minutes} minuutin ajan.\n\nTämä tarkoittaa yleensä, että invertteri on poistanut mallin pysyvästi (laiteohjelmiston päivitys, valmistajan tekemä uudelleenmääritys tai taustalla olevan laitteistomoduulin irrotus). Mallin sensorit ovat yhä entiteettirekisterissä, mutta ne jäävät viimeisimpään kelvolliseen arvoonsa.\n\nJos et enää tarvitse niitä, avaa kyseisen laitteen tietosivu ja poista laite roskakorikuvakkeella. Vastaavat entiteetit siivotaan automaattisesti.\n\nJos malli palaa itsestään, tämä Korjaukset-ilmoitus poistuu automaattisesti seuraavan onnistuneen lukukerran jälkeen."
+    }
+  },
+  "services": {
+    "set_battery_plan": {
+      "name": "Aseta akkusuunnitelma",
+      "description": "Päivitä suunnitelman asetukset yhdellä kertaa. Muutokset tulevat voimaan seuraavalla onnistuneella kyselyllä. Käytöstä poistaminen pysäyttää suunnitelman heti.",
+      "fields": {
+        "config_entry_id": {
+          "name": "SunSpec-laite"
+        },
+        "direction": {
+          "name": "Suunta"
+        },
+        "start": {
+          "name": "Alku"
+        },
+        "end": {
+          "name": "Loppu"
+        },
+        "target_pct": {
+          "name": "Tavoitevaraustila"
+        },
+        "capacity_kwh": {
+          "name": "Akun kapasiteetti"
+        },
+        "enabled": {
+          "name": "Käytössä"
+        }
+      }
+    }
+  }
+}

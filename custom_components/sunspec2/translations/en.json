@@ -963,6 +963,849 @@
       },
       "franklinwh_home_consumption": {
         "name": "Home consumption"
+      },
+      "der_type": {
+        "name": "DER type"
+      },
+      "rated_reactive_power": {
+        "name": "Rated reactive power {quadrant}"
+      },
+      "rated_min_power_factor": {
+        "name": "Rated min power factor {quadrant}"
+      },
+      "rated_usable_capacity": {
+        "name": "Rated usable capacity (Ah)"
+      },
+      "rated_max_charge_power": {
+        "name": "Rated max charge power"
+      },
+      "rated_max_discharge_power": {
+        "name": "Rated max discharge power"
+      },
+      "voltage_reference_offset": {
+        "name": "Voltage reference offset"
+      },
+      "max_voltage_setting": {
+        "name": "Configured max AC voltage"
+      },
+      "min_voltage_setting": {
+        "name": "Configured min AC voltage"
+      },
+      "max_apparent_power_setting": {
+        "name": "Configured max apparent power"
+      },
+      "max_reactive_power_setting": {
+        "name": "Configured max reactive power {quadrant}"
+      },
+      "active_power_ramp_rate": {
+        "name": "Active power ramp rate"
+      },
+      "min_power_factor_setting": {
+        "name": "Configured min power factor {quadrant}"
+      },
+      "reactive_power_action": {
+        "name": "Reactive power action"
+      },
+      "apparent_power_calculation": {
+        "name": "Apparent power calculation"
+      },
+      "max_ramp_rate": {
+        "name": "Max ramp rate"
+      },
+      "nominal_frequency": {
+        "name": "Nominal frequency"
+      },
+      "connected_phase": {
+        "name": "Connected phase"
+      },
+      "lifetime_apparent_energy": {
+        "name": "Lifetime apparent energy"
+      },
+      "lifetime_reactive_energy": {
+        "name": "Lifetime reactive energy {quadrant}"
+      },
+      "available_reactive_power": {
+        "name": "Available reactive power"
+      },
+      "available_power": {
+        "name": "Available power"
+      },
+      "setpoint_limits_reached": {
+        "name": "Setpoint limits reached"
+      },
+      "active_controls": {
+        "name": "Active controls"
+      },
+      "timestamp": {
+        "name": "Timestamp"
+      },
+      "grid_connection_time_window": {
+        "name": "Grid connection time window"
+      },
+      "grid_connection_revert_time": {
+        "name": "Grid connection revert time"
+      },
+      "export_limit_time_window": {
+        "name": "Export limit time window"
+      },
+      "export_limit_ramp_time": {
+        "name": "Export limit ramp time"
+      },
+      "power_factor_time_window": {
+        "name": "Power factor setpoint time window"
+      },
+      "power_factor_revert_time": {
+        "name": "Power factor setpoint revert time"
+      },
+      "power_factor_ramp_time": {
+        "name": "Power factor setpoint ramp time"
+      },
+      "reactive_power_limit_pct_max_power": {
+        "name": "Reactive power limit (% of max power)"
+      },
+      "reactive_power_limit_pct_max_reactive_power": {
+        "name": "Reactive power limit (% of max reactive power)"
+      },
+      "reactive_power_limit_pct_available": {
+        "name": "Reactive power limit (% of available reactive power)"
+      },
+      "reactive_power_limit_time_window": {
+        "name": "Reactive power limit time window"
+      },
+      "reactive_power_limit_revert_time": {
+        "name": "Reactive power limit revert time"
+      },
+      "reactive_power_limit_ramp_time": {
+        "name": "Reactive power limit ramp time"
+      },
+      "reactive_power_limit_mode": {
+        "name": "Reactive power limit mode"
+      },
+      "reactive_power_limit_enabled": {
+        "name": "Reactive power limit enabled"
+      },
+      "charge_ramp_rate": {
+        "name": "Charge ramp rate"
+      },
+      "discharge_ramp_rate": {
+        "name": "Discharge ramp rate"
+      },
+      "max_charge_apparent_power": {
+        "name": "Max charge apparent power"
+      },
+      "state_of_charge": {
+        "name": "State of charge"
+      },
+      "available_capacity": {
+        "name": "Available capacity (Ah)"
+      },
+      "internal_battery_voltage": {
+        "name": "Internal battery voltage"
+      },
+      "charge_status": {
+        "name": "Charge status"
+      },
+      "battery_rate_time_window": {
+        "name": "Battery rate time window"
+      },
+      "battery_rate_ramp_time": {
+        "name": "Battery rate ramp time"
+      },
+      "global_events": {
+        "name": "Global events"
+      },
+      "module_dc_current": {
+        "name": "Module {index} DC current"
+      },
+      "module_dc_voltage": {
+        "name": "Module {index} DC voltage"
+      },
+      "module_dc_power": {
+        "name": "Module {index} DC power"
+      },
+      "module_lifetime_energy": {
+        "name": "Module {index} lifetime energy"
+      },
+      "module_timestamp": {
+        "name": "Module {index} timestamp"
+      },
+      "module_temperature": {
+        "name": "Module {index} temperature"
+      },
+      "module_operating_state": {
+        "name": "Module {index} operating state"
+      },
+      "module_events": {
+        "name": "Module {index} events"
+      },
+      "average_voltage_l_n": {
+        "name": "Average voltage L-N"
+      },
+      "average_voltage_l_l": {
+        "name": "Average voltage L-L"
+      },
+      "watts_phase": {
+        "name": "AC power {phase}"
+      },
+      "apparent_power_phase": {
+        "name": "Apparent power {phase}"
+      },
+      "reactive_power_phase": {
+        "name": "Reactive power {phase}"
+      },
+      "power_factor_phase": {
+        "name": "Power factor {phase}"
+      },
+      "energy_exported": {
+        "name": "Energy exported"
+      },
+      "energy_exported_phase": {
+        "name": "Energy exported {phase}"
+      },
+      "energy_imported": {
+        "name": "Energy imported"
+      },
+      "energy_imported_phase": {
+        "name": "Energy imported {phase}"
+      },
+      "apparent_energy_exported": {
+        "name": "Apparent energy exported"
+      },
+      "apparent_energy_exported_phase": {
+        "name": "Apparent energy exported {phase}"
+      },
+      "apparent_energy_imported": {
+        "name": "Apparent energy imported"
+      },
+      "apparent_energy_imported_phase": {
+        "name": "Apparent energy imported {phase}"
+      },
+      "reactive_energy_imported": {
+        "name": "Reactive energy imported {quadrant}"
+      },
+      "reactive_energy_imported_phase": {
+        "name": "Reactive energy imported {quadrant} {phase}"
+      },
+      "reactive_energy_exported": {
+        "name": "Reactive energy exported {quadrant}"
+      },
+      "reactive_energy_exported_phase": {
+        "name": "Reactive energy exported {quadrant} {phase}"
+      },
+      "events": {
+        "name": "Events"
+      },
+      "ambient_temperature": {
+        "name": "Ambient temperature"
+      },
+      "relative_humidity": {
+        "name": "Relative humidity"
+      },
+      "barometric_pressure": {
+        "name": "Barometric pressure"
+      },
+      "wind_speed": {
+        "name": "Wind speed"
+      },
+      "wind_direction": {
+        "name": "Wind direction"
+      },
+      "rainfall": {
+        "name": "Rainfall"
+      },
+      "snow_depth": {
+        "name": "Snow depth"
+      },
+      "electric_field": {
+        "name": "Electric field"
+      },
+      "surface_wetness": {
+        "name": "Surface wetness"
+      },
+      "soil_moisture": {
+        "name": "Soil moisture"
+      },
+      "global_horizontal_irradiance": {
+        "name": "Global horizontal irradiance"
+      },
+      "module_back_temperature": {
+        "name": "Module back temperature"
+      },
+      "rated_dc_current": {
+        "name": "Rated DC current"
+      },
+      "vendor_events": {
+        "name": "Vendor events"
+      },
+      "amp_hours": {
+        "name": "Amp-hours"
+      },
+      "temperature": {
+        "name": "Temperature"
+      },
+      "performance_ratio": {
+        "name": "Performance ratio"
+      },
+      "dc_energy": {
+        "name": "DC energy"
+      },
+      "string_events": {
+        "name": "String {index} events"
+      },
+      "string_vendor_events": {
+        "name": "String {index} vendor events"
+      },
+      "string_dc_current": {
+        "name": "String {index} DC current"
+      },
+      "string_amp_hours": {
+        "name": "String {index} amp-hours"
+      },
+      "string_dc_voltage": {
+        "name": "String {index} DC voltage"
+      },
+      "string_dc_power": {
+        "name": "String {index} DC power"
+      },
+      "string_dc_energy": {
+        "name": "String {index} DC energy"
+      },
+      "string_performance_ratio": {
+        "name": "String {index} performance ratio"
+      },
+      "status": {
+        "name": "Status"
+      },
+      "vendor_status": {
+        "name": "Vendor status"
+      },
+      "control_mode": {
+        "name": "Control mode"
+      },
+      "output_current": {
+        "name": "Output current"
+      },
+      "output_voltage": {
+        "name": "Output voltage"
+      },
+      "output_energy": {
+        "name": "Output energy"
+      },
+      "output_power": {
+        "name": "Output power"
+      },
+      "input_current": {
+        "name": "Input current"
+      },
+      "input_voltage": {
+        "name": "Input voltage"
+      },
+      "input_energy": {
+        "name": "Input energy"
+      },
+      "input_power": {
+        "name": "Input power"
+      },
+      "tracker_type": {
+        "name": "Tracker type"
+      },
+      "local_date": {
+        "name": "Local date"
+      },
+      "local_time": {
+        "name": "Local time"
+      },
+      "manual_elevation": {
+        "name": "Manual elevation"
+      },
+      "manual_azimuth": {
+        "name": "Manual azimuth"
+      },
+      "global_mode": {
+        "name": "Global mode"
+      },
+      "tracker_target_elevation": {
+        "name": "Tracker {index} target elevation"
+      },
+      "tracker_target_azimuth": {
+        "name": "Tracker {index} target azimuth"
+      },
+      "tracker_elevation": {
+        "name": "Tracker {index} elevation"
+      },
+      "tracker_azimuth": {
+        "name": "Tracker {index} azimuth"
+      },
+      "tracker_manual_elevation": {
+        "name": "Tracker {index} manual elevation"
+      },
+      "tracker_manual_azimuth": {
+        "name": "Tracker {index} manual azimuth"
+      },
+      "tracker_mode": {
+        "name": "Tracker {index} mode"
+      },
+      "ac_wiring_type": {
+        "name": "AC wiring type"
+      },
+      "inverter_state": {
+        "name": "Inverter state"
+      },
+      "grid_connection_state": {
+        "name": "Grid connection state"
+      },
+      "alarms": {
+        "name": "Alarms"
+      },
+      "der_mode": {
+        "name": "DER operating characteristics"
+      },
+      "energy_injected": {
+        "name": "Energy injected"
+      },
+      "energy_injected_phase": {
+        "name": "Energy injected {phase}"
+      },
+      "energy_absorbed": {
+        "name": "Energy absorbed"
+      },
+      "energy_absorbed_phase": {
+        "name": "Energy absorbed {phase}"
+      },
+      "reactive_energy_injected": {
+        "name": "Reactive energy injected"
+      },
+      "reactive_energy_injected_phase": {
+        "name": "Reactive energy injected {phase}"
+      },
+      "reactive_energy_absorbed": {
+        "name": "Reactive energy absorbed"
+      },
+      "reactive_energy_absorbed_phase": {
+        "name": "Reactive energy absorbed {phase}"
+      },
+      "switch_temperature": {
+        "name": "IGBT/MOSFET temperature"
+      },
+      "throttling": {
+        "name": "Throttling"
+      },
+      "throttling_source": {
+        "name": "Throttling source"
+      },
+      "rated_power_over_excited": {
+        "name": "Rated active power, over-excited"
+      },
+      "rated_power_under_excited": {
+        "name": "Rated active power, under-excited"
+      },
+      "rated_reactive_power_injected": {
+        "name": "Rated reactive power injected"
+      },
+      "rated_reactive_power_absorbed": {
+        "name": "Rated reactive power absorbed"
+      },
+      "rated_max_charge_apparent_power": {
+        "name": "Rated max charge apparent power"
+      },
+      "rated_max_discharge_apparent_power": {
+        "name": "Rated max discharge apparent power"
+      },
+      "rated_nominal_voltage": {
+        "name": "Rated nominal AC voltage"
+      },
+      "rated_max_voltage": {
+        "name": "Rated max AC voltage"
+      },
+      "rated_min_voltage": {
+        "name": "Rated min AC voltage"
+      },
+      "reactive_susceptance": {
+        "name": "Reactive susceptance"
+      },
+      "normal_operating_category": {
+        "name": "Normal operating category"
+      },
+      "abnormal_operating_category": {
+        "name": "Abnormal operating category"
+      },
+      "supported_control_modes": {
+        "name": "Supported control modes"
+      },
+      "max_power_over_excited_setting": {
+        "name": "Configured active power, over-excited"
+      },
+      "max_power_under_excited_setting": {
+        "name": "Configured active power, under-excited"
+      },
+      "max_reactive_power_injected_setting": {
+        "name": "Configured max reactive power injected"
+      },
+      "max_reactive_power_absorbed_setting": {
+        "name": "Configured max reactive power absorbed"
+      },
+      "max_charge_power_setting": {
+        "name": "Configured max charge power"
+      },
+      "max_discharge_power_setting": {
+        "name": "Configured max discharge power"
+      },
+      "max_charge_apparent_power_setting": {
+        "name": "Configured max charge apparent power"
+      },
+      "max_discharge_apparent_power_setting": {
+        "name": "Configured max discharge apparent power"
+      },
+      "nominal_voltage_setting": {
+        "name": "Configured nominal AC voltage"
+      },
+      "max_current_setting": {
+        "name": "Configured max AC current"
+      },
+      "pf_injecting_enabled": {
+        "name": "Power factor (injecting) enabled"
+      },
+      "pf_injecting_revert_enabled": {
+        "name": "Power factor (injecting) stays on after revert"
+      },
+      "pf_injecting_revert_time": {
+        "name": "Power factor (injecting) revert time"
+      },
+      "pf_injecting_revert_time_remaining": {
+        "name": "Power factor (injecting) revert time remaining"
+      },
+      "pf_injecting_excitation": {
+        "name": "Power factor (injecting) excitation"
+      },
+      "pf_injecting_revert_excitation": {
+        "name": "Power factor (injecting) excitation after revert"
+      },
+      "pf_absorbing_enabled": {
+        "name": "Power factor (absorbing) enabled"
+      },
+      "pf_absorbing_revert_enabled": {
+        "name": "Power factor (absorbing) stays on after revert"
+      },
+      "pf_absorbing_revert_time": {
+        "name": "Power factor (absorbing) revert time"
+      },
+      "pf_absorbing_revert_time_remaining": {
+        "name": "Power factor (absorbing) revert time remaining"
+      },
+      "pf_absorbing_excitation": {
+        "name": "Power factor (absorbing) excitation"
+      },
+      "pf_absorbing_revert_excitation": {
+        "name": "Power factor (absorbing) excitation after revert"
+      },
+      "export_limit_revert_time_remaining": {
+        "name": "Export limit revert time remaining"
+      },
+      "active_power_setpoint_revert_value": {
+        "name": "Active power setpoint revert value"
+      },
+      "active_power_setpoint_pct": {
+        "name": "Active power setpoint percent"
+      },
+      "active_power_setpoint_pct_revert_value": {
+        "name": "Active power setpoint percent revert value"
+      },
+      "active_power_setpoint_revert_enabled": {
+        "name": "Active power setpoint stays on after revert"
+      },
+      "active_power_setpoint_revert_time": {
+        "name": "Active power setpoint revert time"
+      },
+      "active_power_setpoint_revert_time_remaining": {
+        "name": "Active power setpoint revert time remaining"
+      },
+      "reactive_power_setpoint_enabled": {
+        "name": "Reactive power setpoint enabled"
+      },
+      "reactive_power_setpoint_mode": {
+        "name": "Reactive power setpoint mode"
+      },
+      "reactive_power_priority": {
+        "name": "Reactive power priority"
+      },
+      "reactive_power_setpoint": {
+        "name": "Reactive power setpoint"
+      },
+      "reactive_power_setpoint_revert_value": {
+        "name": "Reactive power setpoint revert value"
+      },
+      "reactive_power_setpoint_pct": {
+        "name": "Reactive power setpoint percent"
+      },
+      "reactive_power_setpoint_pct_revert_value": {
+        "name": "Reactive power setpoint percent revert value"
+      },
+      "reactive_power_setpoint_revert_enabled": {
+        "name": "Reactive power setpoint stays on after revert"
+      },
+      "reactive_power_setpoint_revert_time": {
+        "name": "Reactive power setpoint revert time"
+      },
+      "reactive_power_setpoint_revert_time_remaining": {
+        "name": "Reactive power setpoint revert time remaining"
+      },
+      "active_power_ramp_rate_reference": {
+        "name": "Active power ramp rate reference"
+      },
+      "reactive_power_ramp_rate": {
+        "name": "Reactive power ramp rate"
+      },
+      "anti_islanding_enabled": {
+        "name": "Anti-islanding enabled"
+      },
+      "energy_available": {
+        "name": "Available energy"
+      },
+      "state_of_health": {
+        "name": "State of health"
+      },
+      "port_alarms": {
+        "name": "Port alarms"
+      },
+      "dc_energy_injected": {
+        "name": "DC energy injected"
+      },
+      "dc_energy_absorbed": {
+        "name": "DC energy absorbed"
+      },
+      "port_type": {
+        "name": "Port {index} type"
+      },
+      "port_dc_current": {
+        "name": "Port {index} DC current"
+      },
+      "port_dc_voltage": {
+        "name": "Port {index} DC voltage"
+      },
+      "port_dc_power": {
+        "name": "Port {index} DC power"
+      },
+      "port_dc_energy_injected": {
+        "name": "Port {index} DC energy injected"
+      },
+      "port_dc_energy_absorbed": {
+        "name": "Port {index} DC energy absorbed"
+      },
+      "port_temperature": {
+        "name": "Port {index} temperature"
+      },
+      "port_status": {
+        "name": "Port {index} status"
+      },
+      "port_alarm": {
+        "name": "Port {index} alarms"
+      },
+      "deprecated_model": {
+        "name": "Deprecated model"
+      },
+      "depth_of_discharge": {
+        "name": "Depth of discharge"
+      },
+      "max_cell_voltage": {
+        "name": "Max cell voltage"
+      },
+      "min_cell_voltage": {
+        "name": "Min cell voltage"
+      },
+      "average_cell_voltage": {
+        "name": "Average cell voltage"
+      },
+      "max_module_temperature": {
+        "name": "Max module temperature"
+      },
+      "min_module_temperature": {
+        "name": "Min module temperature"
+      },
+      "average_module_temperature": {
+        "name": "Average module temperature"
+      },
+      "rated_charge_capacity": {
+        "name": "Rated capacity (Ah)"
+      },
+      "self_discharge_rate": {
+        "name": "Self-discharge rate"
+      },
+      "rated_max_state_of_charge": {
+        "name": "Rated max state of charge"
+      },
+      "rated_min_state_of_charge": {
+        "name": "Rated min state of charge"
+      },
+      "max_reserve": {
+        "name": "Max reserve"
+      },
+      "min_reserve": {
+        "name": "Min reserve"
+      },
+      "battery_type": {
+        "name": "Battery type"
+      },
+      "battery_bank_state": {
+        "name": "Battery bank state"
+      },
+      "vendor_battery_bank_state": {
+        "name": "Vendor battery bank state"
+      },
+      "external_battery_voltage": {
+        "name": "External battery voltage"
+      },
+      "max_battery_voltage": {
+        "name": "Max battery voltage"
+      },
+      "min_battery_voltage": {
+        "name": "Min battery voltage"
+      },
+      "max_charge_current": {
+        "name": "Max charge current"
+      },
+      "max_discharge_current": {
+        "name": "Max discharge current"
+      },
+      "inverter_state_request": {
+        "name": "Inverter state request"
+      },
+      "battery_power_request": {
+        "name": "Battery power request"
+      },
+      "operation_command": {
+        "name": "Operation command"
+      },
+      "inverter_state_command": {
+        "name": "Inverter state command"
+      },
+      "max_string_voltage": {
+        "name": "Max string voltage"
+      },
+      "min_string_voltage": {
+        "name": "Min string voltage"
+      },
+      "average_string_voltage": {
+        "name": "Average string voltage"
+      },
+      "max_string_current": {
+        "name": "Max string current"
+      },
+      "min_string_current": {
+        "name": "Min string current"
+      },
+      "average_string_current": {
+        "name": "Average string current"
+      },
+      "string_status": {
+        "name": "String {index} status"
+      },
+      "string_connection_failure_reason": {
+        "name": "String {index} connection failure reason"
+      },
+      "string_state_of_charge": {
+        "name": "String {index} state of charge"
+      },
+      "string_state_of_health": {
+        "name": "String {index} state of health"
+      },
+      "string_current": {
+        "name": "String {index} current"
+      },
+      "string_max_cell_voltage": {
+        "name": "String {index} max cell voltage"
+      },
+      "string_min_cell_voltage": {
+        "name": "String {index} min cell voltage"
+      },
+      "string_average_cell_voltage": {
+        "name": "String {index} average cell voltage"
+      },
+      "string_max_module_temperature": {
+        "name": "String {index} max module temperature"
+      },
+      "string_min_module_temperature": {
+        "name": "String {index} min module temperature"
+      },
+      "string_average_module_temperature": {
+        "name": "String {index} average module temperature"
+      },
+      "string_disabled_reason": {
+        "name": "String {index} disabled reason"
+      },
+      "string_contactor_status": {
+        "name": "String {index} contactor status"
+      },
+      "string_events_1": {
+        "name": "String {index} events"
+      },
+      "string_events_2": {
+        "name": "String {index} events 2"
+      },
+      "string_vendor_events_1": {
+        "name": "String {index} vendor events 1"
+      },
+      "string_vendor_events_2": {
+        "name": "String {index} vendor events 2"
+      },
+      "string_enable_command": {
+        "name": "String {index} enable command"
+      },
+      "string_connect_command": {
+        "name": "String {index} connect command"
+      },
+      "connection_failure_reason": {
+        "name": "Connection failure reason"
+      },
+      "contactor_status": {
+        "name": "Contactor status"
+      },
+      "enable_command": {
+        "name": "Enable command"
+      },
+      "connect_command": {
+        "name": "Connect command"
+      },
+      "battery_module_state_of_charge": {
+        "name": "Module {index} state of charge"
+      },
+      "battery_module_state_of_health": {
+        "name": "Module {index} state of health"
+      },
+      "battery_module_max_cell_voltage": {
+        "name": "Module {index} max cell voltage"
+      },
+      "battery_module_min_cell_voltage": {
+        "name": "Module {index} min cell voltage"
+      },
+      "battery_module_average_cell_voltage": {
+        "name": "Module {index} average cell voltage"
+      },
+      "battery_module_max_cell_temperature": {
+        "name": "Module {index} max cell temperature"
+      },
+      "battery_module_min_cell_temperature": {
+        "name": "Module {index} min cell temperature"
+      },
+      "battery_module_average_cell_temperature": {
+        "name": "Module {index} average cell temperature"
+      },
+      "max_cell_temperature": {
+        "name": "Max cell temperature"
+      },
+      "min_cell_temperature": {
+        "name": "Min cell temperature"
+      },
+      "average_cell_temperature": {
+        "name": "Average cell temperature"
+      },
+      "cell_voltage": {
+        "name": "Cell {index} voltage"
+      },
+      "cell_temperature": {
+        "name": "Cell {index} temperature"
+      },
+      "cell_status": {
+        "name": "Cell {index} status"
       }
     }
   },

@@ -311,21 +311,21 @@ async def test_model_123_timer_points_do_become_sensors(hass, sunspec_write_clie
     """
     await _setup_write_entry(hass)
 
-    sensor_ids = [e.entity_id for e in _live_entities(hass, "sensor")]
+    sensor_points = {getattr(e, "key", None) for e in _live_entities(hass, "sensor")}
 
-    assert any(eid.endswith("wmaxlimpct_rmptms") for eid in sensor_ids)
-    assert any(eid.endswith("wmaxlimpct_wintms") for eid in sensor_ids)
+    assert "WMaxLimPct_RmpTms" in sensor_points
+    assert "WMaxLimPct_WinTms" in sensor_points
 
 
 async def test_revert_time_is_a_number_not_a_sensor(hass, sunspec_write_client_mock):
     """WMaxLimPct_RvrtTms is writable, so it is a control, not a reading."""
     await _setup_write_entry(hass)
 
-    sensor_ids = [e.entity_id for e in _live_entities(hass, "sensor")]
+    sensor_points = {getattr(e, "key", None) for e in _live_entities(hass, "sensor")}
     number_points = {e._point_name for e in _live_entities(hass, "number")}
 
     assert "WMaxLimPct_RvrtTms" in number_points
-    assert not any(eid.endswith("wmaxlimpct_rvrttms") for eid in sensor_ids)
+    assert "WMaxLimPct_RvrtTms" not in sensor_points
 
 
 async def test_export_limit_reports_the_device_value_above_100(hass, sunspec_write_client_mock):
