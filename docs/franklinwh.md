@@ -91,6 +91,21 @@ reporter recorded nonzero DC power readings during several hours in
 FranklinWH's native Emergency Backup mode with Modbus power control
 disabled. The cause of those readings has not been established.
 
+The report's DC power values move in 100 W steps, making ±100 W the
+smallest reported nonzero value. That does not establish an actual
+100 W flow. The gateway's rounding and threshold for reporting a
+nonzero value remain unknown.
+
+To check whether a reported pulse corresponds to power exchanged with
+the home, use an independent bidirectional meter at the battery's AC
+connection, such as a suitable
+[Shelly energy meter](https://kb.shelly.cloud/knowledge-base/shelly-pro-3em).
+Record live active power and direction alongside the Modbus readings,
+ideally once per second. Minute averages can hide brief pulses.
+Account for the meter's sensitivity at low power. A matching AC pulse
+confirms a real exchange; an absent pulse leaves both a reporting
+artefact and internal DC consumption possible.
+
 ## Firmware differences
 
 V12R02B60D00 accepted the tested positive watt targets up to 5000 W.
