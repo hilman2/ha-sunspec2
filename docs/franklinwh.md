@@ -59,7 +59,7 @@ Use **Battery power target**:
 |---|---|
 | Positive watts, for example 2000 | Discharge at 2000 W |
 | Negative watts, for example -1500 | Charge at 1500 W |
-| 0 | Hold the battery at zero power while retaining control |
+| 0 | Request standby while retaining control |
 
 The allowed range comes from the device's charge and discharge ratings.
 The profile converts ratings reported in 100 W units to watts.
@@ -78,6 +78,33 @@ request zero power first.
 These actions verify the settings, not the measured power response.
 The battery can take several seconds to reach the target. Compare
 **Battery activity** and the DC power measurement with the target.
+
+### Power flow during standby
+
+A 0 W target or **Hold battery in standby** requests standby without
+guaranteeing zero measured battery power. Brief charging and discharging
+readings were reported in
+[issue #145](https://github.com/hilman2/ha-sunspec2/issues/145).
+In the follow-up
+[issue #192](https://github.com/hilman2/ha-sunspec2/issues/192), the same
+reporter recorded nonzero DC power readings during several hours in
+FranklinWH's native Emergency Backup mode with Modbus power control
+disabled. The cause of those readings has not been established.
+
+The report's DC power values move in 100 W steps. Their smallest
+reported nonzero magnitude is 100 W. That does not establish an actual
+100 W flow. The gateway's rounding and threshold for reporting a
+nonzero value remain unknown.
+
+To check whether a reported pulse corresponds to power exchanged with
+the home, use an independent bidirectional meter at the battery's AC
+connection, such as a suitable
+[Shelly energy meter](https://kb.shelly.cloud/knowledge-base/shelly-pro-3em).
+Record live active power and direction alongside the Modbus readings,
+ideally once per second. Minute averages can hide brief pulses.
+Account for the meter's sensitivity at low power. A matching AC pulse
+confirms a real exchange; an absent pulse leaves both a reporting
+artefact and internal DC consumption possible.
 
 ## Firmware differences
 
@@ -124,6 +151,4 @@ provide the measured values and firmware limitations.
 Our tests use selected snapshot values and a simulated Modbus unit
 under the real async SunSpec client. They check decoded values, actual
 register writes, refusal and ignored-write handling, power limits and
-gateway locking. They do not establish that the standby power spikes
-reported in [issue #145](https://github.com/hilman2/ha-sunspec2/issues/145)
-are resolved. That still needs a comparison on the affected installation.
+gateway locking.
