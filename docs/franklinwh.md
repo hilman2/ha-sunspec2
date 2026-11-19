@@ -91,8 +91,8 @@ reporter recorded nonzero DC power readings during several hours in
 FranklinWH's native Emergency Backup mode with Modbus power control
 disabled. The cause of those readings has not been established.
 
-The report's DC power values move in 100 W steps, making ±100 W the
-smallest reported nonzero value. That does not establish an actual
+The report's DC power values move in 100 W steps. Their smallest
+reported nonzero magnitude is 100 W. That does not establish an actual
 100 W flow. The gateway's rounding and threshold for reporting a
 nonzero value remain unknown.
 
