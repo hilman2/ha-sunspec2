@@ -50,7 +50,9 @@ blueprint:
           mode: box
     grid_power:
       name: Grid power
-      description: The power at the grid connection, from your meter.
+      description: >-
+        The power at the grid connection, from a meter that reports at
+        least as often as the limit is written.
       selector:
         entity:
           filter:
@@ -155,8 +157,9 @@ blueprint:
           name: Limit without a reading
           description: >-
             Percent of the rated power while the inverter power or the
-            grid power has no value. 0 is the safe choice where you must
-            not feed in at all.
+            grid power has no value, or has not been reported for ten
+            minutes. 0 is the safe choice where you must not feed in at
+            all.
           default: 100
           selector:
             number:
@@ -187,6 +190,9 @@ mode: queued
 max: 5
 max_exceeded: silent
 
+trigger_variables:
+  t_price: !input price
+
 triggers:
   - trigger: time_pattern
     id: tick
@@ -194,14 +200,16 @@ triggers:
   - trigger: state
     id: price
     entity_id: !input price
-  - trigger: state
+  # The price has had no value for an hour. The template reads the
+  # clock, so it also turns true for a sensor that had no value from
+  # the start.
+  - trigger: template
     id: missing
-    entity_id: !input price
-    to:
-      - unavailable
-      - unknown
-    for:
-      hours: 1
+    value_template: >-
+      {{ t_price | length > 0
+         and not is_number(states(t_price))
+         and (states[t_price] is none
+              or (now() - states[t_price].last_changed).total_seconds() >= 3600) }}
   # The inverter answers again, for example in the morning.
   - trigger: state
     id: back
@@ -228,11 +236,17 @@ variables:
   # "manual" is a run started from the automation's menu.
   reason: "{{ trigger.id | default('manual') }}"
   use_price: "{{ price_entity | length > 0 }}"
-  price_now: "{{ states(price_entity) | float(none) if use_price else none }}"
+  # None without a price sensor, and while the sensor has no number:
+  # unavailable, unknown, not finite.
+  price_now: >-
+    {{ states(price_entity) | float
+       if use_price and is_number(states(price_entity)) else none }}
   below: "{{ price_now is not none and price_now < threshold }}"
   price_before: >-
-    {{ trigger.from_state.state | float(none)
-       if reason == 'price' and trigger.from_state is not none else none }}
+    {{ trigger.from_state.state | float
+       if reason == 'price' and trigger.from_state is not none
+          and is_number(trigger.from_state.state)
+       else none }}
   # A price update inside the low or the normal period changes nothing.
   # Only the update that crosses the threshold, or the first number
   # after a gap, starts or ends the limit.
@@ -245,13 +259,20 @@ variables:
          reason == 'missing'
          or states[price_entity] is none
          or (now() - states[price_entity].last_changed).total_seconds() >= 3600) }}
-  # Whether the feed-in is limited right now.
+  # Whether the feed-in is limited right now. Not while the price
+  # sensor has no value: the automation then writes nothing.
   following: "{{ not use_price or below }}"
   # Whether this run puts the inverter back to normal. The ticks never
   # do: the limit ends once, with the run that sees the price recover.
   release: >-
     {{ use_price and not below and reason != 'tick'
        and (price_gone if price_now is none else (reason != 'price' or crossed)) }}
+  # A tick only starts while no other run of this automation is going.
+  # A write that takes long would otherwise fill the queue with ticks,
+  # and the run that ends the limit would find no place in it.
+  idle: "{{ this.attributes.current | default(0) | int(0) == 0 }}"
+  # When this automation last ran, which is when it last wrote.
+  last_run: "{{ this.attributes.last_triggered | default(none) }}"
   written: false
 
 conditions:
@@ -260,7 +281,7 @@ conditions:
   - condition: template
     value_template: "{{ states(export_limit) != 'unavailable' }}"
   - condition: template
-    value_template: "{{ release or crossed or (reason == 'tick' and following) }}"
+    value_template: "{{ release or crossed or (reason == 'tick' and following and idle) }}"
 
 actions:
   - choose:
@@ -269,33 +290,63 @@ actions:
           - condition: template
             value_template: "{{ reason == 'tick' }}"
         sequence:
-          # A fresh reading: with one from before the last write, the
-          # next limit would be worked out from the power the inverter
-          # had under the limit before, and the two would take turns.
           - action: homeassistant.update_entity
             continue_on_error: true
             target:
               entity_id:
                 - "{{ inverter_power }}"
                 - "{{ grid_power }}"
+          # Both readings have to be from after the last write. With an
+          # older one, the next limit would be worked out from the
+          # power under the limit before, and two limits would take
+          # turns. The last write was at most 15 seconds after the
+          # last run began: up to 10 seconds of waiting here, the write
+          # itself, and the time the inverter needs to follow.
+          #
+          # A meter that reports less often than the automation runs
+          # gets a new limit only on the runs that find a new reading.
           - variables:
+              since: >-
+                {{ none if last_run is none
+                   else (as_datetime(last_run) + timedelta(seconds=15)).isoformat() }}
+          - wait_template: >-
+              {{ since is none
+                 or (states[inverter_power] is not none and states[grid_power] is not none
+                     and states[inverter_power].last_reported >= as_datetime(since)
+                     and states[grid_power].last_reported >= as_datetime(since)) }}
+            timeout:
+              seconds: 10
+            continue_on_timeout: true
+          - variables:
+              fresh: "{{ wait.completed }}"
+              # None without a number, and for a reading that has not
+              # been reported for ten minutes: a sensor that hangs.
               inverter_w: >-
-                {% set value = states(inverter_power) | float(none) %}
+                {% set value = states(inverter_power) %}
                 {% set kilo = state_attr(inverter_power, 'unit_of_measurement') == 'kW' %}
-                {{ none if value is none else value * (1000 if kilo else 1) }}
+                {{ value | float * (1000 if kilo else 1)
+                   if is_number(value)
+                      and (now() - states[inverter_power].last_reported).total_seconds() < 600
+                   else none }}
               # Positive while the house takes power from the grid.
               import_w: >-
-                {% set value = states(grid_power) | float(none) %}
+                {% set value = states(grid_power) %}
                 {% set kilo = state_attr(grid_power, 'unit_of_measurement') == 'kW' %}
-                {{ none if value is none
-                   else value * (1000 if kilo else 1) * (1 if grid_direction == 'import' else -1) }}
+                {{ value | float * (1000 if kilo else 1) * (1 if grid_direction == 'import' else -1)
+                   if is_number(value)
+                      and (now() - states[grid_power].last_reported).total_seconds() < 600
+                   else none }}
           - variables:
               # What the house uses is what the inverter delivers plus
               # what comes from the grid. The limit is rounded down to
               # the step of the entity, so that rounding never feeds in.
+              # Without a reading the fallback is written, and with
+              # readings from before the last write nothing is.
               target: >-
                 {% if inverter_w is none or import_w is none %}
                   {{ fallback_percent }}
+                {% elif not fresh %}
+                  {{ none }}
                 {% else %}
                   {% set step = state_attr(export_limit, 'step') | float(1) %}
                   {% set step = step if step > 0 else 1 %}
@@ -303,6 +354,8 @@ actions:
                   {% set wanted = (wanted / step) | round(0, 'floor') * step %}
                   {{ [[wanted, min_percent] | max, 100] | min | round(2) }}
                 {% endif %}
+          - condition: template
+            value_template: "{{ target is not none }}"
           - action: sunspec2.set_export_limit
             data:
               config_entry_id: "{{ config_entry_id(export_limit) }}"
@@ -313,13 +366,24 @@ actions:
           - condition: template
             value_template: "{{ release }}"
         sequence:
-          # Up to three attempts. "written" only turns true when the
-          # action did not fail, because a failed action ends the inner
-          # sequence.
+          # Three attempts 30 seconds apart, then one every five
+          # minutes, for two hours in all. A limit that is not taken
+          # back would stay for good on an inverter without a revert
+          # time, so giving up early is not an option. The loop ends
+          # when the inverter goes unavailable, where the "back"
+          # trigger takes over, and when the price is low again, where
+          # the ticks do.
+          #
+          # "written" only turns true when the action did not fail,
+          # because a failed action ends the inner sequence.
           - repeat:
               while:
                 - condition: template
-                  value_template: "{{ not written and repeat.index <= 3 }}"
+                  value_template: >-
+                    {{ not written and repeat.index <= 27
+                       and states(export_limit) != 'unavailable'
+                       and not (is_number(states(price_entity))
+                                and states(price_entity) | float < threshold) }}
               sequence:
                 - sequence:
                     - action: sunspec2.set_export_limit
@@ -332,13 +396,28 @@ actions:
                   continue_on_error: true
                 - if:
                     - condition: template
-                      value_template: "{{ not written and repeat.index < 3 }}"
+                      value_template: >-
+                        {{ not written and repeat.index == 3 and notify_entities | length > 0 }}
+                  then:
+                    - action: notify.send_message
+                      continue_on_error: true
+                      target:
+                        entity_id: "{{ notify_entities }}"
+                      data:
+                        title: "{{ state_attr(export_limit, 'friendly_name') }}"
+                        message: >-
+                          The export limit of {{ normal_percent }} % could not be
+                          written in three attempts. The automation keeps trying
+                          every five minutes for two hours.
+                - if:
+                    - condition: template
+                      value_template: "{{ not written and repeat.index < 27 }}"
                   then:
                     - delay:
-                        seconds: 30
+                        seconds: "{{ 30 if repeat.index < 3 else 300 }}"
           - if:
               - condition: template
-                value_template: "{{ notify_entities | length > 0 }}"
+                value_template: "{{ written and notify_entities | length > 0 }}"
             then:
               - action: notify.send_message
                 continue_on_error: true
@@ -347,22 +426,39 @@ actions:
                 data:
                   title: "{{ state_attr(export_limit, 'friendly_name') }}"
                   message: >-
-                    {{ 'Export limit set to ' ~ normal_percent ~ ' %. The feed-in is no longer limited.'
-                       if written
-                       else 'The export limit of ' ~ normal_percent
-                            ~ ' % could not be written. The inverter did not take it in three attempts.' }}
+                    Export limit set to {{ normal_percent }} %. The feed-in is
+                    no longer limited.
+          # Still not written, with the inverter there and the price
+          # not low: the two hours are over.
           - if:
               - condition: template
-                value_template: "{{ not written }}"
+                value_template: >-
+                  {{ not written and states(export_limit) != 'unavailable'
+                     and not (is_number(states(price_entity))
+                              and states(price_entity) | float < threshold) }}
             then:
-              - stop: The inverter did not take the export limit in three attempts.
+              - if:
+                  - condition: template
+                    value_template: "{{ notify_entities | length > 0 }}"
+                then:
+                  - action: notify.send_message
+                    continue_on_error: true
+                    target:
+                      entity_id: "{{ notify_entities }}"
+                    data:
+                      title: "{{ state_attr(export_limit, 'friendly_name') }}"
+                      message: >-
+                        The export limit could not be written for two hours.
+                        The automation has given up. Check the inverter and
+                        set the limit by hand.
+              - stop: The inverter did not take the export limit for two hours.
                 error: true
-    # The price went below the threshold: the next tick sets the limit.
-    default:
-      - if:
+      # The price went below the threshold: the next tick sets the limit.
+      - alias: Say that the limit starts
+        conditions:
           - condition: template
-            value_template: "{{ notify_entities | length > 0 }}"
-        then:
+            value_template: "{{ crossed and below and notify_entities | length > 0 }}"
+        sequence:
           - action: notify.send_message
             continue_on_error: true
             target:

@@ -387,8 +387,18 @@ write path of their own. Three rules run through all of them:
   revert timer needs them (`refresh`, and the tick of
   `follow_house_consumption`).
 - **A failed write is retried** three times, 30 seconds apart, then
-  reported. The retry loop relies on a failed action ending the inner
-  `sequence` before `written` is set.
+  every five minutes for two hours, and each attempt looks again at
+  what is wanted by then. Giving up early is not an option where the
+  write takes a limit or a mode back: nothing else would. The loop
+  relies on a failed action ending the inner `sequence` before
+  `written` is set.
+- **No number means no action.** While a price sensor is unavailable
+  the automations write nothing, and after an hour they go back to
+  normal. `is_number` decides, so `nan` is no price either.
+- **`follow_house_consumption` uses a reading only when it is from
+  after its last write.** With an older one the loop oscillates. It
+  takes `this.attributes.last_triggered` as the time of that write,
+  which is why a tick only starts while no other run is going.
 
 `tests/test_blueprint_*.py` run every blueprint in Home Assistant's
 automation engine (`tests/blueprint_helpers.py` loads them from the

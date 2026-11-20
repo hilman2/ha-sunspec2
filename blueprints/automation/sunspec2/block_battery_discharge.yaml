@@ -88,7 +88,8 @@ blueprint:
           name: Select the mode again
           description: >-
             The inverter drops a mode after its **Battery rate revert
-            time**. Choose a period shorter than that time.
+            time**. Choose a period at least a minute shorter than that
+            time.
           default: "3"
           selector:
             select:
@@ -172,6 +173,10 @@ variables:
   mode_age: >-
     {{ (now() - states[battery_mode].last_changed).total_seconds()
        if states[battery_mode] is not none else 0 }}
+  # The modes the inverter can report after this automation selected
+  # its mode. A discharge limit of 0 W reads back as Block discharging.
+  held_modes: >-
+    {{ [hold_mode] + (['block_discharging'] if hold_mode == 'discharge_limit' else []) }}
   running: >-
     {{ (states(load) | float(0)
         * (1000 if state_attr(load, 'unit_of_measurement') == 'kW' else 1) > power_threshold)
@@ -179,29 +184,38 @@ variables:
   # The mode to select, or none when this run has nothing to do.
   #
   # The battery is only taken over from Automatic, and only given back
-  # from the mode this automation selects. A battery plan or a mode
-  # chosen by hand stays as it is. An inverter that dropped the mode
-  # after its revert time reports Automatic, so the mode is selected
-  # again. The "refresh" run selects it before that happens, but not a
+  # from the mode this automation selects. A battery plan or another
+  # mode chosen by hand stays as it is. An inverter that dropped the
+  # mode and reports Automatic again gets the mode selected again. The
+  # "refresh" run selects it before the inverter drops it, but not a
   # mode that was selected in this very minute.
   target: >-
-    {{ hold_mode if running and (mode_now == 'auto' or (reason == 'refresh' and mode_now == hold_mode and mode_age >= 60))
-       else ('auto' if not running and mode_now == hold_mode and reason in ['off', 'start', 'manual']
+    {{ hold_mode
+       if running and (mode_now == 'auto'
+                       or (reason == 'refresh' and mode_now in held_modes and mode_age >= 60))
+       else ('auto' if not running and mode_now in held_modes
+                       and reason in ['off', 'start', 'manual']
              else none) }}
   written: false
+  wanted: true
 
 conditions:
   - condition: template
     value_template: "{{ target is not none }}"
 
 actions:
+  # "Run actions" in the automation's menu skips the conditions above.
+  - condition: template
+    value_template: "{{ target is not none }}"
   # Two triggers can fire in the same moment, for example the refresh
   # and the one that starts the mode. The run that comes second finds
   # the mode already selected and has nothing left to do. Only a
   # refresh that found the mode selected when it fired selects it again.
   - condition: template
     value_template: >-
-      {{ states(battery_mode) != target or (reason == 'refresh' and mode_now == target) }}
+      {{ states(battery_mode) != 'auto' if target == 'auto'
+         else (states(battery_mode) not in held_modes
+               or (reason == 'refresh' and mode_now in held_modes)) }}
   - if:
       - condition: template
         value_template: "{{ hold_mode not in (state_attr(battery_mode, 'options') or []) }}"
@@ -210,12 +224,18 @@ actions:
           The entity chosen as battery mode does not offer this mode.
           Choose the Battery mode entity of the battery.
         error: true
-  # Up to three attempts. "written" only turns true when the action
-  # did not fail, because a failed action ends the inner sequence.
+  # Three attempts 30 seconds apart, then one every five minutes, for
+  # two hours in all. A battery that is not given back would stay in
+  # the mode for good on an inverter without a revert time, so giving
+  # up early is not an option. After each wait the loop looks again
+  # whether the mode is still wanted, and ends when it is not.
+  #
+  # "written" only turns true when the action did not fail, because a
+  # failed action ends the inner sequence.
   - repeat:
       while:
         - condition: template
-          value_template: "{{ not written and repeat.index <= 3 }}"
+          value_template: "{{ not written and wanted and repeat.index <= 27 }}"
       sequence:
         - sequence:
             - action: select.select_option
@@ -228,13 +248,40 @@ actions:
           continue_on_error: true
         - if:
             - condition: template
-              value_template: "{{ not written and repeat.index < 3 }}"
+              value_template: "{{ not written and repeat.index == 3 and notify_entities | length > 0 }}"
+          then:
+            - action: notify.send_message
+              continue_on_error: true
+              target:
+                entity_id: "{{ notify_entities }}"
+              data:
+                title: "{{ state_attr(battery_mode, 'friendly_name') }}"
+                message: >-
+                  The battery mode could not be set in three attempts. The
+                  automation keeps trying every five minutes for two hours.
+        - if:
+            - condition: template
+              value_template: "{{ not written and repeat.index < 27 }}"
           then:
             - delay:
-                seconds: 30
+                seconds: "{{ 30 if repeat.index < 3 else 300 }}"
+        - variables:
+            runs_now: >-
+              {{ (states(load) | float(0)
+                  * (1000 if state_attr(load, 'unit_of_measurement') == 'kW' else 1)
+                  > power_threshold)
+                 if load.startswith('sensor.') else is_state(load, 'on') }}
+        - variables:
+            # Giving the battery back is wanted while the consumer is
+            # off and the battery is still held. Holding it is wanted
+            # while the consumer runs and nothing else took the battery.
+            wanted: >-
+              {{ (not runs_now and states(battery_mode) in held_modes)
+                 if target == 'auto'
+                 else (runs_now and states(battery_mode) in ['auto'] + held_modes) }}
   - if:
       - condition: template
-        value_template: "{{ notify_entities | length > 0 and reason != 'refresh' }}"
+        value_template: "{{ written and notify_entities | length > 0 and reason != 'refresh' }}"
     then:
       - action: notify.send_message
         continue_on_error: true
@@ -244,16 +291,29 @@ actions:
           title: "{{ state_attr(battery_mode, 'friendly_name') }}"
           message: >-
             {% set consumer = state_attr(load, 'friendly_name') or load %}
-            {{ 'The battery mode could not be set. The inverter did not take it in three attempts.'
-               if not written
-               else ('The battery is back to automatic: ' ~ consumer ~ ' is off.'
-                     if target == 'auto'
-                     else 'The battery does not discharge while ' ~ consumer ~ ' runs.'
-                          if hold_mode == 'block_discharging'
-                          else 'The battery discharge is limited while ' ~ consumer ~ ' runs.') }}
+            {{ 'The battery is back to automatic: ' ~ consumer ~ ' is off.'
+               if target == 'auto'
+               else ('The battery does not discharge while ' ~ consumer ~ ' runs.'
+                     if hold_mode == 'block_discharging'
+                     else 'The battery discharge is limited while ' ~ consumer ~ ' runs.') }}
+  # Still not set although it is still wanted: the two hours are over.
   - if:
       - condition: template
-        value_template: "{{ not written }}"
+        value_template: "{{ not written and wanted }}"
     then:
-      - stop: The inverter did not take the battery mode in three attempts.
+      - if:
+          - condition: template
+            value_template: "{{ notify_entities | length > 0 }}"
+        then:
+          - action: notify.send_message
+            continue_on_error: true
+            target:
+              entity_id: "{{ notify_entities }}"
+            data:
+              title: "{{ state_attr(battery_mode, 'friendly_name') }}"
+              message: >-
+                The battery mode could not be set for two hours. The
+                automation has given up. Check the inverter and select the
+                mode by hand.
+      - stop: The inverter did not take the battery mode for two hours.
         error: true

@@ -135,20 +135,143 @@ async def test_a_failed_write_is_tried_again(hass, freezer):
     assert len(action.calls) == 3
 
 
-async def test_three_failed_writes_are_reported(hass, freezer):
+async def test_after_three_failures_the_write_is_tried_every_five_minutes(hass, freezer):
     hass.states.async_set("notify.phone", "unknown")
     messages = RecordedAction(hass, "notify", "send_message")
     action = await _start(hass, notify=["notify.phone"])
+    action.failures = 4
+
+    await set_state(hass, PRICE, "-0.01", block=False)
+    await pass_time(hass, freezer, block=False, seconds=31)
+    await pass_time(hass, freezer, block=False, seconds=31)
+    assert len(action.calls) == 3
+    assert [call["message"] for call in messages.calls] == [
+        "The export limit of 0 % could not be written in three attempts. "
+        "The automation keeps trying every five minutes for two hours."
+    ]
+
+    await pass_time(hass, freezer, block=False, minutes=4)
+    assert len(action.calls) == 3
+    await pass_time(hass, freezer, block=False, minutes=1, seconds=1)
+    assert len(action.calls) == 4
+    await pass_time(hass, freezer, minutes=5, seconds=1)
+
+    assert len(action.calls) == 5
+    assert messages.calls[-1]["message"] == "Export limit set to 0 % (-0.01 EUR/kWh)."
+
+
+async def test_a_limit_that_could_not_be_taken_back_is_taken_back_later(hass, freezer):
+    """The case that must not be given up: the inverter would stay limited for good."""
+    action = await _start(hass, price="-0.01")
+    await set_state(hass, PRICE, "-0.02")
+    action.failures = 3
+
+    await set_state(hass, PRICE, "0.03", block=False)
+    await pass_time(hass, freezer, block=False, seconds=31)
+    await pass_time(hass, freezer, block=False, seconds=31)
+    # Normal prices come in. None of them crosses the threshold.
+    await set_state(hass, PRICE, "0.04", block=False)
+    await pass_time(hass, freezer, minutes=5, seconds=1)
+
+    assert [call["percent"] for call in action.calls] == [100, 100, 100, 100]
+
+
+async def test_a_later_attempt_writes_what_fits_the_price_by_then(hass, freezer):
+    action = await _start(hass, price="-0.01")
+    action.failures = 3
+
+    await set_state(hass, PRICE, "0.03", block=False)
+    await pass_time(hass, freezer, block=False, seconds=31)
+    await pass_time(hass, freezer, block=False, seconds=31)
+    # The price is low again before the inverter took the 100 %.
+    await set_state(hass, PRICE, "-0.05", block=False)
+    await pass_time(hass, freezer, minutes=5, seconds=1)
+
+    # The fourth attempt of the first run, then the run of the second crossing.
+    assert [call["percent"] for call in action.calls] == [100, 100, 100, 0, 0]
+
+
+async def test_the_attempts_end_when_the_inverter_goes_off(hass, freezer):
+    action = await _start(hass)
     action.failures = 3
 
     await set_state(hass, PRICE, "-0.01", block=False)
     await pass_time(hass, freezer, block=False, seconds=31)
-    await pass_time(hass, freezer, seconds=31)
-
+    await pass_time(hass, freezer, block=False, seconds=31)
+    await set_state(hass, LIMIT, "unavailable", block=False)
+    await pass_time(hass, freezer, minutes=5, seconds=1)
     assert len(action.calls) == 3
-    assert len(messages.calls) == 1
-    assert "could not be written" in messages.calls[0]["message"]
-    assert messages.calls[0]["entity_id"] == ["notify.phone"]
+
+    # When it answers again, the limit is written after all.
+    await set_state(hass, LIMIT, "100")
+    assert [call["percent"] for call in action.calls] == [0, 0, 0, 0]
+
+
+async def test_after_two_hours_of_failures_the_automation_gives_up(hass, freezer, caplog):
+    hass.states.async_set("notify.phone", "unknown")
+    messages = RecordedAction(hass, "notify", "send_message")
+    action = await _start(hass, notify=["notify.phone"])
+    action.failures = 100
+
+    await set_state(hass, PRICE, "-0.01", block=False)
+    await pass_time(hass, freezer, block=False, seconds=31)
+    await pass_time(hass, freezer, block=False, seconds=31)
+    for _ in range(24):
+        await pass_time(hass, freezer, block=False, minutes=5, seconds=1)
+    await hass.async_block_till_done()
+
+    assert len(action.calls) == 27
+    assert "has given up" in messages.calls[-1]["message"]
+    assert "did not take the export limit for two hours" in caplog.text
+
+
+async def test_a_price_that_is_not_a_number_is_treated_as_no_price(hass, caplog):
+    action = await _start(hass)
+
+    await set_state(hass, PRICE, "nan")
+    await set_state(hass, PRICE, "inf")
+
+    assert action.calls == []
+    assert "Error rendering variables" not in caplog.text
+
+
+async def test_a_sensor_without_a_price_from_the_start_ends_the_limit_after_an_hour(hass, freezer):
+    freezer.move_to("2030-06-01 12:00:00+00:00")
+    action = await _start(hass, price="unavailable")
+
+    for _ in range(59):
+        await pass_time(hass, freezer, minutes=1)
+    assert action.calls == []
+
+    await pass_time(hass, freezer, minutes=1)
+    assert [call["percent"] for call in action.calls] == [100]
+
+
+async def test_run_actions_from_the_menu_writes_what_fits_the_price(hass):
+    action = await _start(hass, price="-0.01")
+
+    await hass.services.async_call(
+        "automation",
+        "trigger",
+        {"entity_id": f"automation.{BLUEPRINT}", "skip_condition": True},
+        blocking=True,
+    )
+
+    assert [call["percent"] for call in action.calls] == [0]
+
+
+async def test_run_actions_from_the_menu_without_a_price_does_nothing(hass, caplog):
+    action = await _start(hass, price="unavailable")
+
+    await hass.services.async_call(
+        "automation",
+        "trigger",
+        {"entity_id": f"automation.{BLUEPRINT}", "skip_condition": True},
+        blocking=True,
+    )
+
+    assert action.calls == []
+    assert "Error" not in caplog.text
 
 
 async def test_a_message_names_the_limit_and_the_price(hass):

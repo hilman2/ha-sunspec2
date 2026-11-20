@@ -230,3 +230,28 @@ async def test_further_actions_get_the_text_and_the_kind_of_problem(hass):
             "over": True,
         },
     ]
+
+
+async def test_run_actions_from_the_menu_sends_nothing(hass):
+    messages = await _start(hass, watch=POWER, operating_state=STATE, events=[EVENTS])
+
+    await hass.services.async_call(
+        "automation",
+        "trigger",
+        {"entity_id": f"automation.{BLUEPRINT}", "skip_condition": True},
+        blocking=True,
+    )
+
+    assert messages.calls == []
+
+
+async def test_an_event_still_raised_after_the_night_is_reported_again(hass):
+    """The sensor has no events while the inverter is off, so they count as new."""
+    messages = await _start(hass, events=[EVENTS])
+    await set_state(hass, EVENTS, "GROUND_FAULT", active_flags=["GROUND_FAULT"])
+
+    hass.states.async_set(EVENTS, "unavailable", {"friendly_name": "Inverter Events"})
+    await hass.async_block_till_done()
+    await set_state(hass, EVENTS, "GROUND_FAULT", active_flags=["GROUND_FAULT"])
+
+    assert _texts(messages) == ["The inverter reports: GROUND_FAULT."] * 2

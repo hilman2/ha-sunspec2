@@ -250,6 +250,9 @@ conditions:
     value_template: "{{ wanted }}"
 
 actions:
+  # "Run actions" in the automation's menu skips the condition above.
+  - condition: template
+    value_template: "{{ wanted }}"
   - if:
       - condition: template
         value_template: "{{ notify_entities | length > 0 }}"
