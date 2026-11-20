@@ -9,6 +9,7 @@ from typing import Any
 from urllib.parse import quote
 
 import pytest
+from homeassistant.components.blueprint import models as blueprint_models
 from homeassistant.util import yaml as yaml_util
 
 from .blueprint_helpers import BLUEPRINT_FOLDER
@@ -91,3 +92,20 @@ def test_the_guide_links_to_headings_that_exist():
         target = (REPOSITORY / "docs" / page).read_text() if page else GUIDE
         # A page may also set an anchor by hand, with <a id="...">.
         assert anchor in _heading_anchors(target) or f'<a id="{anchor}">' in target, (page, anchor)
+
+
+@pytest.mark.parametrize("name", BLUEPRINT_NAMES)
+def test_a_blueprint_is_the_same_after_home_assistant_has_stored_it(name):
+    """An import does not keep the file: Home Assistant parses it and writes its own.
+
+    The blueprints use what plain YAML offers, an anchor for a template
+    that is needed twice among it, and all of that has to come out of
+    Home Assistant's writer as the same automation.
+    """
+    path = BLUEPRINT_FOLDER / "sunspec2" / f"{name}.yaml"
+    data = yaml_util.load_yaml_dict(path)
+    blueprint = blueprint_models.Blueprint(
+        data, expected_domain="automation", path=path.name, schema=lambda config: config
+    )
+
+    assert yaml_util.parse_yaml(blueprint.yaml()) == data

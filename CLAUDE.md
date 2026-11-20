@@ -407,10 +407,13 @@ write path of their own. These rules run through all of them:
   meter can report in the second after a write. So the loop does not
   ask how old a reading is. A run is a row of rounds, and after a
   write a round waits a full period, 30 seconds at least. By then
-  every reading is from after the write. On top of that a reading of
-  the meter is at most eight seconds old when the inverter is read,
-  the meter itself is never asked for an update, and the inverter
-  power counts up to the limit last written and no further.
+  every reading is from after the write. That holds for a read cycle
+  under ten seconds and an inverter that follows within ten, and the
+  guide says so. On top of that a reading of the meter is at most
+  eight seconds old when the read of the inverter begins, the meter
+  itself is never asked for an update, and the inverter power counts
+  up to the limit last written and no further, for the one round after
+  a write that went through.
   `tests/test_blueprint_follow_plant.py` runs the automation against a
   model of a house with a real `DataUpdateCoordinator`, a read that
   takes seconds and an inverter that follows late. **A change to the

@@ -2,9 +2,9 @@
 blueprint:
   name: "SunSpec: follow the house consumption"
   description: >-
-    Keeps what you feed into the grid under a limit: every 30 seconds the
-    **Export limit** of the inverter is set to what the house uses at that
-    moment, plus the feed-in you allow. With a price sensor it does so only
+    Keeps what you feed into the grid under a limit: every 30 seconds, or
+    less often if you choose so, the **Export limit** of the inverter is
+    set to what the house uses at that moment, plus the feed-in you allow. With a price sensor it does so only
     while the price is below a threshold.
 
 
@@ -54,8 +54,8 @@ blueprint:
     grid_power:
       name: Grid power
       description: >-
-        The power at the grid connection, from a meter that reports at
-        least as often as the limit is written.
+        The power at the grid connection, from a meter that reports the
+        power of the moment at least as often as the limit is written.
       selector:
         entity:
           filter:
@@ -130,7 +130,7 @@ blueprint:
           name: Write the limit
           description: >-
             Set the **Export limit revert time** of the inverter to at
-            least three times this period. The inverter then returns to
+            least four times this period. The inverter then returns to
             full power by itself if Home Assistant stops.
           default: "30"
           selector:
@@ -319,9 +319,9 @@ actions:
           #   After 30 seconds the reading is a new one, or the one the
           #   integration takes by itself ten seconds after the write.
           # - A reading of the meter is at most eight seconds old when
-          #   the inverter is read. So it is from after the last write
-          #   of this run, and little can have happened in the house
-          #   between the two readings.
+          #   the read of the inverter begins. So it is from after the
+          #   last write of this run, and little can have happened in
+          #   the house between the two readings.
           # - The inverter power counts up to the limit last written
           #   and no further. A reading above it is from before that
           #   limit, whatever its age says.
@@ -353,37 +353,33 @@ actions:
                     grid_alive: >-
                       {{ states[grid_power] is not none and is_number(states(grid_power))
                          and (now() - states[grid_power].last_reported).total_seconds() < 600 }}
-                    # The oldest reading of the meter this round takes.
-                    since: >-
-                      {{ ([as_datetime(settled_at),
-                           now() - timedelta(seconds=8)] | max).isoformat() }}
-                # Without such a reading the round waits for the meter.
-                # A new value ends the wait at once. A meter that
-                # repeats its value does not, and is found when the
-                # wait is over.
-                - if:
-                    - condition: template
-                      value_template: >-
-                        {{ grid_alive
-                           and states[grid_power].last_reported < as_datetime(since) }}
-                  then:
-                    - wait_template: >-
-                        {{ states[grid_power] is not none
-                           and states[grid_power].last_updated >= as_datetime(since) }}
-                      timeout:
-                        seconds: "{{ period }}"
-                      continue_on_timeout: true
+                - variables:
+                    # Whether the meter has reported in the last eight
+                    # seconds, a new value or the old one again. The
+                    # meter is never asked for an update: that would
+                    # move the time of its last report without a
+                    # report.
+                    fresh: &meter_has_reported >-
+                      {{ grid_alive and states[grid_power] is not none
+                         and states[grid_power].last_reported
+                             >= [as_datetime(settled_at), now() - timedelta(seconds=8)] | max }}
+                # Without such a reading the round waits for one, for a
+                # period at most. It looks once a second: a meter that
+                # reports the value it had changes no state, so nothing
+                # else would tell.
+                - repeat:
+                    while:
+                      - condition: template
+                        value_template: "{{ grid_alive and not fresh and repeat.index <= period }}"
+                    sequence:
+                      - delay:
+                          seconds: 1
+                      - variables:
+                          fresh: *meter_has_reported
                 # The reading of the meter is taken before the inverter
                 # is read, not after it: a read takes seconds, and the
                 # inverter power is from its beginning.
                 - variables:
-                    # Whether the meter has reported in time, a new
-                    # value or the old one again. The meter is never
-                    # asked for an update: that would move the time of
-                    # its last report without a report.
-                    fresh: >-
-                      {{ grid_alive and states[grid_power] is not none
-                         and states[grid_power].last_reported >= as_datetime(since) }}
                     # Positive while the house takes power from the grid.
                     import_w: >-
                       {% set value = states(grid_power) %}
@@ -437,6 +433,12 @@ actions:
                       continue_on_error: true
                     - variables:
                         failures: "{{ 0 if sent else failures + 1 }}"
+                        # The limit counts as in force for one round. A
+                        # write that failed, and below a round without
+                        # a write, leave the inverter time to drop the
+                        # limit after its revert time. Its power is
+                        # then no longer held to that limit.
+                        last_percent: "{{ last_percent if sent else none }}"
                     # The period until the next round. After three
                     # writes in a row that the inverter did not take,
                     # five minutes: each failure is an error in the
@@ -448,6 +450,12 @@ actions:
                       timeout:
                         seconds: "{{ period if failures < 3 else 300 }}"
                       continue_on_timeout: true
+                - if:
+                    - condition: template
+                      value_template: "{{ target is none }}"
+                  then:
+                    - variables:
+                        last_percent: null
       - alias: Put the inverter back to normal
         conditions:
           - condition: template

@@ -104,7 +104,8 @@ You need:
 - the sensor of this integration with the AC power of the inverter
 - a sensor for the power at your grid connection, from a meter that
   reports at least every 30 seconds, also while its value stays the
-  same
+  same. It has to report the power of the moment, or an average over
+  ten seconds at most
 - the rated power of the inverter in watts
 
 Some inverters do this by themselves, and better, because they react
@@ -118,7 +119,7 @@ What the automation does:
 - It works in rounds. In a round it waits for the meter, reads the
   inverter, writes the limit and then waits 30 seconds. It writes the
   limit also when it has not changed. Set the **Export limit revert
-  time** of your inverter to at least three times the period, 90
+  time** of your inverter to at least four times the period, 120
   seconds for the default of 30. If Home Assistant stops, the inverter
   then goes back to full power by itself. Without a revert time the
   inverter keeps the last limit.
@@ -127,7 +128,7 @@ What the automation does:
 - A round in which the meter has not reported writes nothing. A meter
   that reports once a minute therefore gets a new limit once a minute.
   Choose **Every minute** under **Write the limit** for such a meter,
-  and a revert time of 180 seconds. A slower meter does not work with
+  and a revert time of 240 seconds. A slower meter does not work with
   this blueprint.
 - A sensor that only reports when its value changes does not work
   either. Template sensors are of that kind. While the power is steady
@@ -167,6 +168,16 @@ What it cannot do:
   blueprint is not enough. Use a limit built into the inverter.
 - **It handles one inverter.** With several inverters on one meter,
   every automation would work out the same house consumption.
+- **It needs an inverter that Home Assistant reads within ten
+  seconds and that follows a limit within ten seconds.** With many
+  data blocks ticked, or a high **Model read pause**, one reading of
+  the inverter takes longer. The limit then goes back and forth after
+  a change of the consumption. The same happens with a meter that
+  reports an average over the period or longer.
+- **One limit can be off after a reading that failed.** When the
+  integration cannot read the inverter for a moment, the sensor keeps
+  its last value, and the automation works with that. The next round
+  corrects it.
 - **It is not for APsystems.** An ECU passes a limit on only after
   several minutes. Use
   [Limit the inverter while the price is negative](#limit-the-inverter-while-the-price-is-negative).
