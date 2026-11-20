@@ -7,6 +7,7 @@ import asyncio
 from unittest.mock import patch
 
 import pytest
+from homeassistant.exceptions import HomeAssistantError
 
 from . import create_mock_sunspec_config_entry
 from . import setup_mock_sunspec_config_entry
@@ -60,6 +61,8 @@ class Battery(RecordedAction):
         self.reports = None
         #: False for an entity that does not show a selection by itself.
         self.shows = True
+        #: True for an inverter that refuses to go back to Automatic.
+        self.fail_auto = False
         sunspec_entity(hass, MODE, mode, friendly_name="Battery mode", options=MODES)
 
     async def _handle(self, call):
@@ -70,6 +73,8 @@ class Battery(RecordedAction):
         if not self.shows:
             return
         option = call.data["option"]
+        if self.fail_auto and option == "auto":
+            raise HomeAssistantError("The inverter did not answer")
         reported = self.reports if self.reports and option != "auto" else option
         self._hass.states.async_set(
             MODE, reported, {"friendly_name": "Battery mode", "options": MODES}
@@ -327,6 +332,31 @@ async def test_a_mode_the_inverter_reports_differently_is_taken_back(hass, freez
     for _ in range(6):
         await pass_time(hass, freezer, minutes=1)
     assert len(battery.calls) == 2
+
+
+async def test_a_mode_that_cannot_be_taken_back_is_reported_as_such(hass, freezer):
+    """The message must not say Automatic was selected when it was not."""
+    notices = RecordedAction(hass, "persistent_notification", "create")
+    battery = await _block(hass)
+    battery.reports = "block_charging"
+    battery.fail_auto = True
+
+    await set_state(hass, CHARGER, "on")
+
+    assert battery.selected == ["block_discharging", "auto"]
+    assert hass.states.get(MODE).state == "block_charging"
+    assert "Automatic could not be selected: do that by hand." in notices.calls[0]["message"]
+    assert hass.states.get("automation.block_battery_discharge").state == "off"
+
+
+async def test_an_entity_that_goes_unavailable_after_the_selection_is_no_other_mode(hass, freezer):
+    battery = await _block(hass, refresh="0")
+    battery.reports = "unavailable"
+
+    await set_state(hass, CHARGER, "on")
+
+    assert battery.selected == ["block_discharging"]
+    assert hass.states.get("automation.block_battery_discharge").state == "on"
 
 
 async def test_a_mode_that_shows_up_late_is_waited_for(hass, freezer):
@@ -593,6 +623,17 @@ async def test_a_charge_the_inverter_does_not_report_is_taken_back(hass, freezer
     for _ in range(6):
         await pass_time(hass, freezer, minutes=1)
     assert len(battery.calls) == 2
+
+
+async def test_a_charge_the_entity_never_shows_is_left_as_it_is(hass, freezer):
+    battery = await _charge(hass, refresh="0")
+    battery.shows = False
+
+    await set_state(hass, PRICE, "0.05", block=False)
+    await pass_time(hass, freezer, seconds=61)
+
+    assert battery.selected == ["charge_from_grid"]
+    assert hass.states.get("automation.charge_battery_at_low_price").state == "on"
 
 
 async def test_a_charge_started_elsewhere_survives_a_price_update(hass):

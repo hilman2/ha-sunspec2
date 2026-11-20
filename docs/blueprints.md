@@ -115,18 +115,29 @@ you have them.
 
 What the automation does:
 
-- In every round it waits for the meter, reads the inverter right
-  after it and writes the limit, also when the limit has not changed.
-  Set the **Export limit revert time** of your inverter to at least
-  three times the period, 90 seconds for the default of 30. If Home
-  Assistant stops, the inverter then goes back to full power by itself.
-  Without a revert time the inverter keeps the last limit.
+- In every round it waits for the meter, reads the inverter after it
+  and writes the limit, also when the limit has not changed. Set the
+  **Export limit revert time** of your inverter to at least three
+  times the period, 90 seconds for the default of 30. If Home Assistant
+  stops, the inverter then goes back to full power by itself. Without
+  a revert time the inverter keeps the last limit.
+- After a limit that differs from the one before, the automation takes
+  no reading of the meter for five seconds. The inverter needs that
+  long to follow, and a meter that reports in between still shows the
+  power from before. A change of the house consumption can therefore
+  take a round longer to reach the limit.
 - A round in which the meter has not reported writes nothing. A meter
   that reports once a minute therefore gets a new limit once a minute.
   Choose **Every minute** under **Write the limit** for such a meter,
   and a revert time of 180 seconds. A slower meter does not work with
-  this blueprint. Nor does a sensor that only reports when its value
-  changes: it gets no limit while the power is steady.
+  this blueprint.
+- A sensor that only reports when its value changes does not work
+  either. Template sensors are of that kind. While the power is steady
+  such a sensor gets no limit, and the limit it had ends: by the
+  inverter after its revert time, or by the automation after ten
+  minutes with **Limit without a reading**.
+- If the inverter refuses a limit, the automation waits five minutes
+  before it writes the next one.
 - The limit is rounded down, so the automation rather takes a few
   watts from the grid than feeds a few in.
 - While the inverter power or the grid power has no value, or the
@@ -199,7 +210,10 @@ What the automation does:
   in **Battery PV charge limit**, *Block discharging* reads back as
   *Block charging*. The automation would not know such a mode as its
   own. It selects *Automatic* again, switches itself off and tells
-  you. Switch it on again when the power fields are right.
+  you. Switch it on again when the power fields are right. Do not
+  change a power field to 0 W while the automation holds the battery:
+  it then no longer knows the mode either, and gives the battery back
+  only when the inverter has dropped the mode after its revert time.
 - If the inverter does not take a mode, the automation tries twice
   more, 30 seconds apart, and then every five minutes for two hours,
   for as long as the mode is still wanted. You get a message after the

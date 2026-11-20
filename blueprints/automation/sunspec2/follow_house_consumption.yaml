@@ -2,7 +2,7 @@
 blueprint:
   name: "SunSpec: follow the house consumption"
   description: >-
-    Keeps what you feed into the grid under a limit: every few seconds the
+    Keeps what you feed into the grid under a limit: every 30 seconds the
     **Export limit** of the inverter is set to what the house uses at that
     moment, plus the feed-in you allow. With a price sensor it does so only
     while the price is below a threshold.
@@ -129,10 +129,9 @@ blueprint:
         interval:
           name: Write the limit
           description: >-
-            At most this often. Set the **Export limit revert time** of
-            the inverter to at least three times this period. The
-            inverter then returns to full power by itself if Home
-            Assistant stops.
+            Set the **Export limit revert time** of the inverter to at
+            least three times this period. The inverter then returns to
+            full power by itself if Home Assistant stops.
           default: "/30"
           selector:
             select:
@@ -277,6 +276,13 @@ variables:
   # leave no place in it for the run that ends the limit.
   idle: "{{ this.attributes.current | default(0) | int(0) == 0 }}"
   written: false
+  # Set in the rounds of a run and kept from one round to the next:
+  # when the inverter was last read, whether the write went through,
+  # the last limit written and when the limit last changed.
+  read_at: null
+  sent: false
+  last_percent: null
+  changed_at: null
 
 conditions:
   # An inverter that is off takes no write. The "back" trigger runs
@@ -300,15 +306,19 @@ actions:
           # the next tick, a meter that reports in the gap between the
           # two never got a limit.
           #
-          # The run ends after 20 rounds, when the price is no longer
-          # low or when the inverter is off. The next tick starts a new
-          # one. A run that ends the limit waits in the queue until
-          # then, which is one round at most.
+          # The run ends when the price is no longer low or the
+          # inverter is off, and after 1000 rounds at the latest. The
+          # next tick starts a new one. A run that ends the limit waits
+          # in the queue until then, which is one round at most.
+          # What a run before this one wrote is not known here, so
+          # the run begins as if the limit had just changed.
+          - variables:
+              changed_at: "{{ now().isoformat() }}"
           - repeat:
               while:
                 - condition: template
                   value_template: >-
-                    {{ repeat.index <= 20
+                    {{ repeat.index <= 1000
                        and states(export_limit) != 'unavailable'
                        and (not use_price
                             or (is_number(states(price_entity))
@@ -323,13 +333,24 @@ actions:
                     grid_alive: >-
                       {{ states[grid_power] is not none and is_number(states(grid_power))
                          and (now() - states[grid_power].last_reported).total_seconds() < 600 }}
+                    sent: false
                 # The house consumption is the sum of two readings, and
-                # it is only right when both are from the same moment.
-                # With a grid power from before the last write and an
-                # inverter power from after it, the limit swings
-                # between two values. So the round waits for the meter
-                # and reads the inverter right after it.
+                # it is only right when both are from the same side of
+                # a change of the limit. With a grid power from before
+                # the change and an inverter power from after it, or
+                # the other way round, the limit swings between two
+                # values, or drops to nothing.
                 #
+                # So a reading of the meter counts from five seconds
+                # after the limit last changed: the inverter needs a
+                # moment to follow, and a meter that reports in that
+                # moment still shows the power from before. A write of
+                # the limit that was already in force changes nothing,
+                # and readings after it count at once.
+                - variables:
+                    since: >-
+                      {{ ([as_datetime(round_start),
+                           as_datetime(changed_at) + timedelta(seconds=5)] | max).isoformat() }}
                 # A new value ends the wait at once. A meter that
                 # repeats its value does not, and the round then runs
                 # its full length.
@@ -339,23 +360,40 @@ actions:
                   then:
                     - wait_template: >-
                         {{ states[grid_power] is not none
-                           and states[grid_power].last_updated >= as_datetime(round_start) }}
+                           and states[grid_power].last_updated >= as_datetime(since) }}
                       timeout:
                         seconds: "{{ period }}"
                       continue_on_timeout: true
-                - variables:
-                    # Whether the meter has reported in this round, a
-                    # new value or the old one again. The meter is
-                    # never asked for an update: that would move the
-                    # time of its last report without a report.
-                    fresh: >-
-                      {{ grid_alive and states[grid_power] is not none
-                         and states[grid_power].last_reported >= as_datetime(round_start) }}
+                # update_entity does not read the inverter when it was
+                # read less than ten seconds ago: Home Assistant spaces
+                # the reads of an integration that far apart, and hands
+                # out the last reading instead. After a write that
+                # reading is from before the write for up to ten
+                # seconds. Twelve seconds after the last read it is
+                # either a new one or the one the integration takes by
+                # itself after every write.
+                - if:
+                    - condition: template
+                      value_template: >-
+                        {{ read_at is not none
+                           and (now() - as_datetime(read_at)).total_seconds() < 12 }}
+                  then:
+                    - delay:
+                        seconds: "{{ 12 - (now() - as_datetime(read_at)).total_seconds() }}"
                 - action: homeassistant.update_entity
                   continue_on_error: true
                   target:
                     entity_id: "{{ inverter_power }}"
                 - variables:
+                    read_at: "{{ now().isoformat() }}"
+                    # Whether the meter has reported in time for this
+                    # round, a new value or the old one again. The
+                    # meter is never asked for an update: that would
+                    # move the time of its last report without a
+                    # report.
+                    fresh: >-
+                      {{ grid_alive and states[grid_power] is not none
+                         and states[grid_power].last_reported >= as_datetime(since) }}
                     inverter_w: >-
                       {% set value = states(inverter_power) %}
                       {% set kilo = state_attr(inverter_power, 'unit_of_measurement') == 'kW' %}
@@ -390,17 +428,30 @@ actions:
                     - condition: template
                       value_template: "{{ target is not none }}"
                   then:
-                    - action: sunspec2.set_export_limit
-                      data:
-                        config_entry_id: "{{ config_entry_id(export_limit) }}"
-                        percent: "{{ target }}"
-                        enable: "{{ send_enable }}"
-                # The rest of the round, so that the limit is written
-                # once per period and not with every value of a meter
-                # that reports every second.
+                    # "sent" only turns true when the action did not
+                    # fail, because a failed action ends this sequence.
+                    - sequence:
+                        - action: sunspec2.set_export_limit
+                          data:
+                            config_entry_id: "{{ config_entry_id(export_limit) }}"
+                            percent: "{{ target }}"
+                            enable: "{{ send_enable }}"
+                        - variables:
+                            sent: true
+                            changed_at: >-
+                              {{ now().isoformat() if target != last_percent else changed_at }}
+                        - variables:
+                            last_percent: "{{ target }}"
+                      continue_on_error: true
+                # The rest of the round, so that a meter that reports
+                # every second does not get a write every second. After
+                # a write the inverter refused, five minutes: the next
+                # round would fail the same way, and each failure is an
+                # error in the log.
                 - delay:
                     seconds: >-
-                      {{ [period - (now() - as_datetime(round_start)).total_seconds(), 0] | max }}
+                      {{ 300 if target is not none and not sent
+                         else [period - (now() - as_datetime(round_start)).total_seconds(), 0] | max }}
       - alias: Put the inverter back to normal
         conditions:
           - condition: template
@@ -449,12 +500,18 @@ actions:
                           The export limit of {{ normal_percent }} % could not be
                           written in three attempts. The automation keeps trying
                           every five minutes for two hours.
+                # The wait ends early when the price is low again:
+                # the loop then ends, and the next tick starts a run.
                 - if:
                     - condition: template
                       value_template: "{{ not written and repeat.index < 27 }}"
                   then:
-                    - delay:
+                    - wait_template: >-
+                        {{ is_number(states(price_entity))
+                           and states(price_entity) | float < threshold }}
+                      timeout:
                         seconds: "{{ 30 if repeat.index < 3 else 300 }}"
+                      continue_on_timeout: true
           - if:
               - condition: template
                 value_template: "{{ written and notify_entities | length > 0 }}"

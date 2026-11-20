@@ -254,6 +254,7 @@ variables:
        else ('auto' if mode_now == 'charge_from_grid' and ends else none) }}
   written: false
   wanted: true
+  taken_back: false
 
 conditions:
   - condition: template
@@ -395,23 +396,33 @@ actions:
               {{ wait.completed
                  and states(battery_mode) not in ['charge_from_grid'] + ['unavailable', 'unknown'] }}
         then:
-          - action: select.select_option
+          # "taken_back" only turns true when the action did not fail,
+          # because a failed action ends this sequence.
+          - sequence:
+              - action: select.select_option
+                target:
+                  entity_id: "{{ battery_mode }}"
+                data:
+                  option: auto
+              - variables:
+                  taken_back: true
             continue_on_error: true
-            target:
-              entity_id: "{{ battery_mode }}"
-            data:
-              option: auto
+          - variables:
+              problem: >-
+                The inverter reports another mode than Charge from grid after it
+                was selected.
+                {{ 'The automation selected Automatic again and switched itself off.'
+                   if taken_back
+                   else 'Automatic could not be selected: do that by hand. The automation switched itself off.' }}
+                Check the power in Battery grid charge power. Then switch the
+                automation on again.
           # Shown in Home Assistant itself, so that nobody has to have
           # chosen a recipient to learn about it.
           - action: persistent_notification.create
             continue_on_error: true
             data:
               title: "{{ state_attr(battery_mode, 'friendly_name') }}"
-              message: >-
-                The inverter reports another mode than Charge from grid after
-                it was selected. The automation selected Automatic again
-                and switched itself off. Check the power in Battery grid
-                charge power. Then switch the automation on again.
+              message: "{{ problem }}"
           - if:
               - condition: template
                 value_template: "{{ notify_entities | length > 0 }}"
@@ -422,11 +433,7 @@ actions:
                   entity_id: "{{ notify_entities }}"
                 data:
                   title: "{{ state_attr(battery_mode, 'friendly_name') }}"
-                  message: >-
-                    The inverter reports another mode than Charge from grid after
-                    it was selected. The automation selected Automatic again
-                    and switched itself off. Check the power in Battery grid
-                    charge power. Then switch the automation on again.
+                  message: "{{ problem }}"
           - action: automation.turn_off
             target:
               entity_id: "{{ this.entity_id }}"

@@ -395,15 +395,22 @@ write path of their own. These rules run through all of them:
 - **No number means no action.** While a price sensor is unavailable
   the automations write nothing, and after an hour they go back to
   normal. `is_number` decides, so `nan` is no price either.
-- **`follow_house_consumption` waits for the meter and reads the
-  inverter right after it.** The house consumption is the sum of both,
-  and with readings from two sides of a write the loop oscillates. A
-  run is a row of rounds that follow each other without a gap, so a
-  report of the meter always falls into one; a tick only starts a run
-  while none is going. Whether the meter has reported in a round is
-  `last_reported`, which is why the meter is never asked with
-  `homeassistant.update_entity`: that moves `last_reported` of a sensor
-  that has nothing new.
+- **`follow_house_consumption` adds two readings that must be from
+  the same side of a change of the limit.** The house consumption is
+  inverter power plus grid power, and with one from before a change
+  and one from after it the loop oscillates or writes 0 %. Four things
+  keep them together, and each was a defect once:
+  a run is a row of rounds without a gap, so a report of the meter
+  always falls into one (a tick only starts a run while none is
+  going); the meter is never asked with `homeassistant.update_entity`,
+  which moves `last_reported` of a sensor that has nothing new; a
+  reading of the meter counts from five seconds after the limit last
+  changed; and the inverter is not read twice within twelve seconds,
+  because a coordinator answers a second `update_entity` within ten
+  with its last data.
+  `tests/test_blueprint_follow_plant.py` runs the automation against a
+  model of a house with a real `DataUpdateCoordinator`. A change to
+  the loop is checked there, not by reasoning about it.
 - **The inverter reports the battery mode it is in, not the one
   selected.** With 0 W in a power field the two differ, and an
   automation that does not recognise its own mode never ends it. The
