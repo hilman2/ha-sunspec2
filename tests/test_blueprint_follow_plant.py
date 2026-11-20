@@ -309,7 +309,7 @@ async def test_a_steady_house_gets_a_steady_limit(hass, freezer, meter, inverter
     # into the grid, or what a coarse meter cannot see.
     assert fed_in_wh <= _unseen_w(meter) * 300 / 3600
     # A limit in every period or the one after, so that an inverter
-    # with a revert time of three periods never runs free.
+    # with a revert time of four periods never runs free.
     assert _longest_gap(writes, 420) < 2 * 30 + 10, writes
 
 

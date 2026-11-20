@@ -176,8 +176,9 @@ What it cannot do:
   reports an average over the period or longer.
 - **One limit can be off after a reading that failed.** When the
   integration cannot read the inverter for a moment, the sensor keeps
-  its last value, and the automation works with that. The next round
-  corrects it.
+  its last value, and the automation works with that. The same can
+  happen in the first round after the meter was silent for longer than
+  the revert time. The next round corrects it.
 - **It is not for APsystems.** An ECU passes a limit on only after
   several minutes. Use
   [Limit the inverter while the price is negative](#limit-the-inverter-while-the-price-is-negative).

@@ -331,6 +331,11 @@ actions:
           # ends the limit waits in the queue until then, which is one
           # round at most.
           #
+          # A run also ends after 2000 rounds, about 17 hours at 30
+          # seconds. Home Assistant warns about a loop that has run
+          # 5000 times and ends one that has run 10000 times with an
+          # error in the log.
+          #
           # What was written before this run is not known here: the run
           # that took the limit back may just have ended. So the first
           # reading of the meter counts from ten seconds into the run.
@@ -341,7 +346,8 @@ actions:
               while:
                 - condition: template
                   value_template: >-
-                    {{ states(export_limit) != 'unavailable'
+                    {{ repeat.index <= 2000
+                       and states(export_limit) != 'unavailable'
                        and (not use_price
                             or (is_number(states(price_entity))
                                 and states(price_entity) | float < threshold)) }}
