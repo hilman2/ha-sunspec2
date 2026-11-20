@@ -1,0 +1,259 @@
+# Copyright (c) 2026 Manuel Hilgert <hilman2@gmail.com>
+blueprint:
+  name: "SunSpec: block battery discharging while a large consumer runs"
+  description: >-
+    Keeps the home battery from emptying itself into a large consumer, such
+    as a car charger or a heat pump. While the consumer runs, the **Battery
+    mode** is set to *Block discharging*. Afterwards it goes back to
+    *Automatic*.
+
+
+    Needs the **Battery mode** entity, which the integration offers for
+    Fronius inverters with a battery.
+
+
+    Read [the blueprint guide](https://github.com/hilman2/ha-sunspec2/blob/main/docs/blueprints.md#block-battery-discharging-while-a-large-consumer-runs)
+    first.
+  domain: automation
+  author: hilman2
+  source_url: https://github.com/hilman2/ha-sunspec2/blob/main/blueprints/automation/sunspec2/block_battery_discharge.yaml
+  homeassistant:
+    min_version: 2026.10.0
+  input:
+    battery_mode:
+      name: Battery mode
+      description: The **Battery mode** entity of the battery.
+      selector:
+        entity:
+          filter:
+            - integration: sunspec2
+              domain: select
+    load:
+      name: Consumer
+      description: >-
+        What tells that the consumer runs: a switch or binary sensor that
+        is on, or a sensor with its power.
+      selector:
+        entity:
+          filter:
+            - domain:
+                - binary_sensor
+                - switch
+                - input_boolean
+                - sensor
+    power_threshold:
+      name: Runs above this power
+      description: >-
+        Only for a power sensor: the consumer counts as running above this
+        many watts.
+      default: 1000
+      selector:
+        number:
+          min: 0
+          max: 100000
+          step: 10
+          unit_of_measurement: W
+          mode: box
+    stop_delay:
+      name: Release the battery after
+      description: >-
+        How long the consumer has to be off before the battery goes back
+        to *Automatic*. Bridges the pauses of a car charger.
+      default: 5
+      selector:
+        number:
+          min: 0
+          max: 120
+          step: 1
+          unit_of_measurement: min
+    advanced:
+      name: More
+      icon: mdi:tune
+      collapsed: true
+      input:
+        hold_mode:
+          name: Mode while the consumer runs
+          description: >-
+            *Discharge limit* lets the battery help with the power you
+            entered in **Battery discharge limit**.
+          default: block_discharging
+          selector:
+            select:
+              options:
+                - label: Block discharging
+                  value: block_discharging
+                - label: Discharge limit
+                  value: discharge_limit
+        refresh:
+          name: Select the mode again
+          description: >-
+            The inverter drops a mode after its **Battery rate revert
+            time**. Choose a period shorter than that time.
+          default: "3"
+          selector:
+            select:
+              options:
+                - label: Never
+                  value: "0"
+                - label: Every 3 minutes
+                  value: "3"
+                - label: Every 5 minutes
+                  value: "5"
+                - label: Every 10 minutes
+                  value: "10"
+                - label: Every 15 minutes
+                  value: "15"
+                - label: Every 30 minutes
+                  value: "30"
+        notify:
+          name: Notify
+          description: >-
+            Gets a message when the battery is held or released, and when
+            the mode cannot be set.
+          default: []
+          selector:
+            entity:
+              multiple: true
+              filter:
+                - domain: notify
+
+mode: queued
+max: 5
+max_exceeded: silent
+
+trigger_variables:
+  t_load: !input load
+  t_threshold: !input power_threshold
+  t_refresh: !input refresh
+
+triggers:
+  - trigger: template
+    id: "on"
+    value_template: >-
+      {{ (states(t_load) | float(0)
+          * (1000 if state_attr(t_load, 'unit_of_measurement') == 'kW' else 1) > t_threshold)
+         if t_load.startswith('sensor.') else is_state(t_load, 'on') }}
+  - trigger: template
+    id: "off"
+    value_template: >-
+      {{ not ((states(t_load) | float(0)
+               * (1000 if state_attr(t_load, 'unit_of_measurement') == 'kW' else 1) > t_threshold)
+              if t_load.startswith('sensor.') else is_state(t_load, 'on')) }}
+    for:
+      minutes: !input stop_delay
+  # The inverter answers again.
+  - trigger: state
+    id: back
+    entity_id: !input battery_mode
+    from: unavailable
+  - trigger: homeassistant
+    id: start
+    event: start
+  # True for one minute in every period, so it fires once per period.
+  - trigger: template
+    id: refresh
+    value_template: >-
+      {{ t_refresh | int(0) > 0
+         and (now().minute - 1) % (t_refresh | int(1)) == 0
+         and ((states(t_load) | float(0)
+               * (1000 if state_attr(t_load, 'unit_of_measurement') == 'kW' else 1) > t_threshold)
+              if t_load.startswith('sensor.') else is_state(t_load, 'on')) }}
+
+variables:
+  battery_mode: !input battery_mode
+  load: !input load
+  power_threshold: !input power_threshold
+  hold_mode: !input hold_mode
+  notify_entities: !input notify
+  # "manual" is a run started from the automation's menu.
+  reason: "{{ trigger.id | default('manual') }}"
+  mode_now: "{{ states(battery_mode) }}"
+  # How long the battery has been in that mode, in seconds.
+  mode_age: >-
+    {{ (now() - states[battery_mode].last_changed).total_seconds()
+       if states[battery_mode] is not none else 0 }}
+  running: >-
+    {{ (states(load) | float(0)
+        * (1000 if state_attr(load, 'unit_of_measurement') == 'kW' else 1) > power_threshold)
+       if load.startswith('sensor.') else is_state(load, 'on') }}
+  # The mode to select, or none when this run has nothing to do.
+  #
+  # The battery is only taken over from Automatic, and only given back
+  # from the mode this automation selects. A battery plan or a mode
+  # chosen by hand stays as it is. An inverter that dropped the mode
+  # after its revert time reports Automatic, so the mode is selected
+  # again. The "refresh" run selects it before that happens, but not a
+  # mode that was selected in this very minute.
+  target: >-
+    {{ hold_mode if running and (mode_now == 'auto' or (reason == 'refresh' and mode_now == hold_mode and mode_age >= 60))
+       else ('auto' if not running and mode_now == hold_mode and reason in ['off', 'start', 'manual']
+             else none) }}
+  written: false
+
+conditions:
+  - condition: template
+    value_template: "{{ target is not none }}"
+
+actions:
+  # Two triggers can fire in the same moment, for example the refresh
+  # and the one that starts the mode. The run that comes second finds
+  # the mode already selected and has nothing left to do. Only a
+  # refresh that found the mode selected when it fired selects it again.
+  - condition: template
+    value_template: >-
+      {{ states(battery_mode) != target or (reason == 'refresh' and mode_now == target) }}
+  - if:
+      - condition: template
+        value_template: "{{ hold_mode not in (state_attr(battery_mode, 'options') or []) }}"
+    then:
+      - stop: >-
+          The entity chosen as battery mode does not offer this mode.
+          Choose the Battery mode entity of the battery.
+        error: true
+  # Up to three attempts. "written" only turns true when the action
+  # did not fail, because a failed action ends the inner sequence.
+  - repeat:
+      while:
+        - condition: template
+          value_template: "{{ not written and repeat.index <= 3 }}"
+      sequence:
+        - sequence:
+            - action: select.select_option
+              target:
+                entity_id: "{{ battery_mode }}"
+              data:
+                option: "{{ target }}"
+            - variables:
+                written: true
+          continue_on_error: true
+        - if:
+            - condition: template
+              value_template: "{{ not written and repeat.index < 3 }}"
+          then:
+            - delay:
+                seconds: 30
+  - if:
+      - condition: template
+        value_template: "{{ notify_entities | length > 0 and reason != 'refresh' }}"
+    then:
+      - action: notify.send_message
+        continue_on_error: true
+        target:
+          entity_id: "{{ notify_entities }}"
+        data:
+          title: "{{ state_attr(battery_mode, 'friendly_name') }}"
+          message: >-
+            {% set consumer = state_attr(load, 'friendly_name') or load %}
+            {{ 'The battery mode could not be set. The inverter did not take it in three attempts.'
+               if not written
+               else ('The battery is back to automatic: ' ~ consumer ~ ' is off.'
+                     if target == 'auto'
+                     else 'The battery does not discharge while ' ~ consumer ~ ' runs.'
+                          if hold_mode == 'block_discharging'
+                          else 'The battery discharge is limited while ' ~ consumer ~ ' runs.') }}
+  - if:
+      - condition: template
+        value_template: "{{ not written }}"
+    then:
+      - stop: The inverter did not take the battery mode in three attempts.
+        error: true

@@ -1,0 +1,375 @@
+# Copyright (c) 2026 Manuel Hilgert <hilman2@gmail.com>
+blueprint:
+  name: "SunSpec: follow the house consumption"
+  description: >-
+    Keeps what you feed into the grid under a limit: every few seconds the
+    **Export limit** of the inverter is set to what the house uses at that
+    moment, plus the feed-in you allow. With a price sensor it does so only
+    while the price is below a threshold.
+
+
+    Needs a sensor for the power at the grid connection, and an inverter
+    that follows a new limit within seconds. Not for APsystems.
+
+
+    Read [the blueprint guide](https://github.com/hilman2/ha-sunspec2/blob/main/docs/blueprints.md#follow-the-house-consumption)
+    first: it says what your brand of inverter needs.
+  domain: automation
+  author: hilman2
+  source_url: https://github.com/hilman2/ha-sunspec2/blob/main/blueprints/automation/sunspec2/follow_house_consumption.yaml
+  homeassistant:
+    min_version: 2026.10.0
+  input:
+    export_limit:
+      name: Export limit
+      description: >-
+        The **Export limit** entity of the inverter, the one in percent.
+      selector:
+        entity:
+          filter:
+            - integration: sunspec2
+              domain: number
+    inverter_power:
+      name: Inverter power
+      description: The AC power the inverter delivers right now.
+      selector:
+        entity:
+          filter:
+            - domain: sensor
+              device_class: power
+    rated_power:
+      name: Rated power of the inverter
+      description: >-
+        The power that 100 % of the export limit stands for, in watts.
+      selector:
+        number:
+          min: 100
+          max: 1000000
+          step: 1
+          unit_of_measurement: W
+          mode: box
+    grid_power:
+      name: Grid power
+      description: The power at the grid connection, from your meter.
+      selector:
+        entity:
+          filter:
+            - domain: sensor
+              device_class: power
+    grid_direction:
+      name: A positive grid power means
+      default: import
+      selector:
+        select:
+          options:
+            - label: Power taken from the grid
+              value: import
+            - label: Power fed into the grid
+              value: export
+    max_export:
+      name: Allowed feed-in
+      description: >-
+        How much may go into the grid, in watts. 0 feeds in nothing.
+      default: 0
+      selector:
+        number:
+          min: 0
+          max: 1000000
+          step: 1
+          unit_of_measurement: W
+          mode: box
+    price_section:
+      name: Only while the price is low
+      icon: mdi:cash-clock
+      collapsed: true
+      input:
+        price:
+          name: Electricity price
+          description: >-
+            Leave empty to limit the feed-in all the time. With a price
+            sensor the feed-in is limited while the price is below the
+            threshold, and the inverter runs freely otherwise.
+          default: []
+          selector:
+            entity:
+              filter:
+                - domain: sensor
+        threshold:
+          name: Limit below this price
+          description: In the unit of the price sensor.
+          default: 0
+          selector:
+            number:
+              min: -10
+              max: 10
+              step: 0.001
+              mode: box
+        normal_percent:
+          name: Limit otherwise
+          description: >-
+            Percent of the rated power while the price is not low. 100 is
+            full power. Some inverters use a higher value for "no limit".
+          default: 100
+          selector:
+            number:
+              min: 0
+              max: 200
+              step: 1
+              unit_of_measurement: "%"
+    advanced:
+      name: For your brand of inverter
+      icon: mdi:tune
+      collapsed: true
+      input:
+        interval:
+          name: Write the limit
+          description: >-
+            Set the **Export limit revert time** of the inverter to at
+            least three times this period. The inverter then returns to
+            full power by itself if Home Assistant stops.
+          default: "/30"
+          selector:
+            select:
+              options:
+                - label: Every 15 seconds
+                  value: "/15"
+                - label: Every 20 seconds
+                  value: "/20"
+                - label: Every 30 seconds
+                  value: "/30"
+                - label: Every minute
+                  value: "0"
+        min_percent:
+          name: Lowest limit
+          description: >-
+            The limit never goes below this percentage. Some inverters
+            switch off at 0.
+          default: 0
+          selector:
+            number:
+              min: 0
+              max: 100
+              step: 1
+              unit_of_measurement: "%"
+        fallback_percent:
+          name: Limit without a reading
+          description: >-
+            Percent of the rated power while the inverter power or the
+            grid power has no value. 0 is the safe choice where you must
+            not feed in at all.
+          default: 100
+          selector:
+            number:
+              min: 0
+              max: 200
+              step: 1
+              unit_of_measurement: "%"
+        send_enable:
+          name: Switch the limit on with every write
+          description: >-
+            Turns **Export limit enabled** on together with the percentage.
+          default: true
+          selector:
+            boolean:
+        notify:
+          name: Notify
+          description: >-
+            Gets a message when the price starts or ends the limit, and
+            when the inverter cannot be put back to normal.
+          default: []
+          selector:
+            entity:
+              multiple: true
+              filter:
+                - domain: notify
+
+mode: queued
+max: 5
+max_exceeded: silent
+
+triggers:
+  - trigger: time_pattern
+    id: tick
+    seconds: !input interval
+  - trigger: state
+    id: price
+    entity_id: !input price
+  - trigger: state
+    id: missing
+    entity_id: !input price
+    to:
+      - unavailable
+      - unknown
+    for:
+      hours: 1
+  # The inverter answers again, for example in the morning.
+  - trigger: state
+    id: back
+    entity_id: !input export_limit
+    from: unavailable
+  - trigger: homeassistant
+    id: start
+    event: start
+
+variables:
+  export_limit: !input export_limit
+  inverter_power: !input inverter_power
+  grid_power: !input grid_power
+  grid_direction: !input grid_direction
+  rated_power: !input rated_power
+  max_export: !input max_export
+  price_entity: !input price
+  threshold: !input threshold
+  normal_percent: !input normal_percent
+  min_percent: !input min_percent
+  fallback_percent: !input fallback_percent
+  send_enable: !input send_enable
+  notify_entities: !input notify
+  # "manual" is a run started from the automation's menu.
+  reason: "{{ trigger.id | default('manual') }}"
+  use_price: "{{ price_entity | length > 0 }}"
+  price_now: "{{ states(price_entity) | float(none) if use_price else none }}"
+  below: "{{ price_now is not none and price_now < threshold }}"
+  price_before: >-
+    {{ trigger.from_state.state | float(none)
+       if reason == 'price' and trigger.from_state is not none else none }}
+  # A price update inside the low or the normal period changes nothing.
+  # Only the update that crosses the threshold, or the first number
+  # after a gap, starts or ends the limit.
+  crossed: >-
+    {{ reason == 'price' and price_now is not none
+       and (price_before is none or (price_before < threshold) != below) }}
+  # Without a price for an hour the inverter goes back to normal.
+  price_gone: >-
+    {{ use_price and price_now is none and (
+         reason == 'missing'
+         or states[price_entity] is none
+         or (now() - states[price_entity].last_changed).total_seconds() >= 3600) }}
+  # Whether the feed-in is limited right now.
+  following: "{{ not use_price or below }}"
+  # Whether this run puts the inverter back to normal. The ticks never
+  # do: the limit ends once, with the run that sees the price recover.
+  release: >-
+    {{ use_price and not below and reason != 'tick'
+       and (price_gone if price_now is none else (reason != 'price' or crossed)) }}
+  written: false
+
+conditions:
+  # An inverter that is off takes no write. The "back" trigger runs
+  # this automation again when it answers.
+  - condition: template
+    value_template: "{{ states(export_limit) != 'unavailable' }}"
+  - condition: template
+    value_template: "{{ release or crossed or (reason == 'tick' and following) }}"
+
+actions:
+  - choose:
+      - alias: Set the limit to the house consumption
+        conditions:
+          - condition: template
+            value_template: "{{ reason == 'tick' }}"
+        sequence:
+          # A fresh reading: with one from before the last write, the
+          # next limit would be worked out from the power the inverter
+          # had under the limit before, and the two would take turns.
+          - action: homeassistant.update_entity
+            continue_on_error: true
+            target:
+              entity_id:
+                - "{{ inverter_power }}"
+                - "{{ grid_power }}"
+          - variables:
+              inverter_w: >-
+                {% set value = states(inverter_power) | float(none) %}
+                {% set kilo = state_attr(inverter_power, 'unit_of_measurement') == 'kW' %}
+                {{ none if value is none else value * (1000 if kilo else 1) }}
+              # Positive while the house takes power from the grid.
+              import_w: >-
+                {% set value = states(grid_power) | float(none) %}
+                {% set kilo = state_attr(grid_power, 'unit_of_measurement') == 'kW' %}
+                {{ none if value is none
+                   else value * (1000 if kilo else 1) * (1 if grid_direction == 'import' else -1) }}
+          - variables:
+              # What the house uses is what the inverter delivers plus
+              # what comes from the grid. The limit is rounded down to
+              # the step of the entity, so that rounding never feeds in.
+              target: >-
+                {% if inverter_w is none or import_w is none %}
+                  {{ fallback_percent }}
+                {% else %}
+                  {% set step = state_attr(export_limit, 'step') | float(1) %}
+                  {% set step = step if step > 0 else 1 %}
+                  {% set wanted = (inverter_w + import_w + max_export) / rated_power * 100 %}
+                  {% set wanted = (wanted / step) | round(0, 'floor') * step %}
+                  {{ [[wanted, min_percent] | max, 100] | min | round(2) }}
+                {% endif %}
+          - action: sunspec2.set_export_limit
+            data:
+              config_entry_id: "{{ config_entry_id(export_limit) }}"
+              percent: "{{ target }}"
+              enable: "{{ send_enable }}"
+      - alias: Put the inverter back to normal
+        conditions:
+          - condition: template
+            value_template: "{{ release }}"
+        sequence:
+          # Up to three attempts. "written" only turns true when the
+          # action did not fail, because a failed action ends the inner
+          # sequence.
+          - repeat:
+              while:
+                - condition: template
+                  value_template: "{{ not written and repeat.index <= 3 }}"
+              sequence:
+                - sequence:
+                    - action: sunspec2.set_export_limit
+                      data:
+                        config_entry_id: "{{ config_entry_id(export_limit) }}"
+                        percent: "{{ normal_percent }}"
+                        enable: "{{ send_enable }}"
+                    - variables:
+                        written: true
+                  continue_on_error: true
+                - if:
+                    - condition: template
+                      value_template: "{{ not written and repeat.index < 3 }}"
+                  then:
+                    - delay:
+                        seconds: 30
+          - if:
+              - condition: template
+                value_template: "{{ notify_entities | length > 0 }}"
+            then:
+              - action: notify.send_message
+                continue_on_error: true
+                target:
+                  entity_id: "{{ notify_entities }}"
+                data:
+                  title: "{{ state_attr(export_limit, 'friendly_name') }}"
+                  message: >-
+                    {{ 'Export limit set to ' ~ normal_percent ~ ' %. The feed-in is no longer limited.'
+                       if written
+                       else 'The export limit of ' ~ normal_percent
+                            ~ ' % could not be written. The inverter did not take it in three attempts.' }}
+          - if:
+              - condition: template
+                value_template: "{{ not written }}"
+            then:
+              - stop: The inverter did not take the export limit in three attempts.
+                error: true
+    # The price went below the threshold: the next tick sets the limit.
+    default:
+      - if:
+          - condition: template
+            value_template: "{{ notify_entities | length > 0 }}"
+        then:
+          - action: notify.send_message
+            continue_on_error: true
+            target:
+              entity_id: "{{ notify_entities }}"
+            data:
+              title: "{{ state_attr(export_limit, 'friendly_name') }}"
+              message: >-
+                The price is {{ price_now }}
+                {{ state_attr(price_entity, 'unit_of_measurement') or '' }}.
+                The feed-in is limited to {{ max_export }} W.

@@ -80,6 +80,10 @@ The action **`sunspec2.set_export_limit`** sets the limit without you
 having to write to the number entity. It takes the `config_entry_id` of
 your SunSpec entry, a `percent` value, and optionally `enable`.
 
+For a limit at negative prices, or one that follows what the house
+uses, you do not have to write the automation yourself. See
+[Blueprints](blueprints.md).
+
 ## The revert timer, and how not to get caught by it
 
 Most inverters treat an export limit as a **dead-man switch**. They

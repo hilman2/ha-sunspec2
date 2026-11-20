@@ -1,0 +1,245 @@
+# Copyright (c) 2026 Manuel Hilgert <hilman2@gmail.com>
+blueprint:
+  name: "SunSpec: limit the inverter while the price is negative"
+  description: >-
+    Lowers the **Export limit** of an inverter while the electricity price
+    is below a threshold, and puts it back when the price recovers.
+
+
+    The limit is a fixed percentage of the inverter's rated power. To follow
+    what the house uses instead, take the blueprint *SunSpec: follow the
+    house consumption*.
+
+
+    Read [the blueprint guide](https://github.com/hilman2/ha-sunspec2/blob/main/docs/blueprints.md#limit-the-inverter-while-the-price-is-negative)
+    first: it says what your brand of inverter needs.
+  domain: automation
+  author: hilman2
+  source_url: https://github.com/hilman2/ha-sunspec2/blob/main/blueprints/automation/sunspec2/limit_at_negative_price.yaml
+  homeassistant:
+    min_version: 2026.10.0
+  input:
+    export_limit:
+      name: Export limit
+      description: >-
+        The **Export limit** entity of the inverter, the one in percent.
+      selector:
+        entity:
+          filter:
+            - integration: sunspec2
+              domain: number
+    price:
+      name: Electricity price
+      description: >-
+        The sensor with the current price. Use the feed-in price if your
+        tariff has one of its own.
+      selector:
+        entity:
+          filter:
+            - domain: sensor
+    threshold:
+      name: Limit below this price
+      description: >-
+        The limit applies while the price is below this value, in the unit
+        of the price sensor.
+      default: 0
+      selector:
+        number:
+          min: -10
+          max: 10
+          step: 0.001
+          mode: box
+    limit_percent:
+      name: Limit while the price is low
+      description: Percent of the rated power. 0 stops the inverter.
+      default: 0
+      selector:
+        number:
+          min: 0
+          max: 100
+          step: 1
+          unit_of_measurement: "%"
+    normal_percent:
+      name: Limit otherwise
+      description: >-
+        Percent of the rated power for the rest of the time. 100 is full
+        power. Some inverters use a higher value for "no limit".
+      default: 100
+      selector:
+        number:
+          min: 0
+          max: 200
+          step: 1
+          unit_of_measurement: "%"
+    advanced:
+      name: For your brand of inverter
+      icon: mdi:tune
+      collapsed: true
+      input:
+        refresh:
+          name: Write the limit again
+          description: >-
+            For an inverter that drops a limit after its **Export limit
+            revert time**. Choose a period shorter than that time.
+          default: "0"
+          selector:
+            select:
+              options:
+                - label: Never
+                  value: "0"
+                - label: Every 3 minutes
+                  value: "3"
+                - label: Every 5 minutes
+                  value: "5"
+                - label: Every 10 minutes
+                  value: "10"
+                - label: Every 15 minutes
+                  value: "15"
+                - label: Every 30 minutes
+                  value: "30"
+        send_enable:
+          name: Switch the limit on with every write
+          description: >-
+            Turns **Export limit enabled** on together with the percentage.
+            Turn this off for an APsystems ECU and switch **Export limit
+            enabled** on once by hand.
+          default: true
+          selector:
+            boolean:
+        notify:
+          name: Notify
+          description: Gets a message when the limit starts, ends or cannot be written.
+          default: []
+          selector:
+            entity:
+              multiple: true
+              filter:
+                - domain: notify
+
+mode: queued
+max: 5
+max_exceeded: silent
+
+trigger_variables:
+  t_price: !input price
+  t_threshold: !input threshold
+  t_refresh: !input refresh
+
+triggers:
+  - trigger: state
+    id: price
+    entity_id: !input price
+  - trigger: state
+    id: missing
+    entity_id: !input price
+    to:
+      - unavailable
+      - unknown
+    for:
+      hours: 1
+  # The inverter answers again, for example in the morning.
+  - trigger: state
+    id: back
+    entity_id: !input export_limit
+    from: unavailable
+  - trigger: homeassistant
+    id: start
+    event: start
+  # True for one minute in every period, so it fires once per period.
+  # The periods start one minute past the hour: prices change on the
+  # quarter hours, and a price that falls below the threshold would
+  # otherwise fire this trigger together with the "price" trigger.
+  - trigger: template
+    id: refresh
+    value_template: >-
+      {{ t_refresh | int(0) > 0
+         and (now().minute - 1) % (t_refresh | int(1)) == 0
+         and states(t_price) | float(t_threshold) < t_threshold }}
+
+variables:
+  export_limit: !input export_limit
+  price_entity: !input price
+  threshold: !input threshold
+  limit_percent: !input limit_percent
+  normal_percent: !input normal_percent
+  send_enable: !input send_enable
+  notify_entities: !input notify
+  # "manual" is a run started from the automation's menu.
+  reason: "{{ trigger.id | default('manual') }}"
+  price_now: "{{ states(price_entity) | float(none) }}"
+  below: "{{ price_now is not none and price_now < threshold }}"
+  price_before: >-
+    {{ trigger.from_state.state | float(none)
+       if reason == 'price' and trigger.from_state is not none else none }}
+  # A price update inside the low or the normal period changes nothing.
+  # Only the update that crosses the threshold, or the first number
+  # after a gap, is a reason to write.
+  crossed: >-
+    {{ reason == 'price' and price_now is not none
+       and (price_before is none or (price_before < threshold) != below) }}
+  # Without a price for an hour the inverter goes back to normal.
+  price_gone: >-
+    {{ price_now is none and (
+         reason == 'missing'
+         or states[price_entity] is none
+         or (now() - states[price_entity].last_changed).total_seconds() >= 3600) }}
+  # The percentage to write, or none when this run has nothing to do.
+  target: >-
+    {{ normal_percent if price_gone and reason not in ['price', 'refresh']
+       else (none if price_now is none or (reason == 'price' and not crossed)
+             else (limit_percent if below else normal_percent)) }}
+  written: false
+
+conditions:
+  - condition: template
+    value_template: "{{ target is not none }}"
+  # An inverter that is off takes no write. The "back" trigger runs
+  # this automation again when it answers.
+  - condition: template
+    value_template: "{{ states(export_limit) != 'unavailable' }}"
+
+actions:
+  # Up to three attempts. "written" only turns true when the action
+  # did not fail, because a failed action ends the inner sequence.
+  - repeat:
+      while:
+        - condition: template
+          value_template: "{{ not written and repeat.index <= 3 }}"
+      sequence:
+        - sequence:
+            - action: sunspec2.set_export_limit
+              data:
+                config_entry_id: "{{ config_entry_id(export_limit) }}"
+                percent: "{{ target }}"
+                enable: "{{ send_enable }}"
+            - variables:
+                written: true
+          continue_on_error: true
+        - if:
+            - condition: template
+              value_template: "{{ not written and repeat.index < 3 }}"
+          then:
+            - delay:
+                seconds: 30
+  - if:
+      - condition: template
+        value_template: "{{ notify_entities | length > 0 and reason != 'refresh' }}"
+    then:
+      - action: notify.send_message
+        continue_on_error: true
+        target:
+          entity_id: "{{ notify_entities }}"
+        data:
+          title: "{{ state_attr(export_limit, 'friendly_name') }}"
+          message: >-
+            {% set price = 'no price' if price_now is none else price_now ~ ' '
+               ~ (state_attr(price_entity, 'unit_of_measurement') or '') %}
+            {{ 'Export limit set to ' ~ target ~ ' % (' ~ price ~ ').' if written
+               else 'The export limit of ' ~ target ~ ' % could not be written ('
+                    ~ price ~ '). The inverter did not take it in three attempts.' }}
+  - if:
+      - condition: template
+        value_template: "{{ not written }}"
+    then:
+      - stop: The inverter did not take the export limit in three attempts.
+        error: true

@@ -18,6 +18,13 @@ The integration runs on real installations through HACS. The alpha rules
 - **Config entries stay valid.** New options get a default, existing
   keys keep their meaning. Nothing is written to a device by a change
   of defaults: device writes require an explicit control or service action.
+- **Blueprint inputs stay.** An automation made from a blueprint
+  stores the keys of its inputs (`export_limit`, `refresh`, ...) and
+  the values of its select options. A user who re-imports the blueprint
+  keeps those automations, so a renamed or removed input, or an option
+  value that no longer exists, breaks them. New inputs get a default.
+  The file names stay too: they are in the import links users have
+  bookmarked and in each blueprint's `source_url`.
 - **Rollback is a HACS redownload** of the previous release. A release
   that cannot be undone that way (a changed storage shape) says so in
   its notes.
@@ -357,6 +364,40 @@ The full read pipeline lives under `custom_components/sunspec2/`:
   falling back to `api.known_models()`; neither opens a fresh TCP
   connection. Forcing a reconnect there would race the coordinator on
   single-slot inverters.
+
+### Blueprints
+
+`blueprints/automation/sunspec2/` holds ready-made automations. They
+are not part of what HACS installs: a user imports each file by its
+GitHub address (README, "Blueprints"), and Home Assistant re-imports
+from the `source_url` in the file. `docs/blueprints.md` says what each
+one does and what a brand of inverter needs.
+
+They write through what the integration already offers
+(`sunspec2.set_export_limit`, the *Battery mode* Select) and add no
+write path of their own. Three rules run through all of them:
+
+- **An automation has no memory between runs.** What a run has to know
+  it reads from the device: the battery blueprints take the battery
+  over only from `auto` and give it back only from the mode they
+  selected.
+- **Edges, not levels.** A limit is written when the price crosses the
+  threshold, the inverter comes back or Home Assistant starts, not on
+  every price update. Periodic writes exist only where a device's
+  revert timer needs them (`refresh`, and the tick of
+  `follow_house_consumption`).
+- **A failed write is retried** three times, 30 seconds apart, then
+  reported. The retry loop relies on a failed action ending the inner
+  `sequence` before `written` is set.
+
+`tests/test_blueprint_*.py` run every blueprint in Home Assistant's
+automation engine (`tests/blueprint_helpers.py` loads them from the
+working tree), one test per blueprint goes through the integration's
+real action down to the mocked device, and `tests/test_blueprints.py`
+checks the links between the files, the guide and the README. A
+`delay` in a blueprint runs in real time under
+`hass.async_block_till_done`; the helpers' `block=False` is for those
+tests.
 
 ### Resilience contract
 
