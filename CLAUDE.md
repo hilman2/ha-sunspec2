@@ -18,6 +18,13 @@ The integration runs on real installations through HACS. The alpha rules
 - **Config entries stay valid.** New options get a default, existing
   keys keep their meaning. Nothing is written to a device by a change
   of defaults: device writes require an explicit control or service action.
+- **Blueprint inputs stay.** An automation made from a blueprint
+  stores the keys of its inputs (`export_limit`, `refresh`, ...) and
+  the values of its select options. A user who re-imports the blueprint
+  keeps those automations, so a renamed or removed input, or an option
+  value that no longer exists, breaks them. New inputs get a default.
+  The file names stay too: they are in the import links users have
+  bookmarked and in each blueprint's `source_url`.
 - **Rollback is a HACS redownload** of the previous release. A release
   that cannot be undone that way (a changed storage shape) says so in
   its notes.
@@ -72,8 +79,9 @@ CI installs with pip in two steps (`pytest<9` is forced after
 express that, it calls the requirement unsatisfiable and stops.
 
 ```bash
-# Full suite, about 30 seconds sequential (was 3.5 minutes until the
-# read_model pacing pause was switched off for tests, see conftest.py).
+# Full suite, about 100 seconds sequential and 30 in parallel (was 3.5
+# minutes until the read_model pacing pause was switched off for tests,
+# see conftest.py).
 # Measures coverage and fails below 95 %, as CI does; the threshold is
 # [tool.coverage.report] in pyproject.toml.
 docker compose -f tests/docker/compose.yml run --rm tests
@@ -357,6 +365,75 @@ The full read pipeline lives under `custom_components/sunspec2/`:
   falling back to `api.known_models()`; neither opens a fresh TCP
   connection. Forcing a reconnect there would race the coordinator on
   single-slot inverters.
+
+### Blueprints
+
+`blueprints/automation/sunspec2/` holds ready-made automations. They
+are not part of what HACS installs: a user imports each file by its
+GitHub address (README, "Blueprints"), and Home Assistant re-imports
+from the `source_url` in the file. `docs/blueprints.md` says what each
+one does and what a brand of inverter needs.
+
+They write through what the integration already offers
+(`sunspec2.set_export_limit`, the *Battery mode* Select) and add no
+write path of their own. These rules run through all of them:
+
+- **An automation has no memory between runs.** What a run has to know
+  it reads from the device: the battery blueprints take the battery
+  over only from `auto` and give it back only from the mode they
+  selected.
+- **Edges, not levels.** A limit is written when the price crosses the
+  threshold, the inverter comes back or Home Assistant starts, not on
+  every price update. Periodic writes exist only where a device's
+  revert timer needs them (`refresh`, and the tick of
+  `follow_house_consumption`).
+- **A failed write is tried again**, three attempts 30 seconds
+  apart, then one every five minutes for two hours, and each attempt
+  looks again at what is wanted by then. Giving up early is not an option where the
+  write takes a limit or a mode back: nothing else would. The loop
+  relies on a failed action ending the inner `sequence` before
+  `written` is set.
+- **No number means no action.** While a price sensor is unavailable
+  the automations write nothing, and after an hour they go back to
+  normal. `is_number` decides, so `nan` is no price either.
+- **`follow_house_consumption` adds two readings that must be from
+  the same side of a change of the limit.** The house consumption is
+  inverter power plus grid power, and with one from before a change
+  and one from after it the loop oscillates or writes 0 %. Every way
+  of telling how old a reading is failed in a review:
+  `homeassistant.update_entity` moves `last_reported` of a sensor that
+  has nothing new, a coordinator answers a second `update_entity`
+  within ten seconds, or during a read, with its last data, and a
+  meter can report in the second after a write. So the loop does not
+  ask how old a reading is. A run is a row of rounds, and after a
+  write a round waits a full period, 30 seconds at least. By then
+  every reading is from after the write. That holds for a read cycle
+  under ten seconds and an inverter that follows within ten, and the
+  guide says so. On top of that a reading of the meter is at most
+  eight seconds old when the read of the inverter begins, the meter
+  itself is never asked for an update, and the inverter power counts
+  up to the limit last written and no further, for the one round after
+  a write that went through.
+  `tests/test_blueprint_follow_plant.py` runs the automation against a
+  model of a house with a real `DataUpdateCoordinator`, a read that
+  takes seconds and an inverter that follows late. **A change to the
+  loop is checked there, with the full grid** (the command is in the
+  module's docstring), not by reasoning about it.
+- **The inverter reports the battery mode it is in, not the one
+  selected.** With 0 W in a power field the two differ, and an
+  automation that does not recognise its own mode never ends it. The
+  battery blueprints check what comes back. If it is something else,
+  they select `auto` again and switch themselves off, because the next
+  run would select the mode once more.
+
+`tests/test_blueprint_*.py` run every blueprint in Home Assistant's
+automation engine (`tests/blueprint_helpers.py` loads them from the
+working tree), one test per blueprint goes through the integration's
+real action down to the mocked device, and `tests/test_blueprints.py`
+checks the links between the files, the guide and the README. A
+`delay` in a blueprint runs in real time under
+`hass.async_block_till_done`; the helpers' `block=False` is for those
+tests.
 
 ### Resilience contract
 

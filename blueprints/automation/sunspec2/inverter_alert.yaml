@@ -1,0 +1,268 @@
+# Copyright (c) 2026 Manuel Hilgert <hilman2@gmail.com>
+blueprint:
+  name: "SunSpec: tell me when the inverter has a problem"
+  description: >-
+    Sends a message when the inverter stops answering during the day, when
+    it reports a fault, or when it raises an event such as a ground fault.
+    A second message follows when the problem is over.
+
+
+    This blueprint only reads. It changes nothing in the inverter.
+
+
+    Read [the blueprint guide](https://github.com/hilman2/ha-sunspec2/blob/main/docs/blueprints.md#tell-me-when-the-inverter-has-a-problem)
+    for the entities to choose.
+  domain: automation
+  author: hilman2
+  source_url: https://github.com/hilman2/ha-sunspec2/blob/main/blueprints/automation/sunspec2/inverter_alert.yaml
+  homeassistant:
+    min_version: 2026.10.0
+  input:
+    notify:
+      name: Notify
+      description: Who gets the messages.
+      default: []
+      selector:
+        entity:
+          multiple: true
+          filter:
+            - domain: notify
+    offline_section:
+      name: The inverter stops answering
+      icon: mdi:lan-disconnect
+      input:
+        watch:
+          name: A sensor of the inverter
+          description: >-
+            Any sensor of the inverter, for example its power. Leave empty
+            to skip this check.
+          default: []
+          selector:
+            entity:
+              filter:
+                - integration: sunspec2
+                  domain: sensor
+        offline_minutes:
+          name: Not answering for
+          description: >-
+            How long the sensor has to be unavailable before you get a
+            message.
+          default: 15
+          selector:
+            number:
+              min: 1
+              max: 720
+              step: 1
+              unit_of_measurement: min
+        min_elevation:
+          name: Only while the sun is above
+          description: >-
+            Most inverters switch off at night. Messages are only sent
+            while the sun stands higher than this many degrees above the
+            horizon. Enter -90 for an inverter that runs day and night.
+          default: 10
+          selector:
+            number:
+              min: -90
+              max: 60
+              step: 1
+              unit_of_measurement: "°"
+    fault_section:
+      name: The inverter reports a fault
+      icon: mdi:alert-circle-outline
+      input:
+        operating_state:
+          name: Operating state
+          description: >-
+            The **Operating state** or **Inverter state** sensor. Leave
+            empty to skip this check.
+          default: []
+          selector:
+            entity:
+              filter:
+                - integration: sunspec2
+                  domain: sensor
+        fault_states:
+          name: States that are a problem
+          description: The states as the sensor shows them under Developer tools.
+          default:
+            - FAULT
+          selector:
+            select:
+              multiple: true
+              custom_value: true
+              options:
+                - FAULT
+                - "OFF"
+                - SHUTTING_DOWN
+                - STANDBY
+                - THROTTLED
+    events_section:
+      name: The inverter raises an event
+      icon: mdi:flag-outline
+      input:
+        events:
+          name: Event sensors
+          description: >-
+            The **Events** or **Alarms** sensors to watch. Leave empty to
+            skip this check.
+          default: []
+          selector:
+            entity:
+              multiple: true
+              filter:
+                - integration: sunspec2
+                  domain: sensor
+        ignored_events:
+          name: Events to ignore
+          description: >-
+            Event names that are no reason for a message, as the sensor
+            shows them, for example MANUAL_SHUTDOWN.
+          default: []
+          selector:
+            text:
+              multiple: true
+    more:
+      name: More
+      icon: mdi:tune
+      collapsed: true
+      input:
+        recovery:
+          name: Also tell me when the problem is over
+          default: true
+          selector:
+            boolean:
+        extra_actions:
+          name: Further actions
+          description: >-
+            Run together with every message. The variables `title` and
+            `message` hold the text, `problem` is `offline`, `fault` or
+            `event`, and `over` is true when the problem has ended.
+          default: []
+          selector:
+            action:
+
+mode: queued
+max: 10
+max_exceeded: silent
+
+trigger_variables:
+  t_watch: !input watch
+  t_offline_minutes: !input offline_minutes
+  t_min_elevation: !input min_elevation
+
+triggers:
+  # True once the sensor has been unavailable for long enough while the
+  # sun is up. That is either some minutes after the inverter went off
+  # during the day, or the moment the sun climbs past the chosen height
+  # over an inverter that has not come back from the night.
+  - trigger: template
+    id: offline
+    value_template: >-
+      {{ t_watch | length > 0
+         and state_attr('sun.sun', 'elevation') | float(90) > t_min_elevation
+         and is_state(t_watch, 'unavailable')
+         and (now() - states[t_watch].last_changed).total_seconds() >= t_offline_minutes * 60 }}
+  - trigger: state
+    id: online
+    entity_id: !input watch
+    from: unavailable
+  - trigger: state
+    id: state
+    entity_id: !input operating_state
+  - trigger: state
+    id: events
+    entity_id: !input events
+
+variables:
+  notify_entities: !input notify
+  watch: !input watch
+  offline_minutes: !input offline_minutes
+  min_elevation: !input min_elevation
+  fault_states: !input fault_states
+  ignored_events: !input ignored_events
+  recovery: !input recovery
+  reason: "{{ trigger.id | default('manual') }}"
+  # Without the sun integration the height is unknown, and every
+  # message is sent.
+  sun_up: "{{ state_attr('sun.sun', 'elevation') | float(90) > min_elevation }}"
+  # The entity the message is about: it gives the message its title.
+  entity: >-
+    {{ watch if reason in ['offline', 'online'] and watch | length > 0
+       else (trigger.entity_id | default('', true)) }}
+  device: >-
+    {{ (device_attr(entity, 'name_by_user') or device_attr(entity, 'name')
+        or state_attr(entity, 'friendly_name') or entity) if entity else 'Inverter' }}
+  was: "{{ trigger.from_state.state if trigger.from_state is defined and trigger.from_state is not none else '' }}"
+  now_is: "{{ trigger.to_state.state if trigger.to_state is defined and trigger.to_state is not none else '' }}"
+  # The events that are raised now and were not raised before.
+  flags_before: >-
+    {{ (trigger.from_state.attributes.get('active_flags') or [])
+       if reason == 'events' and trigger.from_state is not none else [] }}
+  flags_now: >-
+    {{ (trigger.to_state.attributes.get('active_flags') or [])
+       if reason == 'events' and trigger.to_state is not none else [] }}
+  new_flags: "{{ flags_now | reject('in', flags_before) | reject('in', ignored_events) | list }}"
+  flags_cleared: >-
+    {{ reason == 'events'
+       and flags_before | reject('in', ignored_events) | list | length > 0
+       and flags_now | reject('in', ignored_events) | list | length == 0
+       and now_is not in ['unavailable', 'unknown'] }}
+  # How long the sensor was unavailable before it came back, in minutes.
+  away_minutes: >-
+    {{ ((now() - trigger.from_state.last_changed).total_seconds() / 60) | round(0)
+       if reason == 'online' and trigger.from_state is not none else 0 }}
+  problem: >-
+    {{ 'offline' if reason in ['offline', 'online']
+       else ('fault' if reason == 'state' else 'event') }}
+  # True for the message that says the problem has ended.
+  over: >-
+    {{ (reason == 'online')
+       or (reason == 'state' and was in fault_states and now_is not in fault_states)
+       or flags_cleared }}
+  # Whether this run has something to say.
+  wanted: >-
+    {{ (reason == 'offline')
+       or (reason == 'online' and recovery and sun_up and away_minutes >= offline_minutes)
+       or (reason == 'state' and now_is in fault_states and was not in fault_states)
+       or (reason == 'state' and recovery and was in fault_states
+           and now_is not in fault_states and now_is not in ['unavailable', 'unknown'])
+       or (reason == 'events' and new_flags | length > 0)
+       or (flags_cleared and recovery) }}
+  title: "{{ device }}"
+  message: >-
+    {% if reason == 'offline' %}
+      The inverter has not answered for {{ offline_minutes }} minutes.
+    {% elif reason == 'online' %}
+      The inverter answers again after {{ away_minutes | int }} minutes.
+    {% elif reason == 'state' and over %}
+      The inverter is out of the state {{ was }}. It now reports {{ now_is }}.
+    {% elif reason == 'state' %}
+      The inverter reports the state {{ now_is }}.
+    {% elif flags_cleared and new_flags | length == 0 %}
+      The inverter no longer reports an event.
+    {% else %}
+      The inverter reports: {{ new_flags | join(', ') }}.
+    {% endif %}
+
+conditions:
+  - condition: template
+    value_template: "{{ wanted }}"
+
+actions:
+  # "Run actions" in the automation's menu skips the condition above.
+  - condition: template
+    value_template: "{{ wanted }}"
+  - if:
+      - condition: template
+        value_template: "{{ notify_entities | length > 0 }}"
+    then:
+      - action: notify.send_message
+        continue_on_error: true
+        target:
+          entity_id: "{{ notify_entities }}"
+        data:
+          title: "{{ title }}"
+          message: "{{ message }}"
+  - choose: []
+    default: !input extra_actions

@@ -18,6 +18,7 @@ from custom_components.sunspec2.pysunspec2.modbus.modbus import ModbusClientTime
 
 from . import file_client as modbus_client
 from .apsystems_registers import ds3_registers
+from .blueprint_helpers import repository_blueprints  # noqa: F401
 from .kostal_registers import no_battery_registers
 from .kostal_registers import plenticore_g1_registers
 from .kostal_registers import plenticore_registers

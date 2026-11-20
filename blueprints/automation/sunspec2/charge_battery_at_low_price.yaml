@@ -1,0 +1,492 @@
+# Copyright (c) 2026 Manuel Hilgert <hilman2@gmail.com>
+blueprint:
+  name: "SunSpec: charge the battery from the grid while the price is low"
+  description: >-
+    Sets the **Battery mode** to *Charge from grid* while the electricity
+    price is below a threshold, and back to *Automatic* when the price
+    recovers or the battery is full enough. The charging power is the one
+    you entered in **Battery grid charge power**. Do not use it together
+    with a battery plan that charges.
+
+
+    Needs the **Battery mode** entity, which the integration offers for
+    Fronius inverters with a battery.
+
+
+    Read [the blueprint guide](https://github.com/hilman2/ha-sunspec2/blob/main/docs/blueprints.md#charge-the-battery-from-the-grid-while-the-price-is-low)
+    first.
+  domain: automation
+  author: hilman2
+  source_url: https://github.com/hilman2/ha-sunspec2/blob/main/blueprints/automation/sunspec2/charge_battery_at_low_price.yaml
+  homeassistant:
+    min_version: 2026.10.0
+  input:
+    battery_mode:
+      name: Battery mode
+      description: The **Battery mode** entity of the battery.
+      selector:
+        entity:
+          filter:
+            - integration: sunspec2
+              domain: select
+    price:
+      name: Electricity price
+      description: The sensor with the current price.
+      selector:
+        entity:
+          filter:
+            - domain: sensor
+    charge_power:
+      name: Battery grid charge power
+      description: >-
+        The **Battery grid charge power** entity of the battery. Enter
+        the charging power there. With 0 W the automation does not start.
+      selector:
+        entity:
+          filter:
+            - integration: sunspec2
+              domain: number
+    threshold:
+      name: Charge below this price
+      description: In the unit of the price sensor.
+      default: 0
+      selector:
+        number:
+          min: -10
+          max: 10
+          step: 0.001
+          mode: box
+    soc:
+      name: Battery state of charge
+      description: >-
+        The sensor with the battery level in percent. Leave empty to
+        charge for as long as the price is low.
+      default: []
+      selector:
+        entity:
+          filter:
+            - domain: sensor
+              device_class: battery
+    soc_target:
+      name: Charge up to
+      description: Charging stops at this battery level.
+      default: 90
+      selector:
+        number:
+          min: 5
+          max: 100
+          step: 1
+          unit_of_measurement: "%"
+    soc_margin:
+      name: Start again below
+      description: >-
+        How far the battery level has to fall below the target before
+        charging starts again. Keeps a full battery from being topped up
+        every few minutes.
+      default: 5
+      selector:
+        number:
+          min: 1
+          max: 50
+          step: 1
+          unit_of_measurement: "%"
+    advanced:
+      name: More
+      icon: mdi:tune
+      collapsed: true
+      input:
+        refresh:
+          name: Select the mode again
+          description: >-
+            The inverter drops a mode after its **Battery rate revert
+            time**. Choose a period at least a minute shorter than that
+            time.
+          default: "3"
+          selector:
+            select:
+              options:
+                - label: Never
+                  value: "0"
+                - label: Every 3 minutes
+                  value: "3"
+                - label: Every 5 minutes
+                  value: "5"
+                - label: Every 10 minutes
+                  value: "10"
+                - label: Every 15 minutes
+                  value: "15"
+                - label: Every 30 minutes
+                  value: "30"
+        notify:
+          name: Notify
+          description: >-
+            Gets a message when charging starts or ends, and when the mode
+            cannot be set.
+          default: []
+          selector:
+            entity:
+              multiple: true
+              filter:
+                - domain: notify
+
+mode: queued
+max: 5
+max_exceeded: silent
+
+trigger_variables:
+  t_price: !input price
+  t_threshold: !input threshold
+  t_soc: !input soc
+  t_soc_target: !input soc_target
+  t_soc_margin: !input soc_margin
+  t_refresh: !input refresh
+
+triggers:
+  - trigger: state
+    id: price
+    entity_id: !input price
+  # The price has had no value for an hour. The template reads the
+  # clock, so it also turns true for a sensor that had no value from
+  # the start.
+  - trigger: template
+    id: missing
+    value_template: >-
+      {{ not is_number(states(t_price))
+         and (states[t_price] is none
+              or (now() - states[t_price].last_changed).total_seconds() >= 3600) }}
+  - trigger: template
+    id: full
+    value_template: >-
+      {{ t_soc | length > 0 and is_number(states(t_soc))
+         and states(t_soc) | float >= t_soc_target }}
+  - trigger: template
+    id: low
+    value_template: >-
+      {{ t_soc | length > 0 and is_number(states(t_soc))
+         and states(t_soc) | float < t_soc_target - t_soc_margin }}
+  # The inverter answers again.
+  - trigger: state
+    id: back
+    entity_id: !input battery_mode
+    from: unavailable
+  - trigger: homeassistant
+    id: start
+    event: start
+  # True for one minute in every period, so it fires once per period.
+  # The periods start one minute past the hour: prices change on the
+  # quarter hours, and a price that falls below the threshold would
+  # otherwise fire this trigger together with the "price" trigger.
+  - trigger: template
+    id: refresh
+    value_template: >-
+      {{ t_refresh | int(0) > 0
+         and (now().minute - 1) % (t_refresh | int(1)) == 0
+         and is_number(states(t_price))
+         and states(t_price) | float < t_threshold }}
+
+variables:
+  battery_mode: !input battery_mode
+  charge_power: !input charge_power
+  price_entity: !input price
+  threshold: !input threshold
+  soc_entity: !input soc
+  soc_target: !input soc_target
+  soc_margin: !input soc_margin
+  notify_entities: !input notify
+  # "manual" is a run started from the automation's menu.
+  reason: "{{ trigger.id | default('manual') }}"
+  mode_now: "{{ states(battery_mode) }}"
+  # How long the battery has been in that mode, in seconds.
+  mode_age: >-
+    {{ (now() - states[battery_mode].last_changed).total_seconds()
+       if states[battery_mode] is not none else 0 }}
+  # None while the sensor has no number: unavailable, unknown, not finite.
+  price_now: "{{ states(price_entity) | float if is_number(states(price_entity)) else none }}"
+  below: "{{ price_now is not none and price_now < threshold }}"
+  price_before: >-
+    {{ trigger.from_state.state | float
+       if reason == 'price' and trigger.from_state is not none
+          and is_number(trigger.from_state.state)
+       else none }}
+  # Without a price for an hour the battery goes back to automatic.
+  price_gone: >-
+    {{ price_now is none and (
+         reason == 'missing'
+         or states[price_entity] is none
+         or (now() - states[price_entity].last_changed).total_seconds() >= 3600) }}
+  # None without a sensor, and then the battery level decides nothing.
+  soc_now: >-
+    {{ states(soc_entity) | float
+       if soc_entity | length > 0 and is_number(states(soc_entity)) else none }}
+  full: "{{ soc_now is not none and soc_now >= soc_target }}"
+  room: "{{ soc_now is none or soc_now < soc_target - soc_margin }}"
+  # With 0 W the inverter would not charge. It would block discharging
+  # instead and report that mode, which this automation never ends.
+  power_set: "{{ states(charge_power) | float(0) > 0 }}"
+  # The runs that say so: the one that sees the price go low, and the
+  # one after a start. Not every price update of a low period.
+  announces: >-
+    {{ reason in ['start', 'manual']
+       or (reason == 'price' and (price_before is none or price_before >= threshold)) }}
+  # Whether this run ends a charge. Each line is an event, not a state.
+  # The inverter does not tell who started a charge, so these events
+  # also end one that a battery plan or somebody by hand started.
+  ends: >-
+    {{ (reason == 'full' and full)
+       or (reason == 'price' and price_now is not none and not below
+           and (price_before is none or price_before < threshold))
+       or (reason == 'missing' and price_gone)
+       or (reason in ['back', 'start', 'manual']
+           and (price_gone or full or (price_now is not none and not below))) }}
+  # The mode to select, or none when this run has nothing to do.
+  #
+  # Charging starts from Automatic only, so another mode chosen by hand
+  # or by a battery plan stays as it is. An inverter that dropped the
+  # mode and reports Automatic again gets the mode selected again. The
+  # "refresh" run selects it before the inverter drops it, but not a
+  # mode that was selected in this very minute. Without a charging
+  # power only the runs that announce it go on, to report it below.
+  target: >-
+    {{ 'charge_from_grid'
+       if below and ((mode_now == 'auto' and room and (power_set or announces))
+                     or (reason == 'refresh' and mode_now == 'charge_from_grid'
+                         and mode_age >= 60 and not full))
+       else ('auto' if mode_now == 'charge_from_grid' and ends else none) }}
+  written: false
+  wanted: true
+  taken_back: false
+
+conditions:
+  - condition: template
+    value_template: "{{ target is not none }}"
+
+actions:
+  # "Run actions" in the automation's menu skips the conditions above.
+  - condition: template
+    value_template: "{{ target is not none }}"
+  # Two triggers can fire in the same moment, for example the refresh
+  # and the one that starts the mode. The run that comes second finds
+  # the mode already selected and has nothing left to do. Only a
+  # refresh that found the mode selected when it fired selects it again.
+  - condition: template
+    value_template: >-
+      {{ states(battery_mode) != target or (reason == 'refresh' and mode_now == target) }}
+  - if:
+      - condition: template
+        value_template: "{{ 'charge_from_grid' not in (state_attr(battery_mode, 'options') or []) }}"
+    then:
+      - stop: >-
+          The entity chosen as battery mode does not offer "Charge from grid".
+          Choose the Battery mode entity of the battery.
+        error: true
+  - if:
+      - condition: template
+        value_template: "{{ target == 'charge_from_grid' and not power_set }}"
+    then:
+      # Shown in Home Assistant itself, so that nobody has to have
+      # chosen a recipient to learn about it.
+      - action: persistent_notification.create
+        continue_on_error: true
+        data:
+          title: "{{ state_attr(battery_mode, 'friendly_name') }}"
+          message: >-
+            The price is low, but the battery is not charged: Battery
+            grid charge power is 0 W. Enter the charging power there.
+      - if:
+          - condition: template
+            value_template: "{{ notify_entities | length > 0 }}"
+        then:
+          - action: notify.send_message
+            continue_on_error: true
+            target:
+              entity_id: "{{ notify_entities }}"
+            data:
+              title: "{{ state_attr(battery_mode, 'friendly_name') }}"
+              message: >-
+                The price is low, but the battery is not charged: Battery
+                grid charge power is 0 W. Enter the charging power there.
+      - stop: Battery grid charge power is 0 W, so the battery is not charged.
+        error: true
+  # Three attempts 30 seconds apart, then one every five minutes, for
+  # two hours in all. A battery that is not given back would stay in
+  # the mode for good on an inverter without a revert time, so giving
+  # up early is not an option. After each wait the loop looks again
+  # whether the mode is still wanted, and ends when it is not.
+  #
+  # "written" only turns true when the action did not fail, because a
+  # failed action ends the inner sequence.
+  - repeat:
+      while:
+        - condition: template
+          value_template: "{{ not written and wanted and repeat.index <= 27 }}"
+      sequence:
+        # Looked at before every attempt, the first one too: this run
+        # may have waited in the queue behind another one.
+        - variables:
+            low_now: >-
+              {{ is_number(states(price_entity)) and states(price_entity) | float < threshold }}
+            full_now: >-
+              {{ soc_entity | length > 0 and is_number(states(soc_entity))
+                 and states(soc_entity) | float >= soc_target }}
+        - variables:
+            # Ending the charge is wanted while the battery still
+            # charges and the price is not low again. Charging is
+            # wanted while the price is low, the battery has room and
+            # nothing else took the battery.
+            wanted: >-
+              {{ (states(battery_mode) == 'charge_from_grid' and not (low_now and not full_now))
+                 if target == 'auto'
+                 else (low_now and not full_now
+                       and states(battery_mode) in ['auto', 'charge_from_grid']) }}
+        - if:
+            - condition: template
+              value_template: "{{ wanted }}"
+          then:
+            - sequence:
+                - action: select.select_option
+                  target:
+                    entity_id: "{{ battery_mode }}"
+                  data:
+                    option: "{{ target }}"
+                - variables:
+                    written: true
+              continue_on_error: true
+            - if:
+                - condition: template
+                  value_template: >-
+                    {{ not written and repeat.index == 3 and notify_entities | length > 0 }}
+              then:
+                - action: notify.send_message
+                  continue_on_error: true
+                  target:
+                    entity_id: "{{ notify_entities }}"
+                  data:
+                    title: "{{ state_attr(battery_mode, 'friendly_name') }}"
+                    message: >-
+                      The battery mode could not be set in three attempts.
+                      The automation keeps trying every five minutes for two
+                      hours.
+            - if:
+                - condition: template
+                  value_template: "{{ not written and repeat.index < 27 }}"
+              then:
+                - delay:
+                    seconds: "{{ 30 if repeat.index < 3 else 300 }}"
+  # The inverter reports the mode it is in, and that can be another
+  # one than the mode selected: with a power of 0 W in one of the power
+  # fields, for example. This automation would not know such a mode as
+  # its own and would never end it. So it selects Automatic again and
+  # switches itself off: with the automation still on, the next run
+  # would select the mode once more, and so on every few minutes.
+  #
+  # Only looked at when the battery was in Automatic before. The
+  # entity shows the new mode with the next reading of the inverter,
+  # which is what the wait is for.
+  - if:
+      - condition: template
+        value_template: "{{ written and target != 'auto' and mode_now == 'auto' }}"
+    then:
+      - wait_template: "{{ states(battery_mode) != 'auto' }}"
+        timeout:
+          seconds: 60
+        continue_on_timeout: true
+      - if:
+          - condition: template
+            value_template: >-
+              {{ wait.completed
+                 and states(battery_mode) not in ['charge_from_grid'] + ['unavailable', 'unknown'] }}
+        then:
+          # "taken_back" only turns true when the action did not fail,
+          # because a failed action ends this sequence.
+          - sequence:
+              - action: select.select_option
+                target:
+                  entity_id: "{{ battery_mode }}"
+                data:
+                  option: auto
+              - variables:
+                  taken_back: true
+            continue_on_error: true
+          - variables:
+              problem: >-
+                The inverter reports another mode than Charge from grid after it
+                was selected.
+                {{ 'The automation selected Automatic again and switched itself off.'
+                   if taken_back
+                   else 'Automatic could not be selected: do that by hand. The automation switched itself off.' }}
+                Check the power in Battery grid charge power. Then switch the
+                automation on again.
+          # Shown in Home Assistant itself, so that nobody has to have
+          # chosen a recipient to learn about it.
+          - action: persistent_notification.create
+            continue_on_error: true
+            data:
+              title: "{{ state_attr(battery_mode, 'friendly_name') }}"
+              message: "{{ problem }}"
+          - if:
+              - condition: template
+                value_template: "{{ notify_entities | length > 0 }}"
+            then:
+              - action: notify.send_message
+                continue_on_error: true
+                target:
+                  entity_id: "{{ notify_entities }}"
+                data:
+                  title: "{{ state_attr(battery_mode, 'friendly_name') }}"
+                  message: "{{ problem }}"
+          - action: automation.turn_off
+            target:
+              entity_id: "{{ this.entity_id }}"
+            data:
+              stop_actions: false
+          - stop: The inverter reports another battery mode than the one selected.
+            error: true
+  - if:
+      - condition: template
+        value_template: "{{ written and notify_entities | length > 0 and reason != 'refresh' }}"
+    then:
+      - action: notify.send_message
+        continue_on_error: true
+        target:
+          entity_id: "{{ notify_entities }}"
+        data:
+          title: "{{ state_attr(battery_mode, 'friendly_name') }}"
+          message: >-
+            {% set price = states(price_entity) %}
+            {% set unit = state_attr(price_entity, 'unit_of_measurement') or '' %}
+            {% set price = (price | float ~ ' ' ~ unit) | trim if is_number(price) else 'no price' %}
+            {% set level = '' if soc_now is none else ', battery at ' ~ soc_now ~ ' %' %}
+            {{ 'The battery charges from the grid (' ~ price ~ level ~ ').'
+               if target == 'charge_from_grid'
+               else 'The battery is back to automatic (' ~ price ~ level ~ ').' }}
+  # Still not set although it is still wanted: the two hours are over.
+  - if:
+      - condition: template
+        value_template: "{{ not written and wanted }}"
+    then:
+      # Shown in Home Assistant itself, so that nobody has to have
+      # chosen a recipient to learn about it.
+      - action: persistent_notification.create
+        continue_on_error: true
+        data:
+          title: "{{ state_attr(battery_mode, 'friendly_name') }}"
+          message: >-
+            The battery mode could not be set for two hours. The
+            automation has given up. Check the inverter and select the
+            mode by hand.
+      - if:
+          - condition: template
+            value_template: "{{ notify_entities | length > 0 }}"
+        then:
+          - action: notify.send_message
+            continue_on_error: true
+            target:
+              entity_id: "{{ notify_entities }}"
+            data:
+              title: "{{ state_attr(battery_mode, 'friendly_name') }}"
+              message: >-
+                The battery mode could not be set for two hours. The
+                automation has given up. Check the inverter and select the
+                mode by hand.
+      - stop: The inverter did not take the battery mode for two hours.
+        error: true

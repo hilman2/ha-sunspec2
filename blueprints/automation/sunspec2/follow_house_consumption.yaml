@@ -1,0 +1,588 @@
+# Copyright (c) 2026 Manuel Hilgert <hilman2@gmail.com>
+blueprint:
+  name: "SunSpec: follow the house consumption"
+  description: >-
+    Keeps what you feed into the grid under a limit: every 30 seconds, or
+    less often if you choose so, the **Export limit** of the inverter is
+    set to what the house uses at that moment, plus the feed-in you allow. With a price sensor it does so only
+    while the price is below a threshold.
+
+
+    Needs a sensor for the power at the grid connection, and an inverter
+    that follows a new limit within seconds. Not for APsystems.
+
+
+    Read [the blueprint guide](https://github.com/hilman2/ha-sunspec2/blob/main/docs/blueprints.md#follow-the-house-consumption)
+    first: it says what your brand of inverter needs.
+  domain: automation
+  author: hilman2
+  source_url: https://github.com/hilman2/ha-sunspec2/blob/main/blueprints/automation/sunspec2/follow_house_consumption.yaml
+  homeassistant:
+    min_version: 2026.10.0
+  input:
+    export_limit:
+      name: Export limit
+      description: >-
+        The **Export limit** entity of the inverter, the one in percent.
+      selector:
+        entity:
+          filter:
+            - integration: sunspec2
+              domain: number
+    inverter_power:
+      name: Inverter power
+      description: >-
+        The sensor of this integration with the AC power the inverter
+        delivers right now.
+      selector:
+        entity:
+          filter:
+            - integration: sunspec2
+              domain: sensor
+              device_class: power
+    rated_power:
+      name: Rated power of the inverter
+      description: >-
+        The power that 100 % of the export limit stands for, in watts.
+      selector:
+        number:
+          min: 100
+          max: 1000000
+          step: 1
+          unit_of_measurement: W
+          mode: box
+    grid_power:
+      name: Grid power
+      description: >-
+        The power at the grid connection, from a meter that reports the
+        power of the moment at least as often as the limit is written.
+      selector:
+        entity:
+          filter:
+            - domain: sensor
+              device_class: power
+    grid_direction:
+      name: A positive grid power means
+      default: import
+      selector:
+        select:
+          options:
+            - label: Power taken from the grid
+              value: import
+            - label: Power fed into the grid
+              value: export
+    max_export:
+      name: Allowed feed-in
+      description: >-
+        How much may go into the grid, in watts. 0 feeds in nothing.
+      default: 0
+      selector:
+        number:
+          min: 0
+          max: 1000000
+          step: 1
+          unit_of_measurement: W
+          mode: box
+    price_section:
+      name: Only while the price is low
+      icon: mdi:cash-clock
+      collapsed: true
+      input:
+        price:
+          name: Electricity price
+          description: >-
+            Leave empty to limit the feed-in all the time. With a price
+            sensor the feed-in is limited while the price is below the
+            threshold, and the inverter runs freely otherwise.
+          default: []
+          selector:
+            entity:
+              filter:
+                - domain: sensor
+        threshold:
+          name: Limit below this price
+          description: In the unit of the price sensor.
+          default: 0
+          selector:
+            number:
+              min: -10
+              max: 10
+              step: 0.001
+              mode: box
+        normal_percent:
+          name: Limit otherwise
+          description: >-
+            Percent of the rated power while the price is not low. 100 is
+            full power. Some inverters use a higher value for "no limit".
+          default: 100
+          selector:
+            number:
+              min: 0
+              max: 200
+              step: 1
+              unit_of_measurement: "%"
+    advanced:
+      name: For your brand of inverter
+      icon: mdi:tune
+      collapsed: true
+      input:
+        interval:
+          name: Write the limit
+          description: >-
+            Set the **Export limit revert time** of the inverter to at
+            least four times this period. The inverter then returns to
+            full power by itself if Home Assistant stops.
+          default: "30"
+          selector:
+            select:
+              options:
+                - label: Every 30 seconds
+                  value: "30"
+                - label: Every minute
+                  value: "60"
+                - label: Every 2 minutes
+                  value: "120"
+        min_percent:
+          name: Lowest limit
+          description: >-
+            The limit never goes below this percentage. Some inverters
+            switch off at 0.
+          default: 0
+          selector:
+            number:
+              min: 0
+              max: 100
+              step: 1
+              unit_of_measurement: "%"
+        fallback_percent:
+          name: Limit without a reading
+          description: >-
+            Percent of the rated power while the inverter power or the
+            grid power has no value, or the meter has not reported for
+            ten minutes. 0 is the safe choice where you must not feed in
+            at all.
+          default: 100
+          selector:
+            number:
+              min: 0
+              max: 200
+              step: 1
+              unit_of_measurement: "%"
+        send_enable:
+          name: Switch the limit on with every write
+          description: >-
+            Turns **Export limit enabled** on together with the percentage.
+          default: true
+          selector:
+            boolean:
+        notify:
+          name: Notify
+          description: >-
+            Gets a message when the price starts or ends the limit, and
+            when the inverter cannot be put back to normal.
+          default: []
+          selector:
+            entity:
+              multiple: true
+              filter:
+                - domain: notify
+
+mode: queued
+max: 5
+max_exceeded: silent
+
+trigger_variables:
+  t_price: !input price
+
+triggers:
+  # Starts a run when none is going. How often a run writes is the
+  # period, which it keeps by itself.
+  - trigger: time_pattern
+    id: tick
+    seconds: "/30"
+  - trigger: state
+    id: price
+    entity_id: !input price
+  # The price has had no value for an hour. The template reads the
+  # clock, so it also turns true for a sensor that had no value from
+  # the start.
+  - trigger: template
+    id: missing
+    value_template: >-
+      {{ t_price | length > 0
+         and not is_number(states(t_price))
+         and (states[t_price] is none
+              or (now() - states[t_price].last_changed).total_seconds() >= 3600) }}
+  # The inverter answers again, for example in the morning.
+  - trigger: state
+    id: back
+    entity_id: !input export_limit
+    from: unavailable
+  - trigger: homeassistant
+    id: start
+    event: start
+
+variables:
+  export_limit: !input export_limit
+  inverter_power: !input inverter_power
+  grid_power: !input grid_power
+  grid_direction: !input grid_direction
+  rated_power: !input rated_power
+  max_export: !input max_export
+  price_entity: !input price
+  threshold: !input threshold
+  normal_percent: !input normal_percent
+  min_percent: !input min_percent
+  fallback_percent: !input fallback_percent
+  send_enable: !input send_enable
+  notify_entities: !input notify
+  interval: !input interval
+  # "manual" is a run started from the automation's menu.
+  reason: "{{ trigger.id | default('manual') }}"
+  use_price: "{{ price_entity | length > 0 }}"
+  # None without a price sensor, and while the sensor has no number:
+  # unavailable, unknown, not finite.
+  price_now: >-
+    {{ states(price_entity) | float
+       if use_price and is_number(states(price_entity)) else none }}
+  below: "{{ price_now is not none and price_now < threshold }}"
+  price_before: >-
+    {{ trigger.from_state.state | float
+       if reason == 'price' and trigger.from_state is not none
+          and is_number(trigger.from_state.state)
+       else none }}
+  # A price update inside the low or the normal period changes nothing.
+  # Only the update that crosses the threshold, or the first number
+  # after a gap, starts or ends the limit.
+  crossed: >-
+    {{ reason == 'price' and price_now is not none
+       and (price_before is none or (price_before < threshold) != below) }}
+  # Without a price for an hour the inverter goes back to normal.
+  price_gone: >-
+    {{ use_price and price_now is none and (
+         reason == 'missing'
+         or states[price_entity] is none
+         or (now() - states[price_entity].last_changed).total_seconds() >= 3600) }}
+  # Whether the feed-in is limited right now. Not while the price
+  # sensor has no value: the automation then writes nothing.
+  following: "{{ not use_price or below }}"
+  # Whether this run puts the inverter back to normal. The ticks never
+  # do: the limit ends once, with the run that sees the price recover.
+  release: >-
+    {{ use_price and not below and reason != 'tick'
+       and (price_gone if price_now is none else (reason != 'price' or crossed)) }}
+  # A tick only starts a run while no other run of this automation is
+  # going. A run goes on for many ticks. Ticks in the queue would
+  # leave no place in it for the run that ends the limit.
+  idle: "{{ this.attributes.current | default(0) | int(0) == 0 }}"
+  written: false
+  # Set in a run and kept from one round to the next: from when a
+  # reading of the meter counts, whether the write went through, how
+  # many in a row did not, and the last limit written.
+  period: 30
+  settled_at: null
+  sent: false
+  failures: 0
+  last_percent: null
+
+conditions:
+  # An inverter that is off takes no write. The "back" trigger runs
+  # this automation again when it answers.
+  - condition: template
+    value_template: "{{ states(export_limit) != 'unavailable' }}"
+  - condition: template
+    value_template: "{{ release or crossed or (reason == 'tick' and following and idle) }}"
+
+actions:
+  - choose:
+      - alias: Follow the house consumption
+        conditions:
+          - condition: template
+            value_template: "{{ reason == 'tick' }}"
+        sequence:
+          # The house consumption is the sum of two readings: what the
+          # inverter delivers and what comes from the grid. The sum is
+          # only right when both are from the same side of a change of
+          # the limit. With one from before the change and one from
+          # after it, the limit swings between two values or drops to
+          # nothing.
+          #
+          # A run is a row of rounds, and three rules keep the two
+          # readings together:
+          #
+          # - After a write the run waits a full period, 30 seconds at
+          #   least, before the next round. By then the inverter has
+          #   followed the limit and the meter shows the result. Home
+          #   Assistant does not read an integration twice within ten
+          #   seconds: update_entity then hands out the last reading,
+          #   and after a write that one is from before the write.
+          #   After 30 seconds the reading is a new one, or the one the
+          #   integration takes by itself ten seconds after the write.
+          # - A reading of the meter is at most eight seconds old when
+          #   the read of the inverter begins. So it is from after the
+          #   last write of this run, and little can have happened in
+          #   the house between the two readings.
+          # - The inverter power counts up to the limit last written
+          #   and no further. A reading above it is from before that
+          #   limit, whatever its age says.
+          #
+          # The run ends when the price is no longer low or the
+          # inverter is off. The next tick starts a new one. A run that
+          # ends the limit waits in the queue until then, which is one
+          # round at most.
+          #
+          # A run also ends after 2000 rounds, about 17 hours at 30
+          # seconds. Home Assistant warns about a loop that has run
+          # 5000 times and ends one that has run 10000 times with an
+          # error in the log.
+          #
+          # What was written before this run is not known here: the run
+          # that took the limit back may just have ended. So the first
+          # reading of the meter counts from ten seconds into the run.
+          - variables:
+              settled_at: "{{ (now() + timedelta(seconds=10)).isoformat() }}"
+              period: "{{ interval | int }}"
+          - repeat:
+              while:
+                - condition: template
+                  value_template: >-
+                    {{ repeat.index <= 2000
+                       and states(export_limit) != 'unavailable'
+                       and (not use_price
+                            or (is_number(states(price_entity))
+                                and states(price_entity) | float < threshold)) }}
+              sequence:
+                - variables:
+                    sent: false
+                    # False without a number, and for a meter that has
+                    # not reported for ten minutes: a sensor that hangs.
+                    grid_alive: >-
+                      {{ states[grid_power] is not none and is_number(states(grid_power))
+                         and (now() - states[grid_power].last_reported).total_seconds() < 600 }}
+                - variables:
+                    # Whether the meter has reported in the last eight
+                    # seconds, a new value or the old one again. The
+                    # meter is never asked for an update: that would
+                    # move the time of its last report without a
+                    # report.
+                    fresh: &meter_has_reported >-
+                      {{ grid_alive and states[grid_power] is not none
+                         and states[grid_power].last_reported
+                             >= [as_datetime(settled_at), now() - timedelta(seconds=8)] | max }}
+                # Without such a reading the round waits for one, for a
+                # period at most. It looks once a second: a meter that
+                # reports the value it had changes no state, so nothing
+                # else would tell.
+                - repeat:
+                    while:
+                      - condition: template
+                        value_template: "{{ grid_alive and not fresh and repeat.index <= period }}"
+                    sequence:
+                      - delay:
+                          seconds: 1
+                      - variables:
+                          fresh: *meter_has_reported
+                # The reading of the meter is taken before the inverter
+                # is read, not after it: a read takes seconds, and the
+                # inverter power is from its beginning.
+                - variables:
+                    # Positive while the house takes power from the grid.
+                    import_w: >-
+                      {% set value = states(grid_power) %}
+                      {% set kilo = state_attr(grid_power, 'unit_of_measurement') == 'kW' %}
+                      {{ value | float * (1000 if kilo else 1)
+                           * (1 if grid_direction == 'import' else -1)
+                         if grid_alive and is_number(value) else none }}
+                - action: homeassistant.update_entity
+                  continue_on_error: true
+                  target:
+                    entity_id: "{{ inverter_power }}"
+                - variables:
+                    inverter_w: >-
+                      {% set value = states(inverter_power) %}
+                      {% set kilo = state_attr(inverter_power, 'unit_of_measurement') == 'kW' %}
+                      {% set watts = value | float * (1000 if kilo else 1) if is_number(value) else none %}
+                      {{ watts if watts is none or last_percent is none
+                         else [watts, last_percent / 100 * rated_power] | min }}
+                - variables:
+                    # The limit is rounded down to the step of the
+                    # entity, so that rounding never feeds in. Without
+                    # a reading the fallback is written, and without a
+                    # report of the meter in time nothing is.
+                    target: >-
+                      {% if inverter_w is none or import_w is none %}
+                        {{ fallback_percent }}
+                      {% elif not fresh %}
+                        {{ none }}
+                      {% else %}
+                        {% set step = state_attr(export_limit, 'step') | float(1) %}
+                        {% set step = step if step > 0 else 1 %}
+                        {% set wanted = (inverter_w + import_w + max_export) / rated_power * 100 %}
+                        {% set wanted = (wanted / step) | round(0, 'floor') * step %}
+                        {{ [[wanted, min_percent] | max, 100] | min | round(2) }}
+                      {% endif %}
+                - if:
+                    - condition: template
+                      value_template: "{{ target is not none }}"
+                  then:
+                    # "sent" only turns true when the action did not
+                    # fail, because a failed action ends this sequence.
+                    - sequence:
+                        - action: sunspec2.set_export_limit
+                          data:
+                            config_entry_id: "{{ config_entry_id(export_limit) }}"
+                            percent: "{{ target }}"
+                            enable: "{{ send_enable }}"
+                        - variables:
+                            sent: true
+                            last_percent: "{{ target }}"
+                      continue_on_error: true
+                    - variables:
+                        failures: "{{ 0 if sent else failures + 1 }}"
+                        # The limit counts as in force for one round. A
+                        # write that failed, and below a round without
+                        # a write, leave the inverter time to drop the
+                        # limit after its revert time. Its power is
+                        # then no longer held to that limit.
+                        last_percent: "{{ last_percent if sent else none }}"
+                    # The period until the next round. After three
+                    # writes in a row that the inverter did not take,
+                    # five minutes: each failure is an error in the
+                    # log. The wait ends early when the price is no
+                    # longer low, so that the run can end.
+                    - wait_template: >-
+                        {{ use_price and not (is_number(states(price_entity))
+                                              and states(price_entity) | float < threshold) }}
+                      timeout:
+                        seconds: "{{ period if failures < 3 else 300 }}"
+                      continue_on_timeout: true
+                - if:
+                    - condition: template
+                      value_template: "{{ target is none }}"
+                  then:
+                    - variables:
+                        last_percent: null
+      - alias: Put the inverter back to normal
+        conditions:
+          - condition: template
+            value_template: "{{ release }}"
+        sequence:
+          # Three attempts 30 seconds apart, then one every five
+          # minutes, for two hours in all. A limit that is not taken
+          # back would stay for good on an inverter without a revert
+          # time, so giving up early is not an option. The loop ends
+          # when the inverter goes unavailable, where the "back"
+          # trigger takes over, and when the price is low again, where
+          # the ticks do.
+          #
+          # "written" only turns true when the action did not fail,
+          # because a failed action ends the inner sequence.
+          - repeat:
+              while:
+                - condition: template
+                  value_template: >-
+                    {{ not written and repeat.index <= 27
+                       and states(export_limit) != 'unavailable'
+                       and not (is_number(states(price_entity))
+                                and states(price_entity) | float < threshold) }}
+              sequence:
+                - sequence:
+                    - action: sunspec2.set_export_limit
+                      data:
+                        config_entry_id: "{{ config_entry_id(export_limit) }}"
+                        percent: "{{ normal_percent }}"
+                        enable: "{{ send_enable }}"
+                    - variables:
+                        written: true
+                  continue_on_error: true
+                - if:
+                    - condition: template
+                      value_template: >-
+                        {{ not written and repeat.index == 3 and notify_entities | length > 0 }}
+                  then:
+                    - action: notify.send_message
+                      continue_on_error: true
+                      target:
+                        entity_id: "{{ notify_entities }}"
+                      data:
+                        title: "{{ state_attr(export_limit, 'friendly_name') }}"
+                        message: >-
+                          The export limit of {{ normal_percent }} % could not be
+                          written in three attempts. The automation keeps trying
+                          every five minutes for two hours.
+                # The wait ends early when the price is low again:
+                # the loop then ends, and the next tick starts a run.
+                - if:
+                    - condition: template
+                      value_template: "{{ not written and repeat.index < 27 }}"
+                  then:
+                    - wait_template: >-
+                        {{ is_number(states(price_entity))
+                           and states(price_entity) | float < threshold }}
+                      timeout:
+                        seconds: "{{ 30 if repeat.index < 3 else 300 }}"
+                      continue_on_timeout: true
+          - if:
+              - condition: template
+                value_template: "{{ written and notify_entities | length > 0 }}"
+            then:
+              - action: notify.send_message
+                continue_on_error: true
+                target:
+                  entity_id: "{{ notify_entities }}"
+                data:
+                  title: "{{ state_attr(export_limit, 'friendly_name') }}"
+                  message: >-
+                    Export limit set to {{ normal_percent }} %. The feed-in is
+                    no longer limited.
+          # Still not written, with the inverter there and the price
+          # not low: the two hours are over.
+          - if:
+              - condition: template
+                value_template: >-
+                  {{ not written and states(export_limit) != 'unavailable'
+                     and not (is_number(states(price_entity))
+                              and states(price_entity) | float < threshold) }}
+            then:
+              # Shown in Home Assistant itself, so that nobody has to have
+              # chosen a recipient to learn about it.
+              - action: persistent_notification.create
+                continue_on_error: true
+                data:
+                  title: "{{ state_attr(export_limit, 'friendly_name') }}"
+                  message: >-
+                    The export limit could not be written for two hours.
+                    The automation has given up. Check the inverter and
+                    set the limit by hand.
+              - if:
+                  - condition: template
+                    value_template: "{{ notify_entities | length > 0 }}"
+                then:
+                  - action: notify.send_message
+                    continue_on_error: true
+                    target:
+                      entity_id: "{{ notify_entities }}"
+                    data:
+                      title: "{{ state_attr(export_limit, 'friendly_name') }}"
+                      message: >-
+                        The export limit could not be written for two hours.
+                        The automation has given up. Check the inverter and
+                        set the limit by hand.
+              - stop: The inverter did not take the export limit for two hours.
+                error: true
+      # The price went below the threshold: the next tick sets the limit.
+      - alias: Say that the limit starts
+        conditions:
+          - condition: template
+            value_template: "{{ crossed and below and notify_entities | length > 0 }}"
+        sequence:
+          - action: notify.send_message
+            continue_on_error: true
+            target:
+              entity_id: "{{ notify_entities }}"
+            data:
+              title: "{{ state_attr(export_limit, 'friendly_name') }}"
+              message: >-
+                The price is {{ price_now }}
+                {{ state_attr(price_entity, 'unit_of_measurement') or '' }}.
+                The feed-in is limited to {{ max_export }} W.

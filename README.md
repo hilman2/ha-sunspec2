@@ -32,6 +32,10 @@ What you get:
   battery charge and discharge power, and, on Fronius, battery modes
   and a timed battery plan, plus actions for your automations. See
   [Battery and export control](#battery-and-export-control)
+- Ready-made automations: limit the inverter at negative prices or to
+  what the house uses, hold or charge the battery, get a message when
+  the inverter has a problem. See
+  [Blueprints](#blueprints-ready-made-automations)
 - The total energy produced since day one, ready to use in the Energy
   dashboard, with no template sensor in between
 - One integration for every brand, so a SolarEdge and a KACO next to
@@ -207,6 +211,66 @@ which settings are left alone on purpose.
 If you use the export controls, please
 [open an issue](https://github.com/hilman2/ha-sunspec2/issues) with
 your inverter model, its firmware version and what worked.
+
+## Blueprints: ready-made automations
+
+A blueprint is an automation with blanks. You add it to Home Assistant
+once, fill in your own entities in a form, and Home Assistant creates
+the automation. You write no YAML.
+
+| Blueprint | What it does | Add it |
+|---|---|---|
+| [Limit the inverter while the price is negative](docs/blueprints.md#limit-the-inverter-while-the-price-is-negative) | Lowers the export limit to a fixed percentage while the electricity price is below a threshold | [![Import][blueprint-badge]][import-price] |
+| [Follow the house consumption](docs/blueprints.md#follow-the-house-consumption) | Keeps the export limit at what the house uses, so that nothing, or only what you allow, goes into the grid | [![Import][blueprint-badge]][import-follow] |
+| [Block battery discharging while a large consumer runs](docs/blueprints.md#block-battery-discharging-while-a-large-consumer-runs) | Keeps the battery from emptying itself into a car charger or a heat pump. Fronius | [![Import][blueprint-badge]][import-block] |
+| [Charge the battery from the grid while the price is low](docs/blueprints.md#charge-the-battery-from-the-grid-while-the-price-is-low) | Charges the battery at a low price, up to a level you choose. Fronius | [![Import][blueprint-badge]][import-charge] |
+| [Tell me when the inverter has a problem](docs/blueprints.md#tell-me-when-the-inverter-has-a-problem) | Sends a message when the inverter stops answering, reports a fault or raises an event | [![Import][blueprint-badge]][import-alert] |
+
+[blueprint-badge]: https://my.home-assistant.io/badges/blueprint_import.svg
+[import-price]: https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fgithub.com%2Fhilman2%2Fha-sunspec2%2Fblob%2Fmain%2Fblueprints%2Fautomation%2Fsunspec2%2Flimit_at_negative_price.yaml
+[import-follow]: https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fgithub.com%2Fhilman2%2Fha-sunspec2%2Fblob%2Fmain%2Fblueprints%2Fautomation%2Fsunspec2%2Ffollow_house_consumption.yaml
+[import-block]: https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fgithub.com%2Fhilman2%2Fha-sunspec2%2Fblob%2Fmain%2Fblueprints%2Fautomation%2Fsunspec2%2Fblock_battery_discharge.yaml
+[import-charge]: https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fgithub.com%2Fhilman2%2Fha-sunspec2%2Fblob%2Fmain%2Fblueprints%2Fautomation%2Fsunspec2%2Fcharge_battery_at_low_price.yaml
+[import-alert]: https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fgithub.com%2Fhilman2%2Fha-sunspec2%2Fblob%2Fmain%2Fblueprints%2Fautomation%2Fsunspec2%2Finverter_alert.yaml
+
+> **This can bite.** The first four blueprints change settings in your
+> inverter, and they do it while you are not looking.
+> **[Read docs/blueprints.md first](docs/blueprints.md):** it says what
+> each automation does in which case and what your brand of inverter
+> needs.
+
+To add a blueprint:
+
+1. Click its **Import** button in the table. Your Home Assistant opens
+   and shows the blueprint. Click **Preview**, then **Import
+   blueprint**.
+
+   If the button does not find your Home Assistant, go to *Settings ->
+   Automations & scenes -> Blueprints*, click **Import Blueprint** and
+   paste the address of the blueprint file. The files are in
+   [blueprints/automation/sunspec2](https://github.com/hilman2/ha-sunspec2/tree/main/blueprints/automation/sunspec2)
+   on GitHub. Open one there and copy the address from your browser,
+   for example:
+
+   ```text
+   https://github.com/hilman2/ha-sunspec2/blob/main/blueprints/automation/sunspec2/limit_at_negative_price.yaml
+   ```
+
+2. Under *Settings -> Automations & scenes -> Blueprints*, click the
+   blueprint. A form opens.
+3. Fill in the form. Each field says what belongs in it. The fields in
+   the folded sections have values that fit most installations.
+4. Click **Save** and give the automation a name.
+
+The automation is now in your list of automations. To stop it, switch
+it off there. To change a value, open it and edit the form. You can
+make several automations from one blueprint, one per inverter for
+example.
+
+**A blueprint is not updated together with the integration.** To get
+the current version, go to *Settings -> Automations & scenes ->
+Blueprints*, open the menu with the three dots next to the blueprint
+and choose **Re-import blueprint**. Your automations keep their values.
 
 ## When something is wrong
 
