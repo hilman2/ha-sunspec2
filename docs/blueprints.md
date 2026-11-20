@@ -26,6 +26,11 @@ your brand of inverter needs.
 > [Battery and export control](write-controls.md), so that you know what
 > your inverter does with a limit or a battery mode.
 
+The four blueprints tell you when they need you: when a write has
+failed for two hours, and when an automation has switched itself off
+because of a setting. That appears as a notification in Home Assistant
+and goes to whoever you chose under **Notify**.
+
 Every blueprint is tested in Home Assistant with a simulated inverter.
 Inverters differ, and not every brand has been tried with every
 blueprint. Watch the first days, and please
@@ -61,9 +66,9 @@ What the automation does:
   After an hour without a value it sets the limit to 100 %.
 - If a write fails, the automation tries twice more, 30 seconds apart,
   and then every five minutes for two hours. Each attempt writes what
-  fits the price at that moment. You get a message after the third
-  failure and when the automation gives up, if you chose somebody
-  under **Notify**.
+  fits the price at that moment, and the attempts end when the price
+  loses its value. You get a message after the third failure and when
+  the automation gives up, if you chose somebody under **Notify**.
 - When Home Assistant starts, the automation writes the limit that
   fits the current price.
 
@@ -83,10 +88,10 @@ to 100 % by hand.
 ## Follow the house consumption
 
 This blueprint keeps what you feed into the grid under a limit, down
-to nothing at all. Every 30 seconds the automation reads how much power
-the inverter delivers and how much goes into or comes out of the grid.
-The sum is what the house uses. The automation sets the **Export
-limit** to that, plus the feed-in you allow.
+to nothing at all. In rounds of 30 seconds the automation reads how
+much power the inverter delivers and how much goes into or comes out of
+the grid. The sum is what the house uses. The automation sets the
+**Export limit** to that, plus the feed-in you allow.
 
 With a price sensor, the automation limits the feed-in only while the
 price is below a threshold. That is the setting for a tariff where
@@ -98,7 +103,8 @@ You need:
 - the **Export limit** entity of your inverter
 - the sensor of this integration with the AC power of the inverter
 - a sensor for the power at your grid connection, from a meter that
-  reports a new value at least every 30 seconds
+  reports at least every 30 seconds, also while its value stays the
+  same
 - the rated power of the inverter in watts
 
 Some inverters do this by themselves, and better, because they react
@@ -109,23 +115,23 @@ you have them.
 
 What the automation does:
 
-- It writes the limit on every round, also when the value has not
-  changed. Set the **Export limit revert time** of your inverter to at
-  least three times the period, 90 seconds for the default of 30. If
-  Home Assistant stops, the inverter then goes back to full power by
-  itself. Without a revert time the inverter keeps the last limit.
-- In every round it waits for the next new value of the meter, up to
-  25 seconds, reads the inverter right after it and writes the limit.
-  Without a new value it skips the round. A meter that reports once a
-  minute therefore gets a new limit once a minute. Choose **Every
-  minute** under **Write the limit** for such a meter, and a revert
-  time of 180 seconds. A slower meter does not work with this
-  blueprint.
+- In every round it waits for the meter, reads the inverter right
+  after it and writes the limit, also when the limit has not changed.
+  Set the **Export limit revert time** of your inverter to at least
+  three times the period, 90 seconds for the default of 30. If Home
+  Assistant stops, the inverter then goes back to full power by itself.
+  Without a revert time the inverter keeps the last limit.
+- A round in which the meter has not reported writes nothing. A meter
+  that reports once a minute therefore gets a new limit once a minute.
+  Choose **Every minute** under **Write the limit** for such a meter,
+  and a revert time of 180 seconds. A slower meter does not work with
+  this blueprint. Nor does a sensor that only reports when its value
+  changes: it gets no limit while the power is steady.
 - The limit is rounded down, so the automation rather takes a few
   watts from the grid than feeds a few in.
 - While the inverter power or the grid power has no value, or the
-  grid power has not changed for ten minutes, the automation writes
-  the percentage from **Limit without a reading**. It is 100 at first,
+  meter has not reported for ten minutes, the automation writes the
+  percentage from **Limit without a reading**. It is 100 at first,
   which is full power. Enter 0 if you must never feed in.
 - With a price sensor: when the price is back above the threshold, the
   automation sets the limit to 100 % once and then leaves the inverter
@@ -135,6 +141,10 @@ What the automation does:
   nothing. An inverter with a revert time goes back to full power
   after that time, one without keeps the last limit. After an hour
   without a value the automation sets the limit to 100 %.
+
+The automation takes a limit back only while it is switched on. Before
+you switch it off or delete it, set **Export limit** to 100 % by hand,
+unless your inverter has a revert time.
 
 What it cannot do:
 
@@ -188,7 +198,8 @@ What the automation does:
   power fields that can be another mode than the one selected. With 0 W
   in **Battery PV charge limit**, *Block discharging* reads back as
   *Block charging*. The automation would not know such a mode as its
-  own, so it selects *Automatic* again at once and tells you.
+  own. It selects *Automatic* again, switches itself off and tells
+  you. Switch it on again when the power fields are right.
 - If the inverter does not take a mode, the automation tries twice
   more, 30 seconds apart, and then every five minutes for two hours,
   for as long as the mode is still wanted. You get a message after the
@@ -231,17 +242,18 @@ What the automation does:
   After an hour without a value it selects *Automatic*.
 - If the inverter does not take a mode, the automation tries again as
   described for the blueprint above.
-- If the inverter does not report *Charge from grid* within a minute
-  after it was selected, the automation selects *Automatic* again and
-  tells you.
+- If the inverter reports another mode after *Charge from grid* was
+  selected, the automation selects *Automatic* again, switches itself
+  off and tells you. Switch it on again when the charging power is
+  right.
 
 **Do not use it together with a battery plan that charges.** Both use
 *Charge from grid*, and the inverter does not tell who selected it. The
 automation ends a charge of the battery plan, or one you started by
 hand, when the price goes back above the threshold, when the battery
 reaches **Charge up to**, after an hour without a price, and when Home
-Assistant starts or the inverter answers again at a price that is not
-low.
+Assistant starts or the inverter answers again while the price is not
+low or the battery is at that level.
 
 The automation looks at the current price only. It does not pick the
 cheapest hours of the night. For charging between two fixed times, use

@@ -191,7 +191,8 @@ async def test_a_later_attempt_writes_what_fits_the_price_by_then(hass, freezer)
     assert [call["percent"] for call in action.calls] == [100, 100, 100, 0, 0]
 
 
-async def test_an_attempt_writes_nothing_while_the_price_has_no_value(hass, freezer):
+async def test_the_attempts_end_when_the_price_loses_its_value(hass, freezer, caplog):
+    """Nothing is written without a price, and the run does not sit in the queue."""
     action = await _start(hass)
     action.failures = 3
 
@@ -199,13 +200,28 @@ async def test_an_attempt_writes_nothing_while_the_price_has_no_value(hass, free
     await pass_time(hass, freezer, block=False, seconds=31)
     await pass_time(hass, freezer, block=False, seconds=31)
     await set_state(hass, PRICE, "unavailable", block=False)
-    await pass_time(hass, freezer, block=False, minutes=5, seconds=1)
-    assert len(action.calls) == 3
-
-    # The price is back and still low: the next attempt writes the limit.
-    await set_state(hass, PRICE, "-0.02", block=False)
     await pass_time(hass, freezer, minutes=5, seconds=1)
-    assert [call["percent"] for call in action.calls][3:4] == [0]
+    assert len(action.calls) == 3
+    assert "did not take the export limit for two hours" not in caplog.text
+
+    # The price is back and still low: its own run writes the limit.
+    await set_state(hass, PRICE, "-0.02")
+    assert [call["percent"] for call in action.calls][3:] == [0]
+
+
+async def test_an_hour_without_a_price_ends_the_limit_also_after_a_failed_write(hass, freezer):
+    """The run for the missing price must not wait two hours behind attempts that do nothing."""
+    freezer.move_to("2030-06-01 12:00:00+00:00")
+    action = await _start(hass, price="-0.01")
+    action.failures = 1
+
+    await set_state(hass, PRICE, "0.03", block=False)
+    await set_state(hass, PRICE, "unavailable", block=False)
+    for _ in range(62):
+        await pass_time(hass, freezer, block=False, minutes=1)
+    await hass.async_block_till_done()
+
+    assert [call["percent"] for call in action.calls] == [100, 100]
 
 
 async def test_the_attempts_end_when_the_inverter_goes_off(hass, freezer):
@@ -227,6 +243,7 @@ async def test_the_attempts_end_when_the_inverter_goes_off(hass, freezer):
 async def test_after_two_hours_of_failures_the_automation_gives_up(hass, freezer, caplog):
     hass.states.async_set("notify.phone", "unknown")
     messages = RecordedAction(hass, "notify", "send_message")
+    notices = RecordedAction(hass, "persistent_notification", "create")
     action = await _start(hass, notify=["notify.phone"])
     action.failures = 100
 
@@ -239,6 +256,7 @@ async def test_after_two_hours_of_failures_the_automation_gives_up(hass, freezer
 
     assert len(action.calls) == 27
     assert "has given up" in messages.calls[-1]["message"]
+    assert [notice["message"] for notice in notices.calls] == [messages.calls[-1]["message"]]
     assert "did not take the export limit for two hours" in caplog.text
 
 

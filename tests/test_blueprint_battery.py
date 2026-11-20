@@ -58,6 +58,8 @@ class Battery(RecordedAction):
         #: The mode the inverter reports after a mode other than
         #: Automatic was selected, if not that mode.
         self.reports = None
+        #: False for an entity that does not show a selection by itself.
+        self.shows = True
         sunspec_entity(hass, MODE, mode, friendly_name="Battery mode", options=MODES)
 
     async def _handle(self, call):
@@ -65,6 +67,8 @@ class Battery(RecordedAction):
         if self.gate is not None:
             await self.gate.wait()
         assert call.data["entity_id"] == [MODE]
+        if not self.shows:
+            return
         option = call.data["option"]
         reported = self.reports if self.reports and option != "auto" else option
         self._hass.states.async_set(
@@ -304,16 +308,53 @@ async def test_a_mode_the_inverter_reports_differently_is_taken_back(hass, freez
     """With a PV charge limit of 0 W, Block discharging reads back as Block charging."""
     hass.states.async_set("notify.phone", "unknown")
     messages = RecordedAction(hass, "notify", "send_message")
+    notices = RecordedAction(hass, "persistent_notification", "create")
     battery = await _block(hass, notify=["notify.phone"])
     battery.reports = "block_charging"
+
+    await set_state(hass, CHARGER, "on")
+
+    assert battery.selected == ["block_discharging", "auto"]
+    assert hass.states.get(MODE).state == "auto"
+    assert "selected Automatic again and switched itself off" in messages.calls[-1]["message"]
+    # The same text in Home Assistant itself, for who chose no recipient.
+    assert [notice["message"] for notice in notices.calls] == [messages.calls[-1]["message"]]
+    assert notices.calls[0]["title"] == "Battery mode"
+    assert "reports another battery mode" in caplog.text
+    # Switched off, or the next refresh would select the mode again,
+    # and so on every three minutes for as long as the consumer runs.
+    assert hass.states.get("automation.block_battery_discharge").state == "off"
+    for _ in range(6):
+        await pass_time(hass, freezer, minutes=1)
+    assert len(battery.calls) == 2
+
+
+async def test_a_mode_that_shows_up_late_is_waited_for(hass, freezer):
+    """The entity shows the new mode with the next reading of the inverter."""
+    battery = await _block(hass, refresh="0")
+    battery.shows = False
+
+    await set_state(hass, CHARGER, "on", block=False)
+    assert battery.selected == ["block_discharging"]
+    assert hass.states.get(MODE).state == "auto"
+
+    await pass_time(hass, freezer, block=False, seconds=20)
+    await set_state(hass, MODE, "block_discharging")
+
+    assert battery.selected == ["block_discharging"]
+    assert hass.states.get("automation.block_battery_discharge").state == "on"
+
+
+async def test_a_mode_the_entity_never_shows_is_left_as_it_is(hass, freezer):
+    """A minute without the mode in the entity is no reason to take anything back."""
+    battery = await _block(hass, refresh="0")
+    battery.shows = False
 
     await set_state(hass, CHARGER, "on", block=False)
     await pass_time(hass, freezer, seconds=61)
 
-    assert battery.selected == ["block_discharging", "auto"]
-    assert hass.states.get(MODE).state == "auto"
-    assert "selected Automatic again" in messages.calls[-1]["message"]
-    assert "reports another battery mode" in caplog.text
+    assert battery.selected == ["block_discharging"]
+    assert hass.states.get("automation.block_battery_discharge").state == "on"
 
 
 async def test_a_discharge_limit_of_zero_reads_back_as_block_discharging(hass, freezer):
@@ -478,6 +519,7 @@ async def test_without_a_charging_power_the_battery_is_left_alone(hass, freezer,
     """With 0 W the inverter would block discharging, and nothing would end that."""
     hass.states.async_set("notify.phone", "unknown")
     messages = RecordedAction(hass, "notify", "send_message")
+    notices = RecordedAction(hass, "persistent_notification", "create")
     battery = await _charge(hass, power="0", notify=["notify.phone"])
 
     await set_state(hass, PRICE, "0.02")
@@ -493,6 +535,7 @@ async def test_without_a_charging_power_the_battery_is_left_alone(hass, freezer,
         "Battery grid charge power is 0 W. Enter the charging power there."
     ]
     assert "Battery grid charge power is 0 W" in caplog.text
+    assert [notice["message"] for notice in notices.calls] == [messages.calls[0]["message"]]
 
 
 async def test_a_charge_started_elsewhere_ends_at_the_target_too(hass):
@@ -537,16 +580,19 @@ async def test_a_charge_the_inverter_does_not_report_is_taken_back(hass, freezer
     """The inverter answers Charge from grid with another mode, and nothing would end that."""
     hass.states.async_set("notify.phone", "unknown")
     messages = RecordedAction(hass, "notify", "send_message")
-    battery = await _charge(hass, notify=["notify.phone"], refresh="0")
+    battery = await _charge(hass, notify=["notify.phone"])
     battery.reports = "block_discharging"
 
-    await set_state(hass, PRICE, "0.05", block=False)
-    await pass_time(hass, freezer, seconds=61)
+    await set_state(hass, PRICE, "0.05")
 
     assert battery.selected == ["charge_from_grid", "auto"]
     assert hass.states.get(MODE).state == "auto"
-    assert "does not report Charge from grid" in messages.calls[-1]["message"]
+    assert "selected Automatic again and switched itself off" in messages.calls[-1]["message"]
     assert "reports another battery mode" in caplog.text
+    assert hass.states.get("automation.charge_battery_at_low_price").state == "off"
+    for _ in range(6):
+        await pass_time(hass, freezer, minutes=1)
+    assert len(battery.calls) == 2
 
 
 async def test_a_charge_started_elsewhere_survives_a_price_update(hass):

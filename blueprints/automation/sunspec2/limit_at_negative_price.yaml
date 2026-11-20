@@ -195,6 +195,7 @@ variables:
        else (none if price_now is none or (reason == 'price' and not crossed)
              else (limit_percent if below else normal_percent)) }}
   written: false
+  pending: true
   sent: null
 
 conditions:
@@ -212,8 +213,9 @@ actions:
   # Three attempts 30 seconds apart, then one every five minutes, for
   # two hours in all. A limit that is not taken back would stay for
   # good on an inverter without a revert time, so giving up early is
-  # not an option. The loop ends when the inverter goes unavailable:
-  # the "back" trigger takes over from there.
+  # not an option. The loop ends when the inverter goes unavailable,
+  # where the "back" trigger takes over, and when the price loses its
+  # value, where the "price" and "missing" triggers do.
   #
   # "written" only turns true when the action did not fail, because a
   # failed action ends the inner sequence.
@@ -221,21 +223,23 @@ actions:
       while:
         - condition: template
           value_template: >-
-            {{ not written and repeat.index <= 27
+            {{ not written and pending and repeat.index <= 27
                and states(export_limit) != 'unavailable' }}
       sequence:
         - variables:
             # The price may have moved while this run waited, so each
-            # attempt writes what fits the price at that moment. While
-            # the price has no value, an attempt writes nothing, unless
-            # this run is the one that ends the limit for that reason.
+            # attempt writes what fits the price at that moment. None
+            # while the price has no value, unless this run is the one
+            # that ends the limit for that reason.
             percent: >-
               {{ (limit_percent if states(price_entity) | float < threshold else normal_percent)
                  if is_number(states(price_entity))
                  else (normal_percent if price_gone else none) }}
+        - variables:
+            pending: "{{ percent is not none }}"
         - if:
             - condition: template
-              value_template: "{{ percent is not none }}"
+              value_template: "{{ pending }}"
           then:
             - sequence:
                 - action: sunspec2.set_export_limit
@@ -249,7 +253,9 @@ actions:
               continue_on_error: true
         - if:
             - condition: template
-              value_template: "{{ not written and repeat.index == 3 and notify_entities | length > 0 }}"
+              value_template: >-
+                {{ not written and pending and repeat.index == 3
+                   and notify_entities | length > 0 }}
           then:
             - action: notify.send_message
               continue_on_error: true
@@ -263,7 +269,7 @@ actions:
                   hours.
         - if:
             - condition: template
-              value_template: "{{ not written and repeat.index < 27 }}"
+              value_template: "{{ not written and pending and repeat.index < 27 }}"
           then:
             - delay:
                 seconds: "{{ 30 if repeat.index < 3 else 300 }}"
@@ -282,10 +288,22 @@ actions:
             {% set unit = state_attr(price_entity, 'unit_of_measurement') or '' %}
             Export limit set to {{ sent }} %
             ({{ (price | float ~ ' ' ~ unit) | trim if is_number(price) else 'no price' }}).
+  # Still not written, with the inverter there and a price to go by:
+  # the two hours are over.
   - if:
       - condition: template
-        value_template: "{{ not written and states(export_limit) != 'unavailable' }}"
+        value_template: "{{ not written and pending and states(export_limit) != 'unavailable' }}"
     then:
+      # Shown in Home Assistant itself, so that nobody has to have
+      # chosen a recipient to learn about it.
+      - action: persistent_notification.create
+        continue_on_error: true
+        data:
+          title: "{{ state_attr(export_limit, 'friendly_name') }}"
+          message: >-
+            The export limit could not be written for two hours. The
+            automation has given up. Check the inverter and set the
+            limit by hand.
       - if:
           - condition: template
             value_template: "{{ notify_entities | length > 0 }}"

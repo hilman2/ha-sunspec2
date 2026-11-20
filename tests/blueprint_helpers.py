@@ -70,6 +70,11 @@ async def repository_blueprints(hass: HomeAssistant) -> AsyncIterator[None]:
 
 async def start_automation(hass: HomeAssistant, name: str, inputs: dict[str, Any]) -> str:
     """Create an automation from the blueprint ``name`` and return its entity id."""
+    # The blueprints report a problem with a notification in Home
+    # Assistant, which a real installation always has. A test that
+    # wants to read it registers a RecordedAction before this call.
+    if not hass.services.has_service("persistent_notification", "create"):
+        assert await async_setup_component(hass, "persistent_notification", {})
     assert await async_setup_component(
         hass,
         "automation",

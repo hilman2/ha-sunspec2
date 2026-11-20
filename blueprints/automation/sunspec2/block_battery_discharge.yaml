@@ -290,20 +290,26 @@ actions:
   # The inverter reports the mode it is in, and that can be another
   # one than the mode selected: with a power of 0 W in one of the power
   # fields, for example. This automation would not know such a mode as
-  # its own and would never end it. So it is taken back at once.
+  # its own and would never end it. So it selects Automatic again and
+  # switches itself off: with the automation still on, the next run
+  # would select the mode once more, and so on every few minutes.
+  #
+  # Only looked at when the battery was in Automatic before. The
+  # entity shows the new mode with the next reading of the inverter,
+  # which is what the wait is for.
   - if:
       - condition: template
-        value_template: "{{ written and target != 'auto' }}"
+        value_template: "{{ written and target != 'auto' and mode_now == 'auto' }}"
     then:
-      - wait_template: "{{ states(battery_mode) in held_modes }}"
+      - wait_template: "{{ states(battery_mode) != 'auto' }}"
         timeout:
           seconds: 60
         continue_on_timeout: true
       - if:
           - condition: template
             value_template: >-
-              {{ not wait.completed
-                 and states(battery_mode) not in ['auto', 'unavailable', 'unknown'] }}
+              {{ wait.completed
+                 and states(battery_mode) not in held_modes + ['unavailable', 'unknown'] }}
         then:
           - action: select.select_option
             continue_on_error: true
@@ -311,6 +317,18 @@ actions:
               entity_id: "{{ battery_mode }}"
             data:
               option: auto
+          # Shown in Home Assistant itself, so that nobody has to have
+          # chosen a recipient to learn about it.
+          - action: persistent_notification.create
+            continue_on_error: true
+            data:
+              title: "{{ state_attr(battery_mode, 'friendly_name') }}"
+              message: >-
+                The inverter reports another mode than the one selected for the
+                consumer. The automation selected Automatic again and
+                switched itself off. Check the power in Battery PV charge
+                limit and Battery discharge limit: 0 W changes what a mode
+                does. Then switch the automation on again.
           - if:
               - condition: template
                 value_template: "{{ notify_entities | length > 0 }}"
@@ -323,9 +341,15 @@ actions:
                   title: "{{ state_attr(battery_mode, 'friendly_name') }}"
                   message: >-
                     The inverter reports another mode than the one selected for the
-                    consumer, so the automation selected Automatic again. Check
-                    the power in Battery PV charge limit and Battery discharge
-                    limit: 0 W changes what a mode does.
+                    consumer. The automation selected Automatic again and
+                    switched itself off. Check the power in Battery PV charge
+                    limit and Battery discharge limit: 0 W changes what a mode
+                    does. Then switch the automation on again.
+          - action: automation.turn_off
+            target:
+              entity_id: "{{ this.entity_id }}"
+            data:
+              stop_actions: false
           - stop: The inverter reports another battery mode than the one selected.
             error: true
   - if:
@@ -350,6 +374,16 @@ actions:
       - condition: template
         value_template: "{{ not written and wanted }}"
     then:
+      # Shown in Home Assistant itself, so that nobody has to have
+      # chosen a recipient to learn about it.
+      - action: persistent_notification.create
+        continue_on_error: true
+        data:
+          title: "{{ state_attr(battery_mode, 'friendly_name') }}"
+          message: >-
+            The battery mode could not be set for two hours. The
+            automation has given up. Check the inverter and select the
+            mode by hand.
       - if:
           - condition: template
             value_template: "{{ notify_entities | length > 0 }}"

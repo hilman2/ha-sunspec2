@@ -1,18 +1,21 @@
 """The blueprint that sets the export limit to what the house uses.
 
+A run of this automation is a row of rounds of 30 seconds. In each
+round it waits for the meter, reads the inverter and writes the limit.
+A run is in a wait or a delay almost all the time, so these tests never
+wait for the automation to finish: they move the clock in steps and
+look at what has been written by then.
+
 Copyright (c) 2026 Manuel Hilgert <hilman2@gmail.com>
 """
 
 import asyncio
-from datetime import timedelta
 from unittest.mock import patch
 
 import pytest
 from homeassistant.components.sensor import SensorDeviceClass
 from homeassistant.components.sensor import SensorEntity
 from homeassistant.setup import async_setup_component
-from homeassistant.util import dt as dt_util
-from pytest_homeassistant_custom_component.common import async_fire_time_changed
 
 from . import create_mock_sunspec_config_entry
 from . import setup_mock_sunspec_config_entry
@@ -39,7 +42,7 @@ async def _start(hass, freezer, inverter="3000", grid="-2000", step=1.0, **input
     """An 8 kW inverter delivering 3 kW, of which 2 kW go into the grid.
 
     The clock stands ten seconds after a full minute, so with the
-    default period of 30 seconds the next tick is 20 seconds away.
+    default period of 30 seconds the first tick is 20 seconds away.
     """
     freezer.move_to("2030-06-01 12:00:10+00:00")
     assert await async_setup_component(hass, "homeassistant", {})
@@ -61,117 +64,95 @@ async def _start(hass, freezer, inverter="3000", grid="-2000", step=1.0, **input
     return action
 
 
-def _new_reading(hass, entity_id, value=None):
-    """Give a sensor a new reading, as a meter does when it reports.
+async def _wait(hass, freezer, seconds):
+    """Pass time while a run is in a wait or a delay."""
+    await pass_time(hass, freezer, block=False, seconds=seconds)
 
-    Args:
-        value: The new state. None keeps the state and changes an
-            attribute, which is a new reading with the same rounded value.
+
+async def _report(hass, value=None):
+    """Let the meter report: a new value, or without one the value it had.
+
+    The second is what a meter with a coarse resolution does while the
+    power is steady. Home Assistant then only notes that it reported.
     """
-    state = hass.states.get(entity_id)
-    attributes = {**state.attributes, "reading": state.attributes.get("reading", 0) + 1}
-    hass.states.async_set(entity_id, state.state if value is None else value, attributes)
-
-
-def _to_the_next_tick(hass, freezer):
-    """Move the clock to the next full or half minute and fire what is due.
-
-    The clock only ever goes forward: the event loop runs on it as well.
-    """
-    second = dt_util.utcnow().second + dt_util.utcnow().microsecond / 1e6
-    freezer.tick(timedelta(seconds=30 - second % 30))
-    async_fire_time_changed(hass, dt_util.utcnow())
-
-
-async def _tick(hass, freezer, grid=None):
-    """Go to the next tick and let the meter report two seconds into it.
-
-    The run of a tick waits for a new value of the meter.
-    """
-    _to_the_next_tick(hass, freezer)
+    state = hass.states.get(GRID)
+    hass.states.async_set(GRID, state.state if value is None else value, state.attributes)
     await settle(hass)
-    freezer.tick(timedelta(seconds=2))
-    _new_reading(hass, GRID, grid)
-    await hass.async_block_till_done()
 
 
-async def _silent_tick(hass, freezer):
-    """A tick during which the meter reports nothing: 25 seconds of waiting, then nothing."""
-    _to_the_next_tick(hass, freezer)
-    await settle(hass)
-    await pass_time(hass, freezer, seconds=26)
+def _percents(action):
+    return [call["percent"] for call in action.calls]
 
 
 async def test_the_limit_is_what_the_house_uses(hass, freezer):
     """3000 W delivered and 2000 W fed in: the house uses 1000 W, 12.5 % of 8000 W."""
-    action = await _start(hass, freezer)
+    action = await _start(hass, freezer, grid="-1990")
 
-    await pass_time(hass, freezer, seconds=19)
+    await _wait(hass, freezer, 19)
     assert action.calls == []
 
-    # The tick, and the run waits for the meter.
-    await pass_time(hass, freezer, block=False, seconds=1)
+    # The tick starts a run, and its first round waits for the meter.
+    await _wait(hass, freezer, 1)
     assert action.calls == []
 
-    _new_reading(hass, GRID)
-    await hass.async_block_till_done()
+    await _wait(hass, freezer, 2)
+    await _report(hass, "-2000")
     # Rounded down to the whole percent the entity takes.
     assert action.calls == [{"config_entry_id": ENTRY_ID, "percent": 12, "enable": True}]
 
 
-async def test_the_limit_is_written_on_every_tick(hass, freezer):
-    """Also an unchanged limit: the write restarts the inverter's revert timer."""
+async def test_the_limit_is_written_once_per_period(hass, freezer):
+    """A meter that reports every five seconds does not get a write every five seconds."""
     action = await _start(hass, freezer)
+    await _wait(hass, freezer, 20)
 
-    await _tick(hass, freezer)
-    await _tick(hass, freezer)
-    await _tick(hass, freezer)
+    for index in range(17):
+        await _wait(hass, freezer, 5)
+        await _report(hass, str(-2001 - index))
 
-    assert [call["percent"] for call in action.calls] == [12, 12, 12]
+    # 85 seconds, the third round is on its way.
+    assert _percents(action) == [12, 12, 12]
+
+
+async def _first_limit(hass, freezer, action, grid):
+    """The limit of the first round, written when the meter reports ``grid``."""
+    await _wait(hass, freezer, 22)
+    await _report(hass, grid)
+    return _percents(action)
 
 
 async def test_power_taken_from_the_grid_raises_the_limit(hass, freezer):
     """Limited to 960 W while the house takes another 2040 W from the grid."""
-    action = await _start(hass, freezer, inverter="960", grid="2040")
+    action = await _start(hass, freezer, inverter="960", grid="2000")
 
-    await _tick(hass, freezer)
-
-    assert [call["percent"] for call in action.calls] == [37]
+    assert await _first_limit(hass, freezer, action, "2040") == [37]
 
 
 async def test_a_meter_that_counts_feed_in_as_positive(hass, freezer):
-    action = await _start(hass, freezer, grid="2000", grid_direction="export")
+    action = await _start(hass, freezer, grid="1990", grid_direction="export")
 
-    await _tick(hass, freezer)
-
-    assert [call["percent"] for call in action.calls] == [12]
+    assert await _first_limit(hass, freezer, action, "2000") == [12]
 
 
 async def test_readings_in_kilowatts(hass, freezer):
     action = await _start(hass, freezer)
     await set_state(hass, INVERTER, "3.0", unit_of_measurement="kW")
-    await set_state(hass, GRID, "-2.0", unit_of_measurement="kW")
+    await set_state(hass, GRID, "-1.9", unit_of_measurement="kW")
 
-    await _tick(hass, freezer)
-
-    assert [call["percent"] for call in action.calls] == [12]
+    assert await _first_limit(hass, freezer, action, "-2.0") == [12]
 
 
 async def test_the_allowed_feed_in_is_added(hass, freezer):
     """1000 W for the house and 600 W for the grid are 20 % of 8000 W."""
-    action = await _start(hass, freezer, max_export=600)
+    action = await _start(hass, freezer, grid="-1990", max_export=600)
 
-    await _tick(hass, freezer)
-
-    assert [call["percent"] for call in action.calls] == [20]
+    assert await _first_limit(hass, freezer, action, "-2000") == [20]
 
 
 async def test_the_limit_uses_the_step_of_the_entity(hass, freezer):
-    action = await _start(hass, freezer, step=0.1)
+    action = await _start(hass, freezer, grid="-1990", step=0.1)
 
-    await _tick(hass, freezer)
-
-    assert [call["percent"] for call in action.calls] == [12.5]
+    assert await _first_limit(hass, freezer, action, "-2000") == [12.5]
 
 
 @pytest.mark.parametrize(
@@ -186,88 +167,96 @@ async def test_the_limit_uses_the_step_of_the_entity(hass, freezer):
 async def test_the_limit_stays_between_the_lowest_and_full_power(
     hass, freezer, inverter, grid, expected
 ):
-    action = await _start(hass, freezer, inverter=inverter, grid=grid, min_percent=5)
+    action = await _start(hass, freezer, inverter=inverter, grid="0", min_percent=5)
 
-    await _tick(hass, freezer)
-
-    assert [call["percent"] for call in action.calls] == [expected]
+    assert await _first_limit(hass, freezer, action, grid) == [expected]
 
 
-@pytest.mark.parametrize("missing", [INVERTER, GRID])
-async def test_without_a_reading_the_fallback_is_written(hass, freezer, missing):
-    action = await _start(hass, freezer, fallback_percent=0)
-    await set_state(hass, missing, "unavailable")
+async def test_a_meter_that_repeats_its_value_still_gets_a_limit(hass, freezer):
+    """Its report ends no wait, so the limit comes at the end of the round."""
+    action = await _start(hass, freezer)
+    await _wait(hass, freezer, 20)
 
-    # Without a grid power there is nothing to wait for.
-    if missing == GRID:
-        await pass_time(hass, freezer, seconds=30)
-    else:
-        await _tick(hass, freezer)
+    await _wait(hass, freezer, 5)
+    await _report(hass)
+    await _wait(hass, freezer, 24)
+    assert action.calls == []
 
-    assert [call["percent"] for call in action.calls] == [0]
+    await _wait(hass, freezer, 2)
+    assert _percents(action) == [12]
 
 
-async def test_without_a_new_value_of_the_meter_a_tick_writes_nothing(hass, freezer):
+async def test_a_round_without_a_report_of_the_meter_writes_nothing(hass, freezer):
     """A meter that reports once a minute gets a new limit once a minute."""
     action = await _start(hass, freezer)
-    await _tick(hass, freezer)
+    await _wait(hass, freezer, 22)
+    await _report(hass, "-2010")
     assert len(action.calls) == 1
 
-    await _silent_tick(hass, freezer)
+    # The rest of the first round and all of the second.
+    await _wait(hass, freezer, 28)
+    await _wait(hass, freezer, 31)
     assert len(action.calls) == 1
 
-    await _tick(hass, freezer)
+    await _wait(hass, freezer, 5)
+    await _report(hass, "-2020")
     assert len(action.calls) == 2
 
 
-async def test_the_new_value_and_the_inverter_power_of_that_moment_make_the_limit(hass, freezer):
+@pytest.mark.parametrize("phase", [1, 12, 27, 29])
+async def test_no_phase_of_the_meter_against_the_tick_goes_without_a_limit(hass, freezer, phase):
+    """A meter that reports every 30 seconds, ``phase`` seconds after each tick."""
     action = await _start(hass, freezer)
+    await _wait(hass, freezer, 20)
 
-    await _tick(hass, freezer, grid="-1500")
+    for index in range(6):
+        await _wait(hass, freezer, phase)
+        await _report(hass, str(-2001 - index))
+        await _wait(hass, freezer, 30 - phase)
 
-    # 3000 W delivered, 1500 W fed in: 1500 W for the house, 18.75 % of 8000 W.
-    assert [call["percent"] for call in action.calls] == [18]
+    assert len(action.calls) == 6
 
 
-async def test_a_report_without_a_new_value_does_not_count(hass, freezer):
-    """update_entity moves the time of the last report of a sensor that has nothing new."""
+async def test_the_inverter_is_read_when_the_meter_has_reported(hass, freezer):
+    """The two readings are of the same moment: the inverter power is asked for last."""
     action = await _start(hass, freezer)
-    await _tick(hass, freezer)
+    asked = []
+    hass.services.async_register(
+        "homeassistant",
+        "update_entity",
+        lambda call: asked.append((call.data["entity_id"], len(action.calls))),
+    )
 
-    _to_the_next_tick(hass, freezer)
-    await settle(hass)
-    freezer.tick(timedelta(seconds=2))
-    state = hass.states.get(GRID)
-    # The same state with the same attributes: only last_reported moves.
-    hass.states.async_set(GRID, state.state, state.attributes)
-    await settle(hass)
-    assert hass.states.get(GRID).last_reported > hass.states.get(GRID).last_updated
-    await pass_time(hass, freezer, seconds=26)
+    await _wait(hass, freezer, 22)
+    assert asked == []
+    await _report(hass, "-2010")
 
-    assert len(action.calls) == 1
+    # Only the inverter, and before the limit was written.
+    assert asked == [([INVERTER], 0)]
 
 
 class _Meter(SensorEntity):
-    """A grid meter as an entity, so that ``homeassistant.update_entity`` finds it."""
+    """A grid meter as an entity that counts how often it is asked for an update."""
 
     _attr_native_unit_of_measurement = "W"
     _attr_device_class = SensorDeviceClass.POWER
+    _attr_should_poll = False
 
-    def __init__(self, polled: bool) -> None:
+    def __init__(self) -> None:
         self.entity_id = GRID
-        self._attr_should_poll = polled
         self._attr_native_value = -2000.0
-        #: What the next poll finds, for a polled meter.
-        self.at_the_device = -2000.0
+        self.asked = 0
 
     async def async_update(self) -> None:
-        self._attr_native_value = self.at_the_device
+        self.asked += 1
 
 
-async def _start_with_meter(hass, freezer, meter):
+async def test_a_meter_entity_that_reports_its_old_value_counts_as_reported(hass, freezer):
+    """With a real entity: writing the same state is a report, and nobody asks the meter."""
     freezer.move_to("2030-06-01 12:00:10+00:00")
     assert await async_setup_component(hass, "homeassistant", {})
     assert await async_setup_component(hass, "sensor", {})
+    meter = _Meter()
     await hass.data["sensor"].async_add_entities([meter])
     sunspec_entity(hass, LIMIT, "100", step=1.0)
     hass.states.async_set(INVERTER, "3000", {"unit_of_measurement": "W"})
@@ -282,65 +271,139 @@ async def _start_with_meter(hass, freezer, meter):
             "rated_power": 8000,
         },
     )
-    return action
+
+    # A round in which the meter says nothing.
+    await _wait(hass, freezer, 20)
+    await _wait(hass, freezer, 31)
+    assert action.calls == []
+
+    # A round in which it reports the value it had.
+    await _wait(hass, freezer, 10)
+    meter.async_write_ha_state()
+    await _wait(hass, freezer, 21)
+    assert _percents(action) == [12]
+    assert meter.asked == 0
 
 
-async def test_a_meter_that_pushes_is_not_made_new_by_asking_it(hass, freezer):
-    """The automation asks the meter for an update, and a meter that pushes has none."""
-    action = await _start_with_meter(hass, freezer, _Meter(polled=False))
-    reported = hass.states.get(GRID).last_reported
+async def test_a_meter_that_hangs_counts_as_no_reading(hass, freezer):
+    """After ten minutes without a report the fallback is written."""
+    action = await _start(hass, freezer, fallback_percent=0)
+    await _wait(hass, freezer, 22)
+    await _report(hass, "-2010")
+    assert _percents(action) == [12]
 
-    _to_the_next_tick(hass, freezer)
-    await settle(hass)
-    # Asked, and the time of the last report moved. Still no new value.
-    assert hass.states.get(GRID).last_reported > reported
-    await pass_time(hass, freezer, seconds=26)
+    # Nine and a half minutes of rounds without a report.
+    for _ in range(19):
+        await _wait(hass, freezer, 30)
+    assert len(action.calls) == 1
+
+    await _wait(hass, freezer, 30)
+    await _wait(hass, freezer, 30)
+    assert _percents(action)[:2] == [12, 0]
+
+
+@pytest.mark.parametrize("missing", [INVERTER, GRID])
+async def test_without_a_reading_the_fallback_is_written(hass, freezer, missing):
+    action = await _start(hass, freezer, fallback_percent=0)
+    await set_state(hass, missing, "unavailable")
+
+    await _wait(hass, freezer, 22)
+    if missing == INVERTER:
+        # The round still waits for the meter first.
+        await _report(hass, "-2010")
+
+    assert _percents(action) == [0]
+
+
+async def test_an_inverter_that_is_off_gets_no_write(hass, freezer):
+    action = await _start(hass, freezer)
+    await set_state(hass, LIMIT, "unavailable")
+
+    await _wait(hass, freezer, 22)
+    await _report(hass, "-2010")
 
     assert action.calls == []
 
 
-async def test_a_meter_that_is_polled_answers_when_it_is_asked(hass, freezer):
-    """Its new value is there before the wait begins, so the limit is written at once."""
-    meter = _Meter(polled=True)
-    action = await _start_with_meter(hass, freezer, meter)
-    meter.at_the_device = -1500.0
-
-    _to_the_next_tick(hass, freezer)
-    await hass.async_block_till_done()
-
-    # 3000 W delivered, 1500 W fed in: 18.75 % of 8000 W.
-    assert [call["percent"] for call in action.calls] == [18]
-
-
-async def test_a_meter_that_hangs_counts_as_no_reading(hass, freezer):
-    """After ten minutes with the same value the fallback is written, without a wait.
-
-    With a tick every minute a run waits 55 seconds for the meter, so
-    the steps below are a tick, the end of its wait, the next tick.
-    """
-    action = await _start(hass, freezer, fallback_percent=0, interval="0")
-    await pass_time(hass, freezer, block=False, seconds=50)
-    freezer.tick(timedelta(seconds=2))
-    _new_reading(hass, GRID)
-    await hass.async_block_till_done()
-    # Written at 12:01:02, with the last new value of the meter.
-    assert [call["percent"] for call in action.calls] == [12]
-
-    # The ticks of 12:09, 12:10 and 12:11 wait for the meter in vain.
-    await pass_time(hass, freezer, block=False, minutes=7, seconds=58)
-    await pass_time(hass, freezer, seconds=56)
-    for _ in range(2):
-        await pass_time(hass, freezer, block=False, seconds=4)
-        await pass_time(hass, freezer, seconds=56)
+async def test_a_run_ends_when_the_inverter_goes_off(hass, freezer):
+    action = await _start(hass, freezer)
+    await _wait(hass, freezer, 22)
+    await _report(hass, "-2010")
     assert len(action.calls) == 1
 
-    # 12:12: the value is older than ten minutes.
-    await pass_time(hass, freezer, seconds=4)
-    assert [call["percent"] for call in action.calls] == [12, 0]
+    await set_state(hass, LIMIT, "unavailable", block=False)
+    for index in range(4):
+        await _wait(hass, freezer, 15)
+        await _report(hass, str(-2020 - index))
+
+    assert len(action.calls) == 1
 
 
-async def test_ticks_do_not_pile_up_behind_a_write_that_takes_long(hass, freezer):
-    """The run that ends the limit still finds a place in the queue."""
+async def test_with_a_price_the_limit_only_follows_while_the_price_is_low(hass, freezer):
+    hass.states.async_set(PRICE, "0.05", {"unit_of_measurement": "EUR/kWh"})
+    hass.states.async_set("notify.phone", "unknown")
+    messages = RecordedAction(hass, "notify", "send_message")
+    action = await _start(hass, freezer, price=PRICE, notify=["notify.phone"])
+
+    await _wait(hass, freezer, 22)
+    await _report(hass, "-2010")
+    assert action.calls == []
+
+    await set_state(hass, PRICE, "-0.01", block=False)
+    assert action.calls == []
+    assert [call["message"] for call in messages.calls] == [
+        "The price is -0.01 EUR/kWh. The feed-in is limited to 0 W."
+    ]
+    # The next tick starts a run.
+    await _wait(hass, freezer, 30)
+    await _report(hass, "-2020")
+    assert _percents(action) == [12]
+
+    # The price recovers. The run ends with its round, then the limit
+    # is taken back once.
+    await set_state(hass, PRICE, "0.02", block=False)
+    await _wait(hass, freezer, 31)
+    await _report(hass, "-2030")
+    await _wait(hass, freezer, 31)
+    await _report(hass, "-2040")
+    assert _percents(action) == [12, 100]
+    assert len(messages.calls) == 2
+    assert messages.calls[1]["message"].startswith("Export limit set to 100 %.")
+
+
+async def test_while_the_price_has_no_value_nothing_is_written(hass, freezer):
+    hass.states.async_set(PRICE, "-0.01")
+    action = await _start(hass, freezer, price=PRICE)
+    await _wait(hass, freezer, 22)
+    await _report(hass, "-2010")
+    assert len(action.calls) == 1
+
+    await set_state(hass, PRICE, "unavailable", block=False)
+    for index in range(4):
+        await _wait(hass, freezer, 20)
+        await _report(hass, str(-2020 - index))
+    assert len(action.calls) == 1
+
+    await set_state(hass, PRICE, "-0.02", block=False)
+    await _wait(hass, freezer, 31)
+    await _report(hass, "-2030")
+    assert _percents(action) == [12, 12]
+
+
+async def test_an_hour_without_a_price_ends_the_limit(hass, freezer):
+    hass.states.async_set(PRICE, "-0.01")
+    action = await _start(hass, freezer, price=PRICE)
+    await set_state(hass, PRICE, "unavailable", block=False)
+
+    await _wait(hass, freezer, 59 * 60)
+    assert action.calls == []
+
+    await pass_time(hass, freezer, minutes=2)
+    assert _percents(action) == [100]
+
+
+async def test_ticks_do_not_pile_up_behind_a_run(hass, freezer):
+    """A run goes on for many ticks, and the run that ends the limit still gets its turn."""
     hass.states.async_set(PRICE, "-0.01")
     await _start(hass, freezer, price=PRICE)
     release = asyncio.Event()
@@ -352,34 +415,16 @@ async def test_ticks_do_not_pile_up_behind_a_write_that_takes_long(hass, freezer
 
     hass.services.async_register("sunspec2", "set_export_limit", slow)
 
-    # The first tick gets its reading and hangs in the write.
-    _to_the_next_tick(hass, freezer)
-    await settle(hass)
-    _new_reading(hass, GRID)
-    await settle(hass)
+    # The first round gets its reading and hangs in the write.
+    await _wait(hass, freezer, 22)
+    await _report(hass, "-2010")
     for _ in range(8):
-        await pass_time(hass, freezer, block=False, seconds=30)
+        await _wait(hass, freezer, 30)
     await set_state(hass, PRICE, "0.03", block=False)
     release.set()
-    await hass.async_block_till_done()
+    await _wait(hass, freezer, 31)
 
     assert started == [12, 100]
-
-
-async def test_while_the_price_has_no_value_nothing_is_written(hass, freezer):
-    hass.states.async_set(PRICE, "-0.01")
-    action = await _start(hass, freezer, price=PRICE)
-    await _tick(hass, freezer)
-    assert len(action.calls) == 1
-
-    await set_state(hass, PRICE, "unavailable")
-    await _tick(hass, freezer)
-    await _tick(hass, freezer)
-    assert len(action.calls) == 1
-
-    await set_state(hass, PRICE, "-0.02")
-    await _tick(hass, freezer)
-    assert [call["percent"] for call in action.calls] == [12, 12]
 
 
 async def test_a_limit_that_could_not_be_taken_back_is_taken_back_later(hass, freezer):
@@ -388,12 +433,12 @@ async def test_a_limit_that_could_not_be_taken_back_is_taken_back_later(hass, fr
     action.failures = 3
 
     await set_state(hass, PRICE, "0.03", block=False)
-    await pass_time(hass, freezer, block=False, seconds=31)
-    await pass_time(hass, freezer, block=False, seconds=31)
+    await _wait(hass, freezer, 31)
+    await _wait(hass, freezer, 31)
     assert len(action.calls) == 3
     await pass_time(hass, freezer, minutes=5, seconds=1)
 
-    assert [call["percent"] for call in action.calls] == [100, 100, 100, 100]
+    assert _percents(action) == [100, 100, 100, 100]
 
 
 async def test_the_attempts_to_take_the_limit_back_end_when_the_price_is_low_again(hass, freezer):
@@ -402,75 +447,30 @@ async def test_the_attempts_to_take_the_limit_back_end_when_the_price_is_low_aga
     action.failures = 3
 
     await set_state(hass, PRICE, "0.03", block=False)
-    await pass_time(hass, freezer, block=False, seconds=31)
-    await pass_time(hass, freezer, block=False, seconds=31)
+    await _wait(hass, freezer, 31)
+    await _wait(hass, freezer, 31)
     await set_state(hass, PRICE, "-0.02", block=False)
-    await pass_time(hass, freezer, minutes=5, seconds=1)
+    await _wait(hass, freezer, 5 * 60 + 1)
+    # No fourth 100 %.
+    assert _percents(action) == [100, 100, 100]
 
-    # No fourth 100 %. The ticks that came due in those five minutes
-    # found the automation busy, the next one sets the limit.
-    assert [call["percent"] for call in action.calls] == [100, 100, 100]
-    await _tick(hass, freezer)
-    assert [call["percent"] for call in action.calls] == [100, 100, 100, 12]
-
-
-async def test_an_inverter_that_is_off_gets_no_write(hass, freezer):
-    action = await _start(hass, freezer)
-    await set_state(hass, LIMIT, "unavailable")
-
-    await _tick(hass, freezer)
-
-    assert action.calls == []
-
-
-async def test_with_a_price_the_limit_only_follows_while_the_price_is_low(hass, freezer):
-    hass.states.async_set(PRICE, "0.05", {"unit_of_measurement": "EUR/kWh"})
-    hass.states.async_set("notify.phone", "unknown")
-    messages = RecordedAction(hass, "notify", "send_message")
-    action = await _start(hass, freezer, price=PRICE, notify=["notify.phone"])
-
-    await _tick(hass, freezer)
-    assert action.calls == []
-
-    await set_state(hass, PRICE, "-0.01")
-    assert action.calls == []
-    assert [call["message"] for call in messages.calls] == [
-        "The price is -0.01 EUR/kWh. The feed-in is limited to 0 W."
-    ]
-    await _tick(hass, freezer)
-    assert [call["percent"] for call in action.calls] == [12]
-
-    # The price recovers: full power once, and the ticks stop writing.
-    await set_state(hass, PRICE, "0.02")
-    await _tick(hass, freezer)
-    await _tick(hass, freezer)
-    assert [call["percent"] for call in action.calls] == [12, 100]
-    assert len(messages.calls) == 2
-    assert messages.calls[1]["message"].startswith("Export limit set to 100 %.")
-
-
-async def test_an_hour_without_a_price_ends_the_limit(hass, freezer):
-    hass.states.async_set(PRICE, "-0.01")
-    action = await _start(hass, freezer, price=PRICE, interval="0")
-    await set_state(hass, PRICE, "unavailable")
-
-    await pass_time(hass, freezer, minutes=59)
-    assert action.calls == []
-
-    await pass_time(hass, freezer, minutes=2)
-    assert [call["percent"] for call in action.calls] == [100]
+    # The ticks of those five minutes found the automation busy. The
+    # next one starts a run.
+    await _wait(hass, freezer, 30)
+    await _report(hass, "-2010")
+    assert _percents(action) == [100, 100, 100, 12]
 
 
 async def test_the_real_action_takes_what_the_blueprint_sends(
     hass, freezer, sunspec_write_client_mock
 ):
-    """End to end: a tick, the integration's own action, the write to the device."""
+    """End to end: a round, the integration's own action, the write to the device."""
     freezer.move_to("2030-06-01 12:00:10+00:00")
     entry = create_mock_sunspec_config_entry(hass, data=MOCK_CONFIG_WRITE)
     await setup_mock_sunspec_config_entry(hass, config_entry=entry)
     assert await async_setup_component(hass, "homeassistant", {})
     hass.states.async_set(INVERTER, "3000", {"unit_of_measurement": "W"})
-    hass.states.async_set(GRID, "-2000", {"unit_of_measurement": "W"})
+    hass.states.async_set(GRID, "-1990", {"unit_of_measurement": "W"})
     await start_automation(
         hass,
         BLUEPRINT,
@@ -491,7 +491,8 @@ async def test_the_real_action_takes_what_the_blueprint_sends(
         patch.object(coordinator.api, "async_write_points", side_effect=spy),
         patch.object(coordinator, "async_request_refresh"),
     ):
-        await _tick(hass, freezer)
+        await _wait(hass, freezer, 22)
+        await _report(hass, "-2000")
 
     # The fixture's export limit has a step of 0.01 %.
     assert written == [(123, [("WMaxLimPct", 12.5), ("WMaxLim_Ena", 1)])]

@@ -386,26 +386,30 @@ write path of their own. These rules run through all of them:
   every price update. Periodic writes exist only where a device's
   revert timer needs them (`refresh`, and the tick of
   `follow_house_consumption`).
-- **A failed write is retried** three times, 30 seconds apart, then
-  every five minutes for two hours, and each attempt looks again at
-  what is wanted by then. Giving up early is not an option where the
+- **A failed write is tried again**, three attempts 30 seconds
+  apart, then one every five minutes for two hours, and each attempt
+  looks again at what is wanted by then. Giving up early is not an option where the
   write takes a limit or a mode back: nothing else would. The loop
   relies on a failed action ending the inner `sequence` before
   `written` is set.
 - **No number means no action.** While a price sensor is unavailable
   the automations write nothing, and after an hour they go back to
   normal. `is_number` decides, so `nan` is no price either.
-- **`follow_house_consumption` waits for a new value of the meter and
-  reads the inverter right after it.** The house consumption is the
-  sum of both, and with readings from two sides of a write the loop
-  oscillates. New means a changed value (`last_updated`):
-  `homeassistant.update_entity` moves `last_reported` of a sensor that
-  has nothing new. A tick only starts while no other run is going.
+- **`follow_house_consumption` waits for the meter and reads the
+  inverter right after it.** The house consumption is the sum of both,
+  and with readings from two sides of a write the loop oscillates. A
+  run is a row of rounds that follow each other without a gap, so a
+  report of the meter always falls into one; a tick only starts a run
+  while none is going. Whether the meter has reported in a round is
+  `last_reported`, which is why the meter is never asked with
+  `homeassistant.update_entity`: that moves `last_reported` of a sensor
+  that has nothing new.
 - **The inverter reports the battery mode it is in, not the one
   selected.** With 0 W in a power field the two differ, and an
   automation that does not recognise its own mode never ends it. The
-  battery blueprints check what comes back and select `auto` again if
-  it is something else.
+  battery blueprints check what comes back. If it is something else,
+  they select `auto` again and switch themselves off, because the next
+  run would select the mode once more.
 
 `tests/test_blueprint_*.py` run every blueprint in Home Assistant's
 automation engine (`tests/blueprint_helpers.py` loads them from the
