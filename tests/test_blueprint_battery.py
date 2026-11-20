@@ -625,6 +625,19 @@ async def test_a_charge_the_inverter_does_not_report_is_taken_back(hass, freezer
     assert len(battery.calls) == 2
 
 
+async def test_a_charge_that_cannot_be_taken_back_is_reported_as_such(hass, freezer):
+    notices = RecordedAction(hass, "persistent_notification", "create")
+    battery = await _charge(hass)
+    battery.reports = "block_discharging"
+    battery.fail_auto = True
+
+    await set_state(hass, PRICE, "0.05")
+
+    assert battery.selected == ["charge_from_grid", "auto"]
+    assert "Automatic could not be selected: do that by hand." in notices.calls[0]["message"]
+    assert hass.states.get("automation.charge_battery_at_low_price").state == "off"
+
+
 async def test_a_charge_the_entity_never_shows_is_left_as_it_is(hass, freezer):
     battery = await _charge(hass, refresh="0")
     battery.shows = False

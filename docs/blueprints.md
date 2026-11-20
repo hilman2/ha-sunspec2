@@ -115,17 +115,15 @@ you have them.
 
 What the automation does:
 
-- In every round it waits for the meter, reads the inverter after it
-  and writes the limit, also when the limit has not changed. Set the
-  **Export limit revert time** of your inverter to at least three
-  times the period, 90 seconds for the default of 30. If Home Assistant
-  stops, the inverter then goes back to full power by itself. Without
-  a revert time the inverter keeps the last limit.
-- After a limit that differs from the one before, the automation takes
-  no reading of the meter for five seconds. The inverter needs that
-  long to follow, and a meter that reports in between still shows the
-  power from before. A change of the house consumption can therefore
-  take a round longer to reach the limit.
+- It works in rounds. In a round it waits for the meter, reads the
+  inverter, writes the limit and then waits 30 seconds. It writes the
+  limit also when it has not changed. Set the **Export limit revert
+  time** of your inverter to at least three times the period, 90
+  seconds for the default of 30. If Home Assistant stops, the inverter
+  then goes back to full power by itself. Without a revert time the
+  inverter keeps the last limit.
+- The first limit comes about a minute after the automation starts, or
+  after the price has gone low.
 - A round in which the meter has not reported writes nothing. A meter
   that reports once a minute therefore gets a new limit once a minute.
   Choose **Every minute** under **Write the limit** for such a meter,
@@ -136,22 +134,24 @@ What the automation does:
   such a sensor gets no limit, and the limit it had ends: by the
   inverter after its revert time, or by the automation after ten
   minutes with **Limit without a reading**.
-- If the inverter refuses a limit, the automation waits five minutes
-  before it writes the next one.
 - The limit is rounded down, so the automation rather takes a few
-  watts from the grid than feeds a few in.
+  watts from the grid than feeds a few in. A meter that reports in
+  steps of 100 W can still be 50 W off, in either direction.
+- If the inverter does not take a limit, the automation tries again in
+  the next round. After three failures in a row it waits five minutes
+  between two attempts.
 - While the inverter power or the grid power has no value, or the
   meter has not reported for ten minutes, the automation writes the
   percentage from **Limit without a reading**. It is 100 at first,
   which is full power. Enter 0 if you must never feed in.
 - With a price sensor: when the price is back above the threshold, the
-  automation sets the limit to 100 % once and then leaves the inverter
-  alone. If that write fails, it tries again as described for the
-  blueprint above.
+  automation writes the percentage from **Limit otherwise** once, 100
+  at first, and then leaves the inverter alone. If that write fails,
+  it tries again as described for the blueprint above.
 - With a price sensor that has no value, the automation writes
   nothing. An inverter with a revert time goes back to full power
   after that time, one without keeps the last limit. After an hour
-  without a value the automation sets the limit to 100 %.
+  without a value the automation writes **Limit otherwise**.
 
 The automation takes a limit back only while it is switched on. Before
 you switch it off or delete it, set **Export limit** to 100 % by hand,
@@ -160,9 +160,11 @@ unless your inverter has a revert time.
 What it cannot do:
 
 - **It is not fast.** Between two rounds a consumer that switches off
-  feeds its power into the grid. If you are not allowed to feed in at
-  all, this blueprint is not enough. Use a limit built into the
-  inverter.
+  feeds its power into the grid. The same goes for the sun coming out
+  from behind a cloud in the seconds between the reading of the meter
+  and the reading of the inverter: one limit is then off, and the next
+  round corrects it. If you are not allowed to feed in at all, this
+  blueprint is not enough. Use a limit built into the inverter.
 - **It handles one inverter.** With several inverters on one meter,
   every automation would work out the same house consumption.
 - **It is not for APsystems.** An ECU passes a limit on only after

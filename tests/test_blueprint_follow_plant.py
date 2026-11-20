@@ -3,14 +3,31 @@
 ``test_blueprint_follow_consumption.py`` checks one round at a time,
 with readings a test sets by hand. That cannot show what the loop does
 to itself: a limit changes what the meter reads next. Here a small
-model of a house answers every write, second by second, and the
-inverter power comes through a ``DataUpdateCoordinator`` as it does in
-the integration, with Home Assistant's ten seconds between two reads.
+model of a house answers every write, second by second. The inverter
+power comes through a ``DataUpdateCoordinator`` as it does in the
+integration: polled every 30 seconds, read again ten seconds after a
+write, never twice within ten seconds, and a read takes its time.
+
+Every defect this loop had was a reading from the wrong side of a
+change of the limit, and each showed up here as a limit far outside
+what the house uses.
+
+A normal run takes a few kinds of meter, each with one kind of
+inverter. After a change to the loop, run every meter with every
+inverter:
+
+    docker compose -f tests/docker/compose.yml run --rm \
+        -e SUNSPEC2_PLANT_GRID=full tests \
+        pytest tests/test_blueprint_follow_plant.py -q -n auto --no-cov
 
 Copyright (c) 2026 Manuel Hilgert <hilman2@gmail.com>
 """
 
+import asyncio
 import logging
+import os
+import random
+from collections import deque
 from datetime import timedelta
 
 import pytest
@@ -34,21 +51,27 @@ pytestmark = pytest.mark.usefixtures("repository_blueprints")
 
 
 class _House:
-    """A house with solar power: what it uses, what the sun gives, what the inverter may deliver.
+    """A house with solar power: what it uses, what the sun gives, what the inverter may deliver."""
 
-    The inverter follows a new limit two seconds after the write.
-    """
-
-    def __init__(self) -> None:
+    def __init__(self, follow_seconds: float, noise_w: float) -> None:
         self.load_w = 1000.0
         self.sun_w = 6000.0
         self.limit_percent = 100.0
+        #: How long the inverter takes to follow a new limit.
+        self.follow_seconds = follow_seconds
+        #: How long a read of the inverter takes. 0 until the test is set up.
+        self.read_seconds = 0.0
+        self._noise_w = noise_w
+        self._noise = 0.0
+        # The same noise in every run, so that a failure can be repeated.
+        self._random = random.Random(20261120)
         self._on_its_way: tuple[float, float] | None = None
 
     def write(self, percent: float, at: float) -> None:
-        self._on_its_way = (at + 2.0, percent)
+        self._on_its_way = (at + self.follow_seconds, percent)
 
     def tick(self, at: float) -> None:
+        self._noise = self._random.uniform(-self._noise_w, self._noise_w)
         if self._on_its_way is not None and at >= self._on_its_way[0]:
             self.limit_percent = self._on_its_way[1]
             self._on_its_way = None
@@ -60,7 +83,7 @@ class _House:
     @property
     def import_w(self) -> float:
         """Positive while the house takes power from the grid, negative while it feeds in."""
-        return self.load_w - self.inverter_w
+        return self.load_w + self._noise - self.inverter_w
 
 
 class _InverterPower(CoordinatorEntity[DataUpdateCoordinator[float]], SensorEntity):
@@ -93,31 +116,59 @@ class _Meter(SensorEntity):
         self.async_write_ha_state()
 
 
-async def _run(hass, freezer, interval, meter_seconds, resolution_w, phase, seconds, events=None):
+async def _run(
+    hass,
+    freezer,
+    seconds,
+    interval="30",
+    meter_seconds=1,
+    phase=0,
+    resolution_w=1.0,
+    lag_seconds=0,
+    read_seconds=0.0,
+    follow_seconds=2.0,
+    noise_w=0.0,
+    events=None,
+    count_from=120,
+):
     """Run the automation against the house for ``seconds`` and return what happened.
 
     Args:
-        interval: The blueprint's input, ``"/15"``, ``"/30"`` or ``"0"`` for a minute.
+        interval: The blueprint's input: the period in seconds, as a string.
         meter_seconds: How often the meter reports.
-        resolution_w: The step of the meter's readings.
         phase: The second within ``meter_seconds`` at which the meter reports.
+        resolution_w: The step of the meter's readings.
+        lag_seconds: How old the power is that the meter reports.
+        read_seconds: How long a read of the inverter takes. The value
+            read is the one from the beginning of the read.
+        follow_seconds: How long the inverter takes to follow a new limit.
+        noise_w: How far the consumption strays from its value, either way.
         events: Second of the run to a change of the house, as attribute name and value.
+        count_from: The second from which the energy fed in is counted.
 
     Returns:
         tuple[list[tuple[int, float]], float]: A two-way tuple (writes,
         fed_in_wh). ``writes`` holds the second of the run and the
         percentage of every write. ``fed_in_wh`` is the energy fed into
-        the grid from the third minute on.
+        the grid from ``count_from`` on.
     """
     freezer.move_to("2030-06-01 12:00:00+00:00")
-    house = _House()
+    house = _House(follow_seconds, noise_w)
     start = dt_util.utcnow().timestamp()
 
     async def read() -> float:
-        return house.inverter_w
+        value = house.inverter_w
+        if house.read_seconds:
+            await asyncio.sleep(house.read_seconds)
+        return value
 
     coordinator = DataUpdateCoordinator(
-        hass, logging.getLogger(__name__), config_entry=None, name="house", update_method=read
+        hass,
+        logging.getLogger(__name__),
+        config_entry=None,
+        name="house",
+        update_method=read,
+        update_interval=timedelta(seconds=30),
     )
     await coordinator.async_refresh()
     assert await async_setup_component(hass, "homeassistant", {})
@@ -148,134 +199,219 @@ async def _run(hass, freezer, interval, meter_seconds, resolution_w, phase, seco
             "interval": interval,
         },
     )
+    house.read_seconds = read_seconds
 
     fed_in_ws = 0.0
+    # What the meter will report: the power of the last seconds.
+    seen = deque([house.import_w], maxlen=lag_seconds + 1)
     for second in range(1, seconds + 1):
         freezer.tick(timedelta(seconds=1))
         for name, value in (events or {}).get(second, {}).items():
             setattr(house, name, value)
         house.tick(dt_util.utcnow().timestamp())
+        seen.append(house.import_w)
         if second % meter_seconds == phase:
-            meter.report(house.import_w)
+            meter.report(seen[0])
         async_fire_time_changed(hass, dt_util.utcnow())
         await settle(hass)
-        if second > 120:
+        if second > count_from:
             fed_in_ws += max(0.0, -house.import_w)
-    # Its timer for the ten seconds between two reads would outlive the test.
+    # Its timers would outlive the test.
     await coordinator.async_shutdown()
     return writes, fed_in_ws / 3600
 
 
-@pytest.mark.parametrize(
-    ("interval", "meter_seconds", "resolution_w", "phase"),
-    [
-        # A fast meter with a fine and with a coarse resolution.
-        ("/30", 1, 1.0, 0),
-        ("/30", 1, 10.0, 0),
-        ("/30", 5, 10.0, 3),
-        # A meter that reports with the period, at every point of it.
-        ("/30", 30, 1.0, 0),
-        ("/30", 30, 1.0, 1),
-        ("/30", 30, 1.0, 2),
-        ("/30", 30, 10.0, 4),
-        ("/30", 30, 1.0, 6),
-        ("/30", 30, 1.0, 12),
-        ("/30", 30, 1.0, 27),
-        ("/30", 30, 1.0, 29),
-        # A short period with a meter that reports every ten seconds.
-        ("/15", 10, 1.0, 4),
-        ("/20", 10, 10.0, 4),
-        # A meter that reports once a minute.
-        ("0", 60, 1.0, 40),
-    ],
-)
-async def test_a_steady_house_gets_a_steady_limit(
-    hass, freezer, interval, meter_seconds, resolution_w, phase
-):
+def _longest_gap(writes, seconds):
+    """The longest time without a write, from the first write to the end of the run."""
+    times = [second for second, _ in writes] + [seconds]
+    return max(later - earlier for earlier, later in zip(times, times[1:], strict=False))
+
+
+# Meters from one report a second to one per period, in every phase
+# against the tick, fine and coarse.
+_METERS = [
+    {"meter_seconds": 1},
+    {"meter_seconds": 1, "resolution_w": 10.0},
+    {"meter_seconds": 1, "resolution_w": 100.0},
+    {"meter_seconds": 2, "phase": 1, "lag_seconds": 3},
+    {"meter_seconds": 5, "phase": 3, "resolution_w": 10.0},
+    {"meter_seconds": 10, "phase": 4},
+    {"meter_seconds": 10, "phase": 9, "resolution_w": 100.0},
+    {"meter_seconds": 15, "phase": 7},
+    {"meter_seconds": 30, "phase": 0},
+    {"meter_seconds": 30, "phase": 1},
+    {"meter_seconds": 30, "phase": 2, "resolution_w": 10.0},
+    {"meter_seconds": 30, "phase": 6},
+    {"meter_seconds": 30, "phase": 12},
+    {"meter_seconds": 30, "phase": 27},
+    {"meter_seconds": 30, "phase": 29},
+]
+# Inverters: quick to read and to follow, slow to read, slow to follow, both.
+_INVERTERS = [
+    {},
+    {"read_seconds": 3.0},
+    {"read_seconds": 4.0, "follow_seconds": 5.0},
+    {"follow_seconds": 8.0},
+]
+
+
+def _around(percent, meter):
+    """The limits that fit a consumption, given what the meter can resolve.
+
+    A meter in steps of 100 W is up to 50 W off, which is more than
+    half a percent of the 8000 W, so the limit can be one percent off.
+    """
+    off = 1 if meter.get("resolution_w", 1.0) >= 100 else 0
+    return set(range(percent - off, percent + off + 1))
+
+
+def _unseen_w(meter):
+    """The feed-in a meter cannot see: half a step of its readings."""
+    resolution_w = meter.get("resolution_w", 1.0)
+    return resolution_w / 2 if resolution_w >= 100 else 0
+
+
+def _name(case):
+    return ",".join(f"{key}={value}" for key, value in case.items()) or "plain"
+
+
+def _cases(meters, first_inverter=0):
+    """The pairs of a meter and an inverter a test runs with.
+
+    Every meter with every inverter when SUNSPEC2_PLANT_GRID is "full".
+    Otherwise every third meter with one inverter, taken in turn
+    beginning with ``first_inverter``: the suite runs on every change
+    to the integration, and a second of this model costs as much as a
+    whole test elsewhere.
+    """
+    if os.environ.get("SUNSPEC2_PLANT_GRID") == "full":
+        pairs = [(meter, inverter) for meter in meters for inverter in _INVERTERS]
+    else:
+        pairs = [
+            (meter, _INVERTERS[(index + first_inverter) % len(_INVERTERS)])
+            for index, meter in enumerate(meters[1::3])
+        ]
+    return [
+        pytest.param(meter, inverter, id=f"{_name(meter)}|{_name(inverter)}")
+        for meter, inverter in pairs
+    ]
+
+
+@pytest.mark.parametrize(("meter", "inverter"), _cases(_METERS))
+async def test_a_steady_house_gets_a_steady_limit(hass, freezer, meter, inverter):
     """1000 W of consumption under 6000 W of sun: 12 % of 8000 W, and it stays there."""
-    writes, fed_in_wh = await _run(
-        hass, freezer, interval, meter_seconds, resolution_w, phase, seconds=600
-    )
+    writes, fed_in_wh = await _run(hass, freezer, 420, noise_w=15.0, **meter, **inverter)
 
-    # The first limit is there after two rounds at the latest.
-    period = 60 if interval == "0" else int(interval[1:])
-    assert writes and writes[0][0] <= 2 * period + 2, writes[:3]
-    assert {percent for _, percent in writes} == {12}, writes
-    # 960 W delivered for 1000 W of consumption: nothing goes into the grid.
-    assert fed_in_wh == 0
-    # A limit in every round, for as long as the meter reports once per round.
-    rounds = (600 - writes[0][0]) // max(period, meter_seconds)
-    assert len(writes) >= rounds, (len(writes), rounds)
+    # The first limit is there after two periods at the latest.
+    assert writes and writes[0][0] <= 30 + 2 * 30, writes[:3]
+    assert {percent for _, percent in writes} <= _around(12, meter), writes
+    # 960 W delivered for about 1000 W of consumption: nothing goes
+    # into the grid, or what a coarse meter cannot see.
+    assert fed_in_wh <= _unseen_w(meter) * 300 / 3600
+    # A limit in every period or the one after, so that an inverter
+    # with a revert time of three periods never runs free.
+    assert _longest_gap(writes, 420) < 2 * 30 + 10, writes
 
 
-@pytest.mark.parametrize(
-    ("interval", "meter_seconds", "resolution_w", "phase"),
-    [
-        ("/30", 1, 10.0, 0),
-        ("/30", 5, 1.0, 3),
-        ("/15", 10, 1.0, 4),
-        ("/30", 30, 1.0, 27),
-    ],
-)
+@pytest.mark.parametrize(("meter", "inverter"), _cases(_METERS, first_inverter=1))
 async def test_the_limit_follows_a_change_of_the_consumption_and_settles(
-    hass, freezer, interval, meter_seconds, resolution_w, phase
+    hass, freezer, meter, inverter
 ):
-    """The oven goes on after five minutes and off after ten: 1000 W, 3000 W, 1000 W."""
+    """The oven goes on after four minutes and off after eight: 1000 W, 3000 W, 1000 W."""
     writes, _ = await _run(
         hass,
         freezer,
-        interval,
-        meter_seconds,
-        resolution_w,
-        phase,
-        seconds=900,
-        events={300: {"load_w": 3000.0}, 600: {"load_w": 1000.0}},
+        720,
+        noise_w=15.0,
+        events={240: {"load_w": 3000.0}, 480: {"load_w": 1000.0}},
+        **meter,
+        **inverter,
     )
-    period = int(interval[1:])
-    # Two rounds for the automation to see a change and one more to
-    # have written the limit that fits it.
-    settled = 3 * max(period, meter_seconds)
+    # Three periods for the automation to see a change, to write the
+    # limit that fits it and to see that one confirmed.
+    settled = 90 + 10
 
     def limits(first, last):
         return {percent for second, percent in writes if first <= second < last}
 
-    assert limits(settled, 300) == {12}, writes
+    assert limits(settled, 240) <= _around(12, meter), writes
     # 3000 W of 8000 W are 37.5 %.
-    assert limits(300 + settled, 600) == {37}, writes
-    assert limits(600 + settled, 900) == {12}, writes
+    assert limits(240 + settled, 480) <= _around(37, meter), writes
+    assert limits(480 + settled, 720) <= _around(12, meter), writes
+    # Every period had its limit.
+    assert limits(settled, 240) and limits(240 + settled, 480) and limits(480 + settled, 720)
     # On the way from one to the other the limit never leaves the
-    # range between the two. A reading from the wrong side of a write
+    # range between the two. A reading from the wrong side of a change
     # would send it far outside.
-    assert limits(settled, 900) <= set(range(12, 38)), writes
+    assert limits(settled, 720) <= set(range(11, 39)), writes
 
 
-@pytest.mark.parametrize(("meter_seconds", "resolution_w"), [(1, 1.0), (5, 10.0), (30, 1.0)])
-async def test_a_cloud_does_not_wind_the_limit_up(hass, freezer, meter_seconds, resolution_w):
-    """The sun drops below what the house uses and comes back: nothing is fed in then."""
+@pytest.mark.parametrize(
+    ("meter", "inverter"),
+    _cases(
+        [
+            {"meter_seconds": 60, "phase": 40},
+            {"meter_seconds": 60, "phase": 3},
+            {"meter_seconds": 60, "phase": 58},
+            {"meter_seconds": 20, "phase": 11},
+            {"meter_seconds": 60, "phase": 20, "resolution_w": 10.0},
+        ],
+        first_inverter=2,
+    ),
+)
+async def test_a_meter_that_reports_once_a_minute_with_a_period_of_a_minute(
+    hass, freezer, meter, inverter
+):
     writes, fed_in_wh = await _run(
         hass,
         freezer,
-        "/30",
-        meter_seconds,
-        resolution_w,
-        phase=0,
-        seconds=900,
-        events={300: {"sun_w": 400.0}, 600: {"sun_w": 6000.0}},
+        900,
+        interval="60",
+        events={420: {"load_w": 3000.0}},
+        # The first limit can take two periods.
+        count_from=240,
+        **meter,
+        **inverter,
     )
 
-    # 400 W from the roof and 600 W from the grid are still 1000 W.
-    assert {percent for second, percent in writes if second > 90} == {12}, writes
+    assert {percent for second, percent in writes if second < 420} == {12}, writes
+    assert {percent for second, percent in writes if second > 420 + 200} == {37}, writes
+    assert {percent for _, percent in writes} <= set(range(12, 38)), writes
     assert fed_in_wh == 0
+    assert _longest_gap(writes, 900) < 2 * 60 + 10, writes
 
 
-async def test_without_the_wait_after_a_change_the_first_limit_is_wrong(hass, freezer):
-    """What the two waits in the blueprint are for, told by the house itself.
+@pytest.mark.parametrize(
+    ("meter", "inverter"),
+    _cases([_METERS[0], _METERS[4], _METERS[10], _METERS[5], _METERS[13]], first_inverter=1),
+)
+async def test_a_cloud_does_not_wind_the_limit_up(hass, freezer, meter, inverter):
+    """The sun drops below what the house uses and comes back.
 
-    The meter reports every 30 seconds, one second after the limit is
-    written, and so before the inverter has followed. That reading is
-    still the 5000 W fed in at full power. With the 960 W the inverter
-    delivers by then it would make a house that uses less than nothing.
+    While the sun is gone the limit does not creep up, so the inverter
+    does not start at full power when the sun is back.
+
+    The two readings of a round are seconds apart. A change of the sun
+    that falls between them makes one limit that fits neither before
+    nor after, and the next round puts it right.
     """
-    writes, _ = await _run(hass, freezer, "/30", 30, 1.0, phase=2, seconds=300)
+    writes, fed_in_wh = await _run(
+        hass,
+        freezer,
+        720,
+        events={240: {"sun_w": 400.0}, 480: {"sun_w": 6000.0}},
+        **meter,
+        **inverter,
+    )
 
-    assert 0 not in {percent for _, percent in writes}, writes
+    def limits(first, last):
+        return {percent for second, percent in writes if first <= second < last}
+
+    # 400 W from the roof and 600 W from the grid are still 1000 W.
+    for first, last in ((100, 240), (240 + 75, 480), (480 + 75, 720)):
+        assert limits(first, last) == {12}, writes
+    # Never far from what the house uses: 400 W to 1600 W.
+    assert limits(100, 720) <= set(range(5, 21)), writes
+    # At most 600 W too much, for one period and until the meter has
+    # reported it.
+    assert fed_in_wh <= 600 * (30 + meter["meter_seconds"] + 15) / 3600
