@@ -31,11 +31,14 @@ blueprint:
               domain: number
     inverter_power:
       name: Inverter power
-      description: The AC power the inverter delivers right now.
+      description: >-
+        The sensor of this integration with the AC power the inverter
+        delivers right now.
       selector:
         entity:
           filter:
-            - domain: sensor
+            - integration: sunspec2
+              domain: sensor
               device_class: power
     rated_power:
       name: Rated power of the inverter
@@ -51,8 +54,8 @@ blueprint:
     grid_power:
       name: Grid power
       description: >-
-        The power at the grid connection, from a meter that reports at
-        least as often as the limit is written.
+        The power at the grid connection, from a meter that reports a
+        new value at least as often as the limit is written.
       selector:
         entity:
           filter:
@@ -157,9 +160,9 @@ blueprint:
           name: Limit without a reading
           description: >-
             Percent of the rated power while the inverter power or the
-            grid power has no value, or has not been reported for ten
-            minutes. 0 is the safe choice where you must not feed in at
-            all.
+            grid power has no value, or the grid power has not changed
+            for ten minutes. 0 is the safe choice where you must not feed
+            in at all.
           default: 100
           selector:
             number:
@@ -233,6 +236,7 @@ variables:
   fallback_percent: !input fallback_percent
   send_enable: !input send_enable
   notify_entities: !input notify
+  interval: !input interval
   # "manual" is a run started from the automation's menu.
   reason: "{{ trigger.id | default('manual') }}"
   use_price: "{{ price_entity | length > 0 }}"
@@ -268,11 +272,10 @@ variables:
     {{ use_price and not below and reason != 'tick'
        and (price_gone if price_now is none else (reason != 'price' or crossed)) }}
   # A tick only starts while no other run of this automation is going.
-  # A write that takes long would otherwise fill the queue with ticks,
-  # and the run that ends the limit would find no place in it.
+  # A run waits for the meter, so it can still be going when the next
+  # tick comes. Ticks in the queue would also leave no place in it for
+  # the run that ends the limit.
   idle: "{{ this.attributes.current | default(0) | int(0) == 0 }}"
-  # When this automation last ran, which is when it last wrote.
-  last_run: "{{ this.attributes.last_triggered | default(none) }}"
   written: false
 
 conditions:
@@ -290,58 +293,65 @@ actions:
           - condition: template
             value_template: "{{ reason == 'tick' }}"
         sequence:
+          - variables:
+              started: "{{ now().isoformat() }}"
+              # The seconds between two ticks.
+              period: "{{ 60 if interval == '0' else interval[1:] | int }}"
+              # False without a number, and for a meter whose value has
+              # not changed for ten minutes: a sensor that hangs.
+              grid_alive: >-
+                {{ states[grid_power] is not none and is_number(states(grid_power))
+                   and (now() - states[grid_power].last_updated).total_seconds() < 600 }}
+          # The house consumption is the sum of two readings, and it is
+          # only right when both are from the same moment. With a grid
+          # power from before the last write and an inverter power from
+          # after it, the limit swings between two values. So the run
+          # waits for the next new value of the meter and reads the
+          # inverter right after it.
+          #
+          # "New" is a changed value. The time of the last report does
+          # not tell: update_entity moves it for a sensor that has
+          # nothing new. A meter that repeats its value to the watt
+          # costs this tick.
+          - if:
+              - condition: template
+                value_template: "{{ grid_alive }}"
+            then:
+              # A meter that Home Assistant polls is asked now, and
+              # answers before the wait below begins.
+              - action: homeassistant.update_entity
+                continue_on_error: true
+                target:
+                  entity_id: "{{ grid_power }}"
+              - wait_template: >-
+                  {{ states[grid_power] is not none
+                     and states[grid_power].last_updated >= as_datetime(started) }}
+                timeout:
+                  seconds: "{{ period - 5 }}"
+                continue_on_timeout: true
+          - variables:
+              fresh: "{{ grid_alive and wait is defined and wait.completed }}"
           - action: homeassistant.update_entity
             continue_on_error: true
             target:
-              entity_id:
-                - "{{ inverter_power }}"
-                - "{{ grid_power }}"
-          # Both readings have to be from after the last write. With an
-          # older one, the next limit would be worked out from the
-          # power under the limit before, and two limits would take
-          # turns. The last write was at most 15 seconds after the
-          # last run began: up to 10 seconds of waiting here, the write
-          # itself, and the time the inverter needs to follow.
-          #
-          # A meter that reports less often than the automation runs
-          # gets a new limit only on the runs that find a new reading.
+              entity_id: "{{ inverter_power }}"
           - variables:
-              since: >-
-                {{ none if last_run is none
-                   else (as_datetime(last_run) + timedelta(seconds=15)).isoformat() }}
-          - wait_template: >-
-              {{ since is none
-                 or (states[inverter_power] is not none and states[grid_power] is not none
-                     and states[inverter_power].last_reported >= as_datetime(since)
-                     and states[grid_power].last_reported >= as_datetime(since)) }}
-            timeout:
-              seconds: 10
-            continue_on_timeout: true
-          - variables:
-              fresh: "{{ wait.completed }}"
-              # None without a number, and for a reading that has not
-              # been reported for ten minutes: a sensor that hangs.
               inverter_w: >-
                 {% set value = states(inverter_power) %}
                 {% set kilo = state_attr(inverter_power, 'unit_of_measurement') == 'kW' %}
-                {{ value | float * (1000 if kilo else 1)
-                   if is_number(value)
-                      and (now() - states[inverter_power].last_reported).total_seconds() < 600
-                   else none }}
+                {{ value | float * (1000 if kilo else 1) if is_number(value) else none }}
               # Positive while the house takes power from the grid.
               import_w: >-
                 {% set value = states(grid_power) %}
                 {% set kilo = state_attr(grid_power, 'unit_of_measurement') == 'kW' %}
                 {{ value | float * (1000 if kilo else 1) * (1 if grid_direction == 'import' else -1)
-                   if is_number(value)
-                      and (now() - states[grid_power].last_reported).total_seconds() < 600
-                   else none }}
+                   if grid_alive and is_number(value) else none }}
           - variables:
               # What the house uses is what the inverter delivers plus
               # what comes from the grid. The limit is rounded down to
               # the step of the entity, so that rounding never feeds in.
-              # Without a reading the fallback is written, and with
-              # readings from before the last write nothing is.
+              # Without a reading the fallback is written, and without
+              # a new value of the meter nothing is.
               target: >-
                 {% if inverter_w is none or import_w is none %}
                   {{ fallback_percent }}

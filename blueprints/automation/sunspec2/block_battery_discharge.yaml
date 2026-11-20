@@ -237,34 +237,8 @@ actions:
         - condition: template
           value_template: "{{ not written and wanted and repeat.index <= 27 }}"
       sequence:
-        - sequence:
-            - action: select.select_option
-              target:
-                entity_id: "{{ battery_mode }}"
-              data:
-                option: "{{ target }}"
-            - variables:
-                written: true
-          continue_on_error: true
-        - if:
-            - condition: template
-              value_template: "{{ not written and repeat.index == 3 and notify_entities | length > 0 }}"
-          then:
-            - action: notify.send_message
-              continue_on_error: true
-              target:
-                entity_id: "{{ notify_entities }}"
-              data:
-                title: "{{ state_attr(battery_mode, 'friendly_name') }}"
-                message: >-
-                  The battery mode could not be set in three attempts. The
-                  automation keeps trying every five minutes for two hours.
-        - if:
-            - condition: template
-              value_template: "{{ not written and repeat.index < 27 }}"
-          then:
-            - delay:
-                seconds: "{{ 30 if repeat.index < 3 else 300 }}"
+        # Looked at before every attempt, the first one too: this run
+        # may have waited in the queue behind another one.
         - variables:
             runs_now: >-
               {{ (states(load) | float(0)
@@ -279,6 +253,81 @@ actions:
               {{ (not runs_now and states(battery_mode) in held_modes)
                  if target == 'auto'
                  else (runs_now and states(battery_mode) in ['auto'] + held_modes) }}
+        - if:
+            - condition: template
+              value_template: "{{ wanted }}"
+          then:
+            - sequence:
+                - action: select.select_option
+                  target:
+                    entity_id: "{{ battery_mode }}"
+                  data:
+                    option: "{{ target }}"
+                - variables:
+                    written: true
+              continue_on_error: true
+            - if:
+                - condition: template
+                  value_template: >-
+                    {{ not written and repeat.index == 3 and notify_entities | length > 0 }}
+              then:
+                - action: notify.send_message
+                  continue_on_error: true
+                  target:
+                    entity_id: "{{ notify_entities }}"
+                  data:
+                    title: "{{ state_attr(battery_mode, 'friendly_name') }}"
+                    message: >-
+                      The battery mode could not be set in three attempts.
+                      The automation keeps trying every five minutes for two
+                      hours.
+            - if:
+                - condition: template
+                  value_template: "{{ not written and repeat.index < 27 }}"
+              then:
+                - delay:
+                    seconds: "{{ 30 if repeat.index < 3 else 300 }}"
+  # The inverter reports the mode it is in, and that can be another
+  # one than the mode selected: with a power of 0 W in one of the power
+  # fields, for example. This automation would not know such a mode as
+  # its own and would never end it. So it is taken back at once.
+  - if:
+      - condition: template
+        value_template: "{{ written and target != 'auto' }}"
+    then:
+      - wait_template: "{{ states(battery_mode) in held_modes }}"
+        timeout:
+          seconds: 60
+        continue_on_timeout: true
+      - if:
+          - condition: template
+            value_template: >-
+              {{ not wait.completed
+                 and states(battery_mode) not in ['auto', 'unavailable', 'unknown'] }}
+        then:
+          - action: select.select_option
+            continue_on_error: true
+            target:
+              entity_id: "{{ battery_mode }}"
+            data:
+              option: auto
+          - if:
+              - condition: template
+                value_template: "{{ notify_entities | length > 0 }}"
+            then:
+              - action: notify.send_message
+                continue_on_error: true
+                target:
+                  entity_id: "{{ notify_entities }}"
+                data:
+                  title: "{{ state_attr(battery_mode, 'friendly_name') }}"
+                  message: >-
+                    The inverter reports another mode than the one selected for the
+                    consumer, so the automation selected Automatic again. Check
+                    the power in Battery PV charge limit and Battery discharge
+                    limit: 0 W changes what a mode does.
+          - stop: The inverter reports another battery mode than the one selected.
+            error: true
   - if:
       - condition: template
         value_template: "{{ written and notify_entities | length > 0 and reason != 'refresh' }}"

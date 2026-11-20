@@ -375,7 +375,7 @@ one does and what a brand of inverter needs.
 
 They write through what the integration already offers
 (`sunspec2.set_export_limit`, the *Battery mode* Select) and add no
-write path of their own. Three rules run through all of them:
+write path of their own. These rules run through all of them:
 
 - **An automation has no memory between runs.** What a run has to know
   it reads from the device: the battery blueprints take the battery
@@ -395,10 +395,17 @@ write path of their own. Three rules run through all of them:
 - **No number means no action.** While a price sensor is unavailable
   the automations write nothing, and after an hour they go back to
   normal. `is_number` decides, so `nan` is no price either.
-- **`follow_house_consumption` uses a reading only when it is from
-  after its last write.** With an older one the loop oscillates. It
-  takes `this.attributes.last_triggered` as the time of that write,
-  which is why a tick only starts while no other run is going.
+- **`follow_house_consumption` waits for a new value of the meter and
+  reads the inverter right after it.** The house consumption is the
+  sum of both, and with readings from two sides of a write the loop
+  oscillates. New means a changed value (`last_updated`):
+  `homeassistant.update_entity` moves `last_reported` of a sensor that
+  has nothing new. A tick only starts while no other run is going.
+- **The inverter reports the battery mode it is in, not the one
+  selected.** With 0 W in a power field the two differ, and an
+  automation that does not recognise its own mode never ends it. The
+  battery blueprints check what comes back and select `auto` again if
+  it is something else.
 
 `tests/test_blueprint_*.py` run every blueprint in Home Assistant's
 automation engine (`tests/blueprint_helpers.py` loads them from the

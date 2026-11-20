@@ -146,7 +146,7 @@ async def test_after_three_failures_the_write_is_tried_every_five_minutes(hass, 
     await pass_time(hass, freezer, block=False, seconds=31)
     assert len(action.calls) == 3
     assert [call["message"] for call in messages.calls] == [
-        "The export limit of 0 % could not be written in three attempts. "
+        "The export limit could not be written in three attempts. "
         "The automation keeps trying every five minutes for two hours."
     ]
 
@@ -189,6 +189,23 @@ async def test_a_later_attempt_writes_what_fits_the_price_by_then(hass, freezer)
 
     # The fourth attempt of the first run, then the run of the second crossing.
     assert [call["percent"] for call in action.calls] == [100, 100, 100, 0, 0]
+
+
+async def test_an_attempt_writes_nothing_while_the_price_has_no_value(hass, freezer):
+    action = await _start(hass)
+    action.failures = 3
+
+    await set_state(hass, PRICE, "-0.01", block=False)
+    await pass_time(hass, freezer, block=False, seconds=31)
+    await pass_time(hass, freezer, block=False, seconds=31)
+    await set_state(hass, PRICE, "unavailable", block=False)
+    await pass_time(hass, freezer, block=False, minutes=5, seconds=1)
+    assert len(action.calls) == 3
+
+    # The price is back and still low: the next attempt writes the limit.
+    await set_state(hass, PRICE, "-0.02", block=False)
+    await pass_time(hass, freezer, minutes=5, seconds=1)
+    assert [call["percent"] for call in action.calls][3:4] == [0]
 
 
 async def test_the_attempts_end_when_the_inverter_goes_off(hass, freezer):

@@ -55,6 +55,9 @@ class Battery(RecordedAction):
         self._hass = hass
         #: Set to an ``asyncio.Event`` to make a selection take until the event is set.
         self.gate = None
+        #: The mode the inverter reports after a mode other than
+        #: Automatic was selected, if not that mode.
+        self.reports = None
         sunspec_entity(hass, MODE, mode, friendly_name="Battery mode", options=MODES)
 
     async def _handle(self, call):
@@ -62,8 +65,10 @@ class Battery(RecordedAction):
         if self.gate is not None:
             await self.gate.wait()
         assert call.data["entity_id"] == [MODE]
+        option = call.data["option"]
+        reported = self.reports if self.reports and option != "auto" else option
         self._hass.states.async_set(
-            MODE, call.data["option"], {"friendly_name": "Battery mode", "options": MODES}
+            MODE, reported, {"friendly_name": "Battery mode", "options": MODES}
         )
 
     @property
@@ -276,6 +281,41 @@ async def test_the_attempts_end_when_the_mode_is_no_longer_wanted(hass, freezer)
     assert hass.states.get(MODE).state == "block_discharging"
 
 
+async def test_a_run_that_waited_in_the_queue_looks_again_before_it_selects(hass, freezer):
+    """Queued behind a selection that kept failing, and no longer wanted when its turn comes."""
+    battery = await _block(hass, stop_delay=0, refresh="3")
+    battery.failures = 3
+    await set_state(hass, CHARGER, "on", block=False)
+    await pass_time(hass, freezer, block=False, seconds=31)
+    await pass_time(hass, freezer, block=False, seconds=31)
+    # 12:04: the refresh fires and waits behind the run that keeps trying.
+    await pass_time(hass, freezer, block=False, seconds=58)
+    assert len(battery.calls) == 3
+
+    # The consumer stops before either of them gets through.
+    await set_state(hass, CHARGER, "off", block=False)
+    await pass_time(hass, freezer, minutes=5, seconds=1)
+
+    assert len(battery.calls) == 3
+    assert hass.states.get(MODE).state == "auto"
+
+
+async def test_a_mode_the_inverter_reports_differently_is_taken_back(hass, freezer, caplog):
+    """With a PV charge limit of 0 W, Block discharging reads back as Block charging."""
+    hass.states.async_set("notify.phone", "unknown")
+    messages = RecordedAction(hass, "notify", "send_message")
+    battery = await _block(hass, notify=["notify.phone"])
+    battery.reports = "block_charging"
+
+    await set_state(hass, CHARGER, "on", block=False)
+    await pass_time(hass, freezer, seconds=61)
+
+    assert battery.selected == ["block_discharging", "auto"]
+    assert hass.states.get(MODE).state == "auto"
+    assert "selected Automatic again" in messages.calls[-1]["message"]
+    assert "reports another battery mode" in caplog.text
+
+
 async def test_a_discharge_limit_of_zero_reads_back_as_block_discharging(hass, freezer):
     """The inverter reports the mode it is in, and the battery is still given back."""
     battery = await _block(hass, hold_mode="discharge_limit")
@@ -335,6 +375,11 @@ async def test_the_real_select_takes_what_the_blueprint_sends(hass, sunspec_fron
 
     async def spy(model_id, points):
         written.append((model_id, points))
+        if points[0][0] == "StorCtl_Mod":
+            # The write does not reach the mocked device, so the entity
+            # is told what the device would report after it.
+            state = hass.states.get(mode_entity)
+            hass.states.async_set(mode_entity, "block_discharging", state.attributes)
 
     with (
         patch.object(coordinator.api, "async_write_points", side_effect=spy),
@@ -438,9 +483,11 @@ async def test_without_a_charging_power_the_battery_is_left_alone(hass, freezer,
     await set_state(hass, PRICE, "0.02")
     for _ in range(6):
         await pass_time(hass, freezer, minutes=1)
+    await set_state(hass, PRICE, "0.01")
 
     assert battery.selected == []
-    # One message for the price that went low, none for the refreshes.
+    # One message for the price that went low. None for the refreshes
+    # and none for the next price of the same low period.
     assert [call["message"] for call in messages.calls] == [
         "The price is low, but the battery is not charged: "
         "Battery grid charge power is 0 W. Enter the charging power there."
@@ -469,6 +516,37 @@ async def test_a_charge_that_could_not_be_ended_is_ended_later(hass, freezer):
 
     assert battery.selected == ["charge_from_grid", "auto", "auto", "auto", "auto"]
     assert hass.states.get(MODE).state == "auto"
+
+
+async def test_the_attempts_to_end_a_charge_stop_when_the_price_is_low_again(hass, freezer):
+    battery = await _charge(hass, refresh="0")
+    await set_state(hass, PRICE, "0.05")
+    battery.failures = 3
+
+    await set_state(hass, PRICE, "0.25", block=False)
+    await pass_time(hass, freezer, block=False, seconds=31)
+    await pass_time(hass, freezer, block=False, seconds=31)
+    await set_state(hass, PRICE, "0.04", block=False)
+    await pass_time(hass, freezer, minutes=5, seconds=1)
+
+    assert battery.selected == ["charge_from_grid", "auto", "auto", "auto"]
+    assert hass.states.get(MODE).state == "charge_from_grid"
+
+
+async def test_a_charge_the_inverter_does_not_report_is_taken_back(hass, freezer, caplog):
+    """The inverter answers Charge from grid with another mode, and nothing would end that."""
+    hass.states.async_set("notify.phone", "unknown")
+    messages = RecordedAction(hass, "notify", "send_message")
+    battery = await _charge(hass, notify=["notify.phone"], refresh="0")
+    battery.reports = "block_discharging"
+
+    await set_state(hass, PRICE, "0.05", block=False)
+    await pass_time(hass, freezer, seconds=61)
+
+    assert battery.selected == ["charge_from_grid", "auto"]
+    assert hass.states.get(MODE).state == "auto"
+    assert "does not report Charge from grid" in messages.calls[-1]["message"]
+    assert "reports another battery mode" in caplog.text
 
 
 async def test_a_charge_started_elsewhere_survives_a_price_update(hass):

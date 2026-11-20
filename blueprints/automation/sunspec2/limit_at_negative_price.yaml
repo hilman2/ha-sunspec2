@@ -226,20 +226,27 @@ actions:
       sequence:
         - variables:
             # The price may have moved while this run waited, so each
-            # attempt writes what fits the price at that moment.
+            # attempt writes what fits the price at that moment. While
+            # the price has no value, an attempt writes nothing, unless
+            # this run is the one that ends the limit for that reason.
             percent: >-
               {{ (limit_percent if states(price_entity) | float < threshold else normal_percent)
-                 if is_number(states(price_entity)) else target }}
-        - sequence:
-            - action: sunspec2.set_export_limit
-              data:
-                config_entry_id: "{{ config_entry_id(export_limit) }}"
-                percent: "{{ percent }}"
-                enable: "{{ send_enable }}"
-            - variables:
-                written: true
-                sent: "{{ percent }}"
-          continue_on_error: true
+                 if is_number(states(price_entity))
+                 else (normal_percent if price_gone else none) }}
+        - if:
+            - condition: template
+              value_template: "{{ percent is not none }}"
+          then:
+            - sequence:
+                - action: sunspec2.set_export_limit
+                  data:
+                    config_entry_id: "{{ config_entry_id(export_limit) }}"
+                    percent: "{{ percent }}"
+                    enable: "{{ send_enable }}"
+                - variables:
+                    written: true
+                    sent: "{{ percent }}"
+              continue_on_error: true
         - if:
             - condition: template
               value_template: "{{ not written and repeat.index == 3 and notify_entities | length > 0 }}"
@@ -251,9 +258,9 @@ actions:
               data:
                 title: "{{ state_attr(export_limit, 'friendly_name') }}"
                 message: >-
-                  The export limit of {{ percent }} % could not be written in
-                  three attempts. The automation keeps trying every five
-                  minutes for two hours.
+                  The export limit could not be written in three attempts.
+                  The automation keeps trying every five minutes for two
+                  hours.
         - if:
             - condition: template
               value_template: "{{ not written and repeat.index < 27 }}"
