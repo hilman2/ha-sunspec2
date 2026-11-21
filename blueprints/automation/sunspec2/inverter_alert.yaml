@@ -10,6 +10,10 @@ blueprint:
     This blueprint only reads. It changes nothing in the inverter.
 
 
+    One automation watches one inverter. If you have more than one, make
+    one automation for each.
+
+
     Read [the blueprint guide](https://github.com/hilman2/ha-sunspec2/blob/main/docs/blueprints.md#tell-me-when-the-inverter-has-a-problem)
     for the entities to choose.
   domain: automation

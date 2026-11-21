@@ -299,6 +299,13 @@ reads. It changes nothing in the inverter.
 | The inverter reports a fault | The **Operating state** sensor, or **Inverter state** on newer inverters. You get a message when it changes to FAULT. You can add other states |
 | The inverter raises an event | One or more **Events** sensors, or **Alarms** on newer inverters. You get a message with the names of the events that are new, for example GROUND_FAULT |
 
+The form takes one inverter. If you have more than one, make one
+automation from the blueprint for each inverter. The title of a message
+is the name of the device the sensor belongs to. Two inverters of the
+same model have the same device names unless you gave them a **Sensor
+name prefix**. If the names are the same, rename the devices in Home
+Assistant, so that you can tell the messages apart.
+
 Most inverters switch off at night and stop answering then. For that
 reason the first case only counts while the sun is more than 10
 degrees above the horizon. If the inverter has not come back when the
@@ -309,6 +316,14 @@ an inverter that runs day and night, such as one with a battery, enter
 An inverter on a roof that is in the shade in the morning wakes up
 late. If it wakes later than the sun reaches 10 degrees, raise the
 value under **Only while the sun is above**.
+
+Micro inverters behind an APsystems ECU are read through the ECU. One
+automation with the **AC power** sensor of any one micro inverter tells
+you when the ECU stops answering. The ECU that was tested answers at
+night too, so enter -90 if you want to hear about a failure at night.
+Leave the other two parts of the form empty: on that ECU the operating
+state and the events never change, see
+[What the ECU does not report](apsystems.md#what-the-ecu-does-not-report).
 
 A second message follows when the problem is over. For an inverter
 that answers again, it is only sent while the sun is above that height
