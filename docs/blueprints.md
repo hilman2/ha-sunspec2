@@ -302,8 +302,8 @@ reads. It changes nothing in the inverter.
 The form takes one inverter. If you have more than one, make one
 automation from the blueprint for each inverter. The title of a message
 is the name of the device. Two inverters of the same model have the
-same name unless you gave them a **Sensor name prefix**. Rename the
-devices in Home Assistant then, so that you can tell the messages
+same name unless you gave them a **Sensor name prefix**. In that case
+rename the devices in Home Assistant, so that you can tell the messages
 apart.
 
 Most inverters switch off at night and stop answering then. For that
