@@ -301,15 +301,10 @@ reads. It changes nothing in the inverter.
 
 The form takes one inverter. If you have more than one, make one
 automation from the blueprint for each inverter. The title of a message
-is the name of the device, so you see which inverter the message is
-about.
-
-Micro inverters behind an APsystems ECU are read through the ECU. One
-automation with a sensor of any one micro inverter tells you when the
-ECU stops answering. Leave the other two parts of the form empty: on
-the ECU that was tested the operating state and the events never
-change, see
-[What the ECU does not report](apsystems.md#what-the-ecu-does-not-report).
+is the name of the device. Two inverters of the same model have the
+same name unless you gave them a **Sensor name prefix**. Rename the
+devices in Home Assistant then, so that you can tell the messages
+apart.
 
 Most inverters switch off at night and stop answering then. For that
 reason the first case only counts while the sun is more than 10
@@ -321,6 +316,14 @@ an inverter that runs day and night, such as one with a battery, enter
 An inverter on a roof that is in the shade in the morning wakes up
 late. If it wakes later than the sun reaches 10 degrees, raise the
 value under **Only while the sun is above**.
+
+Micro inverters behind an APsystems ECU are read through the ECU. One
+automation with the **AC power** sensor of any one micro inverter tells
+you when the ECU stops answering. The ECU that was tested answers at
+night too, so enter -90 if you want to hear about a failure at night.
+Leave the other two parts of the form empty: on that ECU the operating
+state and the events never change, see
+[What the ECU does not report](apsystems.md#what-the-ecu-does-not-report).
 
 A second message follows when the problem is over. For an inverter
 that answers again, it is only sent while the sun is above that height
