@@ -299,6 +299,18 @@ reads. It changes nothing in the inverter.
 | The inverter reports a fault | The **Operating state** sensor, or **Inverter state** on newer inverters. You get a message when it changes to FAULT. You can add other states |
 | The inverter raises an event | One or more **Events** sensors, or **Alarms** on newer inverters. You get a message with the names of the events that are new, for example GROUND_FAULT |
 
+The form takes one inverter. If you have more than one, make one
+automation from the blueprint for each inverter. The title of a message
+is the name of the device, so you see which inverter the message is
+about.
+
+Micro inverters behind an APsystems ECU are read through the ECU. One
+automation with a sensor of any one micro inverter tells you when the
+ECU stops answering. Leave the other two parts of the form empty: on
+the ECU that was tested the operating state and the events never
+change, see
+[What the ECU does not report](apsystems.md#what-the-ecu-does-not-report).
+
 Most inverters switch off at night and stop answering then. For that
 reason the first case only counts while the sun is more than 10
 degrees above the horizon. If the inverter has not come back when the
