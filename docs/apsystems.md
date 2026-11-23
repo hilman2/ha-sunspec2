@@ -162,6 +162,16 @@ an observation:
   0 Hz. The **AC power** sensor shows 0 W then, since an inverter without
   voltage and frequency is off the grid. If either reads above 0, the
   power is shown as the ECU reports it.
+- One user of the [other APsystems integration](https://github.com/christianvaes/homeassistant-apsystems_modbus/issues/8)
+  has an **ECU-R-MX** (firmware 1.3.24) with a DS3D-MX where the AC power,
+  apparent power, reactive power and power factor stay 0, while the
+  current (5.48 A), the voltage and the panel inputs are there and the
+  EMA app shows about 1.5 kW. The register dump in that issue shows the
+  same, and its author takes it for a fault in the firmware. This
+  integration shows 0 W for that inverter too. **Energy produced today**
+  and the counted total do not depend on the power alone and stay right. For the
+  power, add up the **DC power input** sensors. This is one report and
+  was not solved when we read it.
 
 ## Energy produced today
 

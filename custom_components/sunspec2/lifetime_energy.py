@@ -118,21 +118,44 @@ RESTART_SHARE = 0.9
 #: ECU can go on showing 1 W with 0 V and 0 Hz.
 PRODUCING_MIN_W = 5.0
 
+#: AC current above which a micro inverter with a voltage on its output counts
+#: as producing, whatever its power reads. An ECU-R-MX on firmware 1.3.24 with
+#: a DS3D-MX reports 0 W, 0 VA and 0 var with 5.48 A at 256 V and 59.96 Hz
+#: (the dump in issue 8 of christianvaes/homeassistant-apsystems_modbus), so
+#: the power alone would show an inverter that delivers about 1.4 kW as idle.
+PRODUCING_MIN_A = 0.1
+
 #: Local hour from which a reading belongs to today's counter even while the
 #: micro inverter produces nothing: by noon it has reported, and the counter
 #: has started again, on any day it produced at all.
 COUNTER_DAY_HOUR = 12
 
 
-def is_producing(wrapper: SunSpecModelWrapper, model_index: int) -> bool:
-    """Whether the inverter model in ``wrapper`` reports AC power above PRODUCING_MIN_W."""
+def _number(wrapper: SunSpecModelWrapper, point: str, model_index: int) -> float | None:
+    """Read ``point`` of the model at ``model_index``, None if it holds no number."""
     try:
-        power = wrapper.getValue("W", model_index)
+        value = wrapper.getValue(point, model_index)
     except (KeyError, AttributeError, OverflowError):
-        return False
-    if isinstance(power, bool) or not isinstance(power, (int, float)):
-        return False
-    return power > PRODUCING_MIN_W
+        return None
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    return float(value)
+
+
+def is_producing(wrapper: SunSpecModelWrapper, model_index: int) -> bool:
+    """Whether the inverter model in ``wrapper`` delivers power to the grid.
+
+    That is an AC power above ``PRODUCING_MIN_W``, or, for an ECU that
+    leaves the power at 0, an AC current above ``PRODUCING_MIN_A`` with a
+    voltage on the phase. At night the voltage is 0, so a power the ECU
+    goes on showing then does not count, and neither does a current.
+    """
+    power = _number(wrapper, "W", model_index)
+    if power is not None and power > PRODUCING_MIN_W:
+        return True
+    current = _number(wrapper, "A", model_index) or 0.0
+    voltage = _number(wrapper, "PhVphA", model_index) or 0.0
+    return current > PRODUCING_MIN_A and voltage > 0
 
 
 def counter_day(now: datetime, producing: bool) -> str:

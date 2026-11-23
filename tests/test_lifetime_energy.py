@@ -15,6 +15,7 @@ from custom_components.sunspec2.api import SunSpecApiClient
 from custom_components.sunspec2.entity import get_sunspec_unique_id
 from custom_components.sunspec2.lifetime_energy import CONFIRM_SECONDS
 from custom_components.sunspec2.lifetime_energy import MAX_DAILY_WH
+from custom_components.sunspec2.lifetime_energy import PRODUCING_MIN_W
 from custom_components.sunspec2.lifetime_energy import CountedDailyEnergySensor
 from custom_components.sunspec2.lifetime_energy import CountedLifetimeEnergySensor
 from custom_components.sunspec2.lifetime_energy import DailyCounterLedger
@@ -888,14 +889,43 @@ def test_an_inverter_whose_power_cannot_be_read_is_not_producing(sunspec_apsyste
     wrapper = SunSpecModelWrapper(sunspec_apsystems_client_mock.models[103])
     assert is_producing(wrapper, 0)
 
+    model.points["A"].value = None
     model.points["W"].value = None
     assert not is_producing(wrapper, 0)
+
+    # An unreadable power is judged by the current and the voltage.
+    model.points["A"].value = 5
+    assert is_producing(wrapper, 0)
+    model.points["A"].value = None
 
     model.points["W"].value = 120
     model.points["W_SF"].value = 400
     with pytest.raises(OverflowError):
         wrapper.getValue("W")
     assert not is_producing(wrapper, 0)
+
+
+def test_an_ecu_that_leaves_the_power_at_zero_is_judged_by_current_and_voltage(
+    sunspec_apsystems_client_mock,
+):
+    """Firmware 1.3.24 reports 0 W with 5.48 A at 256 V; at night V and A are 0."""
+    model = sunspec_apsystems_client_mock.models[103][0]
+    wrapper = SunSpecModelWrapper(sunspec_apsystems_client_mock.models[103])
+
+    model.points["W"].value = 0
+    assert is_producing(wrapper, 0)
+
+    # A power the ECU goes on showing at night is below the threshold, and
+    # without a voltage a current is no delivery either.
+    model.points["W"].value = 1
+    model.points["PhVphA"].value = 0
+    model.points["A"].value = 0
+    assert not is_producing(wrapper, 0)
+    model.points["A"].value = 5
+    assert not is_producing(wrapper, 0)
+
+    model.points["PhVphA"].value = 232
+    assert is_producing(wrapper, 0)
 
 
 def _local(day: int, hour: int, minute: int = 0) -> datetime:
@@ -908,6 +938,11 @@ def _poll(entry, watt_hours, watts):
     model = entry.runtime_data.data[103]
     model.getPoint("WH").value = watt_hours
     model.getPoint("W").value = watts
+    # Current and voltage follow the power: at night the output has neither,
+    # also when the ECU goes on showing a watt or two.
+    on_grid = watts > PRODUCING_MIN_W
+    model.getPoint("A").value = 5 if on_grid else 0
+    model.getPoint("PhVphA").value = 232 if on_grid else 0
     entry.runtime_data.async_update_listeners()
 
 
@@ -929,6 +964,34 @@ async def test_the_total_books_a_night_reading_for_the_day_before(
     _poll(entry, 0, 2)
     freezer.move_to(_local(29, 12, 30))
     _poll(entry, 1000, 250)
+
+    assert sensor.native_value == 4.8
+
+
+async def test_a_day_of_an_ecu_with_the_power_stuck_at_zero_is_booked_once(
+    hass, sunspec_apsystems_client_mock, freezer
+):
+    """Issue 8 of the other APsystems integration: with W at 0 the day went in twice at noon."""
+    freezer.move_to(_local(28, 16))
+    entry = await _entry(hass)
+    sensor = _counted(hass)
+    model = entry.runtime_data.data[103]
+
+    def poll(watt_hours, on_grid):
+        model.getPoint("WH").value = watt_hours
+        model.getPoint("W").value = 0
+        model.getPoint("A").value = 5 if on_grid else 0
+        model.getPoint("PhVphA").value = 232 if on_grid else 0
+        entry.runtime_data.async_update_listeners()
+
+    poll(3800, True)
+    freezer.move_to(_local(29, 1))
+    poll(3800, False)
+    freezer.move_to(_local(29, 7, 40))
+    poll(0, True)
+    for hour, minute, watt_hours in ((10, 0, 400), (11, 30, 800), (12, 30, 900), (12, 36, 1000)):
+        freezer.move_to(_local(29, hour, minute))
+        poll(watt_hours, True)
 
     assert sensor.native_value == 4.8
 
