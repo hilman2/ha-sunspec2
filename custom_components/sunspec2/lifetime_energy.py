@@ -122,7 +122,7 @@ PRODUCING_MIN_W = 5.0
 #: as producing, whatever its power reads. An ECU-R-MX on firmware 1.3.24 with
 #: a DS3D-MX reports 0 W, 0 VA and 0 var with 5.48 A at 256 V and 59.96 Hz
 #: (the dump in issue 8 of christianvaes/homeassistant-apsystems_modbus), so
-#: the power alone would show an inverter that delivers 1.4 kW as idle.
+#: the power alone would show an inverter that delivers about 1.4 kW as idle.
 PRODUCING_MIN_A = 0.1
 
 #: Local hour from which a reading belongs to today's counter even while the

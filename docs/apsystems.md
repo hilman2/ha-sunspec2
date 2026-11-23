@@ -169,7 +169,7 @@ an observation:
   EMA app shows about 1.5 kW. The register dump in that issue shows the
   same, and its author takes it for a fault in the firmware. This
   integration shows 0 W for that inverter too. **Energy produced today**
-  and the counted total do not use the power and stay right. For the
+  and the counted total do not depend on the power alone and stay right. For the
   power, add up the **DC power input** sensors. This is one report and
   was not solved when we read it.
 

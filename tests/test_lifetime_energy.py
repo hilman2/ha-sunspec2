@@ -15,6 +15,7 @@ from custom_components.sunspec2.api import SunSpecApiClient
 from custom_components.sunspec2.entity import get_sunspec_unique_id
 from custom_components.sunspec2.lifetime_energy import CONFIRM_SECONDS
 from custom_components.sunspec2.lifetime_energy import MAX_DAILY_WH
+from custom_components.sunspec2.lifetime_energy import PRODUCING_MIN_W
 from custom_components.sunspec2.lifetime_energy import CountedDailyEnergySensor
 from custom_components.sunspec2.lifetime_energy import CountedLifetimeEnergySensor
 from custom_components.sunspec2.lifetime_energy import DailyCounterLedger
@@ -892,6 +893,11 @@ def test_an_inverter_whose_power_cannot_be_read_is_not_producing(sunspec_apsyste
     model.points["W"].value = None
     assert not is_producing(wrapper, 0)
 
+    # An unreadable power is judged by the current and the voltage.
+    model.points["A"].value = 5
+    assert is_producing(wrapper, 0)
+    model.points["A"].value = None
+
     model.points["W"].value = 120
     model.points["W_SF"].value = 400
     with pytest.raises(OverflowError):
@@ -916,6 +922,7 @@ def test_an_ecu_that_leaves_the_power_at_zero_is_judged_by_current_and_voltage(
     assert not is_producing(wrapper, 0)
 
     # A current without a voltage is no delivery either.
+    model.points["W"].value = 0
     model.points["A"].value = 5
     assert not is_producing(wrapper, 0)
 
@@ -930,9 +937,11 @@ def _poll(entry, watt_hours, watts):
     model = entry.runtime_data.data[103]
     model.getPoint("WH").value = watt_hours
     model.getPoint("W").value = watts
-    # Current and voltage follow the power: at night the output has neither.
-    model.getPoint("A").value = 5 if watts else 0
-    model.getPoint("PhVphA").value = 232 if watts else 0
+    # Current and voltage follow the power: at night the output has neither,
+    # also when the ECU goes on showing a watt or two.
+    on_grid = watts > PRODUCING_MIN_W
+    model.getPoint("A").value = 5 if on_grid else 0
+    model.getPoint("PhVphA").value = 232 if on_grid else 0
     entry.runtime_data.async_update_listeners()
 
 
