@@ -915,16 +915,17 @@ def test_an_ecu_that_leaves_the_power_at_zero_is_judged_by_current_and_voltage(
     model.points["W"].value = 0
     assert is_producing(wrapper, 0)
 
-    # A power the ECU goes on showing at night has no voltage behind it.
+    # A power the ECU goes on showing at night is below the threshold, and
+    # without a voltage a current is no delivery either.
     model.points["W"].value = 1
     model.points["PhVphA"].value = 0
     model.points["A"].value = 0
     assert not is_producing(wrapper, 0)
-
-    # A current without a voltage is no delivery either.
-    model.points["W"].value = 0
     model.points["A"].value = 5
     assert not is_producing(wrapper, 0)
+
+    model.points["PhVphA"].value = 232
+    assert is_producing(wrapper, 0)
 
 
 def _local(day: int, hour: int, minute: int = 0) -> datetime:
